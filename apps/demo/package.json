@@ -4,7 +4,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/y0u-0/genie-react-agent.git",
+    "url": "git+https://github.com/y0u-0/genie-react.git",
     "directory": "apps/demo"
   },
   "author": "y0u-0",

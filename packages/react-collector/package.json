@@ -1,11 +1,11 @@
 {
   "name": "@genie-react/react-collector",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "React fiber collector for Genie: component tree, inspect props/state/hooks, via bippy.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/y0u-0/genie-react-agent.git",
+    "url": "git+https://github.com/y0u-0/genie-react.git",
     "directory": "packages/react-collector"
   },
   "homepage": "https://github.com/y0u-0/genie-react-agent#readme",

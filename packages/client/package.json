@@ -1,11 +1,11 @@
 {
   "name": "@genie-react/client",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Genie's in-browser client: connects collectors to the hub and executes agent tool calls.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/y0u-0/genie-react-agent.git",
+    "url": "git+https://github.com/y0u-0/genie-react.git",
     "directory": "packages/client"
   },
   "homepage": "https://github.com/y0u-0/genie-react-agent#readme",

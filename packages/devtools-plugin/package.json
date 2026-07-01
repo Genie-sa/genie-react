@@ -1,11 +1,11 @@
 {
   "name": "@genie-react/devtools-plugin",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Genie bridge into TanStack DevTools: taps the client-side plugin event bus and exposes third-party plugin traffic to the agent.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/y0u-0/genie-react-agent.git",
+    "url": "git+https://github.com/y0u-0/genie-react.git",
     "directory": "packages/devtools-plugin"
   },
   "homepage": "https://github.com/y0u-0/genie-react-agent#readme",

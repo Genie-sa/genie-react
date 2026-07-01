@@ -1,11 +1,11 @@
 {
   "name": "@genie-react/tanstack-collector",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "TanStack Query + Router collectors for Genie: read cache/route state and drive actions.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/y0u-0/genie-react-agent.git",
+    "url": "git+https://github.com/y0u-0/genie-react.git",
     "directory": "packages/tanstack-collector"
   },
   "homepage": "https://github.com/y0u-0/genie-react-agent#readme",

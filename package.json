@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/y0u-0/genie-react-agent.git"
+    "url": "git+https://github.com/y0u-0/genie-react.git"
   },
   "author": "y0u-0",
   "packageManager": "pnpm@10.13.1",

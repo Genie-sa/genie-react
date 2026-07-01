@@ -1,11 +1,11 @@
 {
   "name": "@genie-react/react",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "One-line <Genie /> integration for React + TanStack apps.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/y0u-0/genie-react-agent.git",
+    "url": "git+https://github.com/y0u-0/genie-react.git",
     "directory": "packages/react"
   },
   "homepage": "https://github.com/y0u-0/genie-react-agent#readme",

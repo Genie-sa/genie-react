@@ -1,11 +1,11 @@
 {
   "name": "@genie-react/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Shared contracts, wire protocol, and bounded serialization for Genie React Agent.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/y0u-0/genie-react-agent.git",
+    "url": "git+https://github.com/y0u-0/genie-react.git",
     "directory": "packages/core"
   },
   "homepage": "https://github.com/y0u-0/genie-react-agent#readme",

@@ -1,11 +1,11 @@
 {
   "name": "@genie-react/memory",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "In-browser memory collector for Genie: honest browser JS heap readings (not React-specific memory).",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/y0u-0/genie-react-agent.git",
+    "url": "git+https://github.com/y0u-0/genie-react.git",
     "directory": "packages/memory"
   },
   "homepage": "https://github.com/y0u-0/genie-react-agent#readme",
