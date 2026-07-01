@@ -1,0 +1,1 @@
+export { pluginPassthroughCollector } from './passthrough'

@@ -1,0 +1,55 @@
+{
+  "name": "@genie-react/cli",
+  "version": "0.0.0",
+  "description": "Genie CLI: wire the Vite plugin, then drive your app's live DevTools tools from a shell (status, tools, call).",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/y0u-0/genie-react-agent.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/y0u-0/genie-react-agent#readme",
+  "bugs": "https://github.com/y0u-0/genie-react-agent/issues",
+  "keywords": [
+    "react",
+    "tanstack",
+    "devtools",
+    "ai-agent",
+    "claude",
+    "vite",
+    "cli"
+  ],
+  "author": "y0u-0",
+  "type": "module",
+  "bin": {
+    "genie": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@genie-react/core": "workspace:*",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@genie-react/bridge": "workspace:*",
+    "@types/ws": "^8.18.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

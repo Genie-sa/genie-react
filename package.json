@@ -1,0 +1,38 @@
+{
+  "name": "genie-react-agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Genie — give an AI coding agent full DevTools access to your live React + TanStack app from your terminal via the genie CLI.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/y0u-0/genie-react-agent.git"
+  },
+  "author": "y0u-0",
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/**\" build",
+    "dev": "pnpm -r --parallel --filter \"./packages/**\" dev",
+    "typecheck": "pnpm -r --filter \"./packages/**\" typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "fix": "biome check --write .",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.1",
+    "@changesets/cli": "^2.31.0",
+    "@types/node": "^26.0.1",
+    "tsdown": "^0.22.3",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

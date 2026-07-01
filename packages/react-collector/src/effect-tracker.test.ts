@@ -1,0 +1,350 @@
+import type { Effect, Fiber, RenderPhase } from 'bippy'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { clearEffects, getEffectAudit, recordEffect } from './effect-tracker'
+import { clearSourceCache } from './source'
+
+// Source resolution is async + source-map-bound; the fake fibers here have no _debugStack, so stub it
+// to "no source" — every component then classifies as app (isLibrary:false) and survives appOnly.
+// getFiberHooks / symbolicateStack are vi.fn() so per-test trees drive the per-effect attribution.
+const inspector = vi.hoisted(() => ({
+  getFiberHooks: vi.fn<(fiber: unknown) => unknown[]>(() => []),
+  symbolicateStack: vi.fn<(frames: unknown[]) => Promise<unknown[]>>(async (frames) => frames),
+}))
+vi.mock('bippy/source', () => ({
+  getSource: async () => null,
+  isSourceFile: (file: string) => !file.includes('/node_modules/'),
+  normalizeFileName: (file: string) => file,
+  getFiberHooks: inspector.getFiberHooks,
+  symbolicateStack: inspector.symbolicateStack,
+}))
+
+/** A leaf hook node as bippy's inspector reports it, before symbolication. */
+const hookNode = (
+  name: string,
+  fileName: string | null,
+  line: number | null,
+  subHooks: unknown[] = [],
+) => ({
+  name,
+  subHooks,
+  hookSource: fileName ? { fileName, lineNumber: line, columnNumber: 0, functionName: null } : null,
+})
+
+// React's hook effect tag bits.
+const HAS_EFFECT = 0b0001
+const LAYOUT = 0b0100
+const PASSIVE = 0b1000
+
+const asFiber = (shape: unknown): Fiber => shape as Fiber
+
+interface EffectSpec {
+  tag: number
+  deps: unknown[] | null
+  /** React 18.3+/19 store the cleanup at effect.inst.destroy. */
+  cleanup?: boolean
+  /** Legacy (<18.3) cleanup location: effect.destroy directly. */
+  legacyDestroy?: boolean
+}
+
+/** Build a circular effect linked-list and return its `lastEffect` (whose `.next` is the first). */
+function effectList(specs: EffectSpec[]): Effect | null {
+  if (specs.length === 0) return null
+  const nodes = specs.map(
+    (spec) =>
+      ({
+        tag: spec.tag,
+        deps: spec.deps,
+        create: () => {},
+        inst: { destroy: spec.cleanup ? () => {} : undefined },
+        destroy: spec.legacyDestroy ? () => {} : null,
+        next: null,
+      }) as unknown as Effect,
+  )
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i]
+    if (node) node.next = nodes[(i + 1) % nodes.length] ?? null
+  }
+  return nodes[nodes.length - 1] ?? null
+}
+
+/**
+ * A single component fiber whose identity (hence bippy fiber id) is stable across commits — the
+ * effect list and alternate are mutated per commit, exactly as React reuses one fiber across renders.
+ */
+function makeComponent(name: string) {
+  const type = (): null => null
+  ;(type as { displayName?: string }).displayName = name
+  const fiber = { tag: 0, type, updateQueue: { lastEffect: null }, alternate: null } as Record<
+    string,
+    unknown
+  >
+  return {
+    commit(phase: RenderPhase, effects: EffectSpec[], prevEffects?: EffectSpec[]) {
+      fiber.updateQueue = { lastEffect: effectList(effects) }
+      fiber.alternate = prevEffects
+        ? { updateQueue: { lastEffect: effectList(prevEffects) } }
+        : null
+      recordEffect(asFiber(fiber), phase)
+    },
+  }
+}
+
+const byName = async () => new Map((await getEffectAudit({ limit: 50 })).map((r) => [r.name, r]))
+
+// Burn the falsy id 0 (bippy reassigns it) so every test fiber gets a stable id.
+beforeAll(() => {
+  makeComponent('__warmup__').commit('mount', [{ tag: PASSIVE | HAS_EFFECT, deps: null }])
+})
+
+beforeEach(() => {
+  clearEffects()
+  clearSourceCache()
+  // Default: the inspector cannot replay these synthetic fibers → resolveEffectSources returns null
+  // (unavailable) → source-agnostic tests see effects unattributed and unfiltered. Per-effect tests
+  // below override getFiberHooks with an explicit hook tree.
+  inspector.getFiberHooks.mockReset().mockImplementation(() => {
+    throw new Error('inspector unavailable in test')
+  })
+  inspector.symbolicateStack.mockImplementation(async (frames) => frames)
+  // No network in unit tests: inline-map lookup fails → per-effect source keeps served coordinates.
+  vi.stubGlobal('fetch', () => Promise.reject(new Error('no network in tests')))
+})
+afterEach(() => vi.unstubAllGlobals())
+
+describe('recordEffect dependency-mode classification', () => {
+  it('flags a no-deps effect that runs after every render', async () => {
+    const c = makeComponent('NoDeps')
+    c.commit('mount', [{ tag: PASSIVE | HAS_EFFECT, deps: null }])
+    c.commit(
+      'update',
+      [{ tag: PASSIVE | HAS_EFFECT, deps: null }],
+      [{ tag: PASSIVE | HAS_EFFECT, deps: null }],
+    )
+    c.commit(
+      'update',
+      [{ tag: PASSIVE | HAS_EFFECT, deps: null }],
+      [{ tag: PASSIVE | HAS_EFFECT, deps: null }],
+    )
+
+    const eff = (await byName()).get('NoDeps')?.effects[0]
+    expect(eff?.depsMode).toBe('none')
+    expect(eff?.fired).toBe(2)
+    expect(eff?.updates).toBe(2)
+    expect(eff?.firesEveryUpdate).toBe(true)
+    expect(eff?.note).toMatch(/no dependency array/)
+  })
+
+  it('does not flag an empty-deps effect (mount only)', async () => {
+    const c = makeComponent('Mounted')
+    c.commit('mount', [{ tag: PASSIVE | HAS_EFFECT, deps: [] }])
+    c.commit('update', [{ tag: PASSIVE, deps: [] }], [{ tag: PASSIVE, deps: [] }])
+
+    const eff = (await byName()).get('Mounted')?.effects[0]
+    expect(eff?.depsMode).toBe('empty')
+    expect(eff?.fired).toBe(0)
+    expect(eff?.firesEveryUpdate).toBe(false)
+    expect(eff?.note).toBeUndefined()
+  })
+})
+
+describe('recordEffect dependency-change attribution', () => {
+  it('names the dependency slot that drives a re-run every update', async () => {
+    const stable = { id: 'stable' }
+    const a = {}
+    const b = {}
+    const c = {}
+    const comp = makeComponent('Churn')
+    comp.commit('mount', [{ tag: PASSIVE | HAS_EFFECT, deps: [stable, a] }])
+    comp.commit(
+      'update',
+      [{ tag: PASSIVE | HAS_EFFECT, deps: [stable, b] }],
+      [{ tag: PASSIVE | HAS_EFFECT, deps: [stable, a] }],
+    )
+    comp.commit(
+      'update',
+      [{ tag: PASSIVE | HAS_EFFECT, deps: [stable, c] }],
+      [{ tag: PASSIVE | HAS_EFFECT, deps: [stable, b] }],
+    )
+
+    const eff = (await byName()).get('Churn')?.effects[0]
+    expect(eff?.fired).toBe(2)
+    expect(eff?.firesEveryUpdate).toBe(true)
+    expect(eff?.lastChangedDep).toBe(1)
+    expect(eff?.note).toMatch(/dependency \[1\] changes/)
+  })
+
+  it('does not flag a list-deps effect whose deps stay stable (HasEffect cleared)', async () => {
+    const stable = { id: 'stable' }
+    const c = makeComponent('Calm')
+    c.commit('mount', [{ tag: PASSIVE | HAS_EFFECT, deps: [stable] }])
+    c.commit('update', [{ tag: PASSIVE, deps: [stable] }], [{ tag: PASSIVE, deps: [stable] }])
+
+    const eff = (await byName()).get('Calm')?.effects[0]
+    expect(eff?.fired).toBe(0)
+    expect(eff?.firesEveryUpdate).toBe(false)
+    expect(eff?.note).toBeUndefined()
+  })
+})
+
+describe('recordEffect kind + cleanup', () => {
+  it('labels a layout effect and detects a cleanup at inst.destroy (React 18.3+/19)', async () => {
+    makeComponent('Layout').commit('mount', [{ tag: LAYOUT | HAS_EFFECT, deps: [], cleanup: true }])
+    const eff = (await byName()).get('Layout')?.effects[0]
+    expect(eff?.kind).toBe('layout')
+    expect(eff?.hasCleanup).toBe(true)
+  })
+
+  it('detects a cleanup at effect.destroy (legacy React < 18.3)', async () => {
+    makeComponent('Legacy').commit('mount', [
+      { tag: PASSIVE | HAS_EFFECT, deps: [], legacyDestroy: true },
+    ])
+    expect((await byName()).get('Legacy')?.effects[0]?.hasCleanup).toBe(true)
+  })
+
+  it('reports no cleanup when the effect returns nothing', async () => {
+    makeComponent('NoClean').commit('mount', [{ tag: PASSIVE | HAS_EFFECT, deps: [] }])
+    expect((await byName()).get('NoClean')?.effects[0]?.hasCleanup).toBe(false)
+  })
+})
+
+describe('recordEffect tracking lifecycle', () => {
+  it('ignores non-function-component fibers and evicts on unmount', async () => {
+    recordEffect(
+      asFiber({ tag: 5, updateQueue: { lastEffect: effectList([{ tag: PASSIVE, deps: null }]) } }),
+      'update',
+    )
+    const gone = makeComponent('Gone')
+    gone.commit('mount', [{ tag: PASSIVE | HAS_EFFECT, deps: null }])
+    expect((await byName()).get('Gone')).toBeDefined()
+    gone.commit('unmount', [{ tag: PASSIVE | HAS_EFFECT, deps: null }])
+    expect(await getEffectAudit({ limit: 50 })).toEqual([])
+  })
+
+  it('onlyHot returns only components with a smell', async () => {
+    const stable = { id: 'stable' }
+    const calm = makeComponent('Calm')
+    calm.commit('mount', [{ tag: PASSIVE | HAS_EFFECT, deps: [stable] }])
+    calm.commit('update', [{ tag: PASSIVE, deps: [stable] }], [{ tag: PASSIVE, deps: [stable] }])
+
+    const loopy = makeComponent('Loopy')
+    loopy.commit('mount', [{ tag: PASSIVE | HAS_EFFECT, deps: null }])
+    loopy.commit(
+      'update',
+      [{ tag: PASSIVE | HAS_EFFECT, deps: null }],
+      [{ tag: PASSIVE | HAS_EFFECT, deps: null }],
+    )
+
+    expect((await getEffectAudit({ limit: 50, onlyHot: true })).map((r) => r.name)).toEqual([
+      'Loopy',
+    ])
+  })
+})
+
+describe('per-effect source attribution', () => {
+  // A component with one app effect and one effect created inside a library hook (nested as a
+  // subHook), plus an unrelated useState the inspector also reports — the realistic shape.
+  const tree = () => [
+    hookNode('State', '/src/tree-search.tsx', 30),
+    hookNode('Effect', '/src/tree-search.tsx', 99),
+    hookNode('Translation', '/src/tree-search.tsx', 24, [
+      hookNode('Effect', '/node_modules/.vite/deps/react-i18next.js', 42),
+    ]),
+  ]
+
+  it('attributes each effect to its own call-site when the inspector and effect list line up', async () => {
+    inspector.getFiberHooks.mockReturnValue(tree())
+    const c = makeComponent('TreeSearch')
+    c.commit('mount', [
+      { tag: PASSIVE | HAS_EFFECT, deps: null },
+      { tag: PASSIVE | HAS_EFFECT, deps: [] },
+    ])
+
+    const rec = (await getEffectAudit({ limit: 50, appOnly: false })).find(
+      (r) => r.name === 'TreeSearch',
+    )
+    expect(rec?.effects[0]?.source?.line).toBe(99)
+    expect(rec?.effects[0]?.isLibrary).toBe(false)
+    expect(rec?.effects[1]?.source?.file).toContain('react-i18next')
+    expect(rec?.effects[1]?.isLibrary).toBe(true)
+  })
+
+  it('drops library-origin effects under appOnly (default), keeping the app effect', async () => {
+    inspector.getFiberHooks.mockReturnValue(tree())
+    const c = makeComponent('TreeSearchApp')
+    c.commit('mount', [
+      { tag: PASSIVE | HAS_EFFECT, deps: null },
+      { tag: PASSIVE | HAS_EFFECT, deps: [] },
+    ])
+
+    const rec = (await getEffectAudit({ limit: 50 })).find((r) => r.name === 'TreeSearchApp')
+    expect(rec?.effects).toHaveLength(1)
+    expect(rec?.effects[0]?.source?.line).toBe(99)
+  })
+
+  it('omits per-effect source when the effect list carries effects the inspector cannot see', async () => {
+    // The inspector finds one user effect, but the commit list has two — the signature of an
+    // internal hook (useSyncExternalStore) pushing an effect. Mis-attribution must not happen.
+    inspector.getFiberHooks.mockReturnValue([hookNode('Effect', '/src/a.tsx', 10)])
+    const c = makeComponent('Mixed')
+    c.commit('mount', [
+      { tag: PASSIVE | HAS_EFFECT, deps: [] },
+      { tag: PASSIVE | HAS_EFFECT, deps: [] },
+    ])
+
+    const rec = (await getEffectAudit({ limit: 50 })).find((r) => r.name === 'Mixed')
+    expect(rec?.effects).toHaveLength(2)
+    expect(rec?.effects.every((e) => e.source === null)).toBe(true)
+    expect(rec?.effects.every((e) => e.isLibrary === false)).toBe(true)
+  })
+
+  it('falls back to no per-effect source when the inspector throws', async () => {
+    inspector.getFiberHooks.mockImplementation(() => {
+      throw new Error('ReactDebugToolsRenderError')
+    })
+    const c = makeComponent('Throws')
+    c.commit('mount', [{ tag: PASSIVE | HAS_EFFECT, deps: null }])
+
+    const rec = (await getEffectAudit({ limit: 50, appOnly: false })).find(
+      (r) => r.name === 'Throws',
+    )
+    expect(rec?.effects[0]?.source).toBeNull()
+    expect(rec?.effects[0]?.isLibrary).toBe(false)
+  })
+
+  it('marks every effect as library when no effect call-site is app code (data-only component)', async () => {
+    // The Dashboard pattern: the inspector finds effect call-sites but all are library (react-query's
+    // internal useEffects), and the commit list has more entries still (useSyncExternalStore pushes
+    // untracked effects). The component wrote no useEffect, so the whole list is library/internal noise.
+    inspector.getFiberHooks.mockReturnValue([
+      hookNode('Effect', '/node_modules/.vite/deps/react-query.js', 100),
+      hookNode('Effect', '/node_modules/.vite/deps/react-query.js', 120),
+    ])
+    const c = makeComponent('DataOnly')
+    c.commit('mount', [
+      { tag: PASSIVE | HAS_EFFECT, deps: null },
+      { tag: PASSIVE | HAS_EFFECT, deps: [{}] },
+      { tag: PASSIVE | HAS_EFFECT, deps: [{}] },
+      { tag: PASSIVE | HAS_EFFECT, deps: [{}] },
+    ])
+
+    const all = (await getEffectAudit({ limit: 50, appOnly: false })).find(
+      (r) => r.name === 'DataOnly',
+    )
+    expect(all?.effects).toHaveLength(4)
+    expect(all?.effects.every((e) => e.isLibrary === true)).toBe(true)
+    // appOnly drops a component once all its effects are library-origin.
+    expect((await getEffectAudit({ limit: 50 })).find((r) => r.name === 'DataOnly')).toBeUndefined()
+  })
+
+  it('does not mark effects library when there is no app effect AND no inspection (failure ≠ all-internal)', async () => {
+    inspector.getFiberHooks.mockImplementation(() => {
+      throw new Error('unsupported')
+    })
+    const c = makeComponent('Unknown')
+    c.commit('mount', [{ tag: PASSIVE | HAS_EFFECT, deps: null }])
+    const rec = (await getEffectAudit({ limit: 50, appOnly: false })).find(
+      (r) => r.name === 'Unknown',
+    )
+    expect(rec?.effects[0]?.isLibrary).toBe(false)
+  })
+})

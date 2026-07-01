@@ -1,0 +1,14 @@
+node_modules
+dist
+*.tsbuildinfo
+coverage
+.DS_Store
+*.log
+.idea
+.vscode/*
+!.vscode/extensions.json
+.tanstack
+.output
+.nitro
+.vinxi
+.genie
