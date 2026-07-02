@@ -1,29 +1,27 @@
 {
-  "name": "@genie-react/next-demo",
+  "name": "@genie-react/plain-demo",
   "private": true,
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/y0u-0/genie-react.git",
-    "directory": "apps/next-demo"
+    "directory": "apps/plain-demo"
   },
   "author": "y0u-0",
   "scripts": {
-    "dev": "next dev --port 3000",
-    "build": "next build",
-    "start": "next start",
+    "dev": "esbuild src/main.tsx src/main-manual.tsx --bundle --outdir=public/assets --servedir=public --serve=127.0.0.1:3050 --sourcemap --jsx=automatic '--define:process.env.NODE_ENV=\"development\"'",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@tanstack/react-query": "latest",
-    "next": "^16.2.10",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
   },
   "devDependencies": {
     "@genie-react/cli": "workspace:*",
-    "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.25.0",
     "genie-react": "workspace:*",
     "typescript": "^6"
   }

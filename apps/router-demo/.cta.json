@@ -1,0 +1,17 @@
+{
+  "projectName": "router-demo",
+  "mode": "file-router",
+  "typescript": true,
+  "tailwind": true,
+  "packageManager": "pnpm",
+  "git": false,
+  "install": false,
+  "intent": true,
+  "addOnOptions": {},
+  "includeExamples": false,
+  "envVarValues": {},
+  "routerOnly": true,
+  "version": 1,
+  "framework": "react",
+  "chosenAddOns": []
+}

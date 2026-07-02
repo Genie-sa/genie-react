@@ -7,5 +7,11 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["@genie-react/demo", "@genie-react/next-demo"]
+  "ignore": [
+    "@genie-react/demo",
+    "@genie-react/next-demo",
+    "@genie-react/router-demo",
+    "@genie-react/vite-demo",
+    "@genie-react/plain-demo"
+  ]
 }

@@ -2,6 +2,7 @@ import {
   Component,
   Suspense,
   createContext,
+  memo,
   useContext,
   useEffect,
   useRef,
@@ -35,9 +36,27 @@ class LabErrorBoundary extends Component<{ children: ReactNode }, LabErrorBounda
   }
 }
 
+const StatBadge = memo(function StatBadge({
+  stats,
+  onPing,
+}: {
+  stats: { count: number }
+  onPing: () => void
+}) {
+  return (
+    <button type="button" data-testid="lab-stat" onClick={onPing}>
+      stat:{stats.count}
+    </button>
+  )
+})
+
 function Counter() {
   const [count, setCount] = useState(0)
   const clicksRef = useRef(0)
+
+  useEffect(() => {
+    document.title = `Lab · count ${count}`
+  }, [count])
 
   return (
     <p data-testid="lab-counter">
@@ -51,6 +70,7 @@ function Counter() {
       >
         increment
       </button>
+      <StatBadge stats={{ count }} onPing={() => undefined} />
     </p>
   )
 }
@@ -62,6 +82,55 @@ function ThemeLabel() {
 
 function SuspenseContent() {
   return <p data-testid="lab-suspense">lab-content</p>
+}
+
+function Bomb(): never {
+  throw new Error("lab-bomb")
+}
+
+function ErrorZone() {
+  const [armed, setArmed] = useState(false)
+  return (
+    <div data-testid="lab-error-zone" className="flex items-center gap-2">
+      <button type="button" onClick={() => setArmed(true)}>
+        explode
+      </button>
+      <LabErrorBoundary>
+        {armed ? <Bomb /> : <span data-testid="lab-calm">calm</span>}
+      </LabErrorBoundary>
+    </div>
+  )
+}
+
+const SLOW_MS = 25000
+let slowPromise: Promise<void> | null = null
+let slowDone = false
+
+function SlowContent() {
+  if (!slowDone) {
+    slowPromise ??= new Promise((resolve) =>
+      setTimeout(() => {
+        slowDone = true
+        resolve()
+      }, SLOW_MS),
+    )
+    throw slowPromise
+  }
+  return <span data-testid="lab-slow">slow-loaded</span>
+}
+
+function SuspenseZone() {
+  const [showSlow, setShowSlow] = useState(false)
+  return (
+    <div data-testid="lab-suspense-zone" className="flex items-center gap-2">
+      <button type="button" onClick={() => setShowSlow(true)}>
+        load slow
+      </button>
+      <Suspense fallback={<span data-testid="lab-slow-fallback">slow-loading</span>}>
+        {showSlow ? <SlowContent /> : <span data-testid="lab-slow-idle">slow-idle</span>}
+      </Suspense>
+    </div>
+  )
 }
 
 function CartWidget() {
@@ -117,6 +186,8 @@ function LabPage() {
           <ThemeLabel />
           <CartWidget />
         </LabErrorBoundary>
+        <ErrorZone />
+        <SuspenseZone />
       </ThemeContext.Provider>
     </div>
   )
