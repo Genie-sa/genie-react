@@ -12,16 +12,26 @@ Dev-only. Never ships to production.
 
 ```bash
 pnpm add -D genie-react     # everything app-side: collectors, <Genie />, Vite plugin, hub
-npx @genie-react/cli init   # wire the Vite plugin (and <Genie /> where needed)
+npx @genie-react/cli init   # detects your setup and wires it
 pnpm dev                    # start your app
 ```
 
-Add one line near your app root:
+`init` adapts to the host — the same tools work everywhere:
+
+**Vite** (TanStack Start, plain React, any Vite-based framework) — adds the `genie()` plugin; the hub rides the dev server (loopback only, no extra port) and the client is injected automatically. Router/Start apps also get one line near the app root:
 
 ```tsx
 import { Genie } from 'genie-react'
 
 {import.meta.env.DEV && <Genie />}
+```
+
+**Next.js** — `init` inserts `<GenieScript />` into your root layout and creates `instrumentation.ts`, which starts the standalone hub with `next dev`; the hub serves the browser client to the page as one classic script.
+
+**Anything else** (CRA, Parcel, Rsbuild, …) — run `npx @genie-react/cli hub` and add one line first in `<head>`:
+
+```html
+<script src="http://localhost:4390/__genie/client.js"></script>
 ```
 
 Then drive it:
@@ -34,7 +44,7 @@ npx @genie-react/cli call query_list '{}'
 npx @genie-react/cli call router_navigate '{"to":"/dashboard"}'
 ```
 
-The bridge rides Vite's dev server — loopback only, no extra port. Run `npx @genie-react/cli doctor` to check the wiring.
+Run `npx @genie-react/cli doctor` to check the wiring.
 
 ## Give your agent the skill
 
@@ -97,7 +107,7 @@ Dev-only and local: the Vite plugin is inert in production builds, the browser c
 
 ## Packages
 
-- `genie-react` — everything app-side, one package with subpath exports: the `<Genie />` component (`genie-react`), the Vite plugin (`genie-react/vite`), the injected client + collectors (`genie-react/client`, `genie-react/hook`), the WS hub (`genie-react/hub`), and the wire protocol (`genie-react/protocol`)
+- `genie-react` — everything app-side, one package with subpath exports: the `<Genie />` component (`genie-react`), the Vite plugin (`genie-react/vite`), `<GenieScript />` for any SSR root layout (`genie-react/script`), Next.js helpers (`genie-react/next`), the injected client + collectors (`genie-react/client`, `genie-react/hook`), the WS hub (`genie-react/hub`), and the wire protocol (`genie-react/protocol`)
 - `@genie-react/cli` — the agent interface: `init` / `doctor` / `link`, `status` / `tools` / `call`
 
 MIT © Genie React Agent contributors

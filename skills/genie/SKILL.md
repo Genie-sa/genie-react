@@ -26,7 +26,7 @@ import { Genie } from 'genie-react'
 {import.meta.env.DEV && <Genie />}
 ```
 
-The bridge rides Vite's dev server (loopback only, no extra port). `npx @genie-react/cli doctor` diagnoses a broken wiring; `init` only edits the Vite config.
+The bridge rides Vite's dev server (loopback only, no extra port). **Next.js**: the same `init` instead wires `<GenieScript />` into the root layout and creates `instrumentation.ts`, which starts a standalone hub on port 4390 with `next dev`. **Any other non-Vite React app**: run `npx @genie-react/cli hub`, then add `<script src="http://localhost:4390/__genie/client.js"></script>` first in `<head>`. `npx @genie-react/cli doctor` diagnoses a broken wiring in every setup.
 
 ## Connect first
 
