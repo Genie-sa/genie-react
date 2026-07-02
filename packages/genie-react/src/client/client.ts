@@ -173,12 +173,13 @@ export class GenieClient {
     }
   }
 
-  private async handleRequest(id: string, toolName: string, args: unknown): Promise<void> {
+  private async handleRequest(id: string, toolName: string, rawArgs: unknown): Promise<void> {
     const tool = this.tools.get(toolName)
     if (!tool) {
       this.send({ kind: 'app/response', id, ok: false, error: this.unknownToolError(toolName) })
       return
     }
+    const args = remapNameAlias(tool.contract.input, rawArgs)
     const rejectedKeys = unknownArgKeysError(toolName, tool.contract.input, args)
     if (rejectedKeys) {
       this.send({ kind: 'app/response', id, ok: false, error: rejectedKeys })
@@ -225,6 +226,25 @@ const DOMAIN_GATING_HINTS: Record<string, string> = {
     'mutation tools appear only when a QueryClient is discovered (render <Genie /> or register queryCollector(queryClient))',
   router:
     'router tools appear only when a TanStack Router is discovered (render <Genie /> or register routerCollector(router))',
+}
+
+// Three historical spellings of "component name" across the react tools; agents mix them up constantly.
+const NAME_ALIASES = ['component', 'query', 'name'] as const
+
+/** Remaps an off-by-spelling name arg when the schema wants exactly one of the aliases and the caller sent exactly one other — unambiguous, so just accept it. */
+function remapNameAlias(input: AgentToolContract['input'], args: unknown): unknown {
+  if (!(input instanceof z.ZodObject) || typeof args !== 'object' || args === null) return args
+  const shape = Object.keys(input.shape)
+  const wanted = NAME_ALIASES.filter((alias) => shape.includes(alias))
+  if (wanted.length !== 1) return args
+  const target = wanted[0] as string
+  const record = args as Record<string, unknown>
+  if (target in record) return args
+  const given = NAME_ALIASES.filter((alias) => alias !== target && alias in record)
+  if (given.length !== 1) return args
+  const source = given[0] as string
+  const { [source]: value, ...rest } = record
+  return { ...rest, [target]: value }
 }
 
 /** Zod objects strip unrecognized keys silently — an agent typo like `maxDepth` for `depth` would otherwise no-op; reject it loudly instead. */

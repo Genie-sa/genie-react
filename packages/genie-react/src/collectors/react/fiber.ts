@@ -97,9 +97,32 @@ function isMounted(fiber: Fiber, root: Fiber): boolean {
   return false
 }
 
+// react-refresh names inline components `_c`, `_c2`, … — treat those as unnamed so a memo/forwardRef wrapper's displayName (the name users actually set) can win.
+const REFRESH_PLACEHOLDER = /^_c\d*$/
+
+function realNameOf(type: unknown): string | null {
+  const name = getDisplayName(type as Parameters<typeof getDisplayName>[0])
+  return name && !REFRESH_PLACEHOLDER.test(name) ? name : null
+}
+
+/** memo carries its inner component on `.type`, forwardRef on `.render`. */
+function unwrapped(type: unknown): unknown {
+  if (typeof type !== 'object' || type === null) return null
+  const wrapper = type as { type?: unknown; render?: unknown }
+  return wrapper.type ?? wrapper.render ?? null
+}
+
 export function nameOf(fiber: Fiber): string {
   if (isHostFiber(fiber)) return typeof fiber.type === 'string' ? fiber.type : 'host'
-  return getDisplayName(fiber.type) ?? getDisplayName(fiber.elementType) ?? 'Anonymous'
+  return (
+    realNameOf(fiber.type) ??
+    realNameOf(fiber.elementType) ??
+    realNameOf(unwrapped(fiber.elementType)) ??
+    realNameOf(unwrapped(fiber.type)) ??
+    getDisplayName(fiber.type) ??
+    getDisplayName(fiber.elementType) ??
+    'Anonymous'
+  )
 }
 
 function fiberKind(fiber: Fiber): string {

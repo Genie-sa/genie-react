@@ -140,6 +140,75 @@ describe('stateChanged', () => {
   })
 })
 
+describe('component naming through memo/forwardRef wrappers', () => {
+  const record = async (fiber: Fiber) => {
+    render(fiber, 'mount')
+    return (await getRenders({ sort: 'renders', limit: 50 })).map((report) => report.name)
+  }
+
+  it('prefers the memo wrapper displayName over a react-refresh `_c` inner name', async () => {
+    const inner = (): null => null
+    Object.defineProperty(inner, 'name', { value: '_c' })
+    const memoWrapper = { type: inner, displayName: 'LockButton' }
+    const names = await record(
+      asFiber({
+        tag: 0,
+        type: inner,
+        elementType: memoWrapper,
+        memoizedProps: {},
+        memoizedState: null,
+        actualDuration: 0,
+        selfBaseDuration: 0,
+        child: null,
+        alternate: null,
+      }),
+    )
+    expect(names).toContain('LockButton')
+    expect(names).not.toContain('_c')
+  })
+
+  it('falls through to the unwrapped inner function name when the wrapper has no displayName', async () => {
+    const inner = function ZoomActions(): null {
+      return null
+    }
+    const anonymousOuter = (): null => null
+    Object.defineProperty(anonymousOuter, 'name', { value: '_c2' })
+    const names = await record(
+      asFiber({
+        tag: 0,
+        type: anonymousOuter,
+        elementType: { type: inner },
+        memoizedProps: {},
+        memoizedState: null,
+        actualDuration: 0,
+        selfBaseDuration: 0,
+        child: null,
+        alternate: null,
+      }),
+    )
+    expect(names).toContain('ZoomActions')
+  })
+
+  it('keeps `_c` as a last resort when nothing better exists', async () => {
+    const inner = (): null => null
+    Object.defineProperty(inner, 'name', { value: '_c3' })
+    const names = await record(
+      asFiber({
+        tag: 0,
+        type: inner,
+        elementType: inner,
+        memoizedProps: {},
+        memoizedState: null,
+        actualDuration: 0,
+        selfBaseDuration: 0,
+        child: null,
+        alternate: null,
+      }),
+    )
+    expect(names).toContain('_c3')
+  })
+})
+
 describe('recordRender unnecessary accounting', () => {
   const byName = async () =>
     new Map((await getRenders({ sort: 'renders', limit: 50 })).map((r) => [r.name, r]))

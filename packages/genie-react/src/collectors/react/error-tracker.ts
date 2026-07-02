@@ -1,12 +1,12 @@
 import {
   _fiberRoots,
   type Fiber,
-  getDisplayName,
   getFiberId,
   getLatestFiber,
   SuspenseComponentTag,
   traverseFiberSync,
 } from 'bippy'
+import { nameOf } from './fiber'
 import { classifyFiber, type ResolvedSource } from './source'
 
 // React's DidCapture flag is set on a boundary only during the catch commit, then cleared — transient, like fallback state, so both are recorded at commit time rather than scanned on demand.
@@ -110,8 +110,6 @@ export function parseBoundaryError(args: unknown[]): ErrorLog | null {
     boundaryName: boundary?.[1] ?? null,
   }
 }
-
-const nameOf = (fiber: Fiber): string => getDisplayName(fiber.type) ?? 'Anonymous'
 
 export interface CaughtError {
   boundaryId: number

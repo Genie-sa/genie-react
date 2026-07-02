@@ -3,7 +3,6 @@ import {
   type ContextDependency,
   type Fiber,
   type FiberRoot,
-  getDisplayName,
   getFiberId,
   getTimings,
   hasMemoCache,
@@ -17,6 +16,7 @@ import {
 } from 'bippy'
 import { clearEffects, recordEffect } from './effect-tracker'
 import { clearErrorState, recordErrorState } from './error-tracker'
+import { nameOf } from './fiber'
 import { classifyFiber, clearSourceCache, type ResolvedSource, sourceLabel } from './source'
 
 export interface RenderChange {
@@ -195,7 +195,7 @@ export function recordRender(fiber: Fiber, phase: RenderPhase): void {
   if (!record) {
     record = {
       id,
-      name: getDisplayName(fiber.type) ?? 'Anonymous',
+      name: nameOf(fiber),
       renders: 0,
       mounts: 0,
       updates: 0,

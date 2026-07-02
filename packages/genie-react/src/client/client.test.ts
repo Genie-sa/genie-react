@@ -44,6 +44,16 @@ const echoContract = defineAgentToolContract({
   annotations: { readOnlyHint: true },
 })
 
+const findContract = defineAgentToolContract({
+  name: 'find',
+  title: 'Find',
+  description: 'Finds by query',
+  group: 'meta',
+  input: z.object({ query: z.string() }),
+  output: z.object({ found: z.string() }),
+  annotations: { readOnlyHint: true },
+})
+
 function setup() {
   const socket = new FakeSocket()
   const client = createGenieClient({
@@ -56,6 +66,10 @@ function setup() {
           defineCollectorTool({
             contract: echoContract,
             handler: ({ message }) => ({ echoed: message }),
+          }),
+          defineCollectorTool({
+            contract: findContract,
+            handler: ({ query }) => ({ found: query }),
           }),
         ],
       }),
@@ -131,6 +145,18 @@ describe('GenieClient', () => {
     expect(response.ok).toBe(false)
     expect(response.error).toContain('Invalid arguments for "echo"')
     expect(response.error).toContain('message')
+  })
+
+  it('remaps component/query/name aliases onto the schema key the tool wants', async () => {
+    const { socket, client } = setup()
+    client.start()
+    socket.open()
+    socket.receive({ kind: 'bridge/request', id: 'r6', tool: 'find', args: { component: 'Lock' } })
+    await flush()
+
+    const response = socket.decoded().find((m) => m.kind === 'app/response' && m.id === 'r6')
+    expect(response.ok).toBe(true)
+    expect(response.result).toEqual({ found: 'Lock' })
   })
 
   it('rejects unrecognized argument keys instead of silently stripping them', async () => {
