@@ -2,6 +2,8 @@
 
 const GLOBAL_CHANNEL = 'tanstack-devtools-global'
 const DISPATCH_CHANNEL = 'tanstack-dispatch-event'
+const CONNECT_CHANNEL = 'tanstack-connect'
+const CONNECT_SUCCESS_CHANNEL = 'tanstack-connect-success'
 
 export interface DevtoolsBusEvent {
   type: string
@@ -59,21 +61,30 @@ export function subscribeToDevtoolsBus(onEvent: (event: DevtoolsBusEvent) => voi
   }
 }
 
-/** Only the genuine injected bus — never the window fallback — so emits can't falsely report success. */
-function resolveRealBus(): EventTarget | null {
-  try {
-    const injected = globalThis.__TANSTACK_EVENT_TARGET__
-    if (injected && typeof injected.dispatchEvent === 'function') return injected
-  } catch {
-    return null
+/** Mirrors EventClient's connect handshake: a live bus answers `tanstack-connect` synchronously. */
+function busAcknowledgesConnect(target: EventTarget): boolean {
+  let acknowledged = false
+  const onSuccess = () => {
+    acknowledged = true
   }
-  return null
+  try {
+    target.addEventListener(CONNECT_SUCCESS_CHANNEL, onSuccess)
+    target.dispatchEvent(new CustomEvent(CONNECT_CHANNEL))
+  } catch {
+    return false
+  } finally {
+    try {
+      target.removeEventListener(CONNECT_SUCCESS_CHANNEL, onSuccess)
+    } catch {}
+  }
+  return acknowledged
 }
 
 export function emitToDevtoolsBus(event: DevtoolsBusEvent): boolean {
-  // The boolean means a real bus was present — not dispatchEvent's return, which is true even with no listeners.
-  const target = resolveRealBus()
+  // The boolean means a live bus acknowledged the connect probe, so the event won't vanish unheard.
+  const target = resolveBusTarget()
   if (!target || typeof CustomEvent === 'undefined') return false
+  if (!busAcknowledgesConnect(target)) return false
   try {
     target.dispatchEvent(new CustomEvent(DISPATCH_CHANNEL, { detail: event }))
     return true

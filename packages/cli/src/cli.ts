@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util'
 import { errorMessage } from 'genie-react/protocol'
 import { runCall, runStatus, runTools } from './agent'
 import { isRecord } from './guards'
+import { runHub } from './hub-command'
 import { runDoctor, runInit } from './index'
 import { runLink } from './link'
 
@@ -13,15 +14,17 @@ Usage: npx @genie-react/cli <command> [options]
 
 Setup commands:
   link [path]            symlink the Genie packages from a local checkout (no publish)
-  init [--dry-run]       add the genie() plugin to your Vite config
+  init [--dry-run]       wire Genie into your app (Vite plugin, or Next.js layout + instrumentation)
   doctor                 check that Genie is set up correctly
+  hub [--port <n>]       run the standalone hub for Next.js / non-Vite apps (default port 4390)
 
-Tool commands (dev server must be running with the genie() plugin):
+Tool commands (dev server must be running with the genie() plugin or hub):
   tools                  list the tools the live app advertises
   status                 show bridge connection + app info
   call <tool> '<json>'   invoke a tool, e.g. npx @genie-react/cli call react_get_renders '{"sort":"renders"}'
 
 Options:
+  --port <n>       (hub) port to listen on
   --url <ws-url>   override the bridge URL (default: from .genie/bridge.json)
   --wait <ms>      how long to wait for the app to connect (default 15000)
   --session <id>   target one app session when several tabs are connected (status lists them)
@@ -56,6 +59,7 @@ async function main(): Promise<number> {
       wait: { type: 'string' },
       session: { type: 'string' },
       json: { type: 'boolean' },
+      port: { type: 'string' },
     },
   })
 
@@ -87,6 +91,14 @@ async function main(): Promise<number> {
     }
     case 'doctor':
       return runDoctor().ok ? 0 : 1
+    case 'hub': {
+      const port = values.port ? Number(values.port) : undefined
+      if (port !== undefined && (!Number.isInteger(port) || port <= 0)) {
+        process.stderr.write(`genie hub: invalid --port ${values.port}\n`)
+        return 1
+      }
+      return runHub({ port })
+    }
     case 'link':
       return runLink({ genieRoot: positionals[1] })
     case 'tools':

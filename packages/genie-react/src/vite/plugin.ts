@@ -1,10 +1,9 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises'
 import type { AddressInfo } from 'node:net'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type Plugin, type Rollup, searchForWorkspaceRoot, type ViteDevServer } from 'vite'
-import { GenieBridge } from '../hub'
-import { GENIE_DISCOVERY_FILE, GENIE_GLOBAL_KEY, GENIE_WS_PATH } from '../protocol'
+import { GenieBridge, removeDiscoveryFile, writeDiscoveryFile } from '../hub'
+import { GENIE_GLOBAL_KEY, GENIE_WS_PATH } from '../protocol'
 
 export interface GenieViteOptions {
   /** Overrides the app name reported to the agent (defaults to the document title). */
@@ -174,19 +173,10 @@ async function writeDiscovery(
   if (!address || typeof address === 'string') return
   // `localhost` (not a fixed IP) so the CLI connects whether Vite bound IPv4 or IPv6 loopback.
   const url = `ws://localhost:${address.port}${GENIE_WS_PATH}`
-  const file = join(server.config.root, GENIE_DISCOVERY_FILE)
-  await mkdir(dirname(file), { recursive: true })
-  await writeFile(
-    file,
-    `${JSON.stringify({ url, port: address.port, pid: process.pid }, null, 2)}\n`,
-  )
+  await writeDiscoveryFile(server.config.root, { url, port: address.port })
   server.config.logger.info(`[genie] bridge ready at ${url}`)
 }
 
 async function removeDiscovery(server: ViteDevServer): Promise<void> {
-  try {
-    await rm(join(server.config.root, GENIE_DISCOVERY_FILE))
-  } catch {
-    // discovery file may not exist; ignore
-  }
+  await removeDiscoveryFile(server.config.root)
 }

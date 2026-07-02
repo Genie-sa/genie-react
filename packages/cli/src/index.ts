@@ -1,6 +1,10 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
-import { GENIE_DISCOVERY_FILE } from 'genie-react/protocol'
+import {
+  GENIE_CLIENT_PATH,
+  GENIE_DEFAULT_HUB_PORT,
+  GENIE_DISCOVERY_FILE,
+} from 'genie-react/protocol'
 import { type BridgeDiscovery, parseBridgeDiscovery } from './discovery'
 import { isRecord } from './guards'
 
@@ -36,12 +40,35 @@ const ROOT_ROUTE_FILES = [
   'app/routes/__root.jsx',
 ] as const
 
+const NEXT_LAYOUT_FILES = [
+  'app/layout.tsx',
+  'app/layout.jsx',
+  'src/app/layout.tsx',
+  'src/app/layout.jsx',
+] as const
+
+const NEXT_INSTRUMENTATION_FILES = [
+  'instrumentation.ts',
+  'instrumentation.js',
+  'src/instrumentation.ts',
+  'src/instrumentation.js',
+] as const
+
+const NEXT_IMPORT_LINE = `import { GenieScript } from '${GENIE_PACKAGE}/next'`
+const NEXT_INSTRUMENTATION_TEMPLATE = `export async function register(): Promise<void> {
+  if (process.env.NODE_ENV !== 'production' && process.env.NEXT_RUNTIME === 'nodejs') {
+    const { registerGenie } = await import('genie-react/next')
+    await registerGenie()
+  }
+}
+`
+
 const OK = '✓'
 const FAIL = '✗'
 const WARN = '!'
 
-/** Host shape, which decides wiring: plain Vite needs only the plugin (`index.html` injection); Router/Start render `<Genie />`. */
-export type Framework = 'react-vite' | 'tanstack-router' | 'tanstack-start' | 'unknown'
+/** Host shape, which decides wiring: Vite hosts get the plugin; Next.js gets the standalone hub + `<GenieScript />`. */
+export type Framework = 'react-vite' | 'tanstack-router' | 'tanstack-start' | 'nextjs' | 'unknown'
 
 export interface InitOptions {
   cwd?: string
@@ -52,6 +79,7 @@ export interface InitOptions {
 
 export type ViteConfigOutcome =
   | { action: 'missing' }
+  | { action: 'skip'; reason: string }
   | { action: 'already'; path: string }
   | { action: 'edit'; path: string; contents: string }
   | { action: 'manual'; path: string; reason: string }
@@ -70,6 +98,8 @@ export interface InitResult {
   framework: Framework
   viteConfig: ViteConfigOutcome
   rootRoute: RootRouteOutcome
+  /** Next.js only: outcome for the instrumentation.ts that auto-starts the hub. */
+  instrumentation?: RootRouteOutcome
 }
 
 export interface DoctorOptions {
@@ -97,13 +127,16 @@ export function runInit(options: InitOptions = {}): InitResult {
   const log = options.logger ?? defaultLogger
 
   const framework = detectFramework(cwd)
+  log.info(dryRun ? 'genie init (dry run — no files will be written)\n' : 'genie init\n')
+  const ctx = { cwd, dryRun, log }
+  if (framework === 'nextjs') return runNextInit(ctx, options)
+
   const viteConfig = planViteEdit(cwd)
   const rootRoute = planRootRouteEdit(cwd, framework)
 
-  log.info(dryRun ? 'genie init (dry run — no files will be written)\n' : 'genie init\n')
-  const ctx = { cwd, dryRun, log }
   applyViteOutcome(viteConfig, ctx)
   applyRootRouteOutcome(rootRoute, ctx)
+  if (framework === 'unknown' && viteConfig.action === 'missing') printUniversalSetup(log)
   printNextSteps(log, framework, rootRoute)
   if (!dryRun && !options.yes) {
     log.info(
@@ -125,21 +158,31 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
   const framework = detectFramework(cwd)
   const checks: DoctorCheck[] = []
 
-  const vitePath = detectViteConfig(cwd)
-  if (!vitePath) {
+  if (framework === 'nextjs') {
+    const layoutPath = detectNextLayout(cwd)
     checks.push({
-      label: `Vite config references ${VITE_PLUGIN_SPECIFIER}`,
-      ok: false,
+      label: 'app layout renders <GenieScript />',
+      ok: layoutPath !== null && /<GenieScript\b/.test(readFileSafe(layoutPath)),
       critical: true,
-      detail: 'no vite config found',
+      detail: layoutPath ? relative(cwd, layoutPath) : 'no app layout found',
     })
   } else {
-    checks.push({
-      label: `Vite config references ${VITE_PLUGIN_SPECIFIER}`,
-      ok: referencesVitePlugin(readFileSafe(vitePath)),
-      critical: true,
-      detail: relative(cwd, vitePath),
-    })
+    const vitePath = detectViteConfig(cwd)
+    if (!vitePath) {
+      checks.push({
+        label: `Vite config references ${VITE_PLUGIN_SPECIFIER}`,
+        ok: false,
+        critical: true,
+        detail: 'no vite config found',
+      })
+    } else {
+      checks.push({
+        label: `Vite config references ${VITE_PLUGIN_SPECIFIER}`,
+        ok: referencesVitePlugin(readFileSafe(vitePath)),
+        critical: true,
+        detail: relative(cwd, vitePath),
+      })
+    }
   }
 
   for (const pkg of doctorPackages(framework)) {
@@ -178,6 +221,7 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
 export function detectFramework(cwd: string): Framework {
   const deps = readPackageDeps(cwd)
   if (deps.has('@tanstack/react-start')) return 'tanstack-start'
+  if (deps.has('next')) return 'nextjs'
   if (deps.has('@tanstack/react-router')) return 'tanstack-router'
   if (existsSync(join(cwd, 'index.html'))) return 'react-vite'
   return 'unknown'
@@ -379,6 +423,9 @@ interface ApplyContext {
 function applyViteOutcome(outcome: ViteConfigOutcome, ctx: ApplyContext): void {
   const { dryRun, log } = ctx
   switch (outcome.action) {
+    case 'skip':
+      log.info(`${OK} ${outcome.reason}`)
+      return
     case 'missing':
       log.info(`${WARN} no Vite config found (looked for ${VITE_CONFIG_FILES.join(', ')})`)
       printViteManual(log)
@@ -450,6 +497,172 @@ function printNextSteps(log: Logger, framework: Framework, rootRoute: RootRouteO
   log.info('       npx @genie-react/cli status')
   log.info('       npx @genie-react/cli tools')
   log.info('       npx @genie-react/cli call react_get_renders \'{"sort":"renders"}\'')
+}
+
+function runNextInit(ctx: ApplyContext, options: InitOptions): InitResult {
+  const { cwd, dryRun, log } = ctx
+  const layout = planNextLayoutEdit(cwd)
+  const instrumentation = planInstrumentation(cwd)
+
+  applyNextLayoutOutcome(layout, ctx)
+  applyInstrumentationOutcome(instrumentation, ctx)
+  printNextStepsForNext(log)
+  if (!dryRun && !options.yes) {
+    log.info("\nTip: run 'npx @genie-react/cli doctor' to verify the wiring.")
+  }
+
+  const layoutWired = layout.action === 'already' || layout.action === 'edit'
+  return {
+    ok: layoutWired,
+    dryRun,
+    framework: 'nextjs',
+    viteConfig: {
+      action: 'skip',
+      reason: 'Next.js — the standalone hub serves the client, no Vite config needed',
+    },
+    rootRoute: layout,
+    instrumentation,
+  }
+}
+
+function detectNextLayout(cwd: string): string | null {
+  for (const file of NEXT_LAYOUT_FILES) {
+    const candidate = join(cwd, file)
+    if (existsSync(candidate)) return candidate
+  }
+  return null
+}
+
+function planNextLayoutEdit(cwd: string): RootRouteOutcome {
+  const path = detectNextLayout(cwd)
+  if (!path) return { action: 'missing' }
+
+  const result = editNextLayout(readFileSafe(path))
+  switch (result.kind) {
+    case 'already':
+      return { action: 'already', path }
+    case 'manual':
+      return { action: 'manual', path, reason: result.reason }
+    case 'edited':
+      return { action: 'edit', path, contents: result.code }
+  }
+}
+
+function editNextLayout(code: string): ViteEditResult {
+  const importsScript = /['"]genie-react\/(next|script)['"]/.test(code)
+  const rendersScript = /<GenieScript\b/.test(code)
+  if (importsScript && rendersScript) return { kind: 'already' }
+
+  let next = code
+  if (!rendersScript) {
+    const match = /([ \t]*)<body([^>]*)>/.exec(next)
+    if (!match) {
+      return {
+        kind: 'manual',
+        reason: 'no <body> in the root layout — render <GenieScript /> by hand',
+      }
+    }
+    const indent = match[1] ?? ''
+    const insertion = `${match[0]}\n${indent}  <GenieScript />`
+    next = next.slice(0, match.index) + insertion + next.slice(match.index + match[0].length)
+  }
+  if (!importsScript) next = insertImportLine(next, NEXT_IMPORT_LINE)
+  return { kind: 'edited', code: next }
+}
+
+function planInstrumentation(cwd: string): RootRouteOutcome {
+  for (const file of NEXT_INSTRUMENTATION_FILES) {
+    const candidate = join(cwd, file)
+    if (existsSync(candidate)) {
+      if (/registerGenie/.test(readFileSafe(candidate)))
+        return { action: 'already', path: candidate }
+      return {
+        action: 'manual',
+        path: candidate,
+        reason:
+          'already exists — add `await registerGenie()` (from genie-react/next) to register() yourself',
+      }
+    }
+  }
+  const target = existsSync(join(cwd, 'src', 'app'))
+    ? join(cwd, 'src', 'instrumentation.ts')
+    : join(cwd, 'instrumentation.ts')
+  return { action: 'edit', path: target, contents: NEXT_INSTRUMENTATION_TEMPLATE }
+}
+
+function applyNextLayoutOutcome(outcome: RootRouteOutcome, ctx: ApplyContext): void {
+  const { dryRun, log } = ctx
+  switch (outcome.action) {
+    case 'missing':
+      log.info(`${WARN} no root layout found (looked for ${NEXT_LAYOUT_FILES.join(', ')})`)
+      return
+    case 'skip':
+      log.info(`${OK} ${outcome.reason}`)
+      return
+    case 'already':
+      log.info(`${OK} ${rel(ctx, outcome.path)} already renders <GenieScript />`)
+      return
+    case 'manual':
+      log.info(`${WARN} could not edit ${rel(ctx, outcome.path)}: ${outcome.reason}`)
+      return
+    case 'edit': {
+      const label = rel(ctx, outcome.path)
+      if (dryRun) {
+        log.info(`${OK} would render <GenieScript /> (dev-only) in ${label}`)
+      } else {
+        writeFileSync(outcome.path, outcome.contents)
+        log.info(`${OK} added <GenieScript /> (dev-only) and its import to ${label}`)
+      }
+      return
+    }
+  }
+}
+
+function applyInstrumentationOutcome(outcome: RootRouteOutcome, ctx: ApplyContext): void {
+  const { dryRun, log } = ctx
+  switch (outcome.action) {
+    case 'already':
+      log.info(`${OK} ${rel(ctx, outcome.path)} already calls registerGenie()`)
+      return
+    case 'manual':
+      log.info(`${WARN} ${rel(ctx, outcome.path)}: ${outcome.reason}`)
+      return
+    case 'edit': {
+      const label = rel(ctx, outcome.path)
+      if (dryRun) {
+        log.info(`${OK} would create ${label} (starts the genie hub with next dev)`)
+      } else {
+        writeFileSync(outcome.path, outcome.contents)
+        log.info(`${OK} created ${label} (starts the genie hub with next dev)`)
+      }
+      return
+    }
+    default:
+      return
+  }
+}
+
+function printNextStepsForNext(log: Logger): void {
+  let step = 1
+  log.info('\nNext steps:')
+  log.info(`  ${step++}. install Genie (if you have not yet):`)
+  log.info(`       pnpm add -D ${GENIE_PACKAGE} ${CLI_PACKAGE}`)
+  log.info(
+    `  ${step++}. start your dev server (instrumentation.ts starts the genie hub automatically):`,
+  )
+  log.info('       pnpm dev')
+  log.info(`       # without instrumentation.ts, run the hub yourself: npx ${CLI_PACKAGE} hub`)
+  log.info(`  ${step++}. drive the live tools from your shell:`)
+  log.info(`       npx ${CLI_PACKAGE} status`)
+  log.info(`       npx ${CLI_PACKAGE} call react_get_renders '{"sort":"renders"}'`)
+}
+
+function printUniversalSetup(log: Logger): void {
+  log.info('\nNo Vite config or Next.js detected — universal setup for any React app:')
+  log.info(`  1. run the hub: npx ${CLI_PACKAGE} hub`)
+  log.info(
+    `  2. add first in <head>: <script src="http://localhost:${GENIE_DEFAULT_HUB_PORT}${GENIE_CLIENT_PATH}"></script>`,
+  )
 }
 
 function printViteManual(log: Logger): void {

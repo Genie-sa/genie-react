@@ -46,6 +46,15 @@ function RootDocument({ children }) {
 }
 `
 
+const NEXT_LAYOUT = `export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  )
+}
+`
+
 const pkg = (deps: Record<string, string>): string =>
   JSON.stringify({ name: 'fixture', private: true, type: 'module', dependencies: deps }, null, 2)
 
@@ -129,6 +138,14 @@ describe('detectFramework', () => {
       'routes/__root.tsx': ROUTER_ROOT,
     })
     expect(detectFramework(dir)).toBe('tanstack-router')
+  })
+
+  it('classifies a project with next as nextjs', async () => {
+    const dir = await project({
+      'package.json': pkg({ next: '^16', react: '^19' }),
+      'app/layout.tsx': NEXT_LAYOUT,
+    })
+    expect(detectFramework(dir)).toBe('nextjs')
   })
 
   it('classifies an empty project as unknown', async () => {
@@ -236,6 +253,82 @@ describe('runInit — TanStack Start', () => {
 
     expect(result.rootRoute.action).toBe('manual')
     expect(result.ok).toBe(false)
+  })
+})
+
+describe('runInit — Next.js', () => {
+  it('inserts <GenieScript /> after <body> and plans instrumentation.ts', async () => {
+    const dir = await project({
+      'package.json': pkg({ next: '^16', react: '^19' }),
+      'app/layout.tsx': NEXT_LAYOUT,
+    })
+    const result = runInit({ cwd: dir, dryRun: true, logger: silent })
+
+    expect(result.framework).toBe('nextjs')
+    expect(result.rootRoute.action).toBe('edit')
+    if (result.rootRoute.action !== 'edit') throw new Error('expected edit')
+    expect(result.rootRoute.contents).toContain("import { GenieScript } from 'genie-react/next'")
+    expect(result.rootRoute.contents).toMatch(/<body>\n\s*<GenieScript \/>/)
+    expect(result.instrumentation?.action).toBe('edit')
+    if (result.instrumentation?.action !== 'edit') throw new Error('expected edit')
+    expect(result.instrumentation.contents).toContain('registerGenie')
+    expect(result.ok).toBe(true)
+  })
+
+  it('creates instrumentation.ts and is idempotent on a second run', async () => {
+    const dir = await project({
+      'package.json': pkg({ next: '^16', react: '^19' }),
+      'app/layout.tsx': NEXT_LAYOUT,
+    })
+    const first = runInit({ cwd: dir, logger: silent })
+    expect(first.rootRoute.action).toBe('edit')
+    expect(first.instrumentation?.action).toBe('edit')
+
+    const instrumentation = await readFile(join(dir, 'instrumentation.ts'), 'utf8')
+    expect(instrumentation).toContain("await import('genie-react/next')")
+
+    const second = runInit({ cwd: dir, logger: silent })
+    expect(second.rootRoute.action).toBe('already')
+    expect(second.instrumentation?.action).toBe('already')
+  })
+
+  it('respects src/ layouts and leaves an existing foreign instrumentation file alone', async () => {
+    const dir = await project({
+      'package.json': pkg({ next: '^16', react: '^19' }),
+      'src/app/layout.tsx': NEXT_LAYOUT,
+      'src/instrumentation.ts': 'export function register() {}\n',
+    })
+    const result = runInit({ cwd: dir, logger: silent })
+
+    expect(result.rootRoute.action).toBe('edit')
+    expect(result.instrumentation?.action).toBe('manual')
+    expect(result.ok).toBe(true)
+  })
+
+  it('reports manual when the layout has no <body>', async () => {
+    const dir = await project({
+      'package.json': pkg({ next: '^16', react: '^19' }),
+      'app/layout.tsx': 'export default function RootLayout() { return null }\n',
+    })
+    const result = runInit({ cwd: dir, dryRun: true, logger: silent })
+
+    expect(result.rootRoute.action).toBe('manual')
+    expect(result.ok).toBe(false)
+  })
+})
+
+describe('runDoctor — Next.js', () => {
+  it('checks the app layout for <GenieScript /> instead of a Vite config', async () => {
+    const dir = await project({
+      'package.json': pkg({ next: '^16', react: '^19' }),
+      'app/layout.tsx': NEXT_LAYOUT.replace('<body>', '<body>\n        <GenieScript />'),
+    })
+    const result = runDoctor({ cwd: dir, logger: silent })
+
+    expect(result.framework).toBe('nextjs')
+    const layoutCheck = result.checks.find((c) => c.label.includes('GenieScript'))
+    expect(layoutCheck?.ok).toBe(true)
+    expect(result.checks.some((c) => c.label.includes('Vite config'))).toBe(false)
   })
 })
 

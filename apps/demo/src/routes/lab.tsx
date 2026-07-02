@@ -1,6 +1,9 @@
 import { Component, Suspense, createContext, useContext, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { createFileRoute } from "@tanstack/react-router"
+import { cartDevtoolsClient } from "../lib/cart-devtools"
+import type { CartItem } from "../lib/cart-devtools"
+import { useMetricsDevtools } from "../lib/metrics-devtools"
 
 export const Route = createFileRoute("/lab")({ component: LabPage })
 
@@ -53,7 +56,43 @@ function SuspenseContent() {
   return <p data-testid="lab-suspense">lab-content</p>
 }
 
+function CartWidget() {
+  const [items, setItems] = useState<Array<CartItem>>([])
+  const nextIdRef = useRef(1)
+
+  const syncCart = (next: Array<CartItem>) => {
+    setItems(next)
+    cartDevtoolsClient.emit("cart-updated", {
+      items: next,
+      total: next.reduce((sum, item) => sum + item.price, 0),
+    })
+  }
+
+  const addItem = (name: string, price: number) => {
+    const id = `item-${nextIdRef.current}`
+    nextIdRef.current += 1
+    syncCart([...items, { id, name, price }])
+  }
+
+  return (
+    <div data-testid="lab-cart" className="flex items-center gap-2">
+      <span>cart:{items.length}</span>
+      <button type="button" onClick={() => addItem("Tea", 4)}>
+        add tea
+      </button>
+      <button type="button" onClick={() => addItem("Coffee", 6)}>
+        add coffee
+      </button>
+      <button type="button" onClick={() => syncCart(items.slice(0, -1))}>
+        remove last
+      </button>
+    </div>
+  )
+}
+
 function LabPage() {
+  useMetricsDevtools()
+
   return (
     <div className="flex min-h-svh flex-col gap-2 p-6 text-sm leading-loose">
       <h1 className="font-medium">Lab</h1>
@@ -64,6 +103,7 @@ function LabPage() {
           </Suspense>
           <Counter />
           <ThemeLabel />
+          <CartWidget />
         </LabErrorBoundary>
       </ThemeContext.Provider>
     </div>
