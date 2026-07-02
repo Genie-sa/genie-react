@@ -7,7 +7,15 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!**/dist", "!**/.tanstack", "!**/.output", "!**/node_modules", "!apps/demo"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/.tanstack",
+      "!**/.output",
+      "!**/node_modules",
+      "!apps/demo",
+      "!apps/next-demo"
+    ]
   },
   "formatter": {
     "enabled": true,

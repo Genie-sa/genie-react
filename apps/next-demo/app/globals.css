@@ -1,0 +1,24 @@
+body {
+  margin: 0 auto;
+  max-width: 40rem;
+  padding: 2rem 1rem;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  color: #1c1c1c;
+  background: #fafafa;
+}
+
+section {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+button {
+  padding: 0.35rem 0.85rem;
+  border: 1px solid #c0c0c0;
+  border-radius: 6px;
+  background: #f4f4f4;
+  cursor: pointer;
+}

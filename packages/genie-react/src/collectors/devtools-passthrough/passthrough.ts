@@ -26,7 +26,7 @@ export const pluginListContract = defineAgentToolContract({
   name: 'plugin_list',
   title: 'List DevTools plugins',
   description:
-    'List every TanStack DevTools plugin (built-in and third-party) that has emitted traffic on the client event bus, with how many recent events each has buffered. Use a pluginId with plugin_get_events.',
+    'List every TanStack DevTools plugin (built-in and third-party) that has emitted traffic on the client event bus, with how many recent events each has buffered. Discovery is traffic-based: a plugin only appears after its first event, so interact with the app first if a plugin you expect is missing. Use a pluginId with plugin_get_events.',
   group: 'plugin',
   input: z.object({}),
   output: z.object({
@@ -44,7 +44,7 @@ export const pluginGetEventsContract = defineAgentToolContract({
   name: 'plugin_get_events',
   title: 'Get plugin events',
   description:
-    'Get the most recent buffered events for one DevTools plugin by pluginId, newest last. Payloads are depth-bounded. Use plugin_list to discover plugin ids.',
+    'Get the most recent buffered events for one DevTools plugin by pluginId, newest last. Payloads are depth-bounded. Use plugin_list to discover plugin ids. Nested synchronous dispatch can buffer a response BEFORE the request that triggered it, so read a wide `limit` and do not assume request-then-response order.',
   group: 'plugin',
   input: z.object({
     pluginId: z.string(),

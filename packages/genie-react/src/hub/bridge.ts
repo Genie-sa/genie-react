@@ -28,6 +28,8 @@ type BridgeLogger = (level: BridgeLogLevel, message: string, meta?: unknown) => 
 
 export interface GenieBridgeOptions {
   requestTimeoutMs?: number
+  /** WS ping cadence used to reap half-open connections (crashed tabs); a peer is dropped after two silent intervals. */
+  heartbeatIntervalMs?: number
   logger?: BridgeLogger
 }
 
@@ -67,7 +69,13 @@ interface PendingRequest {
 }
 
 const POLL_INTERVAL_MS = 150
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+// Keeps a leaked bridge from pinning the process; Node-only, but typed against a possible DOM `number` timer.
+function unrefTimer(timer: ReturnType<typeof setInterval>): void {
+  if (typeof timer === 'object' && timer !== null && 'unref' in timer) timer.unref()
+}
 
 /** The hub: a `noServer` WSS mountable on Vite's HTTP server; calls route to the newest app session unless `agent/invoke.sessionId` targets one, and it answers the `devtools_status`/`devtools_wait` meta tools itself. */
 export class GenieBridge {
@@ -78,11 +86,17 @@ export class GenieBridge {
   private readonly requestTimeoutMs: number
   private readonly log: BridgeLogger
   private readonly apps = new Map<string, AppSession>()
+  private readonly connections = new Set<WebSocket>()
+  private readonly responsiveSockets = new WeakSet<WebSocket>()
+  private readonly heartbeat: ReturnType<typeof setInterval>
   private currentSessionId: string | null = null
 
   constructor(options: GenieBridgeOptions = {}) {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
     this.log = options.logger ?? (() => {})
+    const interval = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
+    this.heartbeat = setInterval(() => this.sweepDeadConnections(), interval)
+    unrefTimer(this.heartbeat)
   }
 
   /** Returns `false` for non-{@link GENIE_WS_PATH} upgrades so another listener (e.g. Vite HMR) can handle them. */
@@ -106,6 +120,7 @@ export class GenieBridge {
   }
 
   close(): void {
+    clearInterval(this.heartbeat)
     for (const { timer } of this.pending.values()) clearTimeout(timer)
     this.pending.clear()
     for (const socket of this.agents) socket.close()
@@ -136,10 +151,26 @@ export class GenieBridge {
 
   private onConnection(socket: WebSocket, role: ConnectionRole | null): void {
     const connection: Connection = { socket, role }
+    this.connections.add(socket)
+    this.responsiveSockets.add(socket)
     if (role === 'agent') this.registerAgent(socket)
     socket.on('message', (data) => this.onMessage(connection, data.toString()))
+    socket.on('pong', () => this.responsiveSockets.add(socket))
     socket.on('close', () => this.onClose(connection))
     socket.on('error', (error) => this.log('warn', 'socket error', error))
+  }
+
+  private sweepDeadConnections(): void {
+    for (const socket of this.connections) {
+      if (socket.readyState !== WebSocket.OPEN) continue
+      if (this.responsiveSockets.has(socket)) {
+        this.responsiveSockets.delete(socket)
+        socket.ping()
+      } else {
+        this.log('warn', 'terminating unresponsive connection')
+        socket.terminate()
+      }
+    }
   }
 
   private onMessage(connection: Connection, raw: string): void {
@@ -415,6 +446,7 @@ export class GenieBridge {
   }
 
   private onClose(connection: Connection): void {
+    this.connections.delete(connection.socket)
     const session = [...this.apps.values()].find((s) => s.socket === connection.socket)
     if (session) {
       this.apps.delete(session.sessionId)

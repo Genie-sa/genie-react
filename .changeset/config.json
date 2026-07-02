@@ -7,5 +7,5 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["@genie-react/demo"]
+  "ignore": ["@genie-react/demo", "@genie-react/next-demo"]
 }

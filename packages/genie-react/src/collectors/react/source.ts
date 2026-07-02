@@ -4,6 +4,7 @@ import {
   getFiberHooks,
   getSource,
   getSourceFromSourceMap,
+  getSourceMap,
   type HookSource,
   type HooksNode,
   isSourceFile,
@@ -126,27 +127,47 @@ async function toOriginalPosition(
   servedUrl: string,
   line: number | null,
   column: number | null,
-): Promise<{ line: number | null; column: number | null }> {
-  if (typeof line !== 'number' || typeof column !== 'number') return { line, column }
-  const map = await inlineSourceMap(servedUrl)
+): Promise<{ file: string | null; line: number | null; column: number | null }> {
+  if (typeof line !== 'number' || typeof column !== 'number') return { file: null, line, column }
+  // Vite inlines the map (our decoder); Next/Turbopack serve an external sourceMappingURL (bippy's fetcher).
+  const map = (await inlineSourceMap(servedUrl)) ?? (await externalSourceMap(servedUrl))
   const original = map ? getSourceFromSourceMap(map, line, column) : null
   if (original && typeof original.lineNumber === 'number') {
-    return { line: original.lineNumber, column: original.columnNumber ?? column }
+    return {
+      file: original.fileName ? normalizeFileName(original.fileName) : null,
+      line: original.lineNumber,
+      column: original.columnNumber ?? column,
+    }
   }
-  return { line, column }
+  return { file: null, line, column }
 }
 
-// File + library classification come from the served URL, never the map's own `sources` (which can point a bundled dep outside node_modules); only line/column are mapped back.
+async function externalSourceMap(url: string): Promise<SourceMap | null> {
+  try {
+    return await getSourceMap(url)
+  } catch {
+    return null
+  }
+}
+
+// Classification prefers the served URL; the map's original file is trusted only when the served URL is an opaque bundle chunk (Next/Turbopack) AND the original classifies as app source — so a dep bundled into an app chunk stays library.
 async function resolveHookSource(hook: HookSource): Promise<ResolvedSource | null> {
   if (!hook.fileName) return null
-  const file = normalizeFileName(hook.fileName)
-  if (!file) return null
-  const { line, column } = await toOriginalPosition(
+  const served = normalizeFileName(hook.fileName)
+  if (!served) return null
+  const original = await toOriginalPosition(
     hook.fileName,
     hook.lineNumber ?? null,
     hook.columnNumber ?? null,
   )
-  return { file, line, column, functionName: hook.functionName ?? null }
+  const file =
+    !isSourceFile(served) && original.file && isSourceFile(original.file) ? original.file : served
+  return {
+    file,
+    line: original.line,
+    column: original.column,
+    functionName: hook.functionName ?? null,
+  }
 }
 
 /** Each user effect's own call-site, in hook order, via bippy's hook inspector (a shadow render). null = inspection unavailable, don't attribute; [] = inspected but no user effects, so commit-list entries are internal noise; a non-empty array aligns 1:1 with the commit list only when lengths match. */

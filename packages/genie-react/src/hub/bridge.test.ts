@@ -305,4 +305,30 @@ describe('GenieBridge', () => {
       await fastHandle.close()
     }
   })
+
+  it('reaps sessions whose sockets stop answering heartbeat pings', async () => {
+    const fastHandle = createStandaloneBridge({ heartbeatIntervalMs: 40 })
+    const fastUrl = (await fastHandle.listen()).url
+    try {
+      const zombie = await new Promise<WebSocket>((resolve, reject) => {
+        const ws = new WebSocket(`${fastUrl}?role=app`, { autoPong: false })
+        ws.once('open', () => resolve(ws))
+        ws.once('error', reject)
+      })
+      send(zombie, {
+        kind: 'app/hello',
+        protocol: 1,
+        sessionId: 's-zombie',
+        app: { name: 'zombie' },
+        capabilities: [],
+        tools: [],
+      })
+      await expect.poll(() => fastHandle.bridge.getStatus().connected).toBe(true)
+      await expect
+        .poll(() => fastHandle.bridge.getStatus().connected, { timeout: 3000 })
+        .toBe(false)
+    } finally {
+      await fastHandle.close()
+    }
+  })
 })

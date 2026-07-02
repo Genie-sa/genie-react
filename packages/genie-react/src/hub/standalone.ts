@@ -1,5 +1,8 @@
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { createServer, type Server, type ServerResponse } from 'node:http'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { GENIE_CLIENT_PATH, GENIE_WS_PATH } from '../protocol'
 import { GenieBridge, type GenieBridgeOptions } from './bridge'
@@ -56,9 +59,23 @@ export function createStandaloneBridge(options?: StandaloneBridgeOptions): Stand
   }
 }
 
-// The IIFE client is emitted next to this module in dist/, so the packaged hub can serve itself.
+// Bundlers (Next/Turbopack) inline this module and snapshot URL assets, so prefer the installed package's live dist.
 function defaultClientBundlePath(): string {
-  return fileURLToPath(new URL('./client.global.iife.js', import.meta.url))
+  return (
+    installedClientBundlePath() ??
+    fileURLToPath(new URL('./client.global.iife.js', import.meta.url))
+  )
+}
+
+function installedClientBundlePath(): string | null {
+  try {
+    const require = createRequire(join(process.cwd(), 'package.json'))
+    const packageJson = require.resolve('genie-react/package.json')
+    const candidate = join(dirname(packageJson), 'dist', 'client.global.iife.js')
+    return existsSync(candidate) ? candidate : null
+  } catch {
+    return null
+  }
 }
 
 async function serveClientBundle(res: ServerResponse, path: string): Promise<void> {
