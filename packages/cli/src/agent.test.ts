@@ -4,6 +4,7 @@ import {
   formatGroupIndex,
   formatToolDetail,
   formatToolsListing,
+  relatedActions,
   renderResult,
   resolveSession,
   resolveToolsSelector,
@@ -12,6 +13,7 @@ import {
   summarizeProfile,
   summarizeQueryList,
   summarizeRenders,
+  summarizeRouterRoutes,
   summarizeRouterState,
   summarizeStatus,
   summarizeTree,
@@ -368,6 +370,20 @@ describe('progressive tools discovery', () => {
     }
   })
 
+  it('relatedActions surfaces a domain’s mutations pooled in the action group', () => {
+    const catalog = [
+      ...CATALOG,
+      tool({ name: 'router_navigate', title: 'Navigate', group: 'action' }),
+      tool({ name: 'query_invalidate', title: 'Invalidate', group: 'action' }),
+      tool({ name: 'react_override_props', title: 'Override', group: 'action' }),
+    ]
+    expect(relatedActions(catalog, 'router')).toEqual(['router_navigate'])
+    expect(relatedActions(catalog, 'query')).toEqual(['query_invalidate'])
+    expect(relatedActions(catalog, 'react.render')).toEqual(['react_override_props'])
+    expect(relatedActions(catalog, 'action')).toEqual([])
+    expect(relatedActions(catalog, 'memory')).toEqual([])
+  })
+
   it('formatToolDetail shows the description, per-param lines, and a runnable example', () => {
     const detail = formatToolDetail(CATALOG[3] as never)
     expect(detail).toContain('plugin_get_events — Get plugin events [plugin]')
@@ -451,7 +467,7 @@ describe('new summarizers', () => {
       blankTreeHint: 'subtree unmounted',
     })
     expect(outText).toContain('1 caught · 1 suspended')
-    expect(outText).toContain('LabErrorBoundary #47 caught "boom" from Bomb (App.tsx:59)')
+    expect(outText).toContain('LabErrorBoundary #47 caught "boom" from Bomb (src/App.tsx:59)')
     expect(outText).toContain('Zone #71 fallback SHOWING')
     expect(outText).toContain('hint: subtree unmounted')
     expect(summarizeErrorState({ caughtErrors: [], suspended: [] })).toBe(
@@ -473,6 +489,55 @@ describe('new summarizers', () => {
     expect(outText).toContain('re-rendered: Row 9×')
     expect(outText).toContain('unnecessary: Row 4/9')
     expect(outText).toContain('unstable: Badge 3/5')
+  })
+
+  it('summarizeRouterRoutes: total + one line per route with loader flags', () => {
+    const outText = summarizeRouterRoutes({
+      total: 3,
+      routes: [
+        { routeId: '__root__', fullPath: '/', hasLoader: false, hasBeforeLoad: false },
+        { routeId: '/error', fullPath: '/error', hasLoader: true, hasBeforeLoad: false },
+      ],
+    })
+    expect(outText).toContain('3 routes')
+    expect(outText).toContain('  /error · loader')
+    expect(summarizeRouterRoutes({ routes: 'nope' })).toBeNull()
+  })
+
+  it('bounds array-valued data previews instead of dumping the array', () => {
+    const metrics = Array.from({ length: 50 }, (_, index) => ({ t: index, value: index * 2 }))
+    const outText = renderResult('query_get', {
+      queryHash: '["m"]',
+      queryKey: ['m'],
+      status: 'success',
+      fetchStatus: 'idle',
+      isStale: false,
+      data: metrics,
+    })
+    expect(outText).toContain('data: [50 items] first: {t, value}')
+    expect(outText.length).toBeLessThan(200)
+  })
+
+  it('small flat action results render as one line instead of pretty JSON', () => {
+    expect(renderResult('router_navigate', { ok: true, pathname: '/error' })).toBe(
+      'ok=true · pathname="/error"',
+    )
+    expect(renderResult('react_clear_renders', { ok: true, tracking: true })).toBe(
+      'ok=true · tracking=true',
+    )
+  })
+
+  it('generic basenames keep one parent segment in source suffixes', () => {
+    const payload = {
+      ...rendersPayload,
+      components: [
+        {
+          ...rendersPayload.components[0],
+          source: { file: 'src/routes/index.tsx', line: 106, column: 2, functionName: null },
+        },
+      ],
+    }
+    expect(summarizeRenders(payload)).toContain('(routes/index.tsx:106)')
   })
 
   it('summarizeRouterState: one line with location, status, and match counts', () => {

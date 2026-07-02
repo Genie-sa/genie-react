@@ -54,6 +54,16 @@ describe('parseBoundaryError', () => {
     expect(parseBoundaryError(['just a normal log', 42])).toBeNull()
   })
 
+  it('recovers the message from the logged text when React passes no Error instance (React 19.2)', () => {
+    const parsed = parseBoundaryError([
+      'Error: lab-bomb\n\nThe above error occurred in the <Bomb> component.\nIt was handled by the <LabErrorBoundary> error boundary.',
+    ])
+    expect(parsed?.message).toBe('lab-bomb')
+    expect(parsed?.throwingComponent).toBe('Bomb')
+    expect(parsed?.boundaryName).toBe('LabErrorBoundary')
+    expect(parsed?.stack).toBeNull()
+  })
+
   it('extracts the boundary from the React 19 "handled by" phrasing', () => {
     const parsed = parseBoundaryError([
       '%o\n\n%s\n\n%s\n',

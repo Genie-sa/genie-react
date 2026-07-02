@@ -59,14 +59,33 @@ const summarizers: Record<string, (result: unknown) => string | null> = {
   query_get: summarizeQueryGet,
   router_get_state: summarizeRouterState,
   router_list_matches: summarizeRouterMatches,
+  router_list_routes: summarizeRouterRoutes,
 }
 
-/** `--json` is machine-first (compact, parseable); the human path falls back to pretty JSON on any summarizer miss so compact mode never drops data. */
+/** `--json` is machine-first (compact, parseable); the human path tries a summarizer, then a one-line flat record (small action results), then pretty JSON so nothing is ever dropped. */
 export function renderResult(tool: string, result: unknown, json?: boolean): string {
   if (json) return JSON.stringify(result)
   const summarize = summarizers[tool]
-  if (!summarize) return prettyJson(result)
-  return summarize(result) ?? prettyJson(result)
+  return summarize?.(result) ?? smallResultLine(result) ?? prettyJson(result)
+}
+
+/** One line for small all-primitive records (`ok=true · pathname="/error"`) so action results read like the summaries around them. */
+function smallResultLine(result: unknown): string | null {
+  if (!isRecord(result)) return null
+  const keys = Object.keys(result)
+  if (keys.length === 0 || keys.length > 8) return null
+  const parts: string[] = []
+  for (const key of keys) {
+    const value = result[key]
+    const primitive =
+      value === null ||
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    if (!primitive) return null
+    parts.push(`${key}=${JSON.stringify(value)}`)
+  }
+  return parts.join(' · ')
 }
 
 export function summarizeRenders(result: unknown): string | null {
@@ -202,12 +221,17 @@ function unstableChangeNames(changes: unknown): string | null {
   return names.length > 0 ? names.join(', ') : null
 }
 
-/** Renders a `(file:line)` suffix from an optional resolved `source` field, terse for one-liners. */
+const GENERIC_BASENAMES = /^(index|main|app|page|layout|route)\.[jt]sx?$/i
+
+/** Renders a `(file:line)` suffix from an optional resolved `source` field; generic basenames keep one parent segment so `index.tsx` stays unambiguous. */
 function sourceSuffix(record: Record<string, unknown>): string {
   const { source } = record
   if (!isRecord(source) || typeof source.file !== 'string') return ''
-  const base = source.file.split('/').pop() || source.file
-  return typeof source.line === 'number' ? ` (${base}:${source.line})` : ` (${base})`
+  const segments = source.file.split('/').filter(Boolean)
+  const base = segments.pop() || source.file
+  const parent = GENERIC_BASENAMES.test(base) ? segments.pop() : undefined
+  const label = parent ? `${parent}/${base}` : base
+  return typeof source.line === 'number' ? ` (${label}:${source.line})` : ` (${label})`
 }
 
 export function summarizeStatus(result: unknown): string | null {
@@ -402,6 +426,19 @@ export function summarizeRouterState(result: unknown): string | null {
   return parts.join(' · ')
 }
 
+export function summarizeRouterRoutes(result: unknown): string | null {
+  if (!isRecord(result) || !Array.isArray(result.routes)) return null
+  const routes = result.routes.filter(isRecord)
+  const lines = [`${num(result.total)} routes`]
+  for (const route of routes) {
+    const parts = [`  ${String(route.fullPath ?? route.routeId)}`]
+    if (route.hasLoader === true) parts.push('· loader')
+    if (route.hasBeforeLoad === true) parts.push('· beforeLoad')
+    lines.push(parts.join(' '))
+  }
+  return lines.join('\n')
+}
+
 export function summarizeRouterMatches(result: unknown): string | null {
   if (!isRecord(result) || !Array.isArray(result.matches)) return null
   const matches = result.matches.filter(isRecord)
@@ -421,7 +458,17 @@ export function summarizeRouterMatches(result: unknown): string | null {
 
 /** Key/value preview for dehydrated records: primitives inline, everything else by key — bounded, never a dump. */
 function recordPreview(value: unknown): string {
-  if (!isRecord(value)) return value === undefined ? '(none)' : JSON.stringify(value)
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[0 items]'
+    const first = value[0]
+    const firstPreview = isRecord(first)
+      ? `{${Object.keys(first).slice(0, 6).join(', ')}}`
+      : bounded(JSON.stringify(first))
+    return `[${value.length} items] first: ${firstPreview}`
+  }
+  if (!isRecord(value)) {
+    return value === undefined ? '(none)' : bounded(JSON.stringify(value))
+  }
   const keys = Object.keys(value)
   if (keys.length === 0) return '{}'
   const parts = keys.slice(0, 8).map((key) => {
@@ -441,6 +488,11 @@ function keyPreview(key: unknown, hash: unknown): string {
   const raw = key !== undefined ? JSON.stringify(key) : String(hash)
   if (!raw) return '(unknown key)'
   return raw.length > 48 ? `${raw.slice(0, 48)}…` : raw
+}
+
+function bounded(raw: string | undefined): string {
+  if (!raw) return '(none)'
+  return raw.length > 120 ? `${raw.slice(0, 120)}…` : raw
 }
 
 const prettyJson = (result: unknown): string => JSON.stringify(result, null, 2)
@@ -542,13 +594,20 @@ export async function runTools(
         case 'tool':
           out(opts.json ? JSON.stringify(selection.tool) : formatToolDetail(selection.tool))
           return 0
-        case 'group':
+        case 'group': {
+          if (opts.json) {
+            out(JSON.stringify(selection.tools.map(slimDescriptor)))
+            return 0
+          }
+          const listing = formatToolsListing({ app: status.app, tools: selection.tools })
+          const actions = relatedActions(tools, selector)
           out(
-            opts.json
-              ? JSON.stringify(selection.tools.map(slimDescriptor))
-              : formatToolsListing({ app: status.app, tools: selection.tools }),
+            actions.length > 0
+              ? `${listing}\n\nmutations for this domain live in "action": ${actions.join(', ')} — details: genie tools <tool>`
+              : listing,
           )
           return 0
+        }
         case 'unknown':
           err(selection.message)
           return 1
@@ -600,6 +659,27 @@ export function resolveToolsSelector(tools: ToolDescriptor[], selector: string):
     kind: 'unknown',
     message: `Unknown tool or group "${selector}". ${hint}Groups: ${groups.join(', ')}`,
   }
+}
+
+const ACTION_PREFIXES: Record<string, string[]> = {
+  router: ['router_'],
+  query: ['query_', 'mutation_'],
+  'react.render': ['react_'],
+  'react.inspect': ['react_'],
+  'react.tree': ['react_'],
+  'react.profile': ['react_'],
+  plugin: ['plugin_'],
+}
+
+/** Mutations pool in the generic "action" group; surface the domain's ones under its read group so nobody hunts (or dumps --all) for router_navigate. */
+export function relatedActions(tools: ToolDescriptor[], group: string): string[] {
+  const prefixes = ACTION_PREFIXES[group]
+  if (!prefixes) return []
+  return tools
+    .filter(
+      (tool) => tool.group === 'action' && prefixes.some((prefix) => tool.name.startsWith(prefix)),
+    )
+    .map((tool) => tool.name)
 }
 
 /** Layer 1 of the discovery ladder: groups + counts + a name preview, ~10× smaller than the flat catalog. */

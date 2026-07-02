@@ -101,8 +101,10 @@ export function parseBoundaryError(args: unknown[]): ErrorLog | null {
     /handled by the <([^>\s]+)[^>]*> error boundary/.exec(text)
   if (!occurred && !boundary) return null
   const error = args.find((arg): arg is Error => arg instanceof Error)
+  // React 19.2 stops passing the Error instance for derived-state-only boundaries; fall back to the "Error: msg" line in the logged text.
+  const textMessage = /(?:^|\n)(?:Uncaught\s+)?(?:[A-Z][\w$]*)?Error:\s+([^\n]+)/.exec(text)?.[1]
   return {
-    message: error?.message ?? null,
+    message: error?.message ?? textMessage ?? null,
     stack: error?.stack ?? null,
     throwingComponent: occurred?.[1] ?? null,
     boundaryName: boundary?.[1] ?? null,
