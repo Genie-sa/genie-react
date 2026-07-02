@@ -26,12 +26,28 @@ import { Genie } from 'genie-react'
 {import.meta.env.DEV && <Genie />}
 ```
 
+`<Genie />` finds your Router and QueryClient on its own (router context, then any surrounding `QueryClientProvider`); if yours live somewhere unusual, hand them over explicitly: `<Genie queryClient={queryClient} router={router} />`.
+
 **Next.js** — `init` inserts `<GenieScript />` into your root layout and creates `instrumentation.ts`, which starts the standalone hub with `next dev`; the hub serves the browser client to the page as one classic script.
 
 **Anything else** (CRA, Parcel, Rsbuild, …) — run `npx @genie-react/cli hub` and add one line first in `<head>`:
 
 ```html
 <script src="http://localhost:4390/__genie/client.js"></script>
+```
+
+That tag ships the React + memory tools. For Query/Router tools too, compose the client in your own bundle instead of the tag — passing your own instances:
+
+```ts
+import 'genie-react/hook' // first import, before React
+import { createGenieClient, reactCollector, sessionCollector } from 'genie-react/client'
+import { memoryCollector, queryCollector } from 'genie-react/collectors'
+import { queryClient } from './query-client' // the instance your <QueryClientProvider> renders with
+
+createGenieClient({
+  url: 'ws://localhost:4390/__genie/ws',
+  collectors: [sessionCollector(), reactCollector(), memoryCollector(), queryCollector(queryClient)],
+}).start()
 ```
 
 Then drive it:
