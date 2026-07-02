@@ -91,7 +91,7 @@ npx skills add y0u-0/genie-react
 
 **Router** — read: `router_get_state`, `router_list_matches`, `router_list_routes`, `router_build_location`, `router_match_route`. action: `router_navigate`, `router_preload`, `router_load`, `router_invalidate`, `router_clear_cache`, `router_history`.
 
-**Plugin passthrough** — read: `plugin_list`, `plugin_get_events`. action: `plugin_emit`.
+**Plugin passthrough** — read: `plugin_list`, `plugin_get_events`. action: `plugin_emit`. Discovery is traffic-based; declare silent plugins up front with `<Genie plugins={['cart-devtools']} />` so they're listed before their first event.
 
 **Memory** — read: `browser_get_memory`, `browser_measure_memory` (Chromium only).
 
@@ -99,7 +99,7 @@ npx skills add y0u-0/genie-react
 
 ## How it works
 
-Collectors in the browser (React, Query, Router, plugins, memory) run tool calls against the real fibers and caches, and talk over a WebSocket to a small hub on your Vite dev server. The `genie` CLI connects to that hub, runs tools, and prints JSON.
+Collectors in the browser (React, Query, Router, plugins, memory) run tool calls against the real fibers and caches, and talk over a WebSocket to a small hub — embedded in your Vite dev server, or standalone (`genie hub` / Next.js `instrumentation.ts`), where it also serves the browser client as a single script. The `genie` CLI connects to that hub, runs tools, and prints JSON.
 
 Several tabs can be connected at once: calls hit the most recent, `genie status` lists every session, and `--session <id>` targets a specific tab — so parallel agents can each drive their own.
 

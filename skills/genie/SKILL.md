@@ -32,6 +32,7 @@ The bridge rides Vite's dev server (loopback only, no extra port). **Next.js**: 
 
 ```bash
 genie status     # bridge live + app connected? Also prints the bridge URL + a ready-to-paste call.
+genie call devtools_wait '{"condition":"connected"}'   # block until the app connects instead of polling
 ```
 
 Collectors run **in the browser**, so a `react_*` read is empty until a browser has opened the app and mounted it. Not connected → the dev server isn't running with the `genie()` plugin, or no browser is on the page. From another directory, pass the URL `genie status` printed: `genie --url ws://localhost:5173/__genie/ws call …` (or `export GENIE_BRIDGE_URL=…`) — no `cd` needed.
@@ -54,9 +55,12 @@ Output is a compact text summary by default; add `--json` for the raw blob. `gen
 - **Slow flow / where's the cost?** (offender unknown, whole interaction) → `react_profile_start` (clears counters for you) → drive the flow → `react_profile_report` — four leaderboards: slowest by self-time, most re-rendered, most unnecessary renders, most renders wasted on unstable-reference props. `'{"limit":N}'` sizes each list. Then drill into a named offender with `react_get_renders`.
 - **Effects re-running / loops** (refetch or setState storms) → `react_effect_audit` (did each effect fire, deps mode, the dep slot that changed, cleanup, and each effect's own `file:line` — an effect created inside a library hook resolves to that library, not your component; `'{"onlyHot":true}'` for just the smells).
 - **Blank / stuck page** → `react_error_state` (which error boundary caught what, the throwing component + message + `file:line`, plus suspended boundaries — a caught error or a suspended subtree is invisible to a tree/DOM snapshot).
-- **A specific component** → `react_find_components` → `react_inspect_component` (props/state/hooks), `react_inspect_context` (the contexts it consumes + their current values, invisible from source), `react_dom_for_component` (the live DOM node(s) it renders, each with a selector a browser tool can act on); `react_get_tree` for structure; `react_override_props` to force a UI state.
+- **A specific component** → `react_find_components` → `react_inspect_component` (props/state/hooks), `react_inspect_context` (the contexts it consumes + their current values, invisible from source), `react_dom_for_component` (the live DOM node(s) it renders, each with a selector a browser tool can act on); `react_get_tree` for structure.
+- **Force a UI state without code edits** → `react_override_props`, `react_override_hook_state`, `react_override_context`; hold loading/error UI open with `react_toggle_suspense_fallback` / `react_force_error_boundary`.
 - **TanStack Query** → read with `query_list`/`query_get`/`query_get_data`; act with `query_invalidate`/`refetch`/`reset`/`set_data`.
-- **TanStack Router** → read with `router_get_state`/`router_list_matches`; act with `router_navigate`/`router_invalidate`.
+- **TanStack Router** → read with `router_get_state`/`router_list_matches`; act with `router_navigate`/`router_invalidate`. (Query/Router tools appear on Vite apps rendering `<Genie />`; the script-tag/Next.js path exposes the React + memory tools.)
+- **Custom devtools plugins** (TanStack event bus) → `plugin_list` / `plugin_get_events`; act with `plugin_emit`. Discovery is traffic-based — declare silent plugins with `<Genie plugins={['cart-devtools']} />` to list them before their first event.
+- **Browser memory** → `browser_get_memory` / `browser_measure_memory` (Chromium only).
 
 `react_get_renders`, `react_effect_audit`, and `react_get_tree` show **your own code by default** and hide library noise (Base UI, cmdk, devtools) — `react_effect_audit` also drops the effects libraries schedule on your components (e.g. TanStack Query's `useSyncExternalStore`), so a data component stops reporting effects it never wrote. Pass `'{"appOnly":false}'` to include library code (labeled by its `file:line`, tagged `· lib`). Args are a JSON string: `genie call react_get_renders '{"sort":"unnecessary"}'`.
 
