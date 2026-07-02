@@ -9,6 +9,7 @@ export default defineConfig({
     alias: [
       { find: 'genie-react/protocol', replacement: entry('protocol/index.ts') },
       { find: 'genie-react/client', replacement: entry('client-entry.ts') },
+      { find: 'genie-react/collectors', replacement: entry('collectors/index.ts') },
       { find: 'genie-react/hook', replacement: entry('collectors/react/hook.ts') },
       { find: 'genie-react/hub', replacement: entry('hub/index.ts') },
       { find: 'genie-react/vite', replacement: entry('vite/index.ts') },

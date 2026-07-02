@@ -256,6 +256,21 @@ describe('runInit — TanStack Start', () => {
   })
 })
 
+describe('runInit — apps wired by the published 0.1.0 names stay idempotent', () => {
+  it('treats @genie-react/vite and @genie-react/react imports as already wired', async () => {
+    const dir = await project({
+      'package.json': pkg({ '@tanstack/react-router': 'latest' }),
+      'index.html': '<div id="app"></div>',
+      'vite.config.ts': `import { genie } from '@genie-react/vite'\n${VITE_CONFIG.replace('react()', 'genie(), react()')}`,
+      'src/routes/__root.tsx': `import { Genie } from '@genie-react/react'\n${ROUTER_ROOT.replace('<Outlet />', '<><Outlet />{import.meta.env.DEV && <Genie />}</>')}`,
+    })
+    const result = runInit({ cwd: dir, dryRun: true, logger: silent })
+
+    expect(result.viteConfig.action).toBe('already')
+    expect(result.rootRoute.action).toBe('already')
+  })
+})
+
 describe('runInit — Next.js', () => {
   it('inserts <GenieScript /> after <body> and plans instrumentation.ts', async () => {
     const dir = await project({

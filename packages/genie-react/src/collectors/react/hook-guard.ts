@@ -1,13 +1,11 @@
-const COMMIT_KEYS = ['onCommitFiberRoot', 'onCommitFiberUnmount', 'onPostCommitFiberRoot'] as const
-
 type CommitHandler = (...args: unknown[]) => void
 
-/** Traps later assignments to the hook's commit handlers (e.g. Next.js dev embeds the react-devtools backend, which ASSIGNS over them) so they chain after the installed instrumentation instead of silencing it. */
+/** Traps later assignments to onCommitFiberRoot ONLY (the handler Next's embedded react-devtools backend assigns over); other handlers stay plain properties so bippy wrappers that self-check `hook[key] === wrapper` keep firing. */
 export function guardCommitStream(): void {
   const hook = (globalThis as { __REACT_DEVTOOLS_GLOBAL_HOOK__?: unknown })
     .__REACT_DEVTOOLS_GLOBAL_HOOK__
   if (typeof hook !== 'object' || hook === null) return
-  for (const key of COMMIT_KEYS) trapHandler(hook as Record<string, unknown>, key)
+  trapHandler(hook as Record<string, unknown>, 'onCommitFiberRoot')
 }
 
 export function trapHandler(hook: Record<string, unknown>, key: string): void {

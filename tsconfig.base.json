@@ -9,6 +9,7 @@
       "genie-react": ["./packages/genie-react/src/react/index.ts"],
       "genie-react/hook": ["./packages/genie-react/src/collectors/react/hook.ts"],
       "genie-react/client": ["./packages/genie-react/src/client-entry.ts"],
+      "genie-react/collectors": ["./packages/genie-react/src/collectors/index.ts"],
       "genie-react/vite": ["./packages/genie-react/src/vite/index.ts"],
       "genie-react/hub": ["./packages/genie-react/src/hub/index.ts"],
       "genie-react/protocol": ["./packages/genie-react/src/protocol/index.ts"],

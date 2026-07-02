@@ -331,4 +331,36 @@ describe('GenieBridge', () => {
       await fastHandle.close()
     }
   })
+
+  it('keeps the current session when a background tab re-hellos (tool refresh)', async () => {
+    const hello = (socket: WebSocket, sessionId: string, toolName: string) =>
+      send(socket, {
+        kind: 'app/hello',
+        protocol: 1,
+        sessionId,
+        app: { name: sessionId },
+        capabilities: ['react'],
+        tools: [{ name: toolName, title: toolName, description: 'x', group: 'meta' }],
+      })
+
+    const tabA = await connect(`${url}?role=app`)
+    hello(tabA, 'tab-a', 'a-tool')
+    await expect.poll(() => handle.bridge.getStatus().sessionId).toBe('tab-a')
+
+    const tabB = await connect(`${url}?role=app`)
+    hello(tabB, 'tab-b', 'b-tool')
+    await expect.poll(() => handle.bridge.getStatus().sessionId).toBe('tab-b')
+
+    // Background tab A refreshes its tools (e.g. React detected after load) — must not steal routing.
+    hello(tabA, 'tab-a', 'a-tool-2')
+    await expect
+      .poll(() =>
+        handle.bridge.getStatus().tools.some((t: { name: string }) => t.name === 'b-tool'),
+      )
+      .toBe(true)
+    expect(handle.bridge.getStatus().sessionId).toBe('tab-b')
+
+    tabA.close()
+    tabB.close()
+  })
 })

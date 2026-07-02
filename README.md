@@ -107,7 +107,7 @@ Dev-only and local: the Vite plugin is inert in production builds, the browser c
 
 ## Packages
 
-- `genie-react` — everything app-side, one package with subpath exports: the `<Genie />` component (`genie-react`), the Vite plugin (`genie-react/vite`), `<GenieScript />` for any SSR root layout (`genie-react/script`), Next.js helpers (`genie-react/next`), the injected client + collectors (`genie-react/client`, `genie-react/hook`), the WS hub (`genie-react/hub`), and the wire protocol (`genie-react/protocol`)
+- `genie-react` — everything app-side, one package with subpath exports: the `<Genie />` component (`genie-react`), the Vite plugin (`genie-react/vite`), `<GenieScript />` for any SSR root layout (`genie-react/script`), Next.js helpers (`genie-react/next`), the injected client (`genie-react/client`, `genie-react/hook`), every collector for manual composition (`genie-react/collectors` — e.g. `queryCollector` in an app without TanStack Router), the WS hub (`genie-react/hub`), and the wire protocol (`genie-react/protocol`)
 - `@genie-react/cli` — the agent interface: `init` / `doctor` / `link`, `status` / `tools` / `call`
 
 MIT © Genie React Agent contributors

@@ -2,9 +2,11 @@
 import 'bippy/install-hook-only'
 import { installErrorCapture } from './error-tracker'
 import { guardCommitStream } from './hook-guard'
+import { ensureUnmountPruning } from './overrides'
 import { startRenderTracking } from './render-tracker'
 
 installErrorCapture()
 startRenderTracking()
-// Guard LAST, once bippy's instrumentation is final, so the trapped upstream is the real dispatcher.
+ensureUnmountPruning()
+// Guard LAST, once every bippy registration is final, so the trapped upstream is the complete dispatcher.
 guardCommitStream()

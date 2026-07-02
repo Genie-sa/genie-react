@@ -59,7 +59,7 @@ const forcedErrors = new Map<Fiber, boolean>()
 
 let unmountPruningInstalled = false
 
-function ensureUnmountPruning(): void {
+export function ensureUnmountPruning(): void {
   if (unmountPruningInstalled) return
   unmountPruningInstalled = true
   instrument({

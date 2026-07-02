@@ -26,6 +26,10 @@
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js"
     },
+    "./collectors": {
+      "types": "./dist/collectors.d.ts",
+      "import": "./dist/collectors.js"
+    },
     "./script": {
       "types": "./dist/script.d.ts",
       "import": "./dist/script.js"

@@ -1,3 +1,5 @@
+import { GENIE_DEFAULT_HUB_PORT } from 'genie-react/protocol'
+
 export interface HubOptions {
   port?: number
   cwd?: string
@@ -27,12 +29,16 @@ export async function runHub(options: HubOptions = {}): Promise<number> {
     return 0
   }
 
+  const scriptTag =
+    result.port === GENIE_DEFAULT_HUB_PORT
+      ? '<GenieScript />'
+      : `<GenieScript port={${result.port}} />`
   out(`[genie] hub ready at ${result.url}`)
   out(`[genie] browser client at ${result.clientUrl}`)
   out('')
   out('Attach your app (dev only):')
   out("  Next.js / any SSR React root layout:   import { GenieScript } from 'genie-react/next'")
-  out('                                         <GenieScript />')
+  out(`                                         ${scriptTag}`)
   out(`  anything else, first in <head>:        <script src="${result.clientUrl}"></script>`)
   out('')
   out('Then drive it: genie status | genie tools | genie call <tool> … (Ctrl-C stops the hub)')

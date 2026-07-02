@@ -123,8 +123,9 @@ export class GenieBridge {
     clearInterval(this.heartbeat)
     for (const { timer } of this.pending.values()) clearTimeout(timer)
     this.pending.clear()
-    for (const socket of this.agents) socket.close()
-    for (const session of this.apps.values()) session.socket.close()
+    // terminate(), not close(): a graceful close handshake with a half-open peer blocks shutdown on ws's 30s timeout.
+    for (const socket of this.agents) socket.terminate()
+    for (const session of this.apps.values()) session.socket.terminate()
     this.wss.close()
   }
 
@@ -221,14 +222,16 @@ export class GenieBridge {
           app: message.app,
           capabilities: message.capabilities,
           tools: message.tools,
-          // Refreshed on every hello so "current" is always first in the recency-sorted list.
-          connectedAt: Date.now(),
+          // First-connect time survives re-hellos (tool refreshes, reconnects), so a background tab can't steal recency.
+          connectedAt: existing?.connectedAt ?? Date.now(),
         })
-        this.currentSessionId = message.sessionId
-        this.log(
-          'info',
-          `app connected: ${message.app.name ?? message.sessionId} (${this.apps.size} session${this.apps.size === 1 ? '' : 's'})`,
-        )
+        if (!existing) {
+          this.currentSessionId = message.sessionId
+          this.log(
+            'info',
+            `app connected: ${message.app.name ?? message.sessionId} (${this.apps.size} session${this.apps.size === 1 ? '' : 's'})`,
+          )
+        }
         for (const notify of [...this.connectionWaiters]) notify()
         this.broadcastStatus()
         return

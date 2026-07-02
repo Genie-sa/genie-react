@@ -367,8 +367,8 @@ function planRootRouteEdit(cwd: string, framework: Framework): RootRouteOutcome 
 }
 
 function editRootRoute(code: string, framework: Framework): ViteEditResult {
-  // Exact-match the root specifier so `genie-react/vite` in the same file doesn't count.
-  const importsGenie = /['"]genie-react['"]/.test(code)
+  // Exact-match the root specifier so `genie-react/vite` in the same file doesn't count; the 0.1.0 name counts as wired so init stays idempotent across the rename.
+  const importsGenie = /['"](genie-react|@genie-react\/react)['"]/.test(code)
   const rendersGenie = /<Genie\b/.test(code)
   if (importsGenie && rendersGenie) return { kind: 'already' }
 
@@ -673,8 +673,9 @@ function printViteManual(log: Logger): void {
   log.info('     })')
 }
 
+// The 0.1.0 scoped name counts as wired so re-running init after the rename cannot insert a duplicate import.
 function referencesVitePlugin(code: string): boolean {
-  return /['"]genie-react\/vite['"]/.test(code)
+  return /['"](genie-react|@genie-react)\/vite['"]/.test(code)
 }
 
 function isCommonJs(code: string): boolean {
