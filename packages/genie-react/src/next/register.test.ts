@@ -26,10 +26,11 @@ describe('registerGenie', () => {
   afterEach(async () => {
     await stopGenieHub()
     vi.unstubAllEnvs()
+    delete process.env.GENIE_HUB_PORT
     await rm(dir, { recursive: true, force: true })
   })
 
-  it('starts a hub, writes discovery, and is idempotent across register() re-runs', async () => {
+  it('starts a hub, writes discovery, hands the port to GenieScript, and is idempotent across register() re-runs', async () => {
     const port = 4790 + Math.floor(Math.random() * 100)
     await registerGenie({ port, rootDir: dir })
     await registerGenie({ port, rootDir: dir })
@@ -37,6 +38,7 @@ describe('registerGenie', () => {
     const discovery = JSON.parse(await readFile(join(dir, GENIE_DISCOVERY_FILE), 'utf8'))
     expect(discovery.port).toBe(port)
     expect(discovery.url).toBe(`ws://localhost:${port}/__genie/ws`)
+    expect(process.env.GENIE_HUB_PORT).toBe(String(port))
     expect(await status(port, GENIE_CLIENT_PATH)).toBeGreaterThanOrEqual(200)
   })
 

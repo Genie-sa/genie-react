@@ -101,7 +101,7 @@ npx skills add y0u-0/genie-react
 
 Collectors in the browser (React, Query, Router, plugins, memory) run tool calls against the real fibers and caches, and talk over a WebSocket to a small hub — embedded in your Vite dev server, or standalone (`genie hub` / Next.js `instrumentation.ts`), where it also serves the browser client as a single script. The `genie` CLI connects to that hub, runs tools, and prints JSON.
 
-Several tabs can be connected at once: calls hit the most recent, `genie status` lists every session, and `--session <id>` targets a specific tab — so parallel agents can each drive their own.
+Several tabs can be connected at once: calls hit the most recent, `genie status` lists every session, and `--session <id>` targets a specific tab — so parallel agents can each drive their own. Several apps and agents coexist too: a standalone hub identifies the app it serves, so a second app's hub walks to the next free port instead of cross-connecting, and each app's `.genie/bridge.json` pins its CLI to its own hub.
 
 Dev-only and local: the Vite plugin is inert in production builds, the browser client only starts under `import.meta.env.DEV`, and the hub listens on `localhost` only.
 

@@ -15,6 +15,9 @@ export const GENIE_DEFAULT_HUB_PORT = 4390
 /** HTTP path the standalone hub serves the self-contained browser client from. */
 export const GENIE_CLIENT_PATH = '/__genie/client.js'
 
+/** HTTP path a standalone hub identifies itself on, so a second hub can tell reuse from a port collision. */
+export const GENIE_INFO_PATH = '/__genie/info'
+
 // Generous by default: some tools (e.g. browser_measure_memory, slow loaders) legitimately take seconds.
 export const DEFAULT_REQUEST_TIMEOUT_MS = 20_000
 export const DEFAULT_INSPECT_DEPTH = 2

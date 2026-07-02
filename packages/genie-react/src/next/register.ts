@@ -1,7 +1,7 @@
-import { GENIE_CLIENT_PATH, GENIE_DEFAULT_HUB_PORT, GENIE_WS_PATH } from '../protocol'
+import { GENIE_DEFAULT_HUB_PORT } from '../protocol'
 
 export interface RegisterGenieOptions {
-  /** Port for the hub; defaults to GENIE_HUB_PORT, then 4390. */
+  /** Preferred port for the hub; defaults to GENIE_HUB_PORT, then 4390. Busy ports walk upward. */
   port?: number
   /** Directory the discovery file is written to (defaults to the project cwd). */
   rootDir?: string
@@ -17,26 +17,22 @@ export async function registerGenie(options: RegisterGenieOptions = {}): Promise
   if (holder[HUB_FLAG]) return
   holder[HUB_FLAG] = true
 
-  const port = options.port ?? envPort() ?? GENIE_DEFAULT_HUB_PORT
-  const rootDir = options.rootDir ?? process.cwd()
-  const { createStandaloneBridge, writeDiscoveryFile } = await import('genie-react/hub')
-  const handle = createStandaloneBridge()
+  const { startGenieHub } = await import('genie-react/hub')
   try {
-    const bound = await handle.listen(port)
-    holder[HUB_FLAG] = handle
-    await writeDiscoveryFile(rootDir, {
-      url: `ws://localhost:${bound.port}${GENIE_WS_PATH}`,
-      port: bound.port,
+    const result = await startGenieHub({
+      rootDir: options.rootDir,
+      port: options.port ?? envPort() ?? GENIE_DEFAULT_HUB_PORT,
     })
-    log(`hub ready at ws://localhost:${bound.port}${GENIE_WS_PATH}`)
-    log(`<GenieScript /> loads http://localhost:${bound.port}${GENIE_CLIENT_PATH}`)
+    if (result.status === 'started') holder[HUB_FLAG] = result.handle
+    // Hand the bound port to <GenieScript /> (rendered later in this same process), so a walked port still loads.
+    setEnv('GENIE_HUB_PORT', String(result.port))
+    log(
+      result.status === 'reused'
+        ? `hub for this app already running at ${result.url}`
+        : `hub ready at ${result.url}`,
+    )
+    log(`<GenieScript /> loads ${result.clientUrl}`)
   } catch (error) {
-    if (isAddrInUse(error)) {
-      // A previous dev server (or another app) already runs a hub there; reuse it.
-      await writeDiscoveryFile(rootDir, { url: `ws://localhost:${port}${GENIE_WS_PATH}`, port })
-      log(`port ${port} already in use — assuming an existing genie hub`)
-      return
-    }
     holder[HUB_FLAG] = undefined
     throw error
   }
@@ -52,12 +48,6 @@ export async function stopGenieHub(): Promise<void> {
 
 function isCloseable(value: unknown): value is { close: () => Promise<void> } {
   return typeof value === 'object' && value !== null && 'close' in value
-}
-
-function isAddrInUse(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && 'code' in error && error.code === 'EADDRINUSE'
-  )
 }
 
 function log(message: string): void {
@@ -76,4 +66,10 @@ function readEnv(name: string): string | undefined {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
     ?.env
   return env?.[name]
+}
+
+function setEnv(name: string, value: string): void {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+    ?.env
+  if (env) env[name] = value
 }

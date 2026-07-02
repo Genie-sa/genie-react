@@ -16,7 +16,7 @@ Setup commands:
   link [path]            symlink the Genie packages from a local checkout (no publish)
   init [--dry-run]       wire Genie into your app (Vite plugin, or Next.js layout + instrumentation)
   doctor                 check that Genie is set up correctly
-  hub [--port <n>]       run the standalone hub for Next.js / non-Vite apps (default port 4390)
+  hub [--port <n>]       run the standalone hub for Next.js / non-Vite apps (default 4390; busy ports walk upward, explicit --port is strict)
 
 Tool commands (dev server must be running with the genie() plugin or hub):
   tools                  list the tools the live app advertises

@@ -4,12 +4,14 @@ import { createServer, type Server, type ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { GENIE_CLIENT_PATH, GENIE_WS_PATH } from '../protocol'
+import { GENIE_CLIENT_PATH, GENIE_INFO_PATH, GENIE_WS_PATH } from '../protocol'
 import { GenieBridge, type GenieBridgeOptions } from './bridge'
 
 export interface StandaloneBridgeOptions extends GenieBridgeOptions {
   /** Overrides the browser bundle served at GENIE_CLIENT_PATH (defaults to the packaged client.global.js). */
   clientBundlePath?: string
+  /** App root this hub belongs to, reported on GENIE_INFO_PATH so a second hub can tell reuse from a collision. */
+  rootDir?: string
 }
 
 export interface StandaloneBridgeHandle {
@@ -23,10 +25,16 @@ export interface StandaloneBridgeHandle {
 export function createStandaloneBridge(options?: StandaloneBridgeOptions): StandaloneBridgeHandle {
   const bridge = new GenieBridge(options)
   const clientBundlePath = options?.clientBundlePath ?? defaultClientBundlePath()
+  const rootDir = options?.rootDir ?? process.cwd()
   const server = createServer((req, res) => {
     const path = req.url?.split('?')[0] ?? ''
     if (req.method === 'GET' && path === GENIE_CLIENT_PATH) {
       void serveClientBundle(res, clientBundlePath)
+      return
+    }
+    if (req.method === 'GET' && path === GENIE_INFO_PATH) {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ genie: true, rootDir, pid: process.pid }))
       return
     }
     res.writeHead(426, { 'content-type': 'text/plain' })
