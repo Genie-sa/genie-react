@@ -33,7 +33,8 @@ Options:
   --yes, -y        assume yes for any prompts
   --help, -h       show this help
   --version        print the version
-  GENIE_BRIDGE_URL   env override for the bridge URL (same as --url; set once for the shell)`
+  GENIE_BRIDGE_URL   env override for the bridge URL (same as --url; set once for the shell)
+  GENIE_SESSION      env pin for --session (set once per agent shell, so every call targets your tab)`
 
 function readVersion(): string {
   try {

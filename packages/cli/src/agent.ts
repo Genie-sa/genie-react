@@ -22,6 +22,11 @@ export interface AgentOptions {
   session?: string
 }
 
+/** Priority: --session flag → GENIE_SESSION env, so a same-app agent pins its own tab once per shell instead of repeating the flag. */
+export function resolveSession(explicit?: string): string | undefined {
+  return explicit ?? process.env.GENIE_SESSION ?? undefined
+}
+
 const out = (message: string): void => void process.stdout.write(`${message}\n`)
 const err = (message: string): void => void process.stderr.write(`${message}\n`)
 
@@ -31,7 +36,7 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
     url,
     connectTimeoutMs: 8_000,
     invokeTimeoutMs: 20_000,
-    sessionId: opts.session,
+    sessionId: resolveSession(opts.session),
   })
   link.start()
   return { link, url }
@@ -275,7 +280,7 @@ export async function runTools(opts: AgentOptions = {}): Promise<number> {
       err('no tools advertised — start your dev server and open the app in a browser')
       return 1
     }
-    if (opts.session)
+    if (resolveSession(opts.session))
       err(
         'note: the catalog shown is the current session’s; sessions of the same app advertise the same tools',
       )

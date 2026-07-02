@@ -35,7 +35,7 @@ genie status     # bridge live + app connected? Also prints the bridge URL + a r
 genie call devtools_wait '{"condition":"connected"}'   # block until the app connects instead of polling
 ```
 
-Collectors run **in the browser**, so a `react_*` read is empty until a browser has opened the app and mounted it. Not connected → the dev server isn't running with the `genie()` plugin, or no browser is on the page. From another directory, pass the URL `genie status` printed: `genie --url ws://localhost:5173/__genie/ws call …` (or `export GENIE_BRIDGE_URL=…`) — no `cd` needed. Parallel work is safe: multiple agents can share one hub (`--session` targets a tab), and hubs for different apps never collide — a busy port walks upward and each app's `.genie/bridge.json` points at its own hub.
+Collectors run **in the browser**, so a `react_*` read is empty until a browser has opened the app and mounted it. Not connected → the dev server isn't running with the `genie()` plugin, or no browser is on the page. From another directory, pass the URL `genie status` printed: `genie --url ws://localhost:5173/__genie/ws call …` (or `export GENIE_BRIDGE_URL=…`) — no `cd` needed. Parallel work is safe: multiple agents can share one hub (`--session` targets a tab), and hubs for different apps never collide — a busy port walks upward and each app's `.genie/bridge.json` points at its own hub. **Several agents, same app**: each agent owns a tab — open the app with a marker (`http://localhost:3000/?_genie=<your-name>`), find your sessionId by that url in `genie status`, then `export GENIE_SESSION=<id>` once; every later call is pinned. Never measure a tab another agent owns: `clear`/profiler/override state is per-page.
 
 ## The loop
 

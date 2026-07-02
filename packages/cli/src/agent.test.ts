@@ -1,8 +1,9 @@
 import type { BridgeStatusMessage } from 'genie-react/protocol'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   formatToolsListing,
   renderResult,
+  resolveSession,
   summarizeEffects,
   summarizeRenders,
   summarizeTree,
@@ -304,5 +305,25 @@ describe('renderResult', () => {
   it('falls back to pretty JSON when the summarizer returns null', () => {
     const malformed = { summary: {}, components: 'nope' }
     expect(renderResult('react_get_renders', malformed)).toBe(JSON.stringify(malformed, null, 2))
+  })
+})
+
+describe('resolveSession', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('prefers the explicit --session flag over the env pin', () => {
+    vi.stubEnv('GENIE_SESSION', 'env-tab')
+    expect(resolveSession('flag-tab')).toBe('flag-tab')
+  })
+
+  it('falls back to GENIE_SESSION so an agent shell pins its tab once', () => {
+    vi.stubEnv('GENIE_SESSION', 'env-tab')
+    expect(resolveSession(undefined)).toBe('env-tab')
+  })
+
+  it('returns undefined when neither is set (most-recent-tab routing)', () => {
+    expect(resolveSession(undefined)).toBeUndefined()
   })
 })
