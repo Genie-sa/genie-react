@@ -1,6 +1,9 @@
 import type { AppInfo } from '../protocol'
 import { defineCollector, type GenieCollector } from './collector'
 
+const REACT_DETECT_POLL_MS = 500
+const REACT_DETECT_GIVE_UP_MS = 15_000
+
 /** Always-on collector reporting app + React info; no tools — the bridge answers `devtools_status` from its hello payload. */
 export function sessionCollector(): GenieCollector {
   return defineCollector({
@@ -13,6 +16,18 @@ export function sessionCollector(): GenieCollector {
       const reactVersion = detectReactVersion()
       if (reactVersion) info.reactVersion = reactVersion
       return info
+    },
+    // The script-tag client says hello before React loads, so re-hello once a renderer shows up.
+    start: (context) => {
+      if (detectReactVersion()) return
+      const startedAt = Date.now()
+      const timer = setInterval(() => {
+        const found = detectReactVersion() !== undefined
+        if (!found && Date.now() - startedAt < REACT_DETECT_GIVE_UP_MS) return
+        clearInterval(timer)
+        if (found) context.refreshTools()
+      }, REACT_DETECT_POLL_MS)
+      return () => clearInterval(timer)
     },
   })
 }
