@@ -26,7 +26,7 @@ import { Genie } from 'genie-react'
 {import.meta.env.DEV && <Genie />}
 ```
 
-The bridge rides Vite's dev server (loopback only, no extra port). **Next.js**: the same `init` instead wires `<GenieScript />` into the root layout and creates `instrumentation.ts`, which starts a standalone hub on port 4390 with `next dev`. **Any other non-Vite React app**: run `npx @genie-react/cli hub`, then add `<script src="http://localhost:4390/__genie/client.js"></script>` first in `<head>`. `npx @genie-react/cli doctor` diagnoses a broken wiring in every setup; `doctor --live` additionally probes the running hub, the served client, and a session round-trip.
+The bridge rides Vite's dev server (loopback only, no extra port). **Cloudflare** (`@cloudflare/vite-plugin` in the config): `genie()` detects it and moves the bridge to a standalone hub automatically — workerd drops that port's WebSocket upgrades — nothing extra to wire; `genie status` finds the hub. **Next.js**: the same `init` instead wires `<GenieScript />` into the root layout and creates `instrumentation.ts`, which starts a standalone hub on port 4390 with `next dev`. **Any other non-Vite React app**: run `npx @genie-react/cli hub`, then add `<script src="http://localhost:4390/__genie/client.js"></script>` first in `<head>`. `npx @genie-react/cli doctor` diagnoses a broken wiring in every setup; `doctor --live` additionally probes the running hub, the served client, and a session round-trip.
 
 ## Connect first
 
@@ -47,6 +47,8 @@ Every measurement runs **clear → drive → read**, so the numbers mean *one* i
 
 Skip the clear and counts blend mount plus every prior commit.
 
+**Verifying a fix is the same loop twice**: reload the page between runs (clean counters), repeat the *identical* drive, and diff the `--json` outputs. Text summaries are compact top-N views for humans; `--json` is the full data and the only thing worth comparing. A fix that doesn't move the numbers gets reverted.
+
 ## Tools by symptom
 
 Output is a compact text summary by default; add `--json` for the raw (compact) blob. Discover tools progressively instead of dumping the catalog: `genie tools` (group index) → `genie tools <group>` (that group's params) → `genie tools <tool>` (full description + a runnable example); `--all` prints everything. Reach for:
@@ -63,7 +65,7 @@ Output is a compact text summary by default; add `--json` for the raw (compact) 
 - **Custom devtools plugins** (TanStack event bus) → `plugin_list` / `plugin_get_events`; act with `plugin_emit` (a bare `type` is auto-prefixed with the pluginId). Discovery is traffic-based — declare silent plugins with `<Genie plugins={['cart-devtools']} />` to list them before their first event.
 - **Browser memory** → `browser_get_memory` / `browser_measure_memory` (Chromium only).
 
-`react_get_renders`, `react_effect_audit`, and `react_get_tree` show **your own code by default** and hide library noise (Base UI, cmdk, devtools) — `react_effect_audit` also drops the effects libraries schedule on your components (e.g. TanStack Query's `useSyncExternalStore`), so a data component stops reporting effects it never wrote. Pass `'{"appOnly":false}'` to include library code (labeled by its `file:line`, tagged `· lib`). Args are a JSON string: `genie call react_get_renders '{"sort":"unnecessary"}'`.
+`react_get_renders`, `react_effect_audit`, and `react_get_tree` show **your own code by default** and hide library noise (Base UI, cmdk, devtools) — `react_effect_audit` also drops the effects libraries schedule on your components (e.g. TanStack Query's `useSyncExternalStore`), so a data component stops reporting effects it never wrote. Pass `'{"appOnly":false}'` to include library code (labeled by its `file:line`, tagged `· lib`). Args are a JSON string: `genie call react_get_renders '{"sort":"unnecessary"}'`. The react tools accept `component`/`query`/`name` interchangeably for their component-name arg; any other unknown key is rejected with the valid keys listed.
 
 ## Hands and eyes
 
