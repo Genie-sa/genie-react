@@ -1,5 +1,16 @@
 # @genie-react/cli
 
+## 0.3.0
+
+### Minor Changes
+
+- fc7eb33: New `browser_fps` tool (perf collector): sample the page frame rate on demand via requestAnimationFrame — avg fps, frames dropped against the estimated display refresh rate (fair on 120Hz panels), long frames (>50ms), the single worst stall, and a smooth/degraded/janky verdict using react-scan's thresholds as refresh-rate ratios plus its 150ms hard-stall rule. Registered by `<Genie />` and the script-tag client; the CLI prints a one-line summary. Also bumps bippy to ^0.5.43 (a republish of 0.5.42 — no API changes).
+
+### Patch Changes
+
+- Updated dependencies [fc7eb33]
+  - genie-react@0.3.0
+
 ## 0.2.2
 
 ### Patch Changes
