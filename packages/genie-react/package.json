@@ -1,6 +1,6 @@
 {
   "name": "genie-react",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "description": "Live DevTools for a running React + TanStack app, driven from the terminal by an AI agent — browser collectors, the <Genie /> component, the Vite plugin, and the WebSocket hub in one package.",
   "license": "MIT",
@@ -59,7 +59,7 @@
   },
   "dependencies": {
     "@jridgewell/sourcemap-codec": "^1.5.5",
-    "bippy": "^0.5.42",
+    "bippy": "^0.5.43",
     "superjson": "^2.2.6",
     "ws": "^8.21.0",
     "zod": "^4.4.3"

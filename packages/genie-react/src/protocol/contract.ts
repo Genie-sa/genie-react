@@ -15,6 +15,7 @@ export type BuiltInToolGroup =
   | 'router'
   | 'plugin'
   | 'memory'
+  | 'perf'
   | 'action'
 
 /** Built-in groups plus `Register`-contributed ones; the fallback is `never`, so an unregistered group is a type error. */

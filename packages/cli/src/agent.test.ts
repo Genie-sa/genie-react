@@ -10,6 +10,7 @@ import {
   resolveToolsSelector,
   summarizeEffects,
   summarizeErrorState,
+  summarizeFps,
   summarizeProfile,
   summarizeQueryList,
   summarizeRenders,
@@ -489,6 +490,40 @@ describe('new summarizers', () => {
     expect(outText).toContain('re-rendered: Row 9×')
     expect(outText).toContain('unnecessary: Row 4/9')
     expect(outText).toContain('unstable: Badge 3/5')
+  })
+
+  it('summarizeFps: verdict, average, and stall detail on one line', () => {
+    const outText = summarizeFps({
+      durationMs: 2000,
+      frames: 96,
+      avgFps: 48,
+      worstFrameMs: 87.3,
+      longFrames: 4,
+      droppedFrames: 22,
+      refreshRate: 60,
+      hidden: false,
+      verdict: 'degraded',
+    })
+    expect(outText).toContain('degraded · avg 48 fps over 2000ms (96 frames @ 60Hz)')
+    expect(outText).toContain('22 dropped')
+    expect(outText).toContain('4 long (>50ms), worst 87.3ms')
+    expect(outText).not.toContain('hidden')
+    expect(summarizeFps({ nope: true })).toBeNull()
+  })
+
+  it('summarizeFps: flags a hidden tab as unreliable', () => {
+    const outText = summarizeFps({
+      durationMs: 2000,
+      frames: 10,
+      avgFps: 5,
+      worstFrameMs: 900,
+      longFrames: 1,
+      droppedFrames: 50,
+      refreshRate: 60,
+      hidden: true,
+      verdict: 'janky',
+    })
+    expect(outText).toContain('⚠ tab was hidden — unreliable')
   })
 
   it('summarizeRouterRoutes: total + one line per route with loader flags', () => {

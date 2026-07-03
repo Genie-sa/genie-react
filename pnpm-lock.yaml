@@ -345,8 +345,8 @@ importers:
         specifier: ^1.5.5
         version: 1.5.5
       bippy:
-        specifier: ^0.5.42
-        version: 0.5.42(react@19.2.7)
+        specifier: ^0.5.43
+        version: 0.5.43(react@19.2.7)
       superjson:
         specifier: ^2.2.6
         version: 2.2.6
@@ -2387,8 +2387,8 @@ packages:
   bidi-js@1.0.3:
     resolution: {integrity: sha512-RKshQI1R3YQ+n9YJz2QQ147P66ELpa1FQEg20Dk8oW9t2KgLbpDLLp9aGZ7y8WHSshDknG0bknqGw5/tyCs5tw==}
 
-  bippy@0.5.42:
-    resolution: {integrity: sha512-K3tpfO9uGQB2k/Vi5P6jgfrnXvO/FAQNUE2tqKjQmT0a93fJCysMGLgJmRKzYYfybAoOtwWwmKm0vw/uXE0hMw==}
+  bippy@0.5.43:
+    resolution: {integrity: sha512-Tvu7b1M7+d8b9/YHaCeODEsi2CgbuoBql+dWSBrNnCuqJ1gMUeY3i0r+319hvjjl5GVBP6FFWxrKnq3fhZER0w==}
     peerDependencies:
       react: '>=17.0.1'
 
@@ -6704,7 +6704,7 @@ snapshots:
     dependencies:
       require-from-string: 2.0.2
 
-  bippy@0.5.42(react@19.2.7):
+  bippy@0.5.43(react@19.2.7):
     dependencies:
       react: 19.2.7
 

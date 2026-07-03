@@ -21,6 +21,7 @@ async function loadGenie(router: unknown) {
   }))
   vi.doMock('../collectors/react', () => ({ reactCollector: tag('react') }))
   vi.doMock('../collectors/memory', () => ({ memoryCollector: tag('memory') }))
+  vi.doMock('../collectors/perf', () => ({ perfCollector: tag('perf') }))
   const pluginPassthroughCollector = vi.fn(() => ({ __collector: 'plugin' }))
   vi.doMock('../collectors/devtools-passthrough', () => ({ pluginPassthroughCollector }))
   vi.doMock('../collectors/tanstack', () => ({
@@ -56,6 +57,7 @@ describe('<Genie /> in a plain React app (no router)', () => {
       'session',
       'react',
       'memory',
+      'perf',
       'plugin',
     ])
     expect(startSpy).toHaveBeenCalledTimes(1)
@@ -72,9 +74,9 @@ describe('<Genie /> with a plugin-injected client already running', () => {
     render(createElement(Genie))
 
     expect(createGenieClient).not.toHaveBeenCalled()
-    expect(register).toHaveBeenCalledTimes(2)
+    expect(register).toHaveBeenCalledTimes(3)
     const registered = register.mock.calls.map((c) => (c[0] as TaggedCollector).__collector)
-    expect(registered).toEqual(['memory', 'plugin'])
+    expect(registered).toEqual(['memory', 'perf', 'plugin'])
   })
 })
 
@@ -89,6 +91,7 @@ describe('<Genie /> under a TanStack Router', () => {
       'session',
       'react',
       'memory',
+      'perf',
       'plugin',
       'router',
       'query',
@@ -105,6 +108,7 @@ describe('<Genie /> under a TanStack Router', () => {
       'session',
       'react',
       'memory',
+      'perf',
       'plugin',
       'router',
     ])
@@ -138,6 +142,7 @@ describe('<Genie /> under a TanStack Router', () => {
       'session',
       'react',
       'memory',
+      'perf',
       'plugin',
       'router',
     ])
@@ -156,6 +161,7 @@ describe('<Genie /> under a bare QueryClientProvider (no router)', () => {
       'session',
       'react',
       'memory',
+      'perf',
       'plugin',
       'query',
     ])
@@ -190,6 +196,7 @@ describe('<Genie /> under a bare QueryClientProvider (no router)', () => {
       'session',
       'react',
       'memory',
+      'perf',
       'plugin',
     ])
   })

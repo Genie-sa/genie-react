@@ -65,6 +65,7 @@ const summarizers: Record<string, (result: unknown) => string | null> = {
   react_inspect_component: summarizeInspect,
   react_error_state: summarizeErrorState,
   react_profile_report: summarizeProfile,
+  browser_fps: summarizeFps,
   query_list: summarizeQueryList,
   query_get: summarizeQueryGet,
   router_get_state: summarizeRouterState,
@@ -369,6 +370,18 @@ export function summarizeProfile(result: unknown): string | null {
     (r) => `${String(r.name)} ${num(r.unstableRenders)}/${num(r.renders)}`,
   )
   return lines.join('\n')
+}
+
+export function summarizeFps(result: unknown): string | null {
+  if (!isRecord(result) || typeof result.avgFps !== 'number') return null
+  const parts = [
+    `${String(result.verdict)} · avg ${num(result.avgFps)} fps over ${num(result.durationMs)}ms (${num(result.frames)} frames @ ${num(result.refreshRate)}Hz)`,
+  ]
+  if (num(result.droppedFrames) > 0) parts.push(`${num(result.droppedFrames)} dropped`)
+  if (num(result.longFrames) > 0)
+    parts.push(`${num(result.longFrames)} long (>50ms), worst ${round(num(result.worstFrameMs))}ms`)
+  if (result.hidden === true) parts.push('⚠ tab was hidden — unreliable')
+  return parts.join(' · ')
 }
 
 export function summarizeQueryList(result: unknown): string | null {

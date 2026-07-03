@@ -97,7 +97,7 @@ npx skills add y0u-0/genie-react
 - override a component's props, hook state, or a context value
 - force a Suspense fallback or an error boundary — hold loading / error UI open to inspect it, no code edits
 
-51 tools total. `read` is safe to call freely; `action` mutates the running app.
+52 tools total. `read` is safe to call freely; `action` mutates the running app.
 
 ## Tools
 
@@ -110,6 +110,8 @@ npx skills add y0u-0/genie-react
 **Plugin passthrough** — read: `plugin_list`, `plugin_get_events`. action: `plugin_emit`. Discovery is traffic-based; declare silent plugins up front with `<Genie plugins={['cart-devtools']} />` so they're listed before their first event.
 
 **Memory** — read: `browser_get_memory`, `browser_measure_memory` (Chromium only).
+
+**Perf** — read: `browser_fps` (sample the frame rate: avg fps, dropped frames vs the display's refresh rate, long frames >50ms, worst stall, smooth / degraded / janky verdict).
 
 **Meta** — read: `devtools_status`, `devtools_wait`.
 

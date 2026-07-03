@@ -1,6 +1,7 @@
 import { createGenieClient, sessionCollector } from './client'
 import { deriveHubWsUrl } from './client/hub-url'
 import { memoryCollector } from './collectors/memory'
+import { perfCollector } from './collectors/perf'
 import { reactCollector } from './collectors/react'
 import './collectors/react/hook'
 import { GENIE_DEFAULT_HUB_PORT, readGenieGlobal } from './protocol'
@@ -11,6 +12,6 @@ if (typeof window !== 'undefined' && !readGenieGlobal()) {
   const src = script instanceof HTMLScriptElement && script.src ? script.src : undefined
   createGenieClient({
     url: deriveHubWsUrl(src, GENIE_DEFAULT_HUB_PORT),
-    collectors: [sessionCollector(), reactCollector(), memoryCollector()],
+    collectors: [sessionCollector(), reactCollector(), memoryCollector(), perfCollector()],
   }).start()
 }

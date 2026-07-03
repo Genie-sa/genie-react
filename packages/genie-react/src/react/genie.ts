@@ -4,6 +4,7 @@ import { useContext, useEffect } from 'react'
 import { createGenieClient, type GenieCollector, sessionCollector } from '../client'
 import { pluginPassthroughCollector } from '../collectors/devtools-passthrough'
 import { memoryCollector } from '../collectors/memory'
+import { perfCollector } from '../collectors/perf'
 import { reactCollector } from '../collectors/react'
 import { queryCollector, routerCollector } from '../collectors/tanstack'
 import { readGenieGlobal } from '../protocol'
@@ -64,6 +65,7 @@ export function Genie(props: GenieProps = {}): null {
 
     const collectors: GenieCollector[] = [
       memoryCollector(),
+      perfCollector(),
       pluginPassthroughCollector({ plugins }),
     ]
     if (router) collectors.push(routerCollector(router))
