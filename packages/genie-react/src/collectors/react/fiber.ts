@@ -2,6 +2,7 @@ import {
   ClassComponentTag,
   type ContextDependency,
   type Fiber,
+  type FiberRoot,
   ForwardRefTag,
   FunctionComponentTag,
   getDisplayName,
@@ -64,22 +65,42 @@ export function registerFiber(fiber: Fiber): NodeId {
   return id
 }
 
+// Live committed roots in first-committed order: the DOM-free way to find the tree (React Native has no document to seed from).
+const committedRoots = new Map<FiberRoot, Fiber>()
+
+// DevTools semantics: a commit whose current has no child is that root unmounting, so it stops being a candidate (and stops being retained).
+export function noteCommittedRoot(root: FiberRoot): void {
+  const current = root.current
+  if (!current || current.child === null) {
+    committedRoots.delete(root)
+    return
+  }
+  committedRoots.set(root, current)
+}
+
+/** Test-only escape hatch: drop every tracked root. */
+export function forgetCommittedRoots(): void {
+  committedRoots.clear()
+}
+
 export function findRootFiber(): Fiber | null {
-  if (typeof document === 'undefined') return null
-  const seeds: Array<Element | null> = [
-    document.getElementById('root'),
-    document.body,
-    document.documentElement,
-  ]
-  for (const seed of seeds) {
-    const fiber = seed ? getFiberFromHostInstance(seed) : null
-    if (fiber) return climbToRoot(fiber)
+  if (typeof document !== 'undefined') {
+    const seeds: Array<Element | null> = [
+      document.getElementById('root'),
+      document.body,
+      document.documentElement,
+    ]
+    for (const seed of seeds) {
+      const fiber = seed ? getFiberFromHostInstance(seed) : null
+      if (fiber) return climbToRoot(fiber)
+    }
+    for (const element of Array.from(document.querySelectorAll('body *')).slice(0, 50)) {
+      const fiber = getFiberFromHostInstance(element)
+      if (fiber) return climbToRoot(fiber)
+    }
   }
-  for (const element of Array.from(document.querySelectorAll('body *')).slice(0, 50)) {
-    const fiber = getFiberFromHostInstance(element)
-    if (fiber) return climbToRoot(fiber)
-  }
-  return null
+  const first = committedRoots.values().next()
+  return first.done ? null : climbToRoot(first.value)
 }
 
 function climbToRoot(fiber: Fiber): Fiber {
@@ -393,22 +414,42 @@ export interface DomForResult {
 const isElement = (node: unknown): node is Element =>
   typeof node === 'object' && node !== null && (node as { nodeType?: number }).nodeType === 1
 
-/** Maps a component to the DOM element(s) it renders — its nearest host fibers' `stateNode` — skipping text/comment host nodes. */
+/** The host node(s) a component renders: DOM elements get a CSS selector, React Native views a testID/accessibility locator. */
 export function domForFiber(fiber: Fiber, options: { limit: number }): DomForResult {
   const elements: HostElementInfo[] = []
   let total = 0
-  for (const host of getNearestHostFibers(fiber)) {
-    if (!isElement(host.stateNode)) continue
+  const push = (info: HostElementInfo): void => {
     total += 1
-    if (elements.length < options.limit) elements.push(describeHostElement(host.stateNode))
+    if (elements.length < options.limit) elements.push(info)
+  }
+  for (const host of getNearestHostFibers(fiber)) {
+    if (isElement(host.stateNode)) push(describeHostElement(host.stateNode))
+    else if (isNativeHostFiber(host)) push(describeNativeHostFiber(host))
   }
   return { id: asNodeId(getFiberId(fiber)), name: nameOf(fiber), elements, total }
 }
 
-const attrOf = (el: Element, name: string): string | null => {
-  const value = el.getAttribute?.(name)?.trim()
-  return value ? value : null
+const isNativeHostFiber = (fiber: Fiber): boolean =>
+  typeof fiber.type === 'string' && typeof fiber.stateNode === 'object' && fiber.stateNode !== null
+
+const strProp = (value: unknown): string | null =>
+  typeof value === 'string' && value.trim() ? value.trim() : null
+
+// RN Text children are a string, a number, or an interpolation array (`Score: {count}` → ['Score: ', 42]).
+const textOf = (value: unknown): string | null => {
+  if (typeof value === 'string' || typeof value === 'number') return strProp(String(value))
+  if (Array.isArray(value)) {
+    const parts = value.filter(
+      (part) => typeof part === 'string' || typeof part === 'number',
+    ) as Array<string | number>
+    return strProp(parts.join(''))
+  }
+  return null
 }
+
+const attrOf = (el: Element, name: string): string | null => strProp(el.getAttribute?.(name))
+
+const attrSelector = (name: string, value: string): string => `[${name}=${JSON.stringify(value)}]`
 
 const MAX_ELEMENT_TEXT = 80
 
@@ -435,6 +476,25 @@ export function describeHostElement(el: Element): HostElementInfo {
 const truncateText = (text: string): string =>
   text.length > MAX_ELEMENT_TEXT ? `${text.slice(0, MAX_ELEMENT_TEXT)}…` : text
 
+/** RN analog of describeHostElement. Exported for tests. */
+export function describeNativeHostFiber(fiber: Fiber): HostElementInfo {
+  const tag = typeof fiber.type === 'string' ? fiber.type : 'host'
+  const props = (fiber.memoizedProps ?? {}) as Record<string, unknown>
+  const testId = strProp(props.testID)
+  const rawText = textOf(props.children) ?? textOf(props.text)
+  return {
+    tag,
+    selector: testId ? attrSelector('testID', testId) : tag,
+    domId: null,
+    testId,
+    role: strProp(props.accessibilityRole) ?? strProp(props.role),
+    ariaLabel: strProp(props.accessibilityLabel) ?? strProp(props['aria-label']),
+    name: strProp(props.nativeID),
+    classes: [],
+    text: rawText ? truncateText(rawText) : null,
+  }
+}
+
 // Utility-framework classes (`hover:bg-x`, `md:flex`) are not valid bare selectors, so only simple tokens follow the dot; role/testId/text ride alongside for semantic locators.
 const SIMPLE_CLASS = /^[a-zA-Z_][\w-]*$/
 
@@ -445,7 +505,7 @@ function hostSelector(
   classes: string[],
 ): string {
   if (domId) return `#${domId}`
-  if (testId) return `[data-testid="${testId}"]`
+  if (testId) return attrSelector('data-testid', testId)
   const simple = classes.filter((token) => SIMPLE_CLASS.test(token)).slice(0, 3)
   return simple.length ? `${tag}.${simple.join('.')}` : tag
 }
