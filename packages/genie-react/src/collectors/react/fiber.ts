@@ -17,9 +17,17 @@ import {
   SimpleMemoComponentTag,
   setFiberId,
 } from 'bippy'
+import type { z } from 'zod'
 import { dehydrate } from '../../protocol'
-import { MAX_HOOKS, type NodeId } from './contracts'
-import { classifyFiber, type ResolvedSource, sourceLabel } from './source'
+import { type hookEntrySchema, type hookKindSchema, MAX_HOOKS, type NodeId } from './contracts'
+import {
+  classifyFibersWithinBudget,
+  type FiberClassification,
+  type ResolvedSource,
+  sourceLabel,
+} from './source'
+
+type HookEntry = z.infer<typeof hookEntrySchema>
 
 export type { NodeId }
 
@@ -42,6 +50,7 @@ export interface TreeResult {
   total: number
   truncated: boolean
   truncatedBy: 'depth' | 'maxNodes' | null
+  filteredNote?: string
 }
 
 export interface InspectResult {
@@ -50,12 +59,16 @@ export interface InspectResult {
   kind: string
   props: unknown
   state: unknown
-  hooks: unknown[]
+  hooks: HookEntry[]
 }
 
 // Id → fiber registry. React double-buffers fibers (current/alternate swap each commit), so the id is mirrored onto both buffers and resolved via getLatestFiber to whichever is mounted; capped so a long session can't pin unmounted fibers forever.
 const REGISTRY_LIMIT = 5_000
 const fiberRegistry = new Map<NodeId, Fiber>()
+
+const TREE_SOURCE_CLASSIFY_LIMIT = 120
+const TREE_SOURCE_CLASSIFY_BUDGET_MS = 500
+const UNCLASSIFIED_FIBER: FiberClassification = { source: null, isLibrary: false }
 
 export function registerFiber(fiber: Fiber): NodeId {
   const id = asNodeId(getFiberId(fiber))
@@ -206,6 +219,17 @@ function countNodes(root: Fiber, includeHost: boolean): number {
   return count
 }
 
+/** The one appOnly disclosure grammar every filtered read shares, so an empty result is never mistaken for "none exist"; undefined when nothing was hidden. */
+export function appOnlyFilteredNote(
+  shown: number,
+  hidden: number,
+  subject: 'components' | 'effects',
+): string | undefined {
+  if (hidden <= 0) return undefined
+  const label = subject === 'effects' ? 'app effects' : 'components shown'
+  return `${shown} ${label} (${hidden} library ${subject} hidden — set appOnly:false to include)`
+}
+
 export async function buildTree(
   root: Fiber,
   options: { depth: number; includeHost: boolean; maxNodes: number; appOnly?: boolean },
@@ -247,9 +271,17 @@ export async function buildTree(
   visit(root, null, options.depth)
   const total = countNodes(root, options.includeHost)
   let nodes = entries.map((entry) => entry.node)
+  let filteredNote: string | undefined
 
   if (options.appOnly) {
-    nodes = await foldLibrarySubtrees(entries)
+    const folded = await foldLibrarySubtrees(entries)
+    nodes = folded.nodes
+    filteredNote = appOnlyFilteredNote(nodes.length, folded.hidden, 'components')
+    if (folded.partial) {
+      const partialNote =
+        'source classification budget reached; some library components may be shown'
+      filteredNote = filteredNote ? `${filteredNote}; ${partialNote}` : partialNote
+    }
   }
 
   const truncatedBy = nodeCapped ? 'maxNodes' : depthClipped ? 'depth' : null
@@ -259,20 +291,19 @@ export async function buildTree(
     total,
     truncated: truncatedBy !== null,
     truncatedBy,
+    ...(filteredNote ? { filteredNote } : {}),
   }
 }
 
-// Classifies each node, labels anonymous nodes by source (`cmdk.js:1998`), and folds each library subtree into its top node instead of a wall of "Anonymous".
+// Classifies each node, labels anonymous nodes by source (`cmdk.js:1998`), and folds each library subtree into its top node instead of a wall of "Anonymous"; hidden counts the folded-away library nodes.
 async function foldLibrarySubtrees(
   entries: { node: TreeNode; fiber: Fiber }[],
-): Promise<TreeNode[]> {
-  const classes = await Promise.all(entries.map((entry) => classifyFiber(entry.fiber)))
-  const libraryIds = new Set<NodeId>()
+): Promise<{ nodes: TreeNode[]; hidden: number; partial: boolean }> {
+  const { classes, partial } = await classifyTreeEntries(entries)
   entries.forEach((entry, index) => {
-    const { source, isLibrary } = classes[index] ?? { source: null, isLibrary: false }
+    const { source, isLibrary } = classes[index] ?? UNCLASSIFIED_FIBER
     entry.node.source = source
     entry.node.isLibrary = isLibrary
-    if (isLibrary) libraryIds.add(entry.node.id)
     if (entry.node.name === 'Anonymous') {
       const label = sourceLabel(source)
       if (label) entry.node.name = label
@@ -286,16 +317,28 @@ async function foldLibrarySubtrees(
     const parent = node.parentId != null ? byId.get(node.parentId) : undefined
     return parent?.isLibrary === true
   }
-  return entries.map((entry) => entry.node).filter((node) => !isLibraryInternal(node))
+  const nodes = entries.map((entry) => entry.node).filter((node) => !isLibraryInternal(node))
+  return { nodes, hidden: entries.length - nodes.length, partial }
 }
 
-export function findByName(
-  root: Fiber,
-  query: string,
-  exact: boolean,
-  limit: number,
-): Array<{ id: NodeId; name: string; path: string }> {
-  const matches: Array<{ id: NodeId; name: string; path: string }> = []
+async function classifyTreeEntries(
+  entries: { node: TreeNode; fiber: Fiber }[],
+): Promise<{ classes: FiberClassification[]; partial: boolean }> {
+  return classifyFibersWithinBudget(
+    entries.map((entry) => entry.fiber),
+    { limit: TREE_SOURCE_CLASSIFY_LIMIT, budgetMs: TREE_SOURCE_CLASSIFY_BUDGET_MS },
+  )
+}
+
+export interface FindMatch {
+  id: NodeId
+  name: string
+  path: string
+  fiber: Fiber
+}
+
+export function findByName(root: Fiber, query: string, exact: boolean, limit: number): FindMatch[] {
+  const matches: FindMatch[] = []
   const needle = query.toLowerCase()
 
   const visit = (fiber: Fiber, ancestors: string[]): void => {
@@ -306,7 +349,12 @@ export function findByName(
         const name = nameOf(child)
         const hit = exact ? name === query : name.toLowerCase().includes(needle)
         if (hit)
-          matches.push({ id: registerFiber(child), name, path: [...ancestors, name].join(' > ') })
+          matches.push({
+            id: registerFiber(child),
+            name,
+            path: [...ancestors, name].join(' > '),
+            fiber: child,
+          })
         visit(child, [...ancestors, name])
       } else {
         visit(child, ancestors)
@@ -317,6 +365,11 @@ export function findByName(
 
   visit(root, [])
   return matches
+}
+
+/** A find match's kind + shallow props preview, resolved synchronously from the fiber (source/library are classified async by the caller). */
+export function matchDetail(fiber: Fiber, propsDepth: number): { kind: string; props: unknown } {
+  return { kind: fiberKind(fiber), props: dehydrate(fiber.memoizedProps, { depth: propsDepth }) }
 }
 
 export function findFiberById(root: Fiber, id: NodeId): Fiber | null {
@@ -343,19 +396,76 @@ export function findFiberById(root: Fiber, id: NodeId): Fiber | null {
   return found ? getLatestFiber(found) : null
 }
 
-/** An effect hook's memoizedState carries its machinery (create/destroy/inst/tag); this identifies one. */
-function isEffectHookState(
-  v: object,
-): v is { create: (...args: unknown[]) => unknown; deps: unknown } {
-  return 'create' in v && typeof v.create === 'function' && 'deps' in v
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
+
+/** An effect hook's memoizedState carries its machinery (create/destroy/inst/tag); this identifies one and narrows `deps`/`tag`. */
+function isEffectHookState(v: unknown): v is { create: unknown; deps: unknown; tag?: unknown } {
+  return isObject(v) && typeof v.create === 'function' && 'deps' in v
 }
 
-/** Effect hooks store machinery (create/destroy/inst/tag); surface only their deps, not the internals. */
-function describeHook(index: number, memoizedState: unknown, depth: number): unknown {
-  if (memoizedState && typeof memoizedState === 'object' && isEffectHookState(memoizedState)) {
-    return { index, kind: 'effect', deps: dehydrate(memoizedState.deps, { depth }) }
+// useState/useReducer are the only hooks whose sibling `queue` holds a dispatch fn; this narrows it (queue itself is typed unknown via MemoizedState's index signature).
+function hasDispatchQueue(
+  hook: MemoizedState,
+): hook is MemoizedState & { queue: { dispatch: unknown; lastRenderedReducer?: unknown } } {
+  const queue = hook.queue
+  return isObject(queue) && typeof queue.dispatch === 'function'
+}
+
+// useState wires queue.lastRenderedReducer to React's internal basicStateReducer; useReducer wires the user's reducer — the only structural tell between them.
+const isBasicStateReducer = (queue: { lastRenderedReducer?: unknown }): boolean => {
+  const reducer = queue.lastRenderedReducer
+  return typeof reducer === 'function' && reducer.name === 'basicStateReducer'
+}
+
+// A single-key { current } object is the useRef signature; useMemo/useCallback store [value, deps] arrays, checked before this so they don't fall through to ref.
+const isRefState = (v: unknown): boolean =>
+  isObject(v) && !Array.isArray(v) && 'current' in v && Object.keys(v).length === 1
+
+// useMemo/useCallback both memoize as [value, depsArray]; callback when the value is a function. Best-effort: useMemo returning a function reads as callback.
+const isMemoOrCallbackState = (v: unknown): v is [unknown, unknown[]] =>
+  Array.isArray(v) && v.length === 2 && Array.isArray(v[1])
+
+export type HookKind = z.infer<typeof hookKindSchema>
+
+// React's ReactHookEffectTags (stable 16.8+/18/19): the layout bit on an effect hook's memoizedState.tag marks useLayoutEffect; a passive-only effect is useEffect.
+const HOOK_LAYOUT = 0b0100
+
+/** True for useState/useReducer hooks — the ones whose value can be driven by react_override_hook_state. Never throws. */
+export function isStatefulHook(hook: MemoizedState): boolean {
+  return hasDispatchQueue(hook)
+}
+
+/** Structurally classify a hook from its runtime shape (React 18/19). Never throws — unknown shapes fall to 'other'. */
+export function classifyHook(hook: MemoizedState): HookKind {
+  if (hasDispatchQueue(hook)) return isBasicStateReducer(hook.queue) ? 'state' : 'reducer'
+  const ms = hook.memoizedState
+  if (isEffectHookState(ms)) {
+    return typeof ms.tag === 'number' && (ms.tag & HOOK_LAYOUT) !== 0 ? 'layout-effect' : 'effect'
   }
-  return { index, value: dehydrate(memoizedState, { depth }) }
+  if (isMemoOrCallbackState(ms)) return typeof ms[0] === 'function' ? 'callback' : 'memo'
+  if (isRefState(ms)) return 'ref'
+  return 'other'
+}
+
+/** One hook entry for react_inspect_component: its kind, whether it is stateful, its stateful ordinal, and its value/deps (never throws on classification). */
+function describeHook(
+  hook: MemoizedState,
+  index: number,
+  stateIndex: number | null,
+  depth: number,
+): HookEntry {
+  const kind = classifyHook(hook)
+  const ms = hook.memoizedState
+  const valueOrDeps = isEffectHookState(ms)
+    ? { deps: dehydrate(ms.deps, { depth }) }
+    : { value: dehydrate(ms, { depth }) }
+  return {
+    index,
+    kind,
+    stateful: stateIndex !== null,
+    ...(stateIndex !== null ? { stateIndex } : {}),
+    ...valueOrDeps,
+  }
 }
 
 /** The fiber's hook list (its memoizedState chain), capped at {@link MAX_HOOKS}. */
@@ -376,15 +486,17 @@ export function inspectFiber(
   const kind = fiberKind(fiber)
   const props = dehydrate(fiber.memoizedProps, { depth: options.depth, path: options.path })
   let state: unknown
-  let hooks: unknown[] = []
+  let hooks: HookEntry[] = []
 
   if (kind === 'class') {
     const instance = fiber.stateNode as { state?: unknown } | null
     state = dehydrate(instance?.state ?? fiber.memoizedState, { depth: options.depth })
   } else if (kind === 'function' || kind === 'memo' || kind === 'forwardRef') {
-    hooks = hookChain(fiber).map((hook, index) =>
-      describeHook(index, hook.memoizedState, options.depth),
-    )
+    let statefulOrdinal = 0
+    hooks = hookChain(fiber).map((hook, index) => {
+      const stateIndex = isStatefulHook(hook) ? statefulOrdinal++ : null
+      return describeHook(hook, index, stateIndex, options.depth)
+    })
   }
 
   return { id: asNodeId(getFiberId(fiber)), name: nameOf(fiber), kind, props, state, hooks }

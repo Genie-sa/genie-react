@@ -1,7 +1,10 @@
 import type { Effect, Fiber, RenderPhase } from 'bippy'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { clearEffects, getEffectAudit, recordEffect } from './effect-tracker'
+import { clearEffects, getEffectAuditReport, recordEffect } from './effect-tracker'
 import { clearSourceCache } from './source'
+
+const getEffectAudit = async (query: Parameters<typeof getEffectAuditReport>[0]) =>
+  (await getEffectAuditReport(query)).components
 
 // Fake fibers have no _debugStack: stub source lookup to null so everything classifies as app and survives appOnly; per-test getFiberHooks trees drive per-effect attribution.
 const inspector = vi.hoisted(() => ({
@@ -68,7 +71,7 @@ function effectList(specs: EffectSpec[]): Effect | null {
 // One fiber whose identity (hence bippy id) is stable across commits; the effect list and alternate are mutated per commit, as React reuses fibers.
 function makeComponent(name: string) {
   const type = (): null => null
-  ;(type as { displayName?: string }).displayName = name
+  Object.assign(type, { displayName: name })
   const fiber = { tag: 0, type, updateQueue: { lastEffect: null }, alternate: null } as Record<
     string,
     unknown

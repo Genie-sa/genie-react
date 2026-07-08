@@ -57,6 +57,8 @@ export const sessionSummarySchema = z.object({
   toolCount: z.number(),
   connectedAt: z.number(),
   current: z.boolean(),
+  /** Present when a heartbeat-capable session went silent (likely a dead tab context); default routing skips it while a fresh session exists. */
+  staleMs: z.number().optional(),
 })
 export type SessionSummary = z.infer<typeof sessionSummarySchema>
 
@@ -93,11 +95,18 @@ export const appResponseSchema = z.object({
   error: z.string().optional(),
 })
 
+/** Liveness beacon sent on a fixed cadence while the app socket is open; a gap tells the bridge the main thread is busy, not crashed. */
+export const appHeartbeatSchema = z.object({
+  kind: z.literal('app/heartbeat'),
+  sessionId: z.string(),
+})
+
 export const appMessageSchema = z.discriminatedUnion('kind', [
   appHelloSchema,
   appSnapshotSchema,
   appEventSchema,
   appResponseSchema,
+  appHeartbeatSchema,
 ])
 export type AppMessage = z.infer<typeof appMessageSchema>
 
@@ -132,6 +141,10 @@ export const agentInvokeSchema = z.object({
     .string()
     .optional()
     .describe('Target app session; defaults to the most recently connected.'),
+  timeoutMs: z
+    .number()
+    .optional()
+    .describe('Per-call full-timeout override; the bridge clamps it to [1000, 120000].'),
 })
 
 export const agentPingSchema = z.object({
@@ -144,12 +157,26 @@ export type AgentMessage = z.infer<typeof agentMessageSchema>
 
 // ── Bridge → Agent ──────────────────────────────────────────────────────────
 
+/** Machine-readable failure classes so an agent can branch (retry vs. fix args vs. give up) without parsing prose. */
+export const agentErrorCodeSchema = z.enum([
+  'not-connected',
+  'unknown-session',
+  'busy',
+  'timeout',
+  'invalid-args',
+  'tool-error',
+])
+export type AgentErrorCode = z.infer<typeof agentErrorCodeSchema>
+export const AGENT_ERROR_CODES = agentErrorCodeSchema.options
+
 export const bridgeResultSchema = z.object({
   kind: z.literal('bridge/result'),
   id: z.string(),
   ok: z.boolean(),
   result: z.unknown().optional(),
   error: z.string().optional(),
+  errorCode: agentErrorCodeSchema.optional(),
+  retryInMs: z.number().optional(),
 })
 
 export const bridgeStatusSchema = z.object({

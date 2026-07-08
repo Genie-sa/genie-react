@@ -22,7 +22,7 @@
   "author": "y0u-0",
   "type": "module",
   "bin": {
-    "genie": "./dist/cli.js"
+    "genie-react": "./dist/cli.js"
   },
   "exports": {
     ".": {

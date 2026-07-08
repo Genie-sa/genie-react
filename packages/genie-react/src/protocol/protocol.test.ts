@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { decodeAgentBoundMessage, decodeAppBoundMessage, encodeMessage, newId } from './protocol'
+import {
+  agentMessageSchema,
+  appMessageSchema,
+  decodeAgentBoundMessage,
+  decodeAppBoundMessage,
+  encodeMessage,
+  newId,
+} from './protocol'
+import { decodeFrame } from './serialization'
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -50,6 +58,55 @@ describe('protocol codecs', () => {
     const bogus = encodeMessage({ kind: 'app/bogus', anything: true })
     expect(() => decodeAppBoundMessage(bogus)).toThrow()
     expect(() => decodeAgentBoundMessage(bogus)).toThrow()
+  })
+
+  it('accepts an app/heartbeat frame', () => {
+    const parsed = appMessageSchema.parse({ kind: 'app/heartbeat', sessionId: 's-1' })
+    expect(parsed.kind).toBe('app/heartbeat')
+  })
+
+  it('carries errorCode + retryInMs on a bridge/result and stays backward-compatible without them', () => {
+    const tagged = decodeAgentBoundMessage(
+      encodeMessage({
+        kind: 'bridge/result',
+        id: 'r-1',
+        ok: false,
+        error: 'busy',
+        errorCode: 'busy',
+        retryInMs: 500,
+      }),
+    )
+    if (tagged.kind !== 'bridge/result') throw new Error('unreachable')
+    expect(tagged.errorCode).toBe('busy')
+    expect(tagged.retryInMs).toBe(500)
+
+    const plain = decodeAgentBoundMessage(
+      encodeMessage({ kind: 'bridge/result', id: 'r-2', ok: true, result: { a: 1 } }),
+    )
+    if (plain.kind !== 'bridge/result') throw new Error('unreachable')
+    expect(plain.errorCode).toBeUndefined()
+    expect(plain.retryInMs).toBeUndefined()
+  })
+
+  it('rejects an unknown errorCode on a bridge/result', () => {
+    expect(() =>
+      decodeAgentBoundMessage(
+        encodeMessage({ kind: 'bridge/result', id: 'r-3', ok: false, errorCode: 'nope' }),
+      ),
+    ).toThrow()
+  })
+
+  it('carries an optional timeoutMs on an agent/invoke frame', () => {
+    const frame = encodeMessage({
+      kind: 'agent/invoke',
+      id: 'i-1',
+      tool: 'react_get_tree',
+      args: {},
+      timeoutMs: 5000,
+    })
+    const parsed = agentMessageSchema.parse(decodeFrame(frame))
+    if (parsed.kind !== 'agent/invoke') throw new Error('unreachable')
+    expect(parsed.timeoutMs).toBe(5000)
   })
 })
 

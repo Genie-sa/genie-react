@@ -55,7 +55,7 @@ export async function resolveBridgeUrl(cwd: string = process.cwd()): Promise<str
   return (await resolveBridge(cwd)).url
 }
 
-// Walks up to the filesystem root, so `genie call` works from nested dirs and monorepo roots.
+// Walks up to the filesystem root, so `genie-react call` works from nested dirs and monorepo roots.
 async function readDiscoveryUpward(startDir: string): Promise<string | null> {
   const { root } = parse(startDir)
   let dir = startDir
@@ -69,7 +69,7 @@ async function readDiscoveryUpward(startDir: string): Promise<string | null> {
         // A SIGKILLed dev server/hub never cleans up; a dead pid means the URL is a lie — heal instead of failing weird.
         await unlink(path).catch(() => {})
         process.stderr.write(
-          `genie: removed stale ${GENIE_DISCOVERY_FILE} (pid ${discovery.pid} is gone)\n`,
+          `genie-react: removed stale ${GENIE_DISCOVERY_FILE} (pid ${discovery.pid} is gone)\n`,
         )
       }
     } catch {

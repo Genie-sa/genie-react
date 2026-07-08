@@ -4,6 +4,8 @@ import {
   formatGroupIndex,
   formatToolDetail,
   formatToolsListing,
+  parseBatchItems,
+  projectFields,
   relatedActions,
   renderResult,
   resolveSession,
@@ -11,9 +13,14 @@ import {
   summarizeEffects,
   summarizeErrorState,
   summarizeFps,
+  summarizeInspect,
+  summarizeListOverrides,
   summarizeProfile,
+  summarizeProfileSnapshot,
   summarizeQueryList,
   summarizeRenders,
+  summarizeRendersDiff,
+  summarizeResetOverrides,
   summarizeRouterRoutes,
   summarizeRouterState,
   summarizeStatus,
@@ -151,7 +158,7 @@ describe('summarizeRenders', () => {
     )
     expect(lines?.[1]).toBe('unstable props: onClick×3, style×2')
     expect(lines?.[2]).toBe(
-      '  Dashboard #1 5× (1m 4u) · 2 unnec · 3 unstable · self 1.2ms · ↻ onClick',
+      '  Dashboard #1 5× (1m 4u) · 2 unnec · 3 unstable · self 1.2ms · ↻ props: onClick(unstable), count',
     )
     expect(lines?.[3]).toContain('Row')
     expect(lines?.[3]).toContain('4× (4m 0u) · forget · self 0.4ms')
@@ -183,6 +190,37 @@ describe('summarizeRenders', () => {
     expect(summarizeRenders(null)).toBeNull()
     expect(summarizeRenders({})).toBeNull()
     expect(summarizeRenders({ summary: {}, components: 'nope' })).toBeNull()
+  })
+
+  it('shows the full render cause: changed props (unstable flagged) plus a state marker', () => {
+    const payload = {
+      ...rendersPayload,
+      components: [
+        {
+          ...rendersPayload.components[0],
+          changes: [
+            { name: 'style', kind: 'props', unstable: true },
+            { name: 'onClick', kind: 'props', unstable: false },
+            { name: '(state/hooks)', kind: 'state', unstable: false },
+          ],
+        },
+      ],
+    }
+    const line = summarizeRenders(payload)?.split('\n')[2]
+    expect(line).toContain('↻ props: style(unstable), onClick · state')
+  })
+
+  it('shows a bare state marker when only state changed', () => {
+    const payload = {
+      ...rendersPayload,
+      components: [
+        {
+          ...rendersPayload.components[0],
+          changes: [{ name: '(state/hooks)', kind: 'state', unstable: false }],
+        },
+      ],
+    }
+    expect(summarizeRenders(payload)?.split('\n')[2]).toContain('↻ state')
   })
 })
 
@@ -279,6 +317,24 @@ const treePayload = {
   ],
 }
 
+describe('summarizeInspect', () => {
+  it('renders each hook with its kind, stateful ordinal, and value in the text view', () => {
+    const text = summarizeInspect({
+      id: 7,
+      name: 'Wizard',
+      kind: 'function',
+      props: { step: 1 },
+      hooks: [
+        { index: 0, kind: 'state', stateful: true, stateIndex: 0, value: false },
+        { index: 1, kind: 'effect', stateful: false },
+      ],
+    })
+    expect(text).toContain('hooks: 2')
+    expect(text).toContain('[0] state stateIndex 0 = false')
+    expect(text).toContain('[1] effect')
+  })
+})
+
 describe('summarizeTree', () => {
   it('renders a header and a depth-indented outline reconstructed from parentId', () => {
     const lines = summarizeTree(treePayload)?.split('\n')
@@ -354,7 +410,7 @@ describe('progressive tools discovery', () => {
     expect(index).toContain('4 tools from Demo · 3 groups')
     expect(index).toContain('react.render')
     expect(index).toContain('react_get_renders, react_clear_renders')
-    expect(index).toContain('genie tools <group>')
+    expect(index).toContain('genie-react tools <group>')
     expect(index).not.toContain('staleOnly')
   })
 
@@ -391,7 +447,9 @@ describe('progressive tools discovery', () => {
     expect(detail).toContain('Read buffered plugin events.')
     expect(detail).toContain('pluginId: string')
     expect(detail).toContain('limit?: integer (default 50)')
-    expect(detail).toContain(`example: genie call plugin_get_events '{"pluginId":"<pluginId>"}'`)
+    expect(detail).toContain(
+      `example: genie-react call plugin_get_events '{"pluginId":"<pluginId>"}'`,
+    )
   })
 })
 
@@ -588,6 +646,184 @@ describe('new summarizers', () => {
         pendingMatchCount: 0,
       }),
     ).toBe('"/dash?tab=kpi" · idle · 2 matches')
+  })
+})
+
+describe('override + diff summarizers', () => {
+  it('summarizeListOverrides: header + one line each, (unmounted) flag, and a calm zero state', () => {
+    const outText = summarizeListOverrides({
+      total: 2,
+      overrides: [
+        {
+          kind: 'props',
+          componentId: 12,
+          componentName: 'Button',
+          detail: 'disabled=true',
+          mounted: true,
+        },
+        {
+          kind: 'hook',
+          componentId: null,
+          componentName: 'useAuth',
+          detail: 'user=null',
+          mounted: false,
+        },
+      ],
+    })
+    expect(outText).toContain('2 active overrides')
+    expect(outText).toContain('  [props] Button #12 — disabled=true')
+    expect(outText).toContain('  [hook] useAuth — user=null (unmounted)')
+    expect(summarizeListOverrides({ total: 0, overrides: [] })).toBe('no active overrides')
+    expect(summarizeListOverrides({ nope: 1 })).toBeNull()
+  })
+
+  it('summarizeResetOverrides: cleared/remaining header + one line per entry', () => {
+    const outText = summarizeResetOverrides({
+      ok: true,
+      cleared: [
+        { kind: 'props', componentName: 'Button', outcome: 'restored' },
+        { kind: 'hook', componentName: 'useAuth', outcome: 'skipped-unmounted' },
+      ],
+      remaining: 1,
+    })
+    expect(outText).toContain('cleared 2 overrides · 1 remaining')
+    expect(outText).toContain('  [props] Button — restored')
+    expect(outText).toContain('  [hook] useAuth — skipped-unmounted')
+    expect(summarizeResetOverrides({ nope: 1 })).toBeNull()
+  })
+
+  it('summarizeRendersDiff: verdict header with sign + top regressed/improved lines', () => {
+    const outText = summarizeRendersDiff({
+      baseline: 'before-fix',
+      commits: { before: 10, after: 6 },
+      selfTimeMs: { before: 40, after: 25, delta: -15, pct: -37.5 },
+      regressed: [
+        {
+          name: 'Row',
+          deltaMs: 3.2,
+          before: { renders: 2, selfTime: 1 },
+          after: { renders: 5, selfTime: 4.2 },
+        },
+      ],
+      improved: [
+        {
+          name: 'Dashboard',
+          deltaMs: -18.2,
+          before: { renders: 9, selfTime: 20 },
+          after: { renders: 3, selfTime: 1.8 },
+        },
+      ],
+    })
+    expect(outText).toContain('40ms → 25ms (-37.5%) · commits 10→6 · 1 regressed · 1 improved')
+    expect(outText).toContain('  Row +3.2ms')
+    expect(outText).toContain('  Dashboard -18.2ms')
+    expect(summarizeRendersDiff({ nope: 1 })).toBeNull()
+  })
+
+  it('summarizeRendersDiff: positive pct gets a + sign', () => {
+    const outText = summarizeRendersDiff({
+      baseline: 'b',
+      commits: { before: 4, after: 8 },
+      selfTimeMs: { before: 10, after: 22, delta: 12, pct: 120 },
+      regressed: [],
+      improved: [],
+    })
+    expect(outText).toContain('10ms → 22ms (+120%)')
+  })
+
+  it('summarizeProfileSnapshot: a single line', () => {
+    expect(
+      summarizeProfileSnapshot({ ok: true, label: 'baseline', commits: 6, components: 12 }),
+    ).toBe('snapshot "baseline" · 6 commits · 12 components')
+    expect(summarizeProfileSnapshot({ nope: 1 })).toBeNull()
+  })
+})
+
+describe('renderResult: --fields projection', () => {
+  it('projects the first array-of-records to JSONL with only the requested keys', () => {
+    const result = {
+      total: 2,
+      matches: [
+        { id: 1, name: 'Button', path: 'App/Button', extra: 'drop-me' },
+        { id: 2, name: 'Row', path: 'App/Row' },
+      ],
+    }
+    const outText = renderResult('react_find_components', result, false, ['id', 'name'])
+    expect(outText.split('\n')).toEqual(['{"id":1,"name":"Button"}', '{"id":2,"name":"Row"}'])
+  })
+
+  it('omits missing keys rather than emitting undefined', () => {
+    const outText = projectFields({ nodes: [{ id: 1 }, { id: 2, name: 'x' }] }, ['id', 'name'])
+    expect(outText.split('\n')).toEqual(['{"id":1}', '{"id":2,"name":"x"}'])
+  })
+
+  it('projects the top-level object when there is no array-of-records', () => {
+    const outText = renderResult('devtools_status', { connected: true, toolCount: 51 }, false, [
+      'connected',
+      'missing',
+    ])
+    expect(outText).toBe('{"connected":true}')
+  })
+
+  it('--fields wins over --json and over summarizers', () => {
+    expect(renderResult('react_get_renders', rendersPayload, true, ['id'])).toBe(
+      renderResult('react_get_renders', rendersPayload, false, ['id']),
+    )
+    expect(renderResult('react_get_renders', rendersPayload, true, ['id'])).not.toBe(
+      JSON.stringify(rendersPayload),
+    )
+  })
+})
+
+describe('renderResult: filteredNote passthrough', () => {
+  it('appends a non-empty filteredNote after a summarizer output line', () => {
+    const result = {
+      commits: 1,
+      components: [],
+      filteredNote: '0 app effects (37 library effects hidden — set appOnly:false to include)',
+    }
+    const outText = renderResult('react_effect_audit', result)
+    expect(outText).toContain('37 library effects hidden')
+    expect(outText.split('\n').at(-1)).toBe(result.filteredNote)
+  })
+
+  it('appends a filteredNote on the small-flat-record path too', () => {
+    const outText = renderResult('react_reset_overrides', {
+      ok: true,
+      filteredNote: 'note here',
+    })
+    expect(outText.split('\n').at(-1)).toBe('note here')
+  })
+
+  it('never crashes on odd filteredNote shapes and never appends an empty note', () => {
+    expect(() => renderResult('x', { a: 1, filteredNote: 42 })).not.toThrow()
+    // Empty note: nothing is appended, so the small-record line is unchanged.
+    expect(renderResult('x', { a: 1, filteredNote: '' })).toBe('a=1 · filteredNote=""')
+  })
+})
+
+describe('parseBatchItems', () => {
+  it('parses an array of {tool, args?} objects, defaulting missing args to {}', () => {
+    const parsed = parseBatchItems('[{"tool":"a","args":{"x":1}},{"tool":"b"}]')
+    expect('items' in parsed && parsed.items).toEqual([
+      { tool: 'a', args: { x: 1 } },
+      { tool: 'b', args: {} },
+    ])
+  })
+
+  it('rejects non-arrays, missing tool, and non-object args', () => {
+    expect(parseBatchItems('not json')).toMatchObject({
+      error: expect.stringContaining('invalid JSON'),
+    })
+    expect(parseBatchItems('{}')).toMatchObject({
+      error: expect.stringContaining('must be a JSON array'),
+    })
+    expect(parseBatchItems('[{"args":{}}]')).toMatchObject({
+      error: expect.stringContaining('string "tool"'),
+    })
+    expect(parseBatchItems('[{"tool":"a","args":5}]')).toMatchObject({
+      error: expect.stringContaining('args must be an object'),
+    })
   })
 })
 

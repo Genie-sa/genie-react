@@ -4,9 +4,9 @@ import {
   devtoolsWaitContract,
   errorMessage,
 } from 'genie-react/protocol'
-import { GenieAgentLink } from './agent-link'
+import { BridgeCallError, GenieAgentLink, INVOKE_GRACE_MS } from './agent-link'
 import { resolveBridge } from './discovery'
-import { isRecord } from './guards'
+import { isRecord, isRecordArray } from './guards'
 
 // The CLI's tool-calling surface: connects to the bridge as the `agent` role — straight from a shell, no separate server.
 
@@ -18,10 +18,14 @@ export interface AgentOptions {
   waitMs?: number
   /** Print raw JSON (compact, machine-first) instead of the per-tool summary. */
   json?: boolean
-  /** Target a specific app session when several tabs are connected (see `genie status`). */
+  /** Target a specific app session when several tabs are connected (see `genie-react status`). */
   session?: string
-  /** `genie tools --all`: the complete flat catalog instead of the progressive group index. */
+  /** `genie-react tools --all`: the complete flat catalog instead of the progressive group index. */
   all?: boolean
+  /** Per-call full-timeout budget (ms) forwarded to the bridge; clamped by it to [1000, 120000]. */
+  timeoutMs?: number
+  /** `--fields id,name,…`: project the first array-of-records to these keys as JSONL (implies machine output). */
+  fields?: string[]
 }
 
 /** Priority: --session flag → GENIE_SESSION env, so a same-app agent pins its own tab once per shell instead of repeating the flag. */
@@ -40,14 +44,15 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
     url = bridge.url
     if (bridge.source === 'fallback') {
       err(
-        `genie: no .genie/bridge.json found from ${cwd} upward — trying ${url}. Start your dev server (Vite: genie() plugin) or \`genie hub\`, or set GENIE_BRIDGE_URL.`,
+        `genie-react: no .genie/bridge.json found from ${cwd} upward — trying ${url}. Start your dev server (Vite: genie() plugin) or \`genie-react hub\`, or set GENIE_BRIDGE_URL.`,
       )
     }
   }
   const link = new GenieAgentLink({
     url,
     connectTimeoutMs: 8_000,
-    invokeTimeoutMs: 20_000,
+    // A per-call --timeout still wins per-invoke (timeoutMs + grace); this is the default when none is given.
+    invokeTimeoutMs: opts.timeoutMs ? opts.timeoutMs + INVOKE_GRACE_MS : 20_000,
     sessionId: resolveSession(opts.session),
   })
   link.start()
@@ -65,6 +70,10 @@ const summarizers: Record<string, (result: unknown) => string | null> = {
   react_inspect_component: summarizeInspect,
   react_error_state: summarizeErrorState,
   react_profile_report: summarizeProfile,
+  react_list_overrides: summarizeListOverrides,
+  react_reset_overrides: summarizeResetOverrides,
+  react_renders_diff: summarizeRendersDiff,
+  react_profile_snapshot: summarizeProfileSnapshot,
   browser_fps: summarizeFps,
   query_list: summarizeQueryList,
   query_get: summarizeQueryGet,
@@ -74,10 +83,51 @@ const summarizers: Record<string, (result: unknown) => string | null> = {
 }
 
 /** `--json` is machine-first (compact, parseable); the human path tries a summarizer, then a one-line flat record (small action results), then pretty JSON so nothing is ever dropped. */
-export function renderResult(tool: string, result: unknown, json?: boolean): string {
+export function renderResult(
+  tool: string,
+  result: unknown,
+  json?: boolean,
+  fields?: string[],
+): string {
+  if (fields && fields.length > 0) return projectFields(result, fields)
   if (json) return JSON.stringify(result)
   const summarize = summarizers[tool]
-  return summarize?.(result) ?? smallResultLine(result) ?? prettyJson(result)
+  const text = summarize?.(result) ?? smallResultLine(result) ?? prettyJson(result)
+  return withFilteredNote(text, result)
+}
+
+/** Appends a collector's optional top-level `filteredNote` (e.g. "37 library effects hidden") so progressive-disclosure filtering is never silent; defensive against odd shapes. */
+function withFilteredNote(text: string, result: unknown): string {
+  if (!isRecord(result)) return text
+  const note = result.filteredNote
+  if (typeof note !== 'string' || note.length === 0) return text
+  return `${text}\n${note}`
+}
+
+/** `--fields` output: the top-level object projected when any requested key exists on it; otherwise one JSONL row per record in the FIRST array-of-records field (key order, empty → zero rows). Deterministic — the projected source never depends on which array happens to have rows. */
+export function projectFields(result: unknown, fields: string[]): string {
+  if (!isRecord(result)) return JSON.stringify(pickFields(result, fields))
+  if (fields.some((field) => field in result)) return JSON.stringify(pickFields(result, fields))
+  const rows = firstRecordArray(result)
+  if (rows) return rows.map((row) => JSON.stringify(pickFields(row, fields))).join('\n')
+  return JSON.stringify(pickFields(result, fields))
+}
+
+function firstRecordArray(result: Record<string, unknown>): Record<string, unknown>[] | null {
+  for (const value of Object.values(result)) {
+    if (isRecordArray(value)) return value
+  }
+  return null
+}
+
+/** Projects a value to the requested keys, omitting ones it doesn't have (never emits `undefined`). */
+function pickFields(value: unknown, fields: string[]): Record<string, unknown> {
+  const source = isRecord(value) ? value : {}
+  const picked: Record<string, unknown> = {}
+  for (const field of fields) {
+    if (field in source) picked[field] = source[field]
+  }
+  return picked
 }
 
 /** One line for small all-primitive records (`ok=true · pathname="/error"`) so action results read like the summaries around them. */
@@ -129,8 +179,8 @@ export function summarizeRenders(result: unknown): string | null {
       parts.push(`· ${num(component.unstableRenders)} unstable`)
     if (component.forget === true) parts.push('· forget')
     parts.push(`· self ${round(num(component.selfTime))}ms`)
-    const changed = unstableChangeNames(component.changes)
-    if (changed) parts.push(`· ↻ ${changed}`)
+    const cause = renderCause(component.changes)
+    if (cause) parts.push(`· ↻ ${cause}`)
     lines.push(parts.join(' ') + sourceSuffix(component))
   }
   return lines.join('\n')
@@ -223,13 +273,21 @@ function depthOf(
   return depth
 }
 
-function unstableChangeNames(changes: unknown): string | null {
+/** Compact render cause from a component's `changes[]`: changed props (unstable ones flagged) plus a `state` marker, e.g. `props: style(unstable), onClick · state`. */
+function renderCause(changes: unknown): string | null {
   if (!Array.isArray(changes)) return null
-  const names = changes
-    .filter(isRecord)
-    .filter((change) => change.unstable === true)
-    .map((change) => String(change.name))
-  return names.length > 0 ? names.join(', ') : null
+  const records = changes.filter(isRecord)
+  if (records.length === 0) return null
+
+  const propNames = records
+    .filter((change) => change.kind === 'props')
+    .map((change) => `${String(change.name)}${change.unstable === true ? '(unstable)' : ''}`)
+  const hasState = records.some((change) => change.kind === 'state')
+
+  const segments: string[] = []
+  if (propNames.length > 0) segments.push(`props: ${propNames.join(', ')}`)
+  if (hasState) segments.push('state')
+  return segments.length > 0 ? segments.join(' · ') : null
 }
 
 const GENERIC_BASENAMES = /^(index|main|app|page|layout|route)\.[jt]sx?$/i
@@ -268,6 +326,10 @@ export function summarizeStatus(result: unknown): string | null {
     if (typeof sessionApp.name === 'string') parts.push(sessionApp.name)
     if (typeof sessionApp.url === 'string') parts.push(sessionApp.url)
     if (session.current === true) parts.push('(current)')
+    if (typeof session.staleMs === 'number')
+      parts.push(
+        `(stale — no heartbeat for ${Math.round(session.staleMs / 1000)}s, likely a dead tab)`,
+      )
     lines.push(parts.join(' · '))
   }
   lines.push('target one: --session <id> (or set GENIE_SESSION once per shell)')
@@ -302,12 +364,23 @@ export function summarizeComponentForDom(result: unknown): string | null {
   return lines.join('\n')
 }
 
+const MAX_HOOK_LINES = 16
+
 export function summarizeInspect(result: unknown): string | null {
   if (!isRecord(result) || typeof result.name !== 'string' || !('props' in result)) return null
   const lines = [`${result.name} #${num(result.id)} · ${String(result.kind)}`]
   lines.push(`  props: ${recordPreview(result.props)}`)
   if (result.state !== undefined) lines.push(`  state: ${recordPreview(result.state)}`)
-  if (Array.isArray(result.hooks)) lines.push(`  hooks: ${result.hooks.length}`)
+  if (Array.isArray(result.hooks)) {
+    const hooks = result.hooks.filter(isRecord)
+    lines.push(`  hooks: ${hooks.length}`)
+    for (const hook of hooks.slice(0, MAX_HOOK_LINES)) {
+      const ordinal = typeof hook.stateIndex === 'number' ? ` stateIndex ${hook.stateIndex}` : ''
+      const value = 'value' in hook ? ` = ${recordPreview(hook.value)}` : ''
+      lines.push(`    [${num(hook.index)}] ${String(hook.kind)}${ordinal}${value}`)
+    }
+    if (hooks.length > MAX_HOOK_LINES) lines.push(`    +${hooks.length - MAX_HOOK_LINES} more`)
+  }
   return lines.join('\n')
 }
 
@@ -370,6 +443,64 @@ export function summarizeProfile(result: unknown): string | null {
     (r) => `${String(r.name)} ${num(r.unstableRenders)}/${num(r.renders)}`,
   )
   return lines.join('\n')
+}
+
+export function summarizeListOverrides(result: unknown): string | null {
+  if (!isRecord(result) || !Array.isArray(result.overrides)) return null
+  const overrides = result.overrides.filter(isRecord)
+  const total = num(result.total)
+  if (total === 0 && overrides.length === 0) return 'no active overrides'
+  const lines = [`${total} active override${total === 1 ? '' : 's'}`]
+  for (const override of overrides) {
+    const id = override.componentId == null ? '' : ` #${num(override.componentId)}`
+    const unmounted = override.mounted === false ? ' (unmounted)' : ''
+    lines.push(
+      `  [${String(override.kind)}] ${String(override.componentName)}${id} — ${String(override.detail)}${unmounted}`,
+    )
+  }
+  return lines.join('\n')
+}
+
+export function summarizeResetOverrides(result: unknown): string | null {
+  if (!isRecord(result) || !Array.isArray(result.cleared)) return null
+  const cleared = result.cleared.filter(isRecord)
+  const lines = [
+    `cleared ${cleared.length} override${cleared.length === 1 ? '' : 's'} · ${num(result.remaining)} remaining`,
+  ]
+  for (const entry of cleared) {
+    lines.push(
+      `  [${String(entry.kind)}] ${String(entry.componentName)} — ${String(entry.outcome)}`,
+    )
+  }
+  return lines.join('\n')
+}
+
+export function summarizeRendersDiff(result: unknown): string | null {
+  if (!isRecord(result) || !isRecord(result.selfTimeMs) || !isRecord(result.commits)) return null
+  const self = result.selfTimeMs
+  const commits = result.commits
+  const regressed = Array.isArray(result.regressed) ? result.regressed.filter(isRecord) : []
+  const improved = Array.isArray(result.improved) ? result.improved.filter(isRecord) : []
+  // A null pct (zero baseline) must not read as "0% change".
+  const pct = self.pct === null ? 'n/a' : `${num(self.pct) > 0 ? '+' : ''}${round(num(self.pct))}%`
+  const lines = [
+    `${round(num(self.before))}ms → ${round(num(self.after))}ms (${pct}) · commits ${num(commits.before)}→${num(commits.after)} · ${regressed.length} regressed · ${improved.length} improved`,
+  ]
+  const clears = num(result.clearsSinceBaseline)
+  if (clears > 0)
+    lines.push(
+      `  counters cleared ${clears}× since baseline — session-vs-session compare; "removed" = not re-rendered since the clear`,
+    )
+  const line = (entry: Record<string, unknown>): string =>
+    `  ${String(entry.name)} ${signed(num(entry.deltaMs))}ms`
+  for (const entry of regressed.slice(0, 5)) lines.push(line(entry))
+  for (const entry of improved.slice(0, 5)) lines.push(line(entry))
+  return lines.join('\n')
+}
+
+export function summarizeProfileSnapshot(result: unknown): string | null {
+  if (!isRecord(result) || typeof result.label !== 'string') return null
+  return `snapshot "${result.label}" · ${num(result.commits)} commits · ${num(result.components)} components`
 }
 
 export function summarizeFps(result: unknown): string | null {
@@ -521,6 +652,7 @@ function bounded(raw: string | undefined): string {
 const prettyJson = (result: unknown): string => JSON.stringify(result, null, 2)
 const num = (value: unknown): number => (typeof value === 'number' ? value : 0)
 const round = (value: number): number => Math.round(value * 10) / 10
+const signed = (value: number): string => (value > 0 ? `+${round(value)}` : String(round(value)))
 
 export async function runCall(
   tool: string | undefined,
@@ -528,7 +660,7 @@ export async function runCall(
   opts: AgentOptions = {},
 ): Promise<number> {
   if (!tool) {
-    err("usage: genie call <tool> '<json-args>'")
+    err("usage: genie-react call <tool> '<json-args>'")
     return 1
   }
   let args: unknown = {}
@@ -544,30 +676,141 @@ export async function runCall(
   const { link } = await connect(opts)
   try {
     if (tool !== 'devtools_status') {
-      // Bridge-global wait (sessionId: null) so a stale --session fails fast on the real call instead of stalling here.
+      // Bridge-global wait (sessionId: null) so a stale --session fails fast on the real call instead of stalling here; its own timeout tracks --wait so a small --timeout can't truncate the connect window.
+      const waitMs = opts.waitMs ?? 15_000
       const ready = await link
-        .invoke(
-          devtoolsWaitContract,
-          { condition: 'connected', timeoutMs: opts.waitMs ?? 15_000 },
-          null,
-        )
+        .invoke(devtoolsWaitContract, { condition: 'connected', timeoutMs: waitMs }, null, {
+          timeoutMs: waitMs,
+        })
         .catch(() => null)
       if (!ready?.ok) {
         err(
-          'no app connected — start your dev server (Vite: genie() plugin; Next.js/other: genie hub) and open the app in a browser',
+          'no app connected — start your dev server (Vite: genie() plugin; Next.js/other: genie-react hub) and open the app in a browser',
         )
         return 1
       }
     }
-    const result = await link.invoke(tool, args)
-    out(renderResult(tool, result, opts.json))
+    const result = await link.invoke(tool, args, undefined, { timeoutMs: opts.timeoutMs })
+    const rendered = renderResult(tool, result, opts.json, opts.fields)
+    if (rendered !== '') out(rendered)
     return 0
   } catch (error) {
-    err(`genie call ${tool}: ${errorMessage(error)}`)
+    err(`genie-react call ${tool}${callErrorSuffix(error)}`)
     return 1
   } finally {
     link.close()
   }
+}
+
+/** Formats a failed call's tail: ` [<code>]: <message>` and ` — retry in <n>ms` when the bridge tagged the failure. */
+function callErrorSuffix(error: unknown): string {
+  const code = error instanceof BridgeCallError ? error.errorCode : undefined
+  const retry =
+    error instanceof BridgeCallError && typeof error.retryInMs === 'number'
+      ? ` — retry in ${error.retryInMs}ms`
+      : ''
+  const tag = code ? ` [${code}]` : ''
+  return `${tag}: ${errorMessage(error)}${retry}`
+}
+
+interface BatchItem {
+  tool: string
+  args: unknown
+}
+
+/** Parses a batch spec (a JSON array of `{tool, args?}`) into items, or an error string naming the first bad entry. */
+export function parseBatchItems(raw: string): { items: BatchItem[] } | { error: string } {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return { error: `invalid JSON batch: ${raw}` }
+  }
+  if (!Array.isArray(parsed))
+    return { error: 'batch must be a JSON array of {tool, args?} objects' }
+  const items: BatchItem[] = []
+  for (const [index, entry] of parsed.entries()) {
+    if (!isRecord(entry) || typeof entry.tool !== 'string') {
+      return { error: `batch[${index}] must be an object with a string "tool"` }
+    }
+    if (entry.args !== undefined && !isRecord(entry.args)) {
+      return { error: `batch[${index}].args must be an object when present` }
+    }
+    items.push({ tool: entry.tool, args: entry.args ?? {} })
+  }
+  return { items }
+}
+
+/** `genie-react batch`: one connection, sequential calls, continue-on-error; one JSON line per item, exit 1 if any failed. */
+export async function runBatch(
+  batchJson: string | undefined,
+  opts: AgentOptions = {},
+): Promise<number> {
+  const raw = batchJson ?? (await readStdin())
+  if (!raw.trim()) {
+    err("usage: genie-react batch '<json-array>'  (or pipe the JSON array on stdin)")
+    return 1
+  }
+  const parsed = parseBatchItems(raw)
+  if ('error' in parsed) {
+    err(parsed.error)
+    return 1
+  }
+
+  const { link } = await connect(opts)
+  let anyFailed = false
+  try {
+    const waitMs = opts.waitMs ?? 15_000
+    const ready = await link
+      .invoke(devtoolsWaitContract, { condition: 'connected', timeoutMs: waitMs }, null, {
+        timeoutMs: waitMs,
+      })
+      .catch(() => null)
+    if (!ready?.ok) {
+      err(
+        'no app connected — start your dev server (Vite: genie() plugin; Next.js/other: genie-react hub) and open the app in a browser',
+      )
+      return 1
+    }
+    for (const item of parsed.items) {
+      try {
+        const result = await link.invoke(item.tool, item.args, undefined, {
+          timeoutMs: opts.timeoutMs,
+        })
+        out(JSON.stringify({ tool: item.tool, ok: true, result }))
+      } catch (error) {
+        anyFailed = true
+        const errorCode = error instanceof BridgeCallError ? error.errorCode : undefined
+        out(
+          JSON.stringify({
+            tool: item.tool,
+            ok: false,
+            error: errorMessage(error),
+            ...(errorCode ? { errorCode } : {}),
+          }),
+        )
+      }
+    }
+    return anyFailed ? 1 : 0
+  } finally {
+    link.close()
+  }
+}
+
+function readStdin(): Promise<string> {
+  return new Promise((resolve) => {
+    if (process.stdin.isTTY) {
+      resolve('')
+      return
+    }
+    let data = ''
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', (chunk) => {
+      data += chunk
+    })
+    process.stdin.on('end', () => resolve(data))
+    process.stdin.on('error', () => resolve(data))
+  })
 }
 
 export async function runStatus(opts: AgentOptions = {}): Promise<number> {
@@ -578,7 +821,9 @@ export async function runStatus(opts: AgentOptions = {}): Promise<number> {
     const sessions = Array.isArray(status.sessions) ? status.sessions : []
     // Preamble on stderr so stdout stays pure (parseable) — important for `--json` and piping.
     err(`bridge: ${url}`)
-    err(`run from any dir: genie --url ${url} call react_get_renders '{"sort":"unnecessary"}'`)
+    err(
+      `run from any dir: genie-react --url ${url} call react_get_renders '{"sort":"unnecessary"}'`,
+    )
     if (sessions.length > 1)
       err(
         `${sessions.length} sessions connected — calls hit the most recent; target one with --session <id>`,
@@ -587,7 +832,7 @@ export async function runStatus(opts: AgentOptions = {}): Promise<number> {
     out(renderResult('devtools_status', status, opts.json))
     return 0
   } catch (error) {
-    err(`genie status: ${errorMessage(error)}`)
+    err(`genie-react status: ${errorMessage(error)}`)
     return 1
   } finally {
     link.close()
@@ -626,7 +871,7 @@ export async function runTools(
           const actions = relatedActions(tools, selector)
           out(
             actions.length > 0
-              ? `${listing}\n\nmutations for this domain live in "action": ${actions.join(', ')} — details: genie tools <tool>`
+              ? `${listing}\n\nmutations for this domain live in "action": ${actions.join(', ')} — details: genie-react tools <tool>`
               : listing,
           )
           return 0
@@ -652,7 +897,7 @@ export async function runTools(
     )
     return 0
   } catch (error) {
-    err(`genie tools: ${errorMessage(error)}`)
+    err(`genie-react tools: ${errorMessage(error)}`)
     return 1
   } finally {
     link.close()
@@ -718,7 +963,7 @@ export function formatGroupIndex(appName: string | undefined, tools: ToolDescrip
   }
   lines.push(
     '',
-    'drill in: genie tools <group> · one tool: genie tools <tool> · everything: genie tools --all',
+    'drill in: genie-react tools <group> · one tool: genie-react tools <tool> · everything: genie-react tools --all',
   )
   return lines.join('\n')
 }
@@ -770,7 +1015,7 @@ export function formatToolDetail(tool: ToolDescriptor): string {
     }
     lines.push(parts.join(' '))
   }
-  lines.push('', `example: genie call ${tool.name} '${exampleArgs(properties, required)}'`)
+  lines.push('', `example: genie-react call ${tool.name} '${exampleArgs(properties, required)}'`)
   return lines.join('\n')
 }
 

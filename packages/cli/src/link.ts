@@ -22,7 +22,7 @@ export function runLink(opts: LinkOptions = {}): number {
   const cwd = opts.cwd ?? process.cwd()
   const genieRoot = opts.genieRoot ?? detectGenieRoot()
   if (!genieRoot) {
-    err('could not locate a genie checkout — pass its path: genie link <path-to-genie-react>')
+    err('could not locate a genie checkout — pass its path: genie-react link <path-to-genie-react>')
     return 1
   }
   const packagesDir = join(genieRoot, 'packages')
@@ -57,13 +57,15 @@ export function runLink(opts: LinkOptions = {}): number {
   }
 
   out('\nNext:')
-  out('  1. add `genie()` to your Vite config (or run `genie init`), then start your dev server')
   out(
-    '  2. run the live tools — `genie status` prints the bridge URL + a paste-ready `genie --url … call …`:',
+    '  1. add `genie()` to your Vite config (or run `genie-react init`), then start your dev server',
   )
-  out('       ./node_modules/.bin/genie status')
-  out('       pnpm genie status')
-  out('       npx genie status')
+  out(
+    '  2. run the live tools — `genie-react status` prints the bridge URL + a paste-ready `genie-react --url … call …`:',
+  )
+  out('       ./node_modules/.bin/genie-react status')
+  out('       pnpm genie-react status')
+  out('       npx genie-react status')
   return 0
 }
 
@@ -72,7 +74,7 @@ function dropGenieBin(cwd: string, packagesDir: string): string | null {
   if (!existsSync(cliBin)) return null
   const binDir = join(cwd, 'node_modules', '.bin')
   mkdirSync(binDir, { recursive: true })
-  const binPath = join(binDir, 'genie')
+  const binPath = join(binDir, 'genie-react')
   rmSync(binPath, { force: true })
   symlinkSync(cliBin, binPath, 'file')
   return binPath

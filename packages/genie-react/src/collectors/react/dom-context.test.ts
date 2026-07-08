@@ -105,7 +105,7 @@ const fiberWithContexts = (
     }
   }
   const type = (): null => null
-  ;(type as { displayName?: string }).displayName = displayName
+  Object.assign(type, { displayName: displayName })
   return {
     tag: 0,
     type,

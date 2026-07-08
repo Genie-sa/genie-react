@@ -1,6 +1,18 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { createContext, memo, useContext, useEffect, useState, type CSSProperties } from 'react'
+import {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react'
 
 const ThemeContext = createContext('light')
 
@@ -17,6 +29,7 @@ function emitLabEvent(count: number): void {
 function Home() {
   const [count, setCount] = useState(0)
   const [text, setText] = useState('')
+  const [showBox, setShowBox] = useState(true)
 
   useEffect(() => {
     document.title = `lab ${count}:${text.length}`
@@ -32,6 +45,7 @@ function Home() {
     <div className="p-8 space-y-4">
       <h1 className="text-4xl font-bold">Genie Router Lab</h1>
       <Counter count={count} onIncrement={increment} />
+      <HookZoo />
       <input
         data-testid="typebox"
         className="block rounded border px-3 py-2"
@@ -43,14 +57,72 @@ function Home() {
       <ThemeContext.Provider value="light">
         <ThemeLabel />
       </ThemeContext.Provider>
+      <button
+        data-testid="box-toggle"
+        className="rounded border px-2 py-1"
+        onClick={() => setShowBox((v) => !v)}
+      >
+        {showBox ? 'Unmount box' : 'Mount box'}
+      </button>
+      {showBox && <Unmountable caption="original caption" />}
       <QueryPanel />
     </div>
+  )
+}
+
+function Unmountable({ caption }: { caption: string }) {
+  return (
+    <p data-testid="unmountable" className="rounded border p-2">
+      {caption}
+    </p>
   )
 }
 
 function ThemeLabel() {
   const theme = useContext(ThemeContext)
   return <p data-testid="theme">theme: {theme}</p>
+}
+
+type ZooAction = { type: 'inc' }
+
+function zooReducer(state: number, action: ZooAction): number {
+  return action.type === 'inc' ? state + 1 : state
+}
+
+function HookZoo() {
+  const [flag, setFlag] = useState(false)
+  const [ticks, dispatch] = useReducer(zooReducer, 0)
+  const renderCount = useRef(0)
+  const doubled = useMemo(() => ticks * 2, [ticks])
+  const bump = useCallback(() => dispatch({ type: 'inc' }), [])
+  const [name, setName] = useState('zoo')
+
+  useEffect(() => {
+    renderCount.current += 1
+  })
+
+  useLayoutEffect(() => {
+    void flag
+  }, [flag])
+
+  return (
+    <div data-testid="hookzoo" className="space-y-2 rounded border p-4">
+      <p data-testid="zoo-flag">flag: {String(flag)}</p>
+      <p data-testid="zoo-ticks">
+        ticks: {ticks} (doubled {doubled})
+      </p>
+      <p data-testid="zoo-name">name: {name}</p>
+      <button data-testid="zoo-toggle" className="rounded border px-2 py-1" onClick={() => setFlag((f) => !f)}>
+        Toggle flag
+      </button>
+      <button data-testid="zoo-bump" className="rounded border px-2 py-1" onClick={bump}>
+        Bump ticks
+      </button>
+      <button data-testid="zoo-rename" className="rounded border px-2 py-1" onClick={() => setName((n) => n + '!')}>
+        Rename
+      </button>
+    </div>
+  )
 }
 
 let fetchCount = 0

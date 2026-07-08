@@ -19,7 +19,7 @@ const DID_CAPTURE = 0b1000_0000
 
 const boundaryFiber = (name: string, flags = DID_CAPTURE): Fiber => {
   const type = (): null => null
-  ;(type as { displayName?: string }).displayName = name
+  Object.assign(type, { displayName: name })
   return asFiber({ flags, type })
 }
 
@@ -101,7 +101,7 @@ describe('recordErrorState — caught errors', () => {
 
   it('clears a caught boundary once it re-renders without DidCapture (recovery)', async () => {
     const type = (): null => null
-    ;(type as { displayName?: string }).displayName = 'ErrorBoundary'
+    Object.assign(type, { displayName: 'ErrorBoundary' })
     const fiber = { flags: DID_CAPTURE, type } as Record<string, unknown>
 
     recordErrorState(asFiber(fiber))
@@ -116,7 +116,7 @@ describe('recordErrorState — caught errors', () => {
 describe('recordErrorState — suspense', () => {
   it('records a Suspense boundary showing a fallback and drops it once resolved', async () => {
     const type = (): null => null
-    ;(type as { displayName?: string }).displayName = 'DataBoundary'
+    Object.assign(type, { displayName: 'DataBoundary' })
     const fiber = {
       tag: SuspenseComponentTag,
       type,

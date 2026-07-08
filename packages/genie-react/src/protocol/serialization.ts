@@ -270,8 +270,13 @@ export function dehydrate(input: unknown, options: DehydrateOptions = {}): unkno
     const keys = Object.keys(obj).filter((key) => !RESERVED_OBJECT_KEYS.has(key))
     const out: Record<string, unknown> = {}
     for (const key of keys.slice(0, Math.max(0, maxEntries))) {
+      const descriptor = Object.getOwnPropertyDescriptor(obj, key)
+      if (descriptor && !('value' in descriptor)) {
+        out[key] = dehydratedNode('getter-error', '[getter not invoked]', [...path, key])
+        continue
+      }
       try {
-        out[key] = walk((obj as Record<string, unknown>)[key], currentDepth + 1, [...path, key])
+        out[key] = walk(descriptor?.value, currentDepth + 1, [...path, key])
       } catch (error) {
         out[key] = dehydratedNode('getter-error', `[getter threw: ${errorMessage(error)}]`, [
           ...path,

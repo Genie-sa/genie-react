@@ -52,8 +52,8 @@ export async function startGenieHub(options: StartHubOptions = {}): Promise<Star
   }
   throw new Error(
     attempts === 1
-      ? `genie hub: port ${preferred} is busy — another app's hub or process owns it`
-      : `genie hub: no free port in ${preferred}–${preferred + attempts - 1}`,
+      ? `genie-react hub: port ${preferred} is busy — another app's hub or process owns it`
+      : `genie-react hub: no free port in ${preferred}–${preferred + attempts - 1}`,
   )
 }
 

@@ -34,6 +34,7 @@ export interface GenieClientOptions {
 }
 
 const SOCKET_OPEN = 1
+const HEARTBEAT_INTERVAL_MS = 1_000
 
 export class GenieClient {
   private readonly url: string
@@ -47,6 +48,9 @@ export class GenieClient {
   private socket: SocketLike | null = null
   private started = false
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  private heartbeatFrame: string | null = null
+  private lastHeartbeatSentAt = 0
 
   constructor(options: GenieClientOptions) {
     this.url = options.url ?? defaultBridgeUrl()
@@ -66,6 +70,7 @@ export class GenieClient {
   stop(): void {
     this.started = false
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.stopHeartbeat()
     for (const cleanup of this.cleanups.values()) cleanup()
     this.cleanups.clear()
     this.socket?.close()
@@ -88,6 +93,7 @@ export class GenieClient {
     socket.onmessage = (event) => this.onMessage(String(event.data))
     socket.onclose = () => {
       this.socket = null
+      this.stopHeartbeat()
       if (this.started) this.scheduleReconnect()
     }
     socket.onerror = () => {}
@@ -107,6 +113,36 @@ export class GenieClient {
     // Hello must precede collector start() so the bridge doesn't drop snapshots pushed before the session registers.
     this.sendHello()
     for (const collector of this.collectors) this.runCollectorStart(collector)
+    this.startHeartbeat()
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    this.lastHeartbeatSentAt = 0
+    this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS)
+    // Node-only guard so the interval never keeps a test process (or an SSR host) alive.
+    if (
+      typeof this.heartbeatTimer === 'object' &&
+      this.heartbeatTimer &&
+      'unref' in this.heartbeatTimer
+    )
+      this.heartbeatTimer.unref()
+  }
+
+  // Sends at most one heartbeat per interval whether the timer or a commit triggered it: the interval covers idle apps; commit-driven sends keep a saturated thread alive when the macrotask timer is starved.
+  private sendHeartbeat(): void {
+    if (this.socket?.readyState !== SOCKET_OPEN) return
+    const now = Date.now()
+    if (now - this.lastHeartbeatSentAt < HEARTBEAT_INTERVAL_MS) return
+    // The frame is constant for the session; encode once.
+    this.heartbeatFrame ??= encodeMessage({ kind: 'app/heartbeat', sessionId: this.sessionId })
+    this.socket.send(this.heartbeatFrame)
+    this.lastHeartbeatSentAt = now
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
+    this.heartbeatTimer = null
   }
 
   private registerCollectorTools(collector: GenieCollector): void {
@@ -126,6 +162,7 @@ export class GenieClient {
         this.send({ kind: 'app/snapshot', domain, data, ts: Date.now() }),
       pushEvent: (domain, event) => this.send({ kind: 'app/event', domain, event, ts: Date.now() }),
       refreshTools: () => this.sendHello(),
+      markActivity: () => this.sendHeartbeat(),
     }
   }
 
@@ -198,7 +235,8 @@ export class GenieClient {
   private unknownToolError(toolName: string): string {
     const domains = this.capabilities().sort().join(', ') || 'none'
     const hint =
-      DOMAIN_GATING_HINTS[toolName.split('_')[0] ?? ''] ?? 'run `genie tools` for the live catalog'
+      DOMAIN_GATING_HINTS[toolName.split('_')[0] ?? ''] ??
+      'call devtools_status for the live catalog (CLI: `genie-react tools`)'
     return `Unknown tool "${toolName}" — this app advertises: ${domains}. Note: ${hint}.`
   }
 

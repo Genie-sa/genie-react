@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vite-demo",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=$HOME/.nvm/versions/node/v22.22.3/bin:$PATH && pnpm --filter @genie-react/vite-demo dev"
+      ],
+      "port": 3040
+    }
+  ]
+}

@@ -11,13 +11,22 @@ import {
   type MemoizedState,
   type Props,
   type RenderPhase,
+  SuspenseComponentTag,
   secure,
   traverseRenderedFibers,
 } from 'bippy'
+import type { ToolOutput } from '../../protocol'
+import type { reactRendersDiffContract } from './contracts'
 import { clearEffects, recordEffect } from './effect-tracker'
 import { clearErrorState, recordErrorState } from './error-tracker'
 import { nameOf, noteCommittedRoot } from './fiber'
-import { classifyFiber, clearSourceCache, type ResolvedSource, sourceLabel } from './source'
+import {
+  classifyFibersWithinBudget,
+  clearSourceCache,
+  type FiberClassification,
+  type ResolvedSource,
+  sourceLabel,
+} from './source'
 
 export interface RenderChange {
   name: string
@@ -60,21 +69,51 @@ export interface RenderSummary {
 const records = new Map<number, RenderRecord>()
 let commits = 0
 let installed = false
+// bippy's instrument() can't be uninstalled, so stop is a soft flag: the commit handler stays wired but ignores commits while paused.
+let paused = false
+let skippedCommitFibers = 0
 
-/** Installs commit-time instrumentation (idempotent); the DevTools hook must already be present before React loads, or no commits are delivered. */
+const COMMIT_FIBER_ANALYSIS_LIMIT = 250
+const DID_CAPTURE = 0b1000_0000
+const REPORT_SOURCE_CLASSIFY_LIMIT = 120
+const REPORT_SOURCE_CLASSIFY_BUDGET_MS = 500
+const UNCLASSIFIED_FIBER: FiberClassification = { source: null, isLibrary: false }
+
+export interface CommitAnalysisBudget {
+  processed: number
+  skipped: number
+  limit: number
+}
+
+export function createCommitAnalysisBudget(
+  limit = COMMIT_FIBER_ANALYSIS_LIMIT,
+): CommitAnalysisBudget {
+  return { processed: 0, skipped: 0, limit }
+}
+
+let commitListener: (() => void) | null = null
+
+/** Register a per-commit callback (the client's liveness pump). Called on every commit — even while paused — because a committing thread is alive regardless of whether we record it. */
+export function setCommitListener(listener: (() => void) | null): void {
+  commitListener = listener
+}
+
+/** Installs commit-time instrumentation (idempotent) and (re)enables tracking; the DevTools hook must already be present before React loads, or no commits are delivered. */
 export function startRenderTracking(): boolean {
+  paused = false
   if (installed) return true
   try {
     instrument(
       secure({
         name: 'genie-react',
         onCommitFiberRoot: (_rendererId: number, root: FiberRoot) => {
+          commitListener?.()
+          if (paused) return
           commits += 1
           noteCommittedRoot(root)
+          const budget = createCommitAnalysisBudget()
           traverseRenderedFibers(root, (fiber, phase) => {
-            recordRender(fiber, phase)
-            recordEffect(fiber, phase)
-            recordErrorState(fiber)
+            recordCommitFiber(fiber, phase, budget)
           })
         },
       }),
@@ -86,12 +125,20 @@ export function startRenderTracking(): boolean {
   return installed
 }
 
-export const isTracking = (): boolean => installed
+/** Pause commit recording without uninstalling instrumentation; isTracking() reports false until startRenderTracking() resumes. */
+export function stopRenderTracking(): void {
+  paused = true
+}
+
+export const isTracking = (): boolean => installed && !paused
 export const getCommitCount = (): number => commits
+export const getSkippedCommitFiberCount = (): number => skippedCommitFibers
 
 export function clearRenders(): void {
   records.clear()
   commits = 0
+  skippedCommitFibers = 0
+  clears++
   clearEffects()
   clearErrorState()
   clearSourceCache()
@@ -105,10 +152,10 @@ export interface RenderQuery {
   appOnly?: boolean
 }
 
-/** Classifies the component-filtered records (source + app/library), dropping library when appOnly. */
+/** Classifies the component-filtered records (source + app/library); reports how many library components appOnly dropped so callers can disclose the filter. */
 async function selectRecords(
   query: RenderQuery,
-): Promise<{ record: RenderRecord; report: RenderReport }[]> {
+): Promise<{ kept: { record: RenderRecord; report: RenderReport }[]; libraryHidden: number }> {
   let list = [...records.values()]
   if (query.component) {
     const needle = query.component.toLowerCase()
@@ -116,35 +163,85 @@ async function selectRecords(
   }
 
   const appOnly = query.appOnly ?? true
-  const classified = await Promise.all(
-    list.map(async (record) => {
-      const { source, isLibrary } = await classifyFiber(record.fiber)
-      const { fiber: _fiber, ...rest } = record
-      const name = rest.name === 'Anonymous' ? (sourceLabel(source) ?? rest.name) : rest.name
-      return { record, report: { ...rest, name, source, isLibrary } satisfies RenderReport }
-    }),
+  const classes = await classifyRecordsWithinBudget(list)
+  const classified = list.map((record, index) => {
+    const { source, isLibrary } = classes[index] ?? UNCLASSIFIED_FIBER
+    const { fiber: _fiber, ...rest } = record
+    const name = rest.name === 'Anonymous' ? (sourceLabel(source) ?? rest.name) : rest.name
+    return { record, report: { ...rest, name, source, isLibrary } satisfies RenderReport }
+  })
+  if (!appOnly) return { kept: classified, libraryHidden: 0 }
+  const kept = classified.filter((entry) => !entry.report.isLibrary)
+  return { kept, libraryHidden: classified.length - kept.length }
+}
+
+async function classifyRecordsWithinBudget(
+  recordsToClassify: RenderRecord[],
+): Promise<FiberClassification[]> {
+  const { classes } = await classifyFibersWithinBudget(
+    recordsToClassify.map((record) => record.fiber),
+    { limit: REPORT_SOURCE_CLASSIFY_LIMIT, budgetMs: REPORT_SOURCE_CLASSIFY_BUDGET_MS },
   )
-  return appOnly ? classified.filter((entry) => !entry.report.isLibrary) : classified
+  return classes
+}
+
+function sortReports(
+  entries: { record: RenderRecord; report: RenderReport }[],
+  sort: RenderQuery['sort'],
+): { record: RenderRecord; report: RenderReport }[] {
+  return [...entries].sort((a, b) => {
+    const x = a.report
+    const y = b.report
+    if (sort === 'selfTime') return y.selfTime - x.selfTime
+    if (sort === 'unnecessary') return y.unnecessary - x.unnecessary
+    if (sort === 'unstable') return y.unstableRenders - x.unstableRenders
+    return y.renders - x.renders
+  })
 }
 
 export async function getRenders(query: RenderQuery): Promise<RenderReport[]> {
-  const selected = await selectRecords(query)
-  selected.sort((a, b) => {
-    const x = a.report
-    const y = b.report
-    if (query.sort === 'selfTime') return y.selfTime - x.selfTime
-    if (query.sort === 'unnecessary') return y.unnecessary - x.unnecessary
-    if (query.sort === 'unstable') return y.unstableRenders - x.unstableRenders
-    return y.renders - x.renders
-  })
-  return selected.slice(0, query.limit).map((entry) => entry.report)
+  const { kept } = await selectRecords(query)
+  return sortReports(kept, query.sort)
+    .slice(0, query.limit)
+    .map((entry) => entry.report)
+}
+
+/** Like getRenders, plus the count of library components appOnly hid — for react_get_renders' filteredNote. */
+export async function getRendersReport(
+  query: RenderQuery,
+): Promise<{ components: RenderReport[]; libraryHidden: number }> {
+  const { kept, libraryHidden } = await selectRecords(query)
+  const components = sortReports(kept, query.sort)
+    .slice(0, query.limit)
+    .map((entry) => entry.report)
+  return { components, libraryHidden }
+}
+
+/** Classify once, sort/slice per leaderboard — react_profile_report's four views without 4× classification passes. */
+export async function getRendersLeaderboards(limit: number): Promise<{
+  slowest: RenderReport[]
+  mostRerendered: RenderReport[]
+  mostUnnecessary: RenderReport[]
+  mostUnstable: RenderReport[]
+}> {
+  const { kept } = await selectRecords({ limit, sort: 'renders' })
+  const top = (sort: RenderQuery['sort']): RenderReport[] =>
+    sortReports(kept, sort)
+      .slice(0, limit)
+      .map((entry) => entry.report)
+  return {
+    slowest: top('selfTime'),
+    mostRerendered: top('renders'),
+    mostUnnecessary: top('unnecessary'),
+    mostUnstable: top('unstable'),
+  }
 }
 
 /** Aggregate stats across tracked components (app-only by default, so library noise is excluded). */
 export async function getRenderSummary(appOnly = true): Promise<RenderSummary> {
   let list = [...records.values()]
   if (appOnly) {
-    const flags = await Promise.all(list.map((record) => classifyFiber(record.fiber)))
+    const flags = await classifyRecordsWithinBudget(list)
     list = list.filter((_, index) => !flags[index]?.isLibrary)
   }
 
@@ -180,6 +277,187 @@ export async function getRenderSummary(appOnly = true): Promise<RenderSummary> {
     unnecessaryComponents,
     topUnstableProps,
   }
+}
+
+// ── Snapshots + diff (regression verdict) ────────────────────────────────────
+
+export interface ComponentAggregate {
+  name: string
+  source: string | null
+  renders: number
+  mounts: number
+  updates: number
+  selfTime: number
+  totalTime: number
+  unnecessary: number
+  unstableRenders: number
+}
+
+interface Snapshot {
+  commits: number
+  clears: number
+  components: ComponentAggregate[]
+}
+
+const snapshots = new Map<string, Snapshot>()
+
+// Counts clearRenders() calls so a diff can say whether its baseline predates a counter reset (session-vs-session compare) or shares the session (additive compare).
+let clears = 0
+
+// Join key: components with a resolved source disambiguate by name+file:line (two same-named components stay distinct); unresolved ones fall back to name alone.
+const aggregateKey = (aggregate: { name: string; source: string | null }): string =>
+  aggregate.source ? `${aggregate.name}@${aggregate.source}` : aggregate.name
+
+/** Current per-component aggregates with a resolved source label, app-filtered by default — the shape snapshots store and diffs read on the live side. */
+async function currentAggregates(appOnly = true): Promise<ComponentAggregate[]> {
+  const list = [...records.values()]
+  const classified = await classifyRecordsWithinBudget(list)
+  const out: ComponentAggregate[] = []
+  list.forEach((record, index) => {
+    const { source, isLibrary } = classified[index] ?? { source: null, isLibrary: false }
+    if (appOnly && isLibrary) return
+    const label = sourceLabel(source)
+    out.push({
+      name: record.name === 'Anonymous' ? (label ?? record.name) : record.name,
+      source: label,
+      renders: record.renders,
+      mounts: record.mounts,
+      updates: record.updates,
+      selfTime: record.selfTime,
+      totalTime: record.totalTime,
+      unnecessary: record.unnecessary,
+      unstableRenders: record.unstableRenders,
+    })
+  })
+  return out
+}
+
+/** Store the current aggregates under `label` (overwriting a prior snapshot of the same label) so a later react_renders_diff can measure change against it. */
+export async function takeSnapshot(
+  label: string,
+): Promise<{ label: string; commits: number; components: number }> {
+  const components = await currentAggregates()
+  snapshots.set(label, { commits, clears, components })
+  return { label, commits, components: components.length }
+}
+
+export const snapshotLabels = (): string[] => [...snapshots.keys()]
+
+type RendersDiff = ToolOutput<typeof reactRendersDiffContract>
+type RenderDelta = RendersDiff['regressed'][number]
+
+const round1 = (n: number): number => Math.round(n * 10) / 10
+
+// pct is delta/before*100 to 1dp; null when before is 0 (no baseline cost to divide by — an honest "undefined ratio", not a fabricated 100%).
+const pctChange = (before: number, delta: number): number | null =>
+  before === 0 ? null : round1((delta / before) * 100)
+
+const toDelta = (
+  name: string,
+  source: string | null,
+  before: ComponentAggregate,
+  after: ComponentAggregate,
+): RenderDelta => ({
+  name,
+  ...(source ? { source } : {}),
+  deltaMs: round1(after.selfTime - before.selfTime),
+  before: { renders: before.renders, selfTime: round1(before.selfTime) },
+  after: { renders: after.renders, selfTime: round1(after.selfTime) },
+})
+
+/** Compare a stored snapshot against the current live aggregates: total self-time change plus per-component regressions/improvements past a threshold, and components that appeared/vanished. */
+export async function rendersDiff(baseline: string, thresholdMs: number): Promise<RendersDiff> {
+  const snapshot = snapshots.get(baseline)
+  if (!snapshot)
+    throw new Error(
+      snapshots.size === 0
+        ? `No snapshot named "${baseline}" — take one with react_profile_snapshot first (no snapshots stored yet).`
+        : `No snapshot named "${baseline}". Stored labels: ${snapshotLabels().join(', ')}.`,
+    )
+
+  const after = await currentAggregates()
+  const beforeByKey = new Map(snapshot.components.map((c) => [aggregateKey(c), c]))
+  const afterByKey = new Map(after.map((c) => [aggregateKey(c), c]))
+
+  const regressed: RenderDelta[] = []
+  const improved: RenderDelta[] = []
+  const added: { name: string; renders: number; selfTime: number }[] = []
+  const removed: { name: string }[] = []
+
+  for (const [key, afterAgg] of afterByKey) {
+    const beforeAgg = beforeByKey.get(key)
+    if (!beforeAgg) {
+      added.push({
+        name: afterAgg.name,
+        renders: afterAgg.renders,
+        selfTime: round1(afterAgg.selfTime),
+      })
+      continue
+    }
+    const delta = afterAgg.selfTime - beforeAgg.selfTime
+    if (delta > thresholdMs)
+      regressed.push(toDelta(afterAgg.name, afterAgg.source, beforeAgg, afterAgg))
+    else if (delta < -thresholdMs)
+      improved.push(toDelta(afterAgg.name, afterAgg.source, beforeAgg, afterAgg))
+  }
+  for (const [key, beforeAgg] of beforeByKey) {
+    if (!afterByKey.has(key)) removed.push({ name: beforeAgg.name })
+  }
+
+  const byMagnitude = (a: RenderDelta, b: RenderDelta): number =>
+    Math.abs(b.deltaMs) - Math.abs(a.deltaMs)
+  regressed.sort(byMagnitude)
+  improved.sort(byMagnitude)
+
+  const beforeSelf = snapshot.components.reduce((sum, c) => sum + c.selfTime, 0)
+  const afterSelf = after.reduce((sum, c) => sum + c.selfTime, 0)
+  const selfDelta = afterSelf - beforeSelf
+
+  return {
+    baseline,
+    commits: { before: snapshot.commits, after: commits },
+    clearsSinceBaseline: clears - snapshot.clears,
+    selfTimeMs: {
+      before: round1(beforeSelf),
+      after: round1(afterSelf),
+      delta: round1(selfDelta),
+      pct: pctChange(beforeSelf, selfDelta),
+    },
+    regressed,
+    improved,
+    added,
+    removed,
+  }
+}
+
+export function clearSnapshots(): void {
+  snapshots.clear()
+}
+
+function shouldAnalyzeCommitFiber(fiber: Fiber): boolean {
+  return (
+    isCompositeFiber(fiber) ||
+    fiber.tag === SuspenseComponentTag ||
+    ((fiber.flags ?? 0) & DID_CAPTURE) !== 0
+  )
+}
+
+export function recordCommitFiber(
+  fiber: Fiber,
+  phase: RenderPhase,
+  budget: CommitAnalysisBudget,
+): boolean {
+  if (!shouldAnalyzeCommitFiber(fiber)) return false
+  if (budget.processed >= budget.limit) {
+    budget.skipped += 1
+    skippedCommitFibers += 1
+    return false
+  }
+  budget.processed += 1
+  recordRender(fiber, phase)
+  recordEffect(fiber, phase)
+  recordErrorState(fiber)
+  return true
 }
 
 export function recordRender(fiber: Fiber, phase: RenderPhase): void {
