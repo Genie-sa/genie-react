@@ -63,6 +63,22 @@ describe('dehydrate', () => {
     expect((result.fn as DehydratedNode).kind).toBe('function')
   })
 
+  it('does not invoke accessors while previewing objects', () => {
+    let reads = 0
+    const value = Object.defineProperty({}, 'value', {
+      enumerable: true,
+      get() {
+        reads += 1
+        return 1
+      },
+    })
+
+    const result = dehydrate(value, { depth: 2 }) as Record<string, unknown>
+
+    expect(reads).toBe(0)
+    expect((result.value as DehydratedNode).kind).toBe('getter-error')
+  })
+
   it('re-roots at a requested path for incremental hydration', () => {
     const result = dehydrate(
       { props: { user: { name: 'Ada' } } },

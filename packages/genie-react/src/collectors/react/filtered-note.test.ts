@@ -159,4 +159,26 @@ describe('buildTree filteredNote', () => {
     })
     expect(result.filteredNote).toBeUndefined()
   })
+
+  it('bounds source classification so large trees still return', async () => {
+    const children = Array.from({ length: 130 }, (_, index) =>
+      treeFiber(`Lib${index}`, NODE_MODULES),
+    )
+    children.forEach((child, index) => {
+      child.sibling = children[index + 1] ?? null
+    })
+    const app = treeFiber('App', '/src/App.tsx', { child: children[0] ?? null })
+    const root = asFiber({ tag: 3, type: null, child: app, __source: null })
+
+    const result = await buildTree(root, {
+      depth: 30,
+      includeHost: false,
+      maxNodes: 400,
+      appOnly: true,
+    })
+
+    expect(getSource).toHaveBeenCalledTimes(120)
+    expect(result.filteredNote).toContain('source classification budget reached')
+    expect(result.nodes.length).toBeGreaterThan(0)
+  })
 })

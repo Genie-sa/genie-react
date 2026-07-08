@@ -11,6 +11,7 @@ import {
   type MemoizedState,
   type Props,
   type RenderPhase,
+  SuspenseComponentTag,
   secure,
   traverseRenderedFibers,
 } from 'bippy'
@@ -19,7 +20,13 @@ import type { reactRendersDiffContract } from './contracts'
 import { clearEffects, recordEffect } from './effect-tracker'
 import { clearErrorState, recordErrorState } from './error-tracker'
 import { nameOf, noteCommittedRoot } from './fiber'
-import { classifyFiber, clearSourceCache, type ResolvedSource, sourceLabel } from './source'
+import {
+  classifyFibersWithinBudget,
+  clearSourceCache,
+  type FiberClassification,
+  type ResolvedSource,
+  sourceLabel,
+} from './source'
 
 export interface RenderChange {
   name: string
@@ -64,6 +71,25 @@ let commits = 0
 let installed = false
 // bippy's instrument() can't be uninstalled, so stop is a soft flag: the commit handler stays wired but ignores commits while paused.
 let paused = false
+let skippedCommitFibers = 0
+
+const COMMIT_FIBER_ANALYSIS_LIMIT = 250
+const DID_CAPTURE = 0b1000_0000
+const REPORT_SOURCE_CLASSIFY_LIMIT = 120
+const REPORT_SOURCE_CLASSIFY_BUDGET_MS = 500
+const UNCLASSIFIED_FIBER: FiberClassification = { source: null, isLibrary: false }
+
+export interface CommitAnalysisBudget {
+  processed: number
+  skipped: number
+  limit: number
+}
+
+export function createCommitAnalysisBudget(
+  limit = COMMIT_FIBER_ANALYSIS_LIMIT,
+): CommitAnalysisBudget {
+  return { processed: 0, skipped: 0, limit }
+}
 
 /** Installs commit-time instrumentation (idempotent) and (re)enables tracking; the DevTools hook must already be present before React loads, or no commits are delivered. */
 export function startRenderTracking(): boolean {
@@ -77,10 +103,9 @@ export function startRenderTracking(): boolean {
           if (paused) return
           commits += 1
           noteCommittedRoot(root)
+          const budget = createCommitAnalysisBudget()
           traverseRenderedFibers(root, (fiber, phase) => {
-            recordRender(fiber, phase)
-            recordEffect(fiber, phase)
-            recordErrorState(fiber)
+            recordCommitFiber(fiber, phase, budget)
           })
         },
       }),
@@ -99,10 +124,12 @@ export function stopRenderTracking(): void {
 
 export const isTracking = (): boolean => installed && !paused
 export const getCommitCount = (): number => commits
+export const getSkippedCommitFiberCount = (): number => skippedCommitFibers
 
 export function clearRenders(): void {
   records.clear()
   commits = 0
+  skippedCommitFibers = 0
   clears++
   clearEffects()
   clearErrorState()
@@ -128,17 +155,26 @@ async function selectRecords(
   }
 
   const appOnly = query.appOnly ?? true
-  const classified = await Promise.all(
-    list.map(async (record) => {
-      const { source, isLibrary } = await classifyFiber(record.fiber)
-      const { fiber: _fiber, ...rest } = record
-      const name = rest.name === 'Anonymous' ? (sourceLabel(source) ?? rest.name) : rest.name
-      return { record, report: { ...rest, name, source, isLibrary } satisfies RenderReport }
-    }),
-  )
+  const classes = await classifyRecordsWithinBudget(list)
+  const classified = list.map((record, index) => {
+    const { source, isLibrary } = classes[index] ?? UNCLASSIFIED_FIBER
+    const { fiber: _fiber, ...rest } = record
+    const name = rest.name === 'Anonymous' ? (sourceLabel(source) ?? rest.name) : rest.name
+    return { record, report: { ...rest, name, source, isLibrary } satisfies RenderReport }
+  })
   if (!appOnly) return { kept: classified, libraryHidden: 0 }
   const kept = classified.filter((entry) => !entry.report.isLibrary)
   return { kept, libraryHidden: classified.length - kept.length }
+}
+
+async function classifyRecordsWithinBudget(
+  recordsToClassify: RenderRecord[],
+): Promise<FiberClassification[]> {
+  const { classes } = await classifyFibersWithinBudget(
+    recordsToClassify.map((record) => record.fiber),
+    { limit: REPORT_SOURCE_CLASSIFY_LIMIT, budgetMs: REPORT_SOURCE_CLASSIFY_BUDGET_MS },
+  )
+  return classes
 }
 
 function sortReports(
@@ -197,7 +233,7 @@ export async function getRendersLeaderboards(limit: number): Promise<{
 export async function getRenderSummary(appOnly = true): Promise<RenderSummary> {
   let list = [...records.values()]
   if (appOnly) {
-    const flags = await Promise.all(list.map((record) => classifyFiber(record.fiber)))
+    const flags = await classifyRecordsWithinBudget(list)
     list = list.filter((_, index) => !flags[index]?.isLibrary)
   }
 
@@ -267,7 +303,7 @@ const aggregateKey = (aggregate: { name: string; source: string | null }): strin
 /** Current per-component aggregates with a resolved source label, app-filtered by default — the shape snapshots store and diffs read on the live side. */
 async function currentAggregates(appOnly = true): Promise<ComponentAggregate[]> {
   const list = [...records.values()]
-  const classified = await Promise.all(list.map((record) => classifyFiber(record.fiber)))
+  const classified = await classifyRecordsWithinBudget(list)
   const out: ComponentAggregate[] = []
   list.forEach((record, index) => {
     const { source, isLibrary } = classified[index] ?? { source: null, isLibrary: false }
@@ -388,6 +424,32 @@ export async function rendersDiff(baseline: string, thresholdMs: number): Promis
 
 export function clearSnapshots(): void {
   snapshots.clear()
+}
+
+function shouldAnalyzeCommitFiber(fiber: Fiber): boolean {
+  return (
+    isCompositeFiber(fiber) ||
+    fiber.tag === SuspenseComponentTag ||
+    ((fiber.flags ?? 0) & DID_CAPTURE) !== 0
+  )
+}
+
+export function recordCommitFiber(
+  fiber: Fiber,
+  phase: RenderPhase,
+  budget: CommitAnalysisBudget,
+): boolean {
+  if (!shouldAnalyzeCommitFiber(fiber)) return false
+  if (budget.processed >= budget.limit) {
+    budget.skipped += 1
+    skippedCommitFibers += 1
+    return false
+  }
+  budget.processed += 1
+  recordRender(fiber, phase)
+  recordEffect(fiber, phase)
+  recordErrorState(fiber)
+  return true
 }
 
 export function recordRender(fiber: Fiber, phase: RenderPhase): void {

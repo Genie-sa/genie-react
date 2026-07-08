@@ -25,11 +25,16 @@ export interface FiberClassification {
 }
 
 const cache = new Map<number, ResolvedSource>()
+const pendingSource = new Map<number, Promise<ResolvedSource | null>>()
 const effectSourceCache = new Map<number, (ResolvedSource | null)[]>()
 const ANCESTOR_HOPS = 20
+const DEFAULT_CLASSIFY_LIMIT = 120
+const DEFAULT_CLASSIFY_BUDGET_MS = 500
+const UNCLASSIFIED_FIBER: FiberClassification = { source: null, isLibrary: false }
 
 export function clearSourceCache(): void {
   cache.clear()
+  pendingSource.clear()
   effectSourceCache.clear()
   moduleMapCache.clear()
 }
@@ -39,26 +44,34 @@ export async function resolveSource(fiber: Fiber): Promise<ResolvedSource | null
   const id = getFiberId(fiber)
   const cached = cache.get(id)
   if (cached) return cached
+  const pending = pendingSource.get(id)
+  if (pending) return pending
 
-  try {
-    const source = await getSource(getLatestFiber(fiber) ?? fiber)
-    if (!source?.fileName) return null
-    const { line, column } = await toOriginalPosition(
-      source.fileName,
-      source.lineNumber ?? null,
-      source.columnNumber ?? null,
-    )
-    const resolved: ResolvedSource = {
-      file: normalizeFileName(source.fileName),
-      line,
-      column,
-      functionName: source.functionName ?? null,
+  const lookup = (async () => {
+    try {
+      const source = await getSource(getLatestFiber(fiber) ?? fiber)
+      if (!source?.fileName) return null
+      const { line, column } = await toOriginalPosition(
+        source.fileName,
+        source.lineNumber ?? null,
+        source.columnNumber ?? null,
+      )
+      const resolved: ResolvedSource = {
+        file: normalizeFileName(source.fileName),
+        line,
+        column,
+        functionName: source.functionName ?? null,
+      }
+      cache.set(id, resolved)
+      return resolved
+    } catch {
+      return null
+    } finally {
+      pendingSource.delete(id)
     }
-    cache.set(id, resolved)
-    return resolved
-  } catch {
-    return null
-  }
+  })()
+  pendingSource.set(id, lookup)
+  return lookup
 }
 
 /** A file outside the project tree (under node_modules, incl. Vite's pre-bundled deps) is a library. */
@@ -75,6 +88,53 @@ export async function classifyFiber(fiber: Fiber): Promise<FiberClassification> 
     current = current.return
   }
   return { source: null, isLibrary: false }
+}
+
+export async function classifyFiberBeforeDeadline(
+  fiber: Fiber,
+  timeoutMs: number,
+): Promise<FiberClassification | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      classifyFiber(fiber),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), Math.max(1, timeoutMs))
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+export async function classifyFibersWithinBudget(
+  fibers: Fiber[],
+  options: { limit?: number; budgetMs?: number } = {},
+): Promise<{ classes: FiberClassification[]; partial: boolean }> {
+  const classes = fibers.map(() => UNCLASSIFIED_FIBER)
+  const startedAt = Date.now()
+  const limit = Math.min(fibers.length, options.limit ?? DEFAULT_CLASSIFY_LIMIT)
+  const budgetMs = options.budgetMs ?? DEFAULT_CLASSIFY_BUDGET_MS
+  let partial = fibers.length > limit
+
+  for (let index = 0; index < limit; index += 1) {
+    const remaining = budgetMs - (Date.now() - startedAt)
+    if (remaining <= 0) {
+      partial = true
+      break
+    }
+
+    const fiber = fibers[index]
+    if (!fiber) break
+    const result = await classifyFiberBeforeDeadline(fiber, remaining)
+    if (result === null) {
+      partial = true
+      break
+    }
+    classes[index] = result
+  }
+
+  return { classes, partial }
 }
 
 /** A stable display identity for an otherwise-anonymous fiber, e.g. `cmdk.js:1998`. */
@@ -190,4 +250,21 @@ export async function resolveEffectSources(
   const resolved = await Promise.all(callSites.map(resolveHookSource))
   if (resolved.some((source) => source !== null)) effectSourceCache.set(id, resolved)
   return resolved
+}
+
+export async function resolveEffectSourcesBeforeDeadline(
+  fiber: Fiber,
+  timeoutMs: number,
+): Promise<(ResolvedSource | null)[] | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      resolveEffectSources(fiber),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), Math.max(1, timeoutMs))
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }

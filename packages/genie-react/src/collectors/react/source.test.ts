@@ -15,6 +15,7 @@ vi.mock('bippy/source', () => ({
 
 const {
   classifyFiber,
+  classifyFibersWithinBudget,
   clearSourceCache,
   isLibraryFile,
   resolveEffectSources,
@@ -115,6 +116,40 @@ describe('resolveSource caching', () => {
     await resolveSource(missing)
     await resolveSource(missing)
     expect(getSource.mock.calls.length).toBe(2) // null is not cached → retried
+  })
+
+  it('dedupes concurrent source lookups for the same fiber', async () => {
+    let resolveLookup: ((source: ReturnType<typeof at>) => void) | undefined
+    getSource.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveLookup = resolve
+        }),
+    )
+
+    const fiber = asFiber({})
+    const first = resolveSource(fiber)
+    const second = resolveSource(fiber)
+
+    expect(getSource).toHaveBeenCalledTimes(1)
+    resolveLookup?.(at('/src/Concurrent.tsx'))
+    await expect(first).resolves.toMatchObject({ file: '/src/Concurrent.tsx' })
+    await expect(second).resolves.toMatchObject({ file: '/src/Concurrent.tsx' })
+  })
+})
+
+describe('classifyFibersWithinBudget', () => {
+  it('stops at the classification limit and marks the result partial', async () => {
+    const fibers = Array.from({ length: 130 }, (_, index) =>
+      asFiber({ __source: at(`/src/C${index}.tsx`) }),
+    )
+
+    const result = await classifyFibersWithinBudget(fibers, { limit: 120, budgetMs: 500 })
+
+    expect(result.partial).toBe(true)
+    expect(getSource).toHaveBeenCalledTimes(120)
+    expect(result.classes[0]?.source?.file).toBe('/src/C0.tsx')
+    expect(result.classes[129]?.source).toBeNull()
   })
 })
 

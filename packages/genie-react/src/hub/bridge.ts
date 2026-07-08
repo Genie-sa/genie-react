@@ -100,6 +100,10 @@ function catalogOf(session: AppSession | null | undefined): ToolDescriptor[] {
 }
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+function toolDescriptor(session: AppSession, tool: string): ToolDescriptor | undefined {
+  return catalogOf(session).find((descriptor) => descriptor.name === tool)
+}
+
 // Keeps a leaked bridge from pinning the process; Node-only, but typed against a possible DOM `number` timer.
 function unrefTimer(timer: ReturnType<typeof setInterval>): void {
   if (typeof timer === 'object' && timer !== null && 'unref' in timer) timer.unref()
@@ -259,6 +263,7 @@ export class GenieBridge {
     switch (message.kind) {
       case 'app/hello': {
         const existing = this.apps.get(message.sessionId)
+        const now = Date.now()
         if (existing && existing.socket !== socket) {
           // Requests in flight on the replaced socket will never get a response.
           this.failPendingForSession(
@@ -274,8 +279,9 @@ export class GenieBridge {
           capabilities: message.capabilities,
           tools: message.tools,
           // First-connect time survives re-hellos (tool refreshes, reconnects), so a background tab can't steal recency.
-          connectedAt: existing?.connectedAt ?? Date.now(),
-          lastHeartbeatAt: existing?.lastHeartbeatAt,
+          connectedAt: existing?.connectedAt ?? now,
+          // A re-hello from a once-heartbeating session is a live JS turn (reload, reconnect, or tool refresh), so clear stale/busy state immediately.
+          lastHeartbeatAt: existing?.lastHeartbeatAt === undefined ? undefined : now,
         })
         if (!existing) {
           this.currentSessionId = message.sessionId
@@ -289,6 +295,8 @@ export class GenieBridge {
         return
       }
       case 'app/event':
+      case 'app/snapshot':
+        this.markSessionAlive(socket)
         return
       case 'app/heartbeat': {
         const session = this.apps.get(message.sessionId)
@@ -296,6 +304,7 @@ export class GenieBridge {
         return
       }
       case 'app/response': {
+        this.markSessionAlive(socket)
         const pending = this.pending.get(message.id)
         if (!pending) return
         this.clearPendingTimers(pending)
@@ -309,6 +318,11 @@ export class GenieBridge {
         return
       }
     }
+  }
+
+  private markSessionAlive(socket: WebSocket): void {
+    const session = [...this.apps.values()].find((candidate) => candidate.socket === socket)
+    if (session?.lastHeartbeatAt !== undefined) session.lastHeartbeatAt = Date.now()
   }
 
   private clearPendingTimers(pending: PendingRequest): void {
@@ -512,9 +526,18 @@ export class GenieBridge {
         error: `Tool "${tool}" timed out after ${fullTimeout}ms — the app tab may be reloading or its main thread busy; retry, or wait for it with devtools_wait`,
       })
     }, fullTimeout)
-    const busyTimer = this.scheduleBusyProbe(id, session.sessionId, tool, settle)
+    const busyTimer = this.shouldBusyProbe(session, tool, timeoutMs)
+      ? this.scheduleBusyProbe(id, session.sessionId, tool, settle)
+      : null
     this.pending.set(id, { settle, timer, busyTimer, sessionId: session.sessionId })
     this.send(session.socket, { kind: 'bridge/request', id, tool, args })
+  }
+
+  private shouldBusyProbe(session: AppSession, tool: string, timeoutMs?: number): boolean {
+    if (timeoutMs !== undefined) return false
+    const descriptor = toolDescriptor(session, tool)
+    if (!descriptor) return true
+    return descriptor.annotations?.readOnlyHint === true
   }
 
   /** Fast-fails a still-pending request when a once-heartbeating session has since gone quiet (main thread busy) — never for sessions that never beat. Re-arms until settle/timeout so a gap crossing the threshold after the first probe still fast-fails instead of racing the full timeout. */

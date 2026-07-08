@@ -4,9 +4,12 @@ import {
   childrenChanged,
   clearRenders,
   clearSnapshots,
+  createCommitAnalysisBudget,
   diffProps,
   getRenders,
+  getSkippedCommitFiberCount,
   isTracking,
+  recordCommitFiber,
   recordRender,
   rendersDiff,
   snapshotLabels,
@@ -262,6 +265,29 @@ describe('recordRender unnecessary accounting', () => {
     render(asFiber({ tag: 5, type: 'div' }), 'update')
     render(componentFiber({ name: 'Gone', props: {} }), 'unmount')
     expect(await getRenders({ sort: 'renders', limit: 50 })).toEqual([])
+  })
+})
+
+describe('commit analysis budget', () => {
+  it('bounds expensive per-fiber commit analysis and records skipped candidates', async () => {
+    const budget = createCommitAnalysisBudget(2)
+    for (let i = 0; i < 5; i++) {
+      recordCommitFiber(componentFiber({ name: `Busy${i}`, props: {} }), 'mount', budget)
+    }
+
+    expect(budget.processed).toBe(2)
+    expect(budget.skipped).toBe(3)
+    expect(getSkippedCommitFiberCount()).toBe(3)
+    expect(await getRenders({ sort: 'renders', limit: 10 })).toHaveLength(2)
+  })
+
+  it('does not spend commit budget on host fibers', () => {
+    const budget = createCommitAnalysisBudget(1)
+    recordCommitFiber(asFiber({ tag: 5, type: 'View', flags: 0 }), 'update', budget)
+    recordCommitFiber(componentFiber({ name: 'Kept', props: {} }), 'mount', budget)
+
+    expect(budget.processed).toBe(1)
+    expect(budget.skipped).toBe(0)
   })
 })
 

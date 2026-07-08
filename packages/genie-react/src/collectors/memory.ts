@@ -3,9 +3,9 @@ import { defineCollector, defineCollectorTool, type GenieCollector } from '../cl
 import { defineAgentToolContract } from '../protocol'
 
 interface PerformanceMemory {
-  readonly usedJSHeapSize: number
-  readonly totalJSHeapSize: number
-  readonly jsHeapSizeLimit: number
+  readonly usedJSHeapSize?: number | null
+  readonly totalJSHeapSize?: number | null
+  readonly jsHeapSizeLimit?: number | null
 }
 
 interface MemoryAttribution {
@@ -46,6 +46,28 @@ function getMeasureMemory(): (() => Promise<MemoryMeasurement>) | undefined {
 
 function isCrossOriginIsolated(): boolean | undefined {
   return typeof crossOriginIsolated === 'undefined' ? undefined : crossOriginIsolated
+}
+
+const finiteNumber = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined
+
+export function normalizePerformanceMemory(memory: PerformanceMemory): {
+  supported: boolean
+  usedJSHeapSize?: number
+  totalJSHeapSize?: number
+  jsHeapSizeLimit?: number
+} {
+  const usedJSHeapSize = finiteNumber(memory.usedJSHeapSize)
+  const totalJSHeapSize = finiteNumber(memory.totalJSHeapSize)
+  const jsHeapSizeLimit = finiteNumber(memory.jsHeapSizeLimit)
+  return {
+    supported: [usedJSHeapSize, totalJSHeapSize, jsHeapSizeLimit].some(
+      (value) => value !== undefined,
+    ),
+    ...(usedJSHeapSize !== undefined ? { usedJSHeapSize } : {}),
+    ...(totalJSHeapSize !== undefined ? { totalJSHeapSize } : {}),
+    ...(jsHeapSizeLimit !== undefined ? { jsHeapSizeLimit } : {}),
+  }
 }
 
 const memoryBreakdownEntrySchema = z.object({
@@ -112,11 +134,15 @@ export function memoryCollector(): GenieCollector {
               note: 'performance.memory is unavailable. It is a non-standard, Chromium-only API not exposed by Firefox, Safari, or most non-browser runtimes.',
             }
           }
+          const normalized = normalizePerformanceMemory(memory)
+          if (!normalized.supported) {
+            return {
+              supported: false,
+              note: 'performance.memory is present but did not expose numeric heap fields in this runtime. This commonly happens in React Native or other non-browser runtimes.',
+            }
+          }
           return {
-            supported: true,
-            usedJSHeapSize: memory.usedJSHeapSize,
-            totalJSHeapSize: memory.totalJSHeapSize,
-            jsHeapSizeLimit: memory.jsHeapSizeLimit,
+            ...normalized,
             note: 'Browser JavaScript (V8) heap for the whole page, not React-specific memory. Values are coarsened by the browser for security.',
           }
         },

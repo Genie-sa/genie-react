@@ -20,7 +20,12 @@ import {
 import type { z } from 'zod'
 import { dehydrate } from '../../protocol'
 import { type hookEntrySchema, type hookKindSchema, MAX_HOOKS, type NodeId } from './contracts'
-import { classifyFiber, type ResolvedSource, sourceLabel } from './source'
+import {
+  classifyFibersWithinBudget,
+  type FiberClassification,
+  type ResolvedSource,
+  sourceLabel,
+} from './source'
 
 type HookEntry = z.infer<typeof hookEntrySchema>
 
@@ -60,6 +65,10 @@ export interface InspectResult {
 // Id → fiber registry. React double-buffers fibers (current/alternate swap each commit), so the id is mirrored onto both buffers and resolved via getLatestFiber to whichever is mounted; capped so a long session can't pin unmounted fibers forever.
 const REGISTRY_LIMIT = 5_000
 const fiberRegistry = new Map<NodeId, Fiber>()
+
+const TREE_SOURCE_CLASSIFY_LIMIT = 120
+const TREE_SOURCE_CLASSIFY_BUDGET_MS = 500
+const UNCLASSIFIED_FIBER: FiberClassification = { source: null, isLibrary: false }
 
 export function registerFiber(fiber: Fiber): NodeId {
   const id = asNodeId(getFiberId(fiber))
@@ -268,6 +277,11 @@ export async function buildTree(
     const folded = await foldLibrarySubtrees(entries)
     nodes = folded.nodes
     filteredNote = appOnlyFilteredNote(nodes.length, folded.hidden, 'components')
+    if (folded.partial) {
+      const partialNote =
+        'source classification budget reached; some library components may be shown'
+      filteredNote = filteredNote ? `${filteredNote}; ${partialNote}` : partialNote
+    }
   }
 
   const truncatedBy = nodeCapped ? 'maxNodes' : depthClipped ? 'depth' : null
@@ -284,10 +298,10 @@ export async function buildTree(
 // Classifies each node, labels anonymous nodes by source (`cmdk.js:1998`), and folds each library subtree into its top node instead of a wall of "Anonymous"; hidden counts the folded-away library nodes.
 async function foldLibrarySubtrees(
   entries: { node: TreeNode; fiber: Fiber }[],
-): Promise<{ nodes: TreeNode[]; hidden: number }> {
-  const classes = await Promise.all(entries.map((entry) => classifyFiber(entry.fiber)))
+): Promise<{ nodes: TreeNode[]; hidden: number; partial: boolean }> {
+  const { classes, partial } = await classifyTreeEntries(entries)
   entries.forEach((entry, index) => {
-    const { source, isLibrary } = classes[index] ?? { source: null, isLibrary: false }
+    const { source, isLibrary } = classes[index] ?? UNCLASSIFIED_FIBER
     entry.node.source = source
     entry.node.isLibrary = isLibrary
     if (entry.node.name === 'Anonymous') {
@@ -304,7 +318,16 @@ async function foldLibrarySubtrees(
     return parent?.isLibrary === true
   }
   const nodes = entries.map((entry) => entry.node).filter((node) => !isLibraryInternal(node))
-  return { nodes, hidden: entries.length - nodes.length }
+  return { nodes, hidden: entries.length - nodes.length, partial }
+}
+
+async function classifyTreeEntries(
+  entries: { node: TreeNode; fiber: Fiber }[],
+): Promise<{ classes: FiberClassification[]; partial: boolean }> {
+  return classifyFibersWithinBudget(
+    entries.map((entry) => entry.fiber),
+    { limit: TREE_SOURCE_CLASSIFY_LIMIT, budgetMs: TREE_SOURCE_CLASSIFY_BUDGET_MS },
+  )
 }
 
 export interface FindMatch {

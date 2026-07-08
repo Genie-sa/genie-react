@@ -288,6 +288,36 @@ describe('GenieBridge', () => {
     expect(status.result.sessions[0].current).toBe(true)
   })
 
+  it('resets stale heartbeat state when a heartbeat-capable session re-hellos', async () => {
+    const fastHandle = createStandaloneBridge({ sessionStaleMs: 100 })
+    const fastUrl = (await fastHandle.listen()).url
+    try {
+      const app = await connect(`${fastUrl}?role=app`)
+      const hello = {
+        kind: 'app/hello' as const,
+        protocol: 1,
+        sessionId: 's-reload',
+        app: { name: 'reloadable' },
+        capabilities: [],
+        tools: [],
+      }
+      send(app, hello)
+      send(app, { kind: 'app/heartbeat', sessionId: 's-reload' })
+      await expect.poll(() => fastHandle.bridge.getStatus().connected).toBe(true)
+
+      await delay(150)
+      expect(fastHandle.bridge.getStatus().sessions[0]?.staleMs).toBeGreaterThan(100)
+
+      send(app, hello)
+      await expect.poll(() => fastHandle.bridge.getStatus().sessions[0]?.staleMs).toBeUndefined()
+      const status = fastHandle.bridge.getStatus()
+      expect(status.sessions[0]?.staleMs).toBeUndefined()
+      expect(status.sessionId).toBe('s-reload')
+    } finally {
+      await fastHandle.close()
+    }
+  })
+
   it('times out a forwarded tool when the app never responds', async () => {
     const fastHandle = createStandaloneBridge({ requestTimeoutMs: 150 })
     const fastUrl = (await fastHandle.listen()).url
@@ -378,6 +408,93 @@ describe('GenieBridge', () => {
       expect(result.ok).toBe(false)
       expect(result.errorCode).toBe('busy')
       expect(Date.now() - started).toBeLessThan(2000)
+    } finally {
+      await fastHandle.close()
+    }
+  })
+
+  it('lets a caller-supplied timeoutMs override the busy fast-fail', async () => {
+    const fastHandle = createStandaloneBridge({
+      requestTimeoutMs: 20_000,
+      busyProbeMs: 100,
+      busyHeartbeatGapMs: 50,
+    })
+    const fastUrl = (await fastHandle.listen()).url
+    try {
+      const app = await connect(`${fastUrl}?role=app`)
+      send(app, {
+        kind: 'app/hello',
+        protocol: 1,
+        sessionId: 's-timeoutOverride',
+        app: { name: 'timeoutOverride' },
+        capabilities: [],
+        tools: [],
+      })
+      send(app, { kind: 'app/heartbeat', sessionId: 's-timeoutOverride' })
+      await expect.poll(() => fastHandle.bridge.getStatus().connected).toBe(true)
+
+      const { ws: agent, inbox } = await open(`${fastUrl}?role=agent`)
+      const id = newId()
+      const started = Date.now()
+      send(agent, {
+        kind: 'agent/invoke',
+        id,
+        tool: 'never_responds',
+        args: {},
+        timeoutMs: 1_000,
+      })
+      const result = await inbox.wait(isResult(id), 3_000)
+      expect(result.ok).toBe(false)
+      expect(result.errorCode).toBe('timeout')
+      expect(result.error).toContain('1000ms')
+      expect(Date.now() - started).toBeGreaterThanOrEqual(900)
+    } finally {
+      await fastHandle.close()
+    }
+  })
+
+  it('does not busy-gate advertised mutation tools', async () => {
+    const fastHandle = createStandaloneBridge({
+      requestTimeoutMs: 1_000,
+      busyProbeMs: 100,
+      busyHeartbeatGapMs: 50,
+    })
+    const fastUrl = (await fastHandle.listen()).url
+    try {
+      const { ws: app, inbox: appInbox } = await open(`${fastUrl}?role=app`)
+      send(app, {
+        kind: 'app/hello',
+        protocol: 1,
+        sessionId: 's-mutation',
+        app: { name: 'mutation' },
+        capabilities: ['react'],
+        tools: [
+          {
+            name: 'react_override_hook_state',
+            title: 'Override hook state',
+            description: 'mutates state',
+            group: 'action',
+            annotations: { destructiveHint: true, idempotentHint: false },
+          },
+        ],
+      })
+      send(app, { kind: 'app/heartbeat', sessionId: 's-mutation' })
+      await expect.poll(() => fastHandle.bridge.getStatus().connected).toBe(true)
+
+      const { ws: agent, inbox } = await open(`${fastUrl}?role=agent`)
+      const id = newId()
+      const started = Date.now()
+      send(agent, {
+        kind: 'agent/invoke',
+        id,
+        tool: 'react_override_hook_state',
+        args: { id: 1, stateIndex: 0, value: true },
+      })
+      await appInbox.wait((frame) => frame.kind === 'bridge/request' && frame.id === id, 500)
+      const result = await inbox.wait(isResult(id), 3_000)
+      expect(result.ok).toBe(false)
+      expect(result.errorCode).toBe('timeout')
+      expect(Date.now() - started).toBeGreaterThanOrEqual(900)
     } finally {
       await fastHandle.close()
     }

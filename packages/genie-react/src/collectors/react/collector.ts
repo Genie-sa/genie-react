@@ -62,7 +62,21 @@ import {
   stopRenderTracking,
   takeSnapshot,
 } from './render-tracker'
-import { classifyFiber } from './source'
+import { classifyFiber, classifyFibersWithinBudget } from './source'
+
+export function hasDomLookupRuntime(): boolean {
+  const globals = globalThis as {
+    navigator?: { product?: string }
+    document?: { querySelectorAll?: unknown; body?: unknown }
+    Element?: unknown
+  }
+  if (globals.navigator?.product === 'ReactNative') return false
+  return (
+    typeof globals.document?.querySelectorAll === 'function' &&
+    globals.document.body !== undefined &&
+    typeof globals.Element === 'function'
+  )
+}
 
 /** React collector: tree, search, inspection, live overrides; why-did-render + profiling need commit instrumentation from `genie-react/hook`. */
 export function reactCollector(): GenieCollector {
@@ -93,13 +107,12 @@ export function reactCollector(): GenieCollector {
           const root = findRootFiber()
           if (!root) return { matches: [] }
           const found = findByName(root, query, exact, limit)
-          const matches = await Promise.all(
-            found.map(async ({ id, name, path, fiber }) => {
-              const { kind, props } = matchDetail(fiber, 1)
-              const { source, isLibrary } = await classifyFiber(fiber)
-              return { id, name, path, kind, props, source, isLibrary }
-            }),
-          )
+          const { classes } = await classifyFibersWithinBudget(found.map(({ fiber }) => fiber))
+          const matches = found.map(({ id, name, path, fiber }, index) => {
+            const { kind, props } = matchDetail(fiber, 1)
+            const { source, isLibrary } = classes[index] ?? { source: null, isLibrary: false }
+            return { id, name, path, kind, props, source, isLibrary }
+          })
           return { matches }
         },
       }),
@@ -194,7 +207,7 @@ export function reactCollector(): GenieCollector {
       defineCollectorTool({
         contract: reactComponentForDomContract,
         handler: async ({ selector, limit, propsDepth }) => {
-          if (typeof document === 'undefined') throw new Error('No DOM in this environment.')
+          if (!hasDomLookupRuntime()) throw new Error('No DOM in this environment.')
           let elements: Element[]
           try {
             elements = Array.from(document.querySelectorAll(selector))

@@ -9,10 +9,11 @@ import {
   SimpleMemoComponentTag,
 } from 'bippy'
 import {
-  classifyFiber,
+  classifyFibersWithinBudget,
+  type FiberClassification,
   isLibraryFile,
   type ResolvedSource,
-  resolveEffectSources,
+  resolveEffectSourcesBeforeDeadline,
   sourceLabel,
 } from './source'
 
@@ -23,6 +24,9 @@ const HOOK_LAYOUT = 0b0100
 const HOOK_PASSIVE = 0b1000
 
 const EFFECT_WALK_LIMIT = 1000
+const EFFECT_SOURCE_ATTRIBUTION_LIMIT = 80
+const EFFECT_SOURCE_ATTRIBUTION_BUDGET_MS = 500
+const UNCLASSIFIED_FIBER: FiberClassification = { source: null, isLibrary: false }
 
 // Fibers that own a hook effect list; MemoComponentTag wraps an inner fiber that carries the effects as one of these tags, so it's not listed.
 const EFFECT_TAGS = new Set<number>([FunctionComponentTag, ForwardRefTag, SimpleMemoComponentTag])
@@ -169,33 +173,36 @@ export async function getEffectAuditReport(
   }
 
   const appOnly = query.appOnly ?? true
-  const all: EffectAuditRecord[] = await Promise.all(
-    list.map(async (record) => {
-      const { source, isLibrary } = await classifyFiber(record.fiber)
-      const name = record.name === 'Anonymous' ? (sourceLabel(source) ?? record.name) : record.name
-      const stats = record.stats.filter(Boolean)
-      const effectSources = await resolveEffectSources(record.fiber)
-      // Internal hooks (useSyncExternalStore, useActionState) push commit-list effects the inspector never reports: map 1:1 only when lengths match; inspected with no app effect ⇒ the whole list is library/internal noise; otherwise attribution is unsafe.
-      const aligned = effectSources !== null && effectSources.length === stats.length
-      const noAppEffect =
-        effectSources !== null &&
-        !effectSources.some((src) => src !== null && !isLibraryFile(src.file))
-      return {
-        id: record.id,
-        name,
-        source,
-        isLibrary,
-        effects: stats.map((stat, position) => {
-          const effectSource = aligned && effectSources ? effectSources[position] : null
-          return {
-            ...toFinding(stat),
-            source: effectSource ?? null,
-            isLibrary: effectSource ? isLibraryFile(effectSource.file) : noAppEffect,
-          }
-        }),
-      }
-    }),
+  const { classes } = await classifyFibersWithinBudget(
+    list.map((record) => record.fiber),
+    { limit: EFFECT_SOURCE_ATTRIBUTION_LIMIT, budgetMs: EFFECT_SOURCE_ATTRIBUTION_BUDGET_MS },
   )
+  const effectSourcesByIndex = await resolveEffectSourcesWithinBudget(list)
+  const all: EffectAuditRecord[] = list.map((record, index) => {
+    const { source, isLibrary } = classes[index] ?? UNCLASSIFIED_FIBER
+    const name = record.name === 'Anonymous' ? (sourceLabel(source) ?? record.name) : record.name
+    const stats = record.stats.filter(Boolean)
+    const effectSources = effectSourcesByIndex[index] ?? null
+    // Internal hooks (useSyncExternalStore, useActionState) push commit-list effects the inspector never reports: map 1:1 only when lengths match; inspected with no app effect ⇒ the whole list is library/internal noise; otherwise attribution is unsafe.
+    const aligned = effectSources !== null && effectSources.length === stats.length
+    const noAppEffect =
+      effectSources !== null &&
+      !effectSources.some((src) => src !== null && !isLibraryFile(src.file))
+    return {
+      id: record.id,
+      name,
+      source,
+      isLibrary,
+      effects: stats.map((stat, position) => {
+        const effectSource = aligned && effectSources ? effectSources[position] : null
+        return {
+          ...toFinding(stat),
+          source: effectSource ?? null,
+          isLibrary: effectSource ? isLibraryFile(effectSource.file) : noAppEffect,
+        }
+      }),
+    }
+  })
 
   let findings = all
   let libraryEffectsHidden = 0
@@ -208,6 +215,25 @@ export async function getEffectAuditReport(
   if (query.onlyHot) findings = findings.filter((record) => record.effects.some((e) => e.note))
   findings.sort((a, b) => score(b) - score(a))
   return { components: findings.slice(0, query.limit), libraryEffectsHidden }
+}
+
+async function resolveEffectSourcesWithinBudget(
+  recordsToAttribute: EffectRecord[],
+): Promise<Array<(ResolvedSource | null)[] | null>> {
+  const sources = recordsToAttribute.map(() => null as (ResolvedSource | null)[] | null)
+  const startedAt = Date.now()
+  const limit = Math.min(recordsToAttribute.length, EFFECT_SOURCE_ATTRIBUTION_LIMIT)
+
+  for (let index = 0; index < limit; index += 1) {
+    const remaining = EFFECT_SOURCE_ATTRIBUTION_BUDGET_MS - (Date.now() - startedAt)
+    if (remaining <= 0) break
+
+    const record = recordsToAttribute[index]
+    if (!record) break
+    sources[index] = await resolveEffectSourcesBeforeDeadline(record.fiber, remaining)
+  }
+
+  return sources
 }
 
 // Surface re-run/loop smells first, then the most active effects.
