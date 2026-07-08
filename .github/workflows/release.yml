@@ -31,6 +31,9 @@ jobs:
 
       - name: Setup
         uses: ./.github/actions/setup
+        with:
+          # Writes an .npmrc pointing at npm; pnpm reads it, finds no token, and falls back to OIDC trusted publishing.
+          registry-url: "https://registry.npmjs.org"
 
       - name: Create Release Pull Request or Publish
         uses: changesets/action@v1

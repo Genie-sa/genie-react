@@ -10,7 +10,7 @@
     "url": "git+https://github.com/y0u-0/genie-react.git"
   },
   "author": "y0u-0",
-  "packageManager": "pnpm@10.13.1",
+  "packageManager": "pnpm@10.34.4",
   "engines": {
     "node": ">=20"
   },
