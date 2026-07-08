@@ -13,6 +13,7 @@ import {
   summarizeEffects,
   summarizeErrorState,
   summarizeFps,
+  summarizeInspect,
   summarizeListOverrides,
   summarizeProfile,
   summarizeProfileSnapshot,
@@ -315,6 +316,24 @@ const treePayload = {
     { id: 4, parentId: 2, name: 'Row', key: 'a', kind: 'component' },
   ],
 }
+
+describe('summarizeInspect', () => {
+  it('renders each hook with its kind, stateful ordinal, and value in the text view', () => {
+    const text = summarizeInspect({
+      id: 7,
+      name: 'Wizard',
+      kind: 'function',
+      props: { step: 1 },
+      hooks: [
+        { index: 0, kind: 'state', stateful: true, stateIndex: 0, value: false },
+        { index: 1, kind: 'effect', stateful: false },
+      ],
+    })
+    expect(text).toContain('hooks: 2')
+    expect(text).toContain('[0] state stateIndex 0 = false')
+    expect(text).toContain('[1] effect')
+  })
+})
 
 describe('summarizeTree', () => {
   it('renders a header and a depth-indented outline reconstructed from parentId', () => {

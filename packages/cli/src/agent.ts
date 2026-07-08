@@ -44,7 +44,7 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
     url = bridge.url
     if (bridge.source === 'fallback') {
       err(
-        `genie: no .genie/bridge.json found from ${cwd} upward — trying ${url}. Start your dev server (Vite: genie() plugin) or \`genie-react hub\`, or set GENIE_BRIDGE_URL.`,
+        `genie-react: no .genie/bridge.json found from ${cwd} upward — trying ${url}. Start your dev server (Vite: genie() plugin) or \`genie-react hub\`, or set GENIE_BRIDGE_URL.`,
       )
     }
   }
@@ -326,6 +326,10 @@ export function summarizeStatus(result: unknown): string | null {
     if (typeof sessionApp.name === 'string') parts.push(sessionApp.name)
     if (typeof sessionApp.url === 'string') parts.push(sessionApp.url)
     if (session.current === true) parts.push('(current)')
+    if (typeof session.staleMs === 'number')
+      parts.push(
+        `(stale — no heartbeat for ${Math.round(session.staleMs / 1000)}s, likely a dead tab)`,
+      )
     lines.push(parts.join(' · '))
   }
   lines.push('target one: --session <id> (or set GENIE_SESSION once per shell)')
@@ -360,12 +364,23 @@ export function summarizeComponentForDom(result: unknown): string | null {
   return lines.join('\n')
 }
 
+const MAX_HOOK_LINES = 16
+
 export function summarizeInspect(result: unknown): string | null {
   if (!isRecord(result) || typeof result.name !== 'string' || !('props' in result)) return null
   const lines = [`${result.name} #${num(result.id)} · ${String(result.kind)}`]
   lines.push(`  props: ${recordPreview(result.props)}`)
   if (result.state !== undefined) lines.push(`  state: ${recordPreview(result.state)}`)
-  if (Array.isArray(result.hooks)) lines.push(`  hooks: ${result.hooks.length}`)
+  if (Array.isArray(result.hooks)) {
+    const hooks = result.hooks.filter(isRecord)
+    lines.push(`  hooks: ${hooks.length}`)
+    for (const hook of hooks.slice(0, MAX_HOOK_LINES)) {
+      const ordinal = typeof hook.stateIndex === 'number' ? ` stateIndex ${hook.stateIndex}` : ''
+      const value = 'value' in hook ? ` = ${recordPreview(hook.value)}` : ''
+      lines.push(`    [${num(hook.index)}] ${String(hook.kind)}${ordinal}${value}`)
+    }
+    if (hooks.length > MAX_HOOK_LINES) lines.push(`    +${hooks.length - MAX_HOOK_LINES} more`)
+  }
   return lines.join('\n')
 }
 

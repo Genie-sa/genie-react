@@ -36,6 +36,8 @@ export interface GenieBridgeOptions {
   busyProbeMs?: number
   /** How stale an app heartbeat must be at probe time to fast-fail as busy; production default 2500ms. */
   busyHeartbeatGapMs?: number
+  /** Silence after which a heartbeat-capable session reads as a dead tab context and loses default routing; production default 15000ms. */
+  sessionStaleMs?: number
   logger?: BridgeLogger
 }
 
@@ -87,6 +89,8 @@ const BUSY_PROBE_MS = 2_000
 // Above the ~1s heartbeat cadence with margin for a tool that itself blocks the thread a while — only a longer silence reads as busy.
 const BUSY_HEARTBEAT_GAP_MS = 3_500
 const BUSY_RETRY_MS = 500
+// Well past any legitimate block: a session silent this long is a dead tab context, not a busy one.
+const SESSION_STALE_MS = 15_000
 const MIN_REQUEST_TIMEOUT_MS = 1_000
 const MAX_REQUEST_TIMEOUT_MS = 120_000
 
@@ -110,6 +114,7 @@ export class GenieBridge {
   private readonly requestTimeoutMs: number
   private readonly busyProbeMs: number
   private readonly busyHeartbeatGapMs: number
+  private readonly sessionStaleMs: number
   private readonly log: BridgeLogger
   private readonly apps = new Map<string, AppSession>()
   private readonly connections = new Set<WebSocket>()
@@ -121,6 +126,7 @@ export class GenieBridge {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
     this.busyProbeMs = options.busyProbeMs ?? BUSY_PROBE_MS
     this.busyHeartbeatGapMs = options.busyHeartbeatGapMs ?? BUSY_HEARTBEAT_GAP_MS
+    this.sessionStaleMs = options.sessionStaleMs ?? SESSION_STALE_MS
     this.log = options.logger ?? (() => {})
     const interval = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
     this.heartbeat = setInterval(() => this.sweepDeadConnections(), interval)
@@ -157,21 +163,38 @@ export class GenieBridge {
     this.wss.close()
   }
 
+  // A heartbeat-capable session gone this quiet is a dead tab context (reload leftover, frozen bfcache page) — never route default calls to it while a live session exists.
+  private staleMsOf(session: AppSession): number | null {
+    if (session.lastHeartbeatAt === undefined) return null
+    const gap = Date.now() - session.lastHeartbeatAt
+    return gap > this.sessionStaleMs ? gap : null
+  }
+
   private currentSession(): AppSession | null {
-    return this.currentSessionId ? (this.apps.get(this.currentSessionId) ?? null) : null
+    const pinned = this.currentSessionId ? (this.apps.get(this.currentSessionId) ?? null) : null
+    if (!pinned || this.staleMsOf(pinned) === null) return pinned
+    const fresh = [...this.apps.values()]
+      .filter((session) => this.staleMsOf(session) === null)
+      .sort((a, b) => b.connectedAt - a.connectedAt)[0]
+    return fresh ?? pinned
   }
 
   private sessionSummaries(): SessionSummary[] {
+    const current = this.currentSession()
     return [...this.apps.values()]
       .sort((a, b) => b.connectedAt - a.connectedAt)
-      .map((session) => ({
-        sessionId: session.sessionId,
-        app: session.app,
-        domains: session.capabilities,
-        toolCount: catalogOf(session).length,
-        connectedAt: session.connectedAt,
-        current: session.sessionId === this.currentSessionId,
-      }))
+      .map((session) => {
+        const staleMs = this.staleMsOf(session)
+        return {
+          sessionId: session.sessionId,
+          app: session.app,
+          domains: session.capabilities,
+          toolCount: catalogOf(session).length,
+          connectedAt: session.connectedAt,
+          current: session.sessionId === current?.sessionId,
+          ...(staleMs === null ? {} : { staleMs }),
+        }
+      })
   }
 
   private hasSession(sessionId?: string): boolean {

@@ -4,6 +4,7 @@ import {
   getLatestFiber,
   getRDTHook,
   instrument,
+  type MemoizedState,
   SuspenseComponentTag,
 } from 'bippy'
 import { previewValue, type ToolOutput } from '../../protocol'
@@ -154,12 +155,38 @@ function recordPropsOverride(
   })
 }
 
-function recordHookOverride(fiber: Fiber, flatIndex: number, value: unknown): void {
+const isIndexable = (value: unknown): value is Record<string | number, unknown> =>
+  typeof value === 'object' && value !== null
+
+// Reads the hook's current value at `path` so reset can re-apply it through the same overrideHookState mechanism.
+function hookValueAtPath(hook: MemoizedState, path: Array<string | number>): unknown {
+  let current: unknown = hook.memoizedState
+  for (const key of path) {
+    if (!isIndexable(current)) return undefined
+    current = current[key]
+  }
+  return current
+}
+
+function recordHookOverride(
+  fiber: Fiber,
+  flatIndex: number,
+  path: Array<string | number>,
+  value: unknown,
+  prior: unknown,
+): void {
+  // First capture wins — a re-override reads the already-overridden hook value, not the app's original.
+  const existing = findEntry('hook', fiber)
+  const restore =
+    existing?.restore ??
+    ((renderer: DevRenderer) =>
+      renderer.overrideHookState?.(fiber, String(flatIndex), path.map(String), prior))
   upsertEntry({
     kind: 'hook',
     fiber,
     componentName: nameOf(fiber),
     detail: `hook ${flatIndex} ← ${previewValue(value)}`,
+    restore,
   })
 }
 
@@ -210,11 +237,12 @@ export function listOverrides(): ListOverridesOutput {
 /** Clear every override from module state, restoring props/context originals when the fiber is still mounted; works even when findFiberById would fail (suspense/error clear via their sets). */
 export function resetOverrides(renderer?: DevRenderer): ResetOverridesOutput {
   const propsRenderer = renderer ?? optionalRenderer('overrideProps')
+  const hookRenderer = renderer ?? optionalRenderer('overrideHookState')
   const scheduleRenderer = renderer ?? optionalRenderer('scheduleUpdate')
   const cleared = registry.map((entry) => ({
     kind: entry.kind,
     componentName: entry.componentName,
-    outcome: clearEntry(entry, propsRenderer, scheduleRenderer),
+    outcome: clearEntry(entry, propsRenderer, hookRenderer, scheduleRenderer),
   }))
   registry.length = 0
   forcedSuspense.clear()
@@ -224,15 +252,17 @@ export function resetOverrides(renderer?: DevRenderer): ResetOverridesOutput {
 function clearEntry(
   entry: RegistryEntry,
   propsRenderer: DevRenderer | null,
+  hookRenderer: DevRenderer | null,
   scheduleRenderer: DevRenderer | null,
 ): ResetOutcome {
   if (entry.fiber === null) return entry.kind === 'hook' ? 'released' : 'skipped-unmounted'
   if (entry.kind === 'suspense') return releaseSuspense(entry.fiber, scheduleRenderer)
   if (entry.kind === 'error') return releaseError(entry.fiber, scheduleRenderer)
-  if (entry.kind === 'hook') return 'released'
+  const renderer = entry.kind === 'hook' ? hookRenderer : propsRenderer
   const live = mountedFiber(entry.fiber)
-  if (!live || !propsRenderer || !entry.restore) return 'skipped-unmounted'
-  entry.restore(propsRenderer)
+  if (!live || !renderer || !entry.restore)
+    return entry.kind === 'hook' ? 'released' : 'skipped-unmounted'
+  entry.restore(renderer)
   return 'restored'
 }
 
@@ -524,8 +554,10 @@ export function applyHookStateOverride(
   renderer: DevRenderer = requireRenderer('overrideHookState'),
 ): ResolvedStatefulTarget {
   const resolved = resolveStatefulTarget(fiber, target)
+  const hook = hookChain(fiber)[resolved.flatIndex]
+  const prior = hook ? hookValueAtPath(hook, path) : undefined
   renderer.overrideHookState?.(fiber, String(resolved.flatIndex), path.map(String), value)
-  recordHookOverride(fiber, resolved.flatIndex, value)
+  recordHookOverride(fiber, resolved.flatIndex, path, value, prior)
   return resolved
 }
 

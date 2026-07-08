@@ -10,7 +10,9 @@
 
 The idea is simple: give your AI coding agent the same view into the running app that you have as an engineer — so it doesn't have to guess from the source code, or wait for you to describe what's happening. Genie connects the agent (Claude Code, Codex, OpenCode, PI, etc.) to your app's live DevTools while it runs. It can **see** what's going on and **act** on it, across everything you'd normally open by hand: all of TanStack's DevTools (Query, Router, with more on the way), any custom devtools you've built on top of TanStack, and React's own internals — which components rendered and why, what's slow, what data is loaded, and more. Taking that back-and-forth out of the way lets the agent work on its own and, most importantly, check its own work end to end: it can confirm a change really works, find what's slow, and improve performance against the real app instead of hoping the code is right.
 
-One command drives everything: `genie call <tool> '<json>'`.
+One command drives everything: `genie-react call <tool> '<json>'`.
+
+Built for the agent, not the panel: every response is complete enough to act on in one read — failures carry a typed code and the fix (`[busy] … retry in 500ms`), a wrong hook target errors with the list of right ones, filtered views say what they hid, and perf verification is a machine verdict (`react_renders_diff`) instead of two dumps to eyeball.
 
 ## Install
 
@@ -69,8 +71,6 @@ Or imperatively (e.g. in `index.js`, before `registerRootComponent`): `if (__DEV
 
 The React tools, `browser_fps`, and the Query/Router tools work as they do on the web. `react_dom_for_component` reports the native view(s) a component renders with their `testID` / accessibility props (there are no CSS selectors). `browser_get_memory` reports the Hermes heap when the runtime exposes `performance.memory` (RN 0.85+ does), otherwise unsupported; `react_component_for_dom` needs a DOM and is unavailable.
 
-For driving the app, pair with **agent-device** (the React Native hands: taps, types, and screenshots the simulator or device), the role agent-browser plays on the web.
-
 Then drive it:
 
 ```bash
@@ -102,16 +102,21 @@ Install the [agent skill](https://github.com/vercel-labs/skills) so your agent k
 npx skills add y0u-0/genie-react
 ```
 
-## Pair with agent-browser
+## Use with agent-browser & agent-device
 
-[agent-browser](https://github.com/vercel-labs/agent-browser) is the hands — it opens the app, clicks, types, and takes screenshots. Genie is the eyes — it reads what happens underneath, the renders, effects, queries, and errors the page can't show. Together your agent closes the loop on its own: make a change, drive the app, check the result, then fix or optimize — verifying its own work end to end, without you in the middle.
+Genie is the eyes — it reads what happens underneath the pixels: the renders, effects, hooks, queries, and errors no screenshot can show. Pair it with the hands that drive the UI:
+
+- **Web** — [agent-browser](https://github.com/vercel-labs/agent-browser) opens the app, clicks, types, and takes screenshots.
+- **React Native** — [agent-device](https://github.com/callstack/agent-device) taps, types, and screenshots the simulator or device. The same toolset works there too — renders, effects, hook overrides, the profiler, Query/Router — verified against real Expo apps.
+
+Together your agent closes the loop on its own: make a change, drive the app, read why, then fix or optimize — verifying its own work end to end, without you in the middle.
 
 ## What you get
 
 **See** —
 
 - the component tree; find components by name
-- a component's props, state, hooks, and the contexts it consumes
+- a component's props, state, hooks (each labeled: state / reducer / memo / callback / ref / effect), and the contexts it consumes
 - the DOM node(s) a component renders, each with a selector
 - what re-rendered, how often, and why — including unstable props that defeat `memo`
 - which effects fired and why — catches refetch / setState loops
@@ -126,14 +131,16 @@ npx skills add y0u-0/genie-react
 - navigate, preload, and invalidate routes
 - invalidate / refetch / reset / remove / setData / cancel / fetch / ensure queries
 - re-run a mutation
-- override a component's props, hook state, or a context value
+- override a component's props, hook state (by stateful ordinal or flat index), or a context value
 - force a Suspense fallback or an error boundary — hold loading / error UI open to inspect it, no code edits
+- list every active override and reset them all — restores originals, releases forced boundaries even after the subtree re-mounted
+- snapshot render aggregates and diff later: a regressed / improved verdict that proves (or reverts) a perf fix
 
-52 tools total. `read` is safe to call freely; `action` mutates the running app.
+61 tools total. `read` is safe to call freely; `action` mutates the running app.
 
 ## Tools
 
-**React** — `react_get_tree`, `react_find_components` (tree); `react_inspect_component` (props / state / hooks), `react_inspect_context` (consumed contexts + values), `react_dom_for_component` (DOM element(s) + selectors), `react_component_for_dom` (CSS selector → the owning component + its source — the reverse direction, for "this button is wrong, whose is it?"); `react_get_renders`, `react_clear_renders` (why-did-render), `react_effect_audit` (which effects fired), `react_error_state` (errors / suspended); `react_profile_start`, `react_profile_report` (profiler) — read. `react_override_props`, `react_override_hook_state`, `react_override_context` (drive props / hook state / context), `react_toggle_suspense_fallback`, `react_force_error_boundary` (hold loading / error UI open) — action.
+**React** — `react_get_tree`, `react_find_components` (tree; matches carry props, source `file:line`, app/library); `react_inspect_component` (props / state / hooks with kinds), `react_inspect_context` (consumed contexts + values), `react_dom_for_component` (DOM element(s) + selectors), `react_component_for_dom` (CSS selector → the owning component + its source — the reverse direction, for "this button is wrong, whose is it?"); `react_get_renders`, `react_clear_renders` (why-did-render), `react_effect_audit` (which effects fired), `react_error_state` (errors / suspended); `react_profile_start`, `react_profile_stop`, `react_profile_report` (profiler), `react_profile_snapshot` + `react_renders_diff` (before/after verdict), `react_list_overrides` (what's overridden) — read. `react_override_props`, `react_override_hook_state`, `react_override_context` (drive props / hook state / context), `react_toggle_suspense_fallback`, `react_force_error_boundary` (hold loading / error UI open), `react_reset_overrides` (restore originals, release everything — the recovery when a forced subtree re-mounted) — action.
 
 **Query** — read: `query_list`, `query_get`, `query_get_data`, `query_is_fetching`, `query_list_mutations`, `mutation_get`. action: `query_invalidate`, `query_refetch`, `query_cancel`, `query_reset`, `query_remove`, `query_clear`, `query_set_data`, `query_fetch`, `query_ensure`, `mutation_rerun`.
 
@@ -149,9 +156,9 @@ npx skills add y0u-0/genie-react
 
 ## How it works
 
-Collectors in the browser (React, Query, Router, plugins, memory) run tool calls against the real fibers and caches, and talk over a WebSocket to a small hub — embedded in your Vite dev server, or standalone (`genie hub` / Next.js `instrumentation.ts`), where it also serves the browser client as a single script. The `genie` CLI connects to that hub, runs tools, and prints JSON.
+Collectors in the browser (React, Query, Router, plugins, memory) run tool calls against the real fibers and caches, and talk over a WebSocket to a small hub — embedded in your Vite dev server, or standalone (`genie-react hub` / Next.js `instrumentation.ts`), where it also serves the browser client as a single script. The `genie-react` CLI connects to that hub, runs tools, and prints JSON.
 
-Several tabs can be connected at once: calls hit the most recent, `genie status` lists every session, and `--session <id>` targets a specific tab — so parallel agents can each drive their own (set `GENIE_SESSION` once per agent shell to pin every call to that agent's tab). Several apps and agents coexist too: a standalone hub identifies the app it serves, so a second app's hub walks to the next free port instead of cross-connecting, and each app's `.genie/bridge.json` pins its CLI to its own hub.
+Several tabs can be connected at once: calls hit the most recent, `genie-react status` lists every session, and `--session <id>` targets a specific tab — so parallel agents can each drive their own (set `GENIE_SESSION` once per agent shell to pin every call to that agent's tab). Several apps and agents coexist too: a standalone hub identifies the app it serves, so a second app's hub walks to the next free port instead of cross-connecting, and each app's `.genie/bridge.json` pins its CLI to its own hub.
 
 Dev-only and local: the Vite plugin is inert in production builds, the browser client only starts under `import.meta.env.DEV`, and the hub listens on `localhost` only.
 

@@ -57,6 +57,8 @@ export const sessionSummarySchema = z.object({
   toolCount: z.number(),
   connectedAt: z.number(),
   current: z.boolean(),
+  /** Present when a heartbeat-capable session went silent (likely a dead tab context); default routing skips it while a fresh session exists. */
+  staleMs: z.number().optional(),
 })
 export type SessionSummary = z.infer<typeof sessionSummarySchema>
 

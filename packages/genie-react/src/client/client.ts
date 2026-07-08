@@ -224,7 +224,8 @@ export class GenieClient {
   private unknownToolError(toolName: string): string {
     const domains = this.capabilities().sort().join(', ') || 'none'
     const hint =
-      DOMAIN_GATING_HINTS[toolName.split('_')[0] ?? ''] ?? 'run `genie tools` for the live catalog'
+      DOMAIN_GATING_HINTS[toolName.split('_')[0] ?? ''] ??
+      'call devtools_status for the live catalog (CLI: `genie-react tools`)'
     return `Unknown tool "${toolName}" — this app advertises: ${domains}. Note: ${hint}.`
   }
 

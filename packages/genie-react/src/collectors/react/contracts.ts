@@ -357,7 +357,7 @@ export const reactForceErrorBoundaryContract = defineAgentToolContract({
   name: 'react_force_error_boundary',
   title: 'Force an error boundary (dev)',
   description:
-    'Make the nearest error boundary at/above a component catch a simulated error, or release it — verify error UI renders and that the intended boundary contains the failure, without manufacturing a real crash. Pass any component id inside the boundary. Release with the returned boundaryId and forceError:false — the original child id unmounts while the boundary is erroring, so its id may no longer resolve on release; if you get "Component N not found", call react_reset_overrides, which clears forced errors from module state without needing the id. react_list_overrides shows what is currently forced.',
+    'Make the nearest error boundary at/above a component catch a simulated error, or release it — verify error UI renders and that the intended boundary contains the failure, without manufacturing a real crash. Pass any component id inside the boundary. Release with the returned boundaryId and forceError:false — the original child id unmounts while the boundary is erroring, so its id may no longer resolve on release; if you get "Component N not found", call react_reset_overrides, which clears forced errors from module state without needing the id. Caveat: if the BOUNDARY itself re-mounted while forced (React Native RedBox flows do this), the new instance stays latched in its error state after reset — reload the app to restore the UI. react_list_overrides shows what is currently forced.',
   group: 'action',
   input: z.object({
     id: nodeIdSchema,
@@ -402,7 +402,7 @@ export const reactResetOverridesContract = defineAgentToolContract({
   name: 'react_reset_overrides',
   title: 'Reset all overrides (dev)',
   description:
-    'Clear every override at once and return the app to its real state — the universal release and the recovery path when a forced-error/suspense boundary left the app stuck and the original id no longer resolves (react_force_error_boundary / react_toggle_suspense_fallback release by id, this does not need one). props and context overrides restore their captured original value when the target is still mounted (else skipped); forced Suspense/error boundaries are released and re-rendered from module state even if unmounted. Hook overrides cannot be restored to their pre-override value (genie never knew the app\'s own state), so they are marked "released" — the boundary re-renders and the component\'s own next setState resumes control. Each cleared override reports its outcome.',
+    'Clear every override at once and return the app to its real state — the universal release and the recovery path when a forced-error/suspense boundary left the app stuck and the original id no longer resolves (react_force_error_boundary / react_toggle_suspense_fallback release by id, this does not need one). props, context, and hook overrides restore their captured pre-override value when the target is still mounted ("restored"); a hook target that unmounted or lost its renderer is "released" instead — the overridden value stays until the component\'s own next setState. Forced Suspense/error boundaries are released and re-rendered from module state even if unmounted. Each cleared override reports its outcome.',
   group: 'action',
   input: z.object({}),
   output: z.object({
@@ -414,7 +414,7 @@ export const reactResetOverridesContract = defineAgentToolContract({
         outcome: z
           .enum(['restored', 'released', 'skipped-unmounted'])
           .describe(
-            'restored = original re-applied; released = cleared without restoring a prior value (hooks, forced boundaries); skipped-unmounted = target gone, nothing to re-apply.',
+            'restored = pre-override value re-applied; released = cleared without restoring (forced boundaries, or a hook whose target/renderer is gone); skipped-unmounted = target gone, nothing to re-apply.',
           ),
       }),
     ),

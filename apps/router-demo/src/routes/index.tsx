@@ -29,6 +29,7 @@ function emitLabEvent(count: number): void {
 function Home() {
   const [count, setCount] = useState(0)
   const [text, setText] = useState('')
+  const [showBox, setShowBox] = useState(true)
 
   useEffect(() => {
     document.title = `lab ${count}:${text.length}`
@@ -56,8 +57,24 @@ function Home() {
       <ThemeContext.Provider value="light">
         <ThemeLabel />
       </ThemeContext.Provider>
+      <button
+        data-testid="box-toggle"
+        className="rounded border px-2 py-1"
+        onClick={() => setShowBox((v) => !v)}
+      >
+        {showBox ? 'Unmount box' : 'Mount box'}
+      </button>
+      {showBox && <Unmountable caption="original caption" />}
       <QueryPanel />
     </div>
+  )
+}
+
+function Unmountable({ caption }: { caption: string }) {
+  return (
+    <p data-testid="unmountable" className="rounded border p-2">
+      {caption}
+    </p>
   )
 }
 

@@ -59,6 +59,7 @@ class Inbox {
 
 const send = (socket: WebSocket, message: unknown) => socket.send(encodeMessage(message))
 const isResult = (id: string) => (m: Frame) => m.kind === 'bridge/result' && m.id === id
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 describe('GenieBridge', () => {
   let handle: StandaloneBridgeHandle
@@ -377,6 +378,51 @@ describe('GenieBridge', () => {
       expect(result.ok).toBe(false)
       expect(result.errorCode).toBe('busy')
       expect(Date.now() - started).toBeLessThan(2000)
+    } finally {
+      await fastHandle.close()
+    }
+  })
+
+  it('routes default calls away from a heartbeat-stale session to a fresh one, and flags it in status', async () => {
+    const fastHandle = createStandaloneBridge({ requestTimeoutMs: 4_000, sessionStaleMs: 150 })
+    const fastUrl = (await fastHandle.listen()).url
+    try {
+      const hello = (sessionId: string) => ({
+        kind: 'app/hello' as const,
+        protocol: 1,
+        sessionId,
+        app: { name: sessionId },
+        capabilities: [],
+        tools: [],
+      })
+      const { ws: fresh, inbox: freshInbox } = await open(`${fastUrl}?role=app`)
+      send(fresh, hello('s-fresh'))
+      send(fresh, { kind: 'app/heartbeat', sessionId: 's-fresh' })
+      // Connects later, so it wins `current`; one beat marks it heartbeat-capable, then it dies silently (phantom tab).
+      const phantom = await connect(`${fastUrl}?role=app`)
+      send(phantom, hello('s-phantom'))
+      send(phantom, { kind: 'app/heartbeat', sessionId: 's-phantom' })
+      await expect.poll(() => fastHandle.bridge.getStatus().sessions.length).toBe(2)
+
+      await delay(200)
+      send(fresh, { kind: 'app/heartbeat', sessionId: 's-fresh' })
+      await expect.poll(() => fastHandle.bridge.getStatus().sessionId).toBe('s-fresh')
+      const summary = fastHandle.bridge
+        .getStatus()
+        .sessions.find((s) => s.sessionId === 's-phantom')
+      expect(summary?.staleMs).toBeGreaterThan(150)
+
+      const { ws: agent, inbox } = await open(`${fastUrl}?role=agent`)
+      const id = newId()
+      send(agent, { kind: 'agent/invoke', id, tool: 'who_got_this', args: {} })
+      const request = await freshInbox.wait(
+        (frame) => frame.kind === 'bridge/request' && frame.id === id,
+        2000,
+      )
+      expect(request.tool).toBe('who_got_this')
+      send(fresh, { kind: 'app/response', id, ok: true, result: { from: 's-fresh' } })
+      const result = await inbox.wait(isResult(id), 2000)
+      expect(result.ok).toBe(true)
     } finally {
       await fastHandle.close()
     }
