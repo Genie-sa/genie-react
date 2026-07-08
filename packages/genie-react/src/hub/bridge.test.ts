@@ -144,6 +144,7 @@ describe('GenieBridge', () => {
     const result = await inbox.wait(isResult(id))
     expect(result.ok).toBe(false)
     expect(result.error).toContain('No app connected')
+    expect(result.errorCode).toBe('not-connected')
   })
 
   it('routes across multiple sessions and falls back when the current one closes', async () => {
@@ -205,6 +206,7 @@ describe('GenieBridge', () => {
     expect(unknown.ok).toBe(false)
     expect(unknown.error).toContain('Unknown session "tab-zzz"')
     expect(unknown.error).toContain('tab-a')
+    expect(unknown.errorCode).toBe('unknown-session')
 
     const targetedStatusId = newId()
     send(agent, {
@@ -275,6 +277,7 @@ describe('GenieBridge', () => {
     const failed = await inbox.wait(isResult(slowId))
     expect(failed.ok).toBe(false)
     expect(failed.error).toContain('reconnected')
+    expect(failed.errorCode).toBe('not-connected')
 
     const statusId = newId()
     send(agent, { kind: 'agent/invoke', id: statusId, tool: 'devtools_status', args: {} })
@@ -302,6 +305,134 @@ describe('GenieBridge', () => {
       send(agent, { kind: 'agent/invoke', id, tool: 'never_responds', args: {} })
       const result = await inbox.wait(isResult(id))
       expect(result.ok).toBe(false)
+      expect(result.error).toContain('timed out')
+      expect(result.errorCode).toBe('timeout')
+    } finally {
+      await fastHandle.close()
+    }
+  })
+
+  it('fast-fails a busy (heartbeat-then-silent) session with errorCode busy well before the full timeout', async () => {
+    const fastHandle = createStandaloneBridge({
+      requestTimeoutMs: 20_000,
+      busyProbeMs: 200,
+      busyHeartbeatGapMs: 100,
+    })
+    const fastUrl = (await fastHandle.listen()).url
+    try {
+      const app = await connect(`${fastUrl}?role=app`)
+      send(app, {
+        kind: 'app/hello',
+        protocol: 1,
+        sessionId: 's-busy',
+        app: { name: 'busy' },
+        capabilities: [],
+        tools: [],
+      })
+      send(app, { kind: 'app/heartbeat', sessionId: 's-busy' })
+      await expect.poll(() => fastHandle.bridge.getStatus().connected).toBe(true)
+
+      const { ws: agent, inbox } = await open(`${fastUrl}?role=agent`)
+      const id = newId()
+      const started = Date.now()
+      // The app never answers this request and never beats again; the busy probe must settle it.
+      send(agent, { kind: 'agent/invoke', id, tool: 'never_responds', args: {} })
+      const result = await inbox.wait(isResult(id), 5000)
+      expect(result.ok).toBe(false)
+      expect(result.errorCode).toBe('busy')
+      expect(result.retryInMs).toBe(500)
+      expect(result.error).toContain('main thread busy')
+      expect(Date.now() - started).toBeLessThan(3000)
+    } finally {
+      await fastHandle.close()
+    }
+  })
+
+  it('busy-fails via a re-armed probe when the heartbeat gap crosses the threshold only after the first probe', async () => {
+    const fastHandle = createStandaloneBridge({
+      requestTimeoutMs: 20_000,
+      busyProbeMs: 100,
+      busyHeartbeatGapMs: 400,
+    })
+    const fastUrl = (await fastHandle.listen()).url
+    try {
+      const app = await connect(`${fastUrl}?role=app`)
+      send(app, {
+        kind: 'app/hello',
+        protocol: 1,
+        sessionId: 's-lateBusy',
+        app: { name: 'lateBusy' },
+        capabilities: [],
+        tools: [],
+      })
+      send(app, { kind: 'app/heartbeat', sessionId: 's-lateBusy' })
+      await expect.poll(() => fastHandle.bridge.getStatus().connected).toBe(true)
+
+      const { ws: agent, inbox } = await open(`${fastUrl}?role=agent`)
+      const id = newId()
+      const started = Date.now()
+      // At the first probe (100ms) the gap (~100ms) is under 400ms, so a single-shot probe would fall through to the 20s timeout; the re-arm must catch the crossing.
+      send(agent, { kind: 'agent/invoke', id, tool: 'never_responds', args: {} })
+      const result = await inbox.wait(isResult(id), 5000)
+      expect(result.ok).toBe(false)
+      expect(result.errorCode).toBe('busy')
+      expect(Date.now() - started).toBeLessThan(2000)
+    } finally {
+      await fastHandle.close()
+    }
+  })
+
+  it('honors a per-call timeoutMs (clamped) instead of the bridge default', async () => {
+    const fastHandle = createStandaloneBridge({ requestTimeoutMs: 30_000 })
+    const fastUrl = (await fastHandle.listen()).url
+    try {
+      const app = await connect(`${fastUrl}?role=app`)
+      send(app, {
+        kind: 'app/hello',
+        protocol: 1,
+        sessionId: 's-perCall',
+        app: { name: 'silent' },
+        capabilities: [],
+        tools: [],
+      })
+      const { ws: agent, inbox } = await open(`${fastUrl}?role=agent`)
+      const id = newId()
+      const started = Date.now()
+      // Below the 1000ms floor: the bridge clamps up to 1000ms, still far under its 30s default.
+      send(agent, { kind: 'agent/invoke', id, tool: 'never_responds', args: {}, timeoutMs: 1 })
+      const result = await inbox.wait(isResult(id), 4000)
+      expect(result.ok).toBe(false)
+      expect(result.errorCode).toBe('timeout')
+      expect(result.error).toContain('1000ms')
+      expect(Date.now() - started).toBeLessThan(3000)
+    } finally {
+      await fastHandle.close()
+    }
+  })
+
+  it('never busy-fails a legacy session that never sent a heartbeat — it gets the plain timeout', async () => {
+    const fastHandle = createStandaloneBridge({
+      requestTimeoutMs: 150,
+      busyProbeMs: 50,
+      busyHeartbeatGapMs: 10,
+    })
+    const fastUrl = (await fastHandle.listen()).url
+    try {
+      const app = await connect(`${fastUrl}?role=app`)
+      send(app, {
+        kind: 'app/hello',
+        protocol: 1,
+        sessionId: 's-legacy',
+        app: { name: 'legacy' },
+        capabilities: [],
+        tools: [],
+      })
+      const { ws: agent, inbox } = await open(`${fastUrl}?role=agent`)
+      const id = newId()
+      send(agent, { kind: 'agent/invoke', id, tool: 'never_responds', args: {} })
+      const result = await inbox.wait(isResult(id))
+      expect(result.ok).toBe(false)
+      expect(result.errorCode).toBe('timeout')
       expect(result.error).toContain('timed out')
     } finally {
       await fastHandle.close()

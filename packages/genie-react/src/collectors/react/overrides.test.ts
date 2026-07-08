@@ -1,6 +1,6 @@
 import { ClassComponentTag, type Fiber, FunctionComponentTag, SuspenseComponentTag } from 'bippy'
-import { describe, expect, it } from 'vitest'
-import { hookChain } from './fiber'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { hookChain, isStatefulHook } from './fiber'
 import {
   applyContextOverride,
   applyErrorOverride,
@@ -10,8 +10,10 @@ import {
   findErrorBoundary,
   findSuspenseBoundary,
   isErrorBoundaryFiber,
-  isStateHook,
+  listOverrides,
   overrideFiberProps,
+  pruneUnmountedOverrides,
+  resetOverrides,
   resolveContextProvider,
 } from './overrides'
 
@@ -166,13 +168,15 @@ describe('applyErrorOverride', () => {
 })
 
 describe('applyHookStateOverride', () => {
+  // React names useState's internal reducer basicStateReducer; classifyHook keys 'state' vs 'reducer' off that name.
+  function basicStateReducer(): void {}
   const stateHook = (value: unknown, next: unknown = null) => ({
     memoizedState: value,
-    queue: { dispatch: () => {} },
+    queue: { dispatch: () => {}, lastRenderedReducer: basicStateReducer },
     next,
   })
   const effectHook = (next: unknown = null) => ({
-    memoizedState: { create: () => {}, deps: [] },
+    memoizedState: { create: () => {}, deps: [], tag: 0b1001 },
     queue: null,
     next,
   })
@@ -180,35 +184,62 @@ describe('applyHookStateOverride', () => {
   it('validates the component kind, hook index, and hook kind', () => {
     const { renderer } = fakeRenderer()
     const classFiber = fiber({ tag: ClassComponentTag, type: function Classy() {} })
-    expect(() => applyHookStateOverride(classFiber, 0, [], 1, renderer)).toThrow(/class component/)
+    expect(() => applyHookStateOverride(classFiber, { hookIndex: 0 }, [], 1, renderer)).toThrow(
+      /class component/,
+    )
 
     const hookless = fiber()
-    expect(() => applyHookStateOverride(hookless, 0, [], 1, renderer)).toThrow(/has no hooks/)
+    expect(() => applyHookStateOverride(hookless, { hookIndex: 0 }, [], 1, renderer)).toThrow(
+      /has no hooks/,
+    )
 
     const oneHook = fiber({ memoizedState: stateHook(0) })
-    expect(() => applyHookStateOverride(oneHook, 3, [], 1, renderer)).toThrow(
+    expect(() => applyHookStateOverride(oneHook, { hookIndex: 3 }, [], 1, renderer)).toThrow(
       /hook 3 does not exist/,
     )
 
     const withEffect = fiber({ memoizedState: stateHook(0, effectHook()) })
-    expect(() => applyHookStateOverride(withEffect, 1, [], 1, renderer)).toThrow(
+    expect(() => applyHookStateOverride(withEffect, { hookIndex: 1 }, [], 1, renderer)).toThrow(
       /not a stateful hook/,
     )
   })
 
-  it('forwards to the renderer with a string hook id and string path', () => {
+  it('forwards to the renderer with a string hook id and string path (by hookIndex)', () => {
     const harness = fakeRenderer()
     const target = fiber({ memoizedState: stateHook(0, stateHook({ page: 1 })) })
-    applyHookStateOverride(target, 1, ['filters', 0], 'dark', harness.renderer)
+    const resolved = applyHookStateOverride(
+      target,
+      { hookIndex: 1 },
+      ['filters', 0],
+      'dark',
+      harness.renderer,
+    )
+    expect(resolved).toEqual({ flatIndex: 1, stateIndex: 1 })
     expect(harness.hookCalls).toEqual([[target, '1', ['filters', '0'], 'dark']])
   })
 
-  it('hookChain and isStateHook classify the memoizedState list', () => {
+  it('resolves a stateIndex to its flat hook index, skipping non-stateful hooks', () => {
+    const harness = fakeRenderer()
+    const target = fiber({ memoizedState: stateHook(0, effectHook(stateHook('x'))) })
+    const resolved = applyHookStateOverride(target, { stateIndex: 1 }, [], 'y', harness.renderer)
+    expect(resolved).toEqual({ flatIndex: 2, stateIndex: 1 })
+    expect(harness.hookCalls).toEqual([[target, '2', [], 'y']])
+  })
+
+  it('enumerates the stateful hooks (flat index, stateIndex, kind, value) in every error', () => {
+    const { renderer } = fakeRenderer()
+    const target = fiber({ memoizedState: stateHook(false, effectHook(stateHook({ step: 1 }))) })
+    expect(() => applyHookStateOverride(target, { stateIndex: 9 }, [], 1, renderer)).toThrow(
+      /\[0\] state stateIndex 0 value=false.*\[2\] .* stateIndex 1 value=\{step:1\}/,
+    )
+  })
+
+  it('hookChain and isStatefulHook classify the memoizedState list', () => {
     const chainHead = stateHook(0, effectHook(stateHook('x')))
     const target = fiber({ memoizedState: chainHead })
     const hooks = hookChain(target)
     expect(hooks).toHaveLength(3)
-    expect(hooks.map((hook) => isStateHook(hook))).toEqual([true, false, true])
+    expect(hooks.map((hook) => isStatefulHook(hook))).toEqual([true, false, true])
   })
 })
 
@@ -288,5 +319,152 @@ describe('resolveContextProvider', () => {
     expect(() => resolveContextProvider(fiber({ type: function Bare() {} }))).toThrow(
       /consumes no contexts/,
     )
+  })
+})
+
+describe('override registry (list / reset)', () => {
+  function basicStateReducer(): void {}
+  const stateHook = (value: unknown, next: unknown = null) => ({
+    memoizedState: value,
+    queue: { dispatch: () => {}, lastRenderedReducer: basicStateReducer },
+    next,
+  })
+  const errorBoundary = () =>
+    fiber({
+      tag: ClassComponentTag,
+      type: Object.assign(function Boundary() {}, { getDerivedStateFromError: () => ({}) }),
+    })
+
+  // Registry + forced sets are module state; clear them before every test (no DOM here, so nothing is "mounted").
+  beforeEach(() => resetOverrides(fakeRenderer().renderer))
+
+  it('records a props override with its overridden keys and prior values', () => {
+    const harness = fakeRenderer()
+    overrideFiberProps(
+      fiber({ type: function Panel() {}, memoizedProps: { title: 'Activities', open: false } }),
+      { title: 'GENIE OVERRIDE' },
+      harness.renderer,
+    )
+    const { overrides, total } = listOverrides()
+    expect(total).toBe(1)
+    expect(overrides[0]?.kind).toBe('props')
+    expect(overrides[0]?.detail).toContain('title="GENIE OVERRIDE"')
+    expect(overrides[0]?.detail).toContain('was "Activities"')
+    expect(overrides[0]?.mounted).toBe(false)
+    expect(overrides[0]?.componentId).toBeNull()
+  })
+
+  it('keeps the FIRST captured original when the same prop is overridden twice', () => {
+    const harness = fakeRenderer()
+    const target = fiber({ type: function Panel() {}, memoizedProps: { title: 'A' } })
+    overrideFiberProps(target, { title: 'B' }, harness.renderer)
+    Object.assign(target, { memoizedProps: { title: 'B' } })
+    overrideFiberProps(target, { title: 'C' }, harness.renderer)
+    const { overrides, total } = listOverrides()
+    expect(total).toBe(1)
+    expect(overrides[0]?.detail).toContain('title="C"')
+    expect(overrides[0]?.detail).toContain('was "A"')
+  })
+
+  it('keeps the FIRST context original across re-overrides and shows the new value', () => {
+    const harness = fakeRenderer()
+    const context = { displayName: 'Theme' }
+    const provider = fiber({
+      tag: CONTEXT_PROVIDER_TAG,
+      type: context,
+      memoizedProps: { value: 'light' },
+    })
+    applyContextOverride(provider, undefined, 'dark', harness.renderer)
+    Object.assign(provider, { memoizedProps: { value: 'dark' } })
+    applyContextOverride(provider, undefined, 'dusk', harness.renderer)
+    const { overrides, total } = listOverrides()
+    expect(total).toBe(1)
+    expect(overrides[0]?.detail).toBe('Theme value ← "dusk" (was "light")')
+  })
+
+  it('releases the fiber and restore of a pruned entry but keeps it listed until reset', () => {
+    const harness = fakeRenderer()
+    const target = fiber({ type: function Gone() {}, memoizedProps: { x: 1 } })
+    overrideFiberProps(target, { x: 2 }, harness.renderer)
+    pruneUnmountedOverrides(target)
+    const { overrides, total } = listOverrides()
+    expect(total).toBe(1)
+    expect(overrides[0]?.mounted).toBe(false)
+    const { cleared, remaining } = resetOverrides(harness.renderer)
+    expect(cleared[0]?.outcome).toBe('skipped-unmounted')
+    expect(remaining).toBe(0)
+  })
+
+  it('records a hook override and re-uses one entry per (kind, fiber)', () => {
+    const harness = fakeRenderer()
+    const target = fiber({ type: function Wizard() {}, memoizedState: stateHook(false) })
+    applyHookStateOverride(target, { hookIndex: 0 }, [], true, harness.renderer)
+    applyHookStateOverride(target, { hookIndex: 0 }, [], false, harness.renderer)
+    const { overrides } = listOverrides()
+    expect(overrides.filter((o) => o.kind === 'hook')).toHaveLength(1)
+    expect(overrides[0]?.detail).toBe('hook 0 ← false')
+  })
+
+  it('lists forced suspense / error and drops them on a release-shaped apply', () => {
+    const harness = fakeRenderer()
+    const suspense = fiber({ tag: SuspenseComponentTag, type: undefined })
+    const errorB = errorBoundary()
+    applySuspenseOverride(fiber({ return: suspense }), true, harness.renderer)
+    applyErrorOverride(fiber({ return: errorB }), true, harness.renderer)
+    expect(
+      listOverrides()
+        .overrides.map((o) => o.kind)
+        .sort(),
+    ).toEqual(['error', 'suspense'])
+
+    applySuspenseOverride(suspense, false, harness.renderer)
+    expect(listOverrides().overrides.map((o) => o.kind)).toEqual(['error'])
+    applyErrorOverride(errorB, false, harness.renderer)
+    expect(listOverrides().total).toBe(0)
+  })
+
+  it('reset clears everything, reporting an outcome per override and remaining 0', () => {
+    const harness = fakeRenderer()
+    overrideFiberProps(
+      fiber({ type: function A() {}, memoizedProps: { x: 1 } }),
+      { x: 2 },
+      harness.renderer,
+    )
+    applyHookStateOverride(
+      fiber({ type: function B() {}, memoizedState: stateHook(0) }),
+      { hookIndex: 0 },
+      [],
+      9,
+      harness.renderer,
+    )
+    applySuspenseOverride(
+      fiber({ return: fiber({ tag: SuspenseComponentTag, type: undefined }) }),
+      true,
+      harness.renderer,
+    )
+
+    const result = resetOverrides(harness.renderer)
+    expect(result.ok).toBe(true)
+    expect(result.remaining).toBe(0)
+    expect(listOverrides().total).toBe(0)
+    const outcomes = Object.fromEntries(result.cleared.map((c) => [c.kind, c.outcome]))
+    // No DOM ⇒ props target is unmounted (skipped); hook is always released; a forced suspense boundary releases from module state.
+    expect(outcomes.props).toBe('skipped-unmounted')
+    expect(outcomes.hook).toBe('released')
+    expect(outcomes.suspense).toBe('released')
+  })
+
+  it('releases a forced error boundary from module state even when its id no longer resolves (stuck-case recovery)', () => {
+    const harness = fakeRenderer()
+    const boundary = errorBoundary()
+    applyErrorOverride(fiber({ return: boundary }), true, harness.renderer)
+    expect(harness.error(boundary)).toBe(true)
+
+    const result = resetOverrides(harness.renderer)
+    expect(result.cleared.map((c) => c.kind)).toEqual(['error'])
+    // The self-clearing false was written, so the next handler read resets then reverts to "no override".
+    expect(harness.error(boundary)).toBe(false)
+    expect(harness.error(boundary)).toBeNull()
+    expect(listOverrides().total).toBe(0)
   })
 })

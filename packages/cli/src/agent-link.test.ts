@@ -2,10 +2,17 @@ import { createStandaloneBridge, type StandaloneBridgeHandle } from 'genie-react
 import { decodeFrame, encodeMessage } from 'genie-react/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
-import { GenieAgentLink, type GenieAgentLinkOptions } from './agent-link'
+import { BridgeCallError, GenieAgentLink, type GenieAgentLinkOptions } from './agent-link'
 
 // biome-ignore lint/suspicious/noExplicitAny: test harness deals in decoded wire frames
 type Frame = any
+
+/** Narrows a caught value to BridgeCallError (asserting first), so field reads need no cast. */
+function asBridgeCallError(error: unknown): BridgeCallError {
+  expect(error).toBeInstanceOf(BridgeCallError)
+  if (!(error instanceof BridgeCallError)) throw new Error('unreachable')
+  return error
+}
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -101,6 +108,52 @@ describe('GenieAgentLink', () => {
     link.start()
 
     await expect(link.invoke('react_get_tree', {})).rejects.toThrow(/No app connected/)
+  })
+
+  it('rejects with a BridgeCallError carrying the errorCode from the bridge/result', async () => {
+    const { url } = await makeBridge()
+    const link = makeLink({ url })
+    link.start()
+
+    const error = await link.invoke('react_get_tree', {}).catch((e: unknown) => e)
+    expect(asBridgeCallError(error).errorCode).toBe('not-connected')
+  })
+
+  it('surfaces errorCode + retryInMs from a busy bridge/result', async () => {
+    const { handle, url } = await makeBridge({
+      requestTimeoutMs: 20_000,
+      busyProbeMs: 150,
+      busyHeartbeatGapMs: 50,
+    })
+    const app = await connectApp(url) // no responder: request will hang
+    app.send(encodeMessage({ kind: 'app/heartbeat', sessionId: 's-1' }))
+    await waitUntil(() => handle.bridge.getStatus().connected)
+
+    const link = makeLink({ url, invokeTimeoutMs: 10_000 })
+    link.start()
+
+    const error = await link.invoke('slow_tool', {}).catch((e: unknown) => e)
+    const bridgeError = asBridgeCallError(error)
+    expect(bridgeError.errorCode).toBe('busy')
+    expect(bridgeError.retryInMs).toBe(500)
+  })
+
+  it('lets the bridge typed timeout win the race under a per-call timeoutMs (grace on the local guard)', async () => {
+    const { handle, url } = await makeBridge({ requestTimeoutMs: 60_000 })
+    await connectApp(url) // no responder, no heartbeat: the bridge full-timeout is the only settler
+    await waitUntil(() => handle.bridge.getStatus().connected)
+
+    const link = makeLink({ url, invokeTimeoutMs: 60_000 })
+    link.start()
+    // timeoutMs clamps up to the bridge's 1000ms floor; the local guard (1000+2000 grace) stays behind it.
+    const started = Date.now()
+    const error = await link
+      .invoke('slow_tool', {}, undefined, { timeoutMs: 500 })
+      .catch((e: unknown) => e)
+    const bridgeError = asBridgeCallError(error)
+    expect(bridgeError.errorCode).toBe('timeout')
+    expect(bridgeError.message).toContain('1000ms')
+    expect(Date.now() - started).toBeLessThan(2500)
   })
 
   it('rejects invoke() after invokeTimeoutMs when the app never responds', async () => {

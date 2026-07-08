@@ -155,7 +155,13 @@ export interface EffectAuditRecord {
   effects: EffectFinding[]
 }
 
-export async function getEffectAudit(query: EffectAuditQuery): Promise<EffectAuditRecord[]> {
+const totalEffects = (findings: EffectAuditRecord[]): number =>
+  findings.reduce((sum, record) => sum + record.effects.length, 0)
+
+/** The audited components plus the count of library-origin effects appOnly hid — for react_effect_audit's filteredNote. */
+export async function getEffectAuditReport(
+  query: EffectAuditQuery,
+): Promise<{ components: EffectAuditRecord[]; libraryEffectsHidden: number }> {
   let list = [...records.values()]
   if (query.component) {
     const needle = query.component.toLowerCase()
@@ -163,7 +169,7 @@ export async function getEffectAudit(query: EffectAuditQuery): Promise<EffectAud
   }
 
   const appOnly = query.appOnly ?? true
-  let findings: EffectAuditRecord[] = await Promise.all(
+  const all: EffectAuditRecord[] = await Promise.all(
     list.map(async (record) => {
       const { source, isLibrary } = await classifyFiber(record.fiber)
       const name = record.name === 'Anonymous' ? (sourceLabel(source) ?? record.name) : record.name
@@ -191,14 +197,17 @@ export async function getEffectAudit(query: EffectAuditQuery): Promise<EffectAud
     }),
   )
 
+  let findings = all
+  let libraryEffectsHidden = 0
   if (appOnly) {
-    findings = findings
+    findings = all
       .map((record) => ({ ...record, effects: record.effects.filter((e) => !e.isLibrary) }))
       .filter((record) => !record.isLibrary && record.effects.length > 0)
+    libraryEffectsHidden = totalEffects(all) - totalEffects(findings)
   }
   if (query.onlyHot) findings = findings.filter((record) => record.effects.some((e) => e.note))
   findings.sort((a, b) => score(b) - score(a))
-  return findings.slice(0, query.limit)
+  return { components: findings.slice(0, query.limit), libraryEffectsHidden }
 }
 
 // Surface re-run/loop smells first, then the most active effects.

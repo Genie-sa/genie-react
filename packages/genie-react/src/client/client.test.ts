@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { decodeFrame, defineAgentToolContract, encodeMessage } from '../protocol'
 import { createGenieClient, type SocketLike } from './client'
@@ -175,5 +175,44 @@ describe('GenieClient', () => {
     expect(response.ok).toBe(false)
     expect(response.error).toContain('Unknown argument "maxDepth"')
     expect(response.error).toContain('valid keys: message')
+  })
+
+  describe('heartbeat', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('emits app/heartbeat on a 1s cadence while the socket is open, then stops on close', () => {
+      vi.useFakeTimers()
+      const { socket, client } = setup()
+      client.start()
+      socket.open()
+
+      const heartbeats = () => socket.decoded().filter((m) => m.kind === 'app/heartbeat')
+      expect(heartbeats()).toHaveLength(0)
+
+      vi.advanceTimersByTime(3_000)
+      const afterOpen = heartbeats()
+      expect(afterOpen).toHaveLength(3)
+      expect(afterOpen[0].sessionId).toBe(afterOpen[1].sessionId)
+
+      socket.close()
+      vi.advanceTimersByTime(5_000)
+      expect(heartbeats()).toHaveLength(3)
+    })
+
+    it('stops the heartbeat when the client is stopped', () => {
+      vi.useFakeTimers()
+      const { socket, client } = setup()
+      client.start()
+      socket.open()
+      vi.advanceTimersByTime(1_000)
+      const before = socket.decoded().filter((m) => m.kind === 'app/heartbeat').length
+      expect(before).toBe(1)
+
+      client.stop()
+      vi.advanceTimersByTime(5_000)
+      expect(socket.decoded().filter((m) => m.kind === 'app/heartbeat')).toHaveLength(before)
+    })
   })
 })

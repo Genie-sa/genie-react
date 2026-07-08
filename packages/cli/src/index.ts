@@ -130,7 +130,9 @@ export function runInit(options: InitOptions = {}): InitResult {
   const log = options.logger ?? defaultLogger
 
   const framework = detectFramework(cwd)
-  log.info(dryRun ? 'genie init (dry run — no files will be written)\n' : 'genie init\n')
+  log.info(
+    dryRun ? 'genie-react init (dry run — no files will be written)\n' : 'genie-react init\n',
+  )
   const ctx = { cwd, dryRun, log }
   if (framework === 'nextjs') return runNextInit(ctx, options)
 
@@ -234,7 +236,7 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
     bridge = null
   }
 
-  log.info('genie doctor\n')
+  log.info('genie-react doctor\n')
   for (const check of checks) {
     const mark = check.ok ? OK : FAIL
     const detail = check.detail ? ` (${check.detail})` : ''
@@ -246,7 +248,7 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
     log.info(`\n${OK} bridge is live at ${bridge.url}${pid}`)
   } else if (staleBridgePid !== null) {
     log.info(
-      `\n${WARN} stale ${GENIE_DISCOVERY_FILE} (pid ${staleBridgePid} is gone) — removed; restart your dev server or genie hub`,
+      `\n${WARN} stale ${GENIE_DISCOVERY_FILE} (pid ${staleBridgePid} is gone) — removed; restart your dev server or genie-react hub`,
     )
   } else {
     log.info('\n  bridge is not running — start your dev server to connect')
@@ -286,8 +288,8 @@ export async function runLiveDoctor(options: LiveDoctorOptions = {}): Promise<Do
         critical: true,
         detail:
           source === 'fallback'
-            ? `nothing answered at the default guess — no ${GENIE_DISCOVERY_FILE} found from ${cwd} upward; start your dev server or genie hub`
-            : 'nothing answered — start your dev server or genie hub',
+            ? `nothing answered at the default guess — no ${GENIE_DISCOVERY_FILE} found from ${cwd} upward; start your dev server or genie-react hub`
+            : 'nothing answered — start your dev server or genie-react hub',
       })
     } else if (hub.kind === 'standalone') {
       checks.push({
@@ -861,10 +863,10 @@ function applyInstrumentationOutcome(outcome: RootRouteOutcome, ctx: ApplyContex
     case 'edit': {
       const label = rel(ctx, outcome.path)
       if (dryRun) {
-        log.info(`${OK} would create ${label} (starts the genie hub with next dev)`)
+        log.info(`${OK} would create ${label} (starts the genie-react hub with next dev)`)
       } else {
         writeFileSync(outcome.path, outcome.contents)
-        log.info(`${OK} created ${label} (starts the genie hub with next dev)`)
+        log.info(`${OK} created ${label} (starts the genie-react hub with next dev)`)
       }
       return
     }
@@ -879,7 +881,7 @@ function printNextStepsForNext(log: Logger, pm: PackageManagerHints): void {
   log.info(`  ${step++}. install Genie (if you have not yet):`)
   log.info(`       ${pm.add} ${GENIE_PACKAGE} ${CLI_PACKAGE}`)
   log.info(
-    `  ${step++}. start your dev server (instrumentation.ts starts the genie hub automatically):`,
+    `  ${step++}. start your dev server (instrumentation.ts starts the genie-react hub automatically):`,
   )
   log.info(`       ${pm.dev}`)
   log.info(`       # without instrumentation.ts, run the hub yourself: npx ${CLI_PACKAGE} hub`)

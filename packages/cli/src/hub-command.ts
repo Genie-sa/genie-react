@@ -41,7 +41,9 @@ export async function runHub(options: HubOptions = {}): Promise<number> {
   out(`                                         ${scriptTag}`)
   out(`  anything else, first in <head>:        <script src="${result.clientUrl}"></script>`)
   out('')
-  out('Then drive it: genie status | genie tools | genie call <tool> … (Ctrl-C stops the hub)')
+  out(
+    'Then drive it: genie-react status | genie-react tools | genie-react call <tool> … (Ctrl-C stops the hub)',
+  )
 
   const { handle } = result
   return new Promise<number>((resolve) => {

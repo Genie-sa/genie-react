@@ -55,6 +55,12 @@ export const reactGetTreeContract = defineAgentToolContract({
       .describe('Total nodes reachable in the tree; `nodes` may be fewer when truncated.'),
     truncated: z.boolean(),
     truncatedBy: z.enum(['depth', 'maxNodes']).nullable(),
+    filteredNote: z
+      .string()
+      .optional()
+      .describe(
+        'Present only when appOnly folded library subtrees away; names how many components were hidden and how to include them.',
+      ),
   }),
   annotations: { readOnlyHint: true },
 })
@@ -63,7 +69,7 @@ export const reactFindComponentsContract = defineAgentToolContract({
   name: 'react_find_components',
   title: 'Find React components',
   description:
-    'Find mounted components by display name (substring match, or exact). Returns ids and an ancestor path for each match.',
+    'Find mounted components by display name (substring match, or exact). Each match carries its id, ancestor path, kind, a shallow (depth-1) props preview, source file:line, and whether it is a library component — enough to pick the right one and often to act without a follow-up react_inspect_component call. Deepen a nested prop with react_inspect_component + `path`.',
   group: 'react.tree',
   input: z.object({
     query: z.string().min(1),
@@ -71,16 +77,64 @@ export const reactFindComponentsContract = defineAgentToolContract({
     limit: z.number().int().min(1).max(200).default(50),
   }),
   output: z.object({
-    matches: z.array(z.object({ id: z.number(), name: z.string(), path: z.string() })),
+    matches: z.array(
+      z.object({
+        id: z.number(),
+        name: z.string(),
+        path: z.string(),
+        kind: z.string(),
+        props: z
+          .unknown()
+          .describe('Shallow (depth-1) props preview; hydrate deeper via react_inspect_component.'),
+        source: sourceSchema,
+        isLibrary: z.boolean(),
+      }),
+    ),
   }),
   annotations: { readOnlyHint: true },
+})
+
+/** The single source of truth for hook kinds — fiber.ts's HookKind type is inferred from this enum. */
+export const hookKindSchema = z.enum([
+  'state',
+  'reducer',
+  'effect',
+  'layout-effect',
+  'memo',
+  'callback',
+  'ref',
+  'other',
+])
+
+export const hookEntrySchema = z.object({
+  index: z.number().describe('Flat position among all hooks (the raw hookIndex).'),
+  kind: hookKindSchema.describe(
+    'Structural classification. memo vs callback is best-effort (both store [value,deps]; callback = value is a function), so a useMemo returning a function reads as callback.',
+  ),
+  stateful: z
+    .boolean()
+    .describe('True for useState/useReducer — the only hooks react_override_hook_state can drive.'),
+  stateIndex: z
+    .number()
+    .optional()
+    .describe(
+      'Present only on stateful hooks: the 0-based ordinal among them, to pass as react_override_hook_state stateIndex.',
+    ),
+  value: z
+    .unknown()
+    .optional()
+    .describe('The hook value, depth-bounded (absent for effect hooks).'),
+  deps: z
+    .unknown()
+    .optional()
+    .describe('Present on effect/layout-effect hooks: the dependency array, depth-bounded.'),
 })
 
 export const reactInspectComponentContract = defineAgentToolContract({
   name: 'react_inspect_component',
   title: 'Inspect a React component',
   description:
-    'Inspect a component by id: its props, plus state (class components) or hooks (function components), depth-bounded. Pass `path` to hydrate deeper into a nested prop value.',
+    'Inspect a component by id: its props, plus state (class components) or hooks (function components), depth-bounded. Each hook reports its `kind` (state/reducer/effect/layout-effect/memo/callback/ref/other), whether it is `stateful`, and for stateful hooks a `stateIndex` — the ordinal you pass to react_override_hook_state instead of counting flat hook positions past library hooks. Pass `path` to hydrate deeper into a nested prop value.',
   group: 'react.inspect',
   input: z.object({
     id: nodeIdSchema,
@@ -96,7 +150,7 @@ export const reactInspectComponentContract = defineAgentToolContract({
     kind: z.string(),
     props: z.unknown(),
     state: z.unknown().optional(),
-    hooks: z.array(z.unknown()),
+    hooks: z.array(hookEntrySchema),
   }),
   annotations: { readOnlyHint: true },
 })
@@ -218,23 +272,45 @@ export const reactOverrideHookStateContract = defineAgentToolContract({
   name: 'react_override_hook_state',
   title: 'Override hook state (dev)',
   description:
-    'Set a hook\'s state by index and re-render — drive a function component into any state (a wizard step, an open modal, an invalid form) without a multi-step UI script. hookIndex is the index react_inspect_component reports; only stateful hooks (useState/useReducer) can be overridden. `path` targets a nested field of the state value (e.g. ["filters","page"]); omit it to replace the whole value. The component\'s own next setState takes back control.',
+    'Set a stateful hook\'s value and re-render — drive a function component into any state (a wizard step, an open modal, an invalid form) without a multi-step UI script. Target the hook with EXACTLY ONE of: `stateIndex` (the 0-based ordinal among only the stateful useState/useReducer hooks — the `stateIndex` react_inspect_component prints on each stateful hook, robust to library hooks shifting flat positions) or `hookIndex` (the raw flat index over ALL hooks). Prefer stateIndex. Only stateful hooks can be overridden; a failed call lists the stateful hooks (flat index, stateIndex, kind, value preview) so you can retry. `path` targets a nested field of the value (e.g. ["filters","page"]); omit it to replace the whole value. The component\'s own next setState takes back control; use react_reset_overrides to clear all overrides at once.',
   group: 'action',
-  input: z.object({
-    id: nodeIdSchema,
-    hookIndex: z
+  input: z
+    .object({
+      id: nodeIdSchema,
+      hookIndex: z
+        .number()
+        .int()
+        .min(0)
+        .max(MAX_HOOKS - 1)
+        .optional()
+        .describe('Raw flat hook index over all hooks. Provide this OR stateIndex, not both.'),
+      stateIndex: z
+        .number()
+        .int()
+        .min(0)
+        .max(MAX_HOOKS - 1)
+        .optional()
+        .describe(
+          'Preferred. 0-based ordinal among only the stateful hooks, as react_inspect_component reports. Provide this OR hookIndex, not both.',
+        ),
+      path: z
+        .array(z.union([z.string(), z.number()]))
+        .default([])
+        .describe('Path into the hook value; empty replaces the whole value.'),
+      value: z.unknown(),
+    })
+    .refine((input) => (input.hookIndex === undefined) !== (input.stateIndex === undefined), {
+      message: 'Provide exactly one of hookIndex or stateIndex.',
+    }),
+  output: z.object({
+    ok: z.boolean(),
+    name: z.string(),
+    hookIndex: z.number().describe('The resolved flat hook index that was overridden.'),
+    stateIndex: z
       .number()
-      .int()
-      .min(0)
-      .max(MAX_HOOKS - 1)
-      .describe('Hook index as shown by react_inspect_component.'),
-    path: z
-      .array(z.union([z.string(), z.number()]))
-      .default([])
-      .describe('Path into the hook value; empty replaces the whole value.'),
-    value: z.unknown(),
+      .nullable()
+      .describe('The stateful ordinal, when targeted by stateIndex.'),
   }),
-  output: z.object({ ok: z.boolean(), name: z.string(), hookIndex: z.number() }),
   annotations: { destructiveHint: true, idempotentHint: false },
 })
 
@@ -262,7 +338,7 @@ export const reactToggleSuspenseFallbackContract = defineAgentToolContract({
   name: 'react_toggle_suspense_fallback',
   title: 'Force a Suspense fallback (dev)',
   description:
-    'Hold the nearest Suspense boundary at/above a component in its fallback (loading) state, or release it — a state normally visible for milliseconds becomes one you can inspect and screenshot to verify loading UI. Pass any component id inside the boundary, or a boundaryId from react_error_state. Persists until released with showFallback:false or a page reload.',
+    'Hold the nearest Suspense boundary at/above a component in its fallback (loading) state, or release it — a state normally visible for milliseconds becomes one you can inspect and screenshot to verify loading UI. Pass any component id inside the boundary, or a boundaryId from react_error_state. Persists until released with showFallback:false or a page reload. react_list_overrides shows every active override; react_reset_overrides releases them all at once (works even if this id no longer resolves).',
   group: 'action',
   input: z.object({
     id: nodeIdSchema,
@@ -281,7 +357,7 @@ export const reactForceErrorBoundaryContract = defineAgentToolContract({
   name: 'react_force_error_boundary',
   title: 'Force an error boundary (dev)',
   description:
-    'Make the nearest error boundary at/above a component catch a simulated error, or release it — verify error UI renders and that the intended boundary contains the failure, without manufacturing a real crash. Pass any component id inside the boundary. Release with the returned boundaryId and forceError:false — the original child id unmounts while the boundary is erroring; children then remount fresh.',
+    'Make the nearest error boundary at/above a component catch a simulated error, or release it — verify error UI renders and that the intended boundary contains the failure, without manufacturing a real crash. Pass any component id inside the boundary. Release with the returned boundaryId and forceError:false — the original child id unmounts while the boundary is erroring, so its id may no longer resolve on release; if you get "Component N not found", call react_reset_overrides, which clears forced errors from module state without needing the id. react_list_overrides shows what is currently forced.',
   group: 'action',
   input: z.object({
     id: nodeIdSchema,
@@ -293,6 +369,56 @@ export const reactForceErrorBoundaryContract = defineAgentToolContract({
     boundaryName: z.string(),
     erroring: z.boolean(),
     activeOverrides: z.number().describe('Error boundaries currently forced to error.'),
+  }),
+  annotations: { destructiveHint: true, idempotentHint: true },
+})
+
+export const reactListOverridesContract = defineAgentToolContract({
+  name: 'react_list_overrides',
+  title: 'List active overrides (dev)',
+  description:
+    'List every live override genie has applied and not yet reset — props, hook state, context, forced Suspense fallbacks, and forced error boundaries — with the target component, a human-readable detail (e.g. `title="GENIE OVERRIDE" (was "Activities")`, `hook 12 ← true`, `fallback forced`), and whether that target is still mounted. componentId is the live id when the target is still findable from the current root, else null with mounted:false (its subtree may have re-mounted with new ids). Use before react_reset_overrides to see what will be cleared.',
+  group: 'action',
+  input: z.object({}),
+  output: z.object({
+    overrides: z.array(
+      z.object({
+        kind: z.enum(['props', 'hook', 'context', 'suspense', 'error']),
+        componentId: z
+          .number()
+          .nullable()
+          .describe('Live id when the target is still mounted, else null.'),
+        componentName: z.string(),
+        detail: z.string().describe('What was overridden and (for props/context) the prior value.'),
+        mounted: z.boolean(),
+      }),
+    ),
+    total: z.number(),
+  }),
+  annotations: { readOnlyHint: true },
+})
+
+export const reactResetOverridesContract = defineAgentToolContract({
+  name: 'react_reset_overrides',
+  title: 'Reset all overrides (dev)',
+  description:
+    'Clear every override at once and return the app to its real state — the universal release and the recovery path when a forced-error/suspense boundary left the app stuck and the original id no longer resolves (react_force_error_boundary / react_toggle_suspense_fallback release by id, this does not need one). props and context overrides restore their captured original value when the target is still mounted (else skipped); forced Suspense/error boundaries are released and re-rendered from module state even if unmounted. Hook overrides cannot be restored to their pre-override value (genie never knew the app\'s own state), so they are marked "released" — the boundary re-renders and the component\'s own next setState resumes control. Each cleared override reports its outcome.',
+  group: 'action',
+  input: z.object({}),
+  output: z.object({
+    ok: z.literal(true),
+    cleared: z.array(
+      z.object({
+        kind: z.enum(['props', 'hook', 'context', 'suspense', 'error']),
+        componentName: z.string(),
+        outcome: z
+          .enum(['restored', 'released', 'skipped-unmounted'])
+          .describe(
+            'restored = original re-applied; released = cleared without restoring a prior value (hooks, forced boundaries); skipped-unmounted = target gone, nothing to re-apply.',
+          ),
+      }),
+    ),
+    remaining: z.number().describe('Overrides still tracked after the reset (always 0).'),
   }),
   annotations: { destructiveHint: true, idempotentHint: true },
 })
@@ -351,6 +477,12 @@ export const reactGetRendersContract = defineAgentToolContract({
     commits: z.number(),
     summary: renderSummarySchema,
     components: z.array(renderComponentSchema),
+    filteredNote: z
+      .string()
+      .optional()
+      .describe(
+        'Present only when appOnly hid library components; names how many and how to include them.',
+      ),
   }),
   annotations: { readOnlyHint: true },
 })
@@ -390,7 +522,7 @@ export const reactEffectAuditContract = defineAgentToolContract({
   name: 'react_effect_audit',
   title: 'Effect audit (did effects fire & why)',
   description:
-    "Audit useEffect / useLayoutEffect / useInsertionEffect executions: per component and per effect, whether it actually FIRED on each commit, how many of the observed updates it ran on, its dependency mode (none/empty/list), which dependency drove the most recent run, whether it returns a cleanup, and the effect's own call-site (file:line) — resolved per-effect, so an effect created inside a library hook resolves to that library, not your component. Surfaces effects re-running every commit — the signature of a refetch/setState loop that render counts alone cannot reveal. appOnly (default true) drops library-origin effects so your own effects surface above hook noise. Interact with the app (or react_clear_renders to reset) first, then read this.",
+    'Audit useEffect / useLayoutEffect / useInsertionEffect executions: per component and per effect, whether it actually FIRED on each commit, how many of the observed updates it ran on, its dependency mode (none/empty/list), which dependency drove the most recent run, whether it returns a cleanup, and the effect\'s own call-site (file:line) — resolved per-effect, so an effect created inside a library hook resolves to that library, not your component. Surfaces effects re-running every commit — the signature of a refetch/setState loop that render counts alone cannot reveal. appOnly (default true) drops library-origin effects so your own effects surface above hook noise; when it hides any, a top-level filteredNote says how many, so an empty result reads as "filtered" not "no effects exist". Interact with the app (or react_clear_renders to reset) first, then read this.',
   group: 'react.render',
   input: z.object({
     component: z.string().optional().describe('Only components whose name contains this string.'),
@@ -418,6 +550,12 @@ export const reactEffectAuditContract = defineAgentToolContract({
         effects: z.array(effectFindingSchema),
       }),
     ),
+    filteredNote: z
+      .string()
+      .optional()
+      .describe(
+        'Present only when appOnly hid library-origin effects; distinguishes "no effects filtered" from "no effects exist".',
+      ),
   }),
   annotations: { readOnlyHint: true },
 })
@@ -475,11 +613,98 @@ export const reactProfileStartContract = defineAgentToolContract({
   name: 'react_profile_start',
   title: 'Start profiling',
   description:
-    'Begin a profiling session (clears render counters). Then interact with the app and call react_profile_report.',
+    'Begin (or resume) a profiling session — enables commit tracking and clears render counters. Then interact with the app and call react_profile_report, or react_profile_stop to pause. For a before/after regression verdict: react_profile_snapshot (label the "before"), make the change, then react_renders_diff — no hand-diffing two JSON dumps.',
   group: 'react.profile',
   input: z.object({}),
   output: z.object({ ok: z.boolean(), tracking: z.boolean() }),
   annotations: { idempotentHint: true },
+})
+
+const renderDeltaSchema = z.object({
+  name: z.string(),
+  source: z.string().optional().describe('file:line when resolved.'),
+  deltaMs: z.number().describe('after.selfTime − before.selfTime, ms (positive = slower).'),
+  before: z.object({ renders: z.number(), selfTime: z.number() }),
+  after: z.object({ renders: z.number(), selfTime: z.number() }),
+})
+
+export const reactProfileStopContract = defineAgentToolContract({
+  name: 'react_profile_stop',
+  title: 'Stop profiling',
+  description:
+    'Pause the profiling session — the commit counter freezes and isTracking() reports false until react_profile_start resumes. The captured aggregates and any snapshots are kept, so react_profile_report and react_renders_diff still work after stopping. The underlying instrumentation stays installed (React commits simply stop being recorded); this is the symmetric counterpart to react_profile_start.',
+  group: 'react.profile',
+  input: z.object({}),
+  output: z.object({
+    ok: z.literal(true),
+    tracking: z.literal(false),
+    commits: z.number().describe('Commits recorded up to the stop.'),
+  }),
+  annotations: { idempotentHint: true },
+})
+
+export const reactProfileSnapshotContract = defineAgentToolContract({
+  name: 'react_profile_snapshot',
+  title: 'Snapshot render aggregates',
+  description:
+    'Capture the current per-component render aggregates (renders/mounts/updates, self & total time, unnecessary & unstable renders) under a label, as the "before" baseline for react_renders_diff. Take one before applying a fix (e.g. adding memo/useCallback), make the change and interact, then call react_renders_diff to get the regression/improvement verdict. Re-using a label overwrites that snapshot. Library components are excluded, matching the other react reads.',
+  group: 'react.profile',
+  input: z.object({
+    label: z
+      .string()
+      .default('baseline')
+      .describe(
+        'Name for this snapshot; react_renders_diff reads it back. Reused labels overwrite.',
+      ),
+  }),
+  output: z.object({
+    ok: z.literal(true),
+    label: z.string(),
+    commits: z.number(),
+    components: z.number().describe('Components captured in this snapshot.'),
+  }),
+  annotations: { readOnlyHint: true },
+})
+
+export const reactRendersDiffContract = defineAgentToolContract({
+  name: 'react_renders_diff',
+  title: 'Diff renders vs a snapshot',
+  description:
+    'The before/after regression verdict: joins a react_profile_snapshot baseline against the CURRENT live aggregates (by component name + source file:line when resolved, else name) and reports which components got slower (regressed) or faster (improved) by more than thresholdMs of self-time, plus components that appeared (added) or vanished (removed) and the overall self-time change. Sorted by |delta| so the biggest movers lead. Take a snapshot, apply your change, interact, then call this — no hand-diffing two react_get_renders dumps. Check clearsSinceBaseline to know what you compared: 0 means the baseline shares this session (after includes before), ≥1 means counters were cleared since the snapshot (react_clear_renders or react_profile_start), so this is a session-vs-session compare — only meaningful when both sessions drove the same interaction, and "removed" then just means "has not re-rendered since the clear".',
+  group: 'react.profile',
+  input: z.object({
+    baseline: z
+      .string()
+      .default('baseline')
+      .describe('Snapshot label from react_profile_snapshot to compare against.'),
+    thresholdMs: z
+      .number()
+      .default(0.5)
+      .describe('Minimum self-time delta (ms) for a component to count as regressed/improved.'),
+  }),
+  output: z.object({
+    baseline: z.string(),
+    commits: z.object({ before: z.number(), after: z.number() }),
+    clearsSinceBaseline: z
+      .number()
+      .describe(
+        'How many times counters were cleared after the snapshot; 0 = additive same-session compare, ≥1 = session-vs-session (commits.before can exceed commits.after).',
+      ),
+    selfTimeMs: z.object({
+      before: z.number(),
+      after: z.number(),
+      delta: z.number(),
+      pct: z
+        .number()
+        .nullable()
+        .describe('delta/before*100 to 1dp; null when the baseline self-time was 0.'),
+    }),
+    regressed: z.array(renderDeltaSchema),
+    improved: z.array(renderDeltaSchema),
+    added: z.array(z.object({ name: z.string(), renders: z.number(), selfTime: z.number() })),
+    removed: z.array(z.object({ name: z.string() })),
+  }),
+  annotations: { readOnlyHint: true },
 })
 
 export const reactProfileReportContract = defineAgentToolContract({

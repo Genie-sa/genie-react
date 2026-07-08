@@ -13,16 +13,22 @@ import {
   reactGetTreeContract,
   reactInspectComponentContract,
   reactInspectContextContract,
+  reactListOverridesContract,
   reactOverrideContextContract,
   reactOverrideHookStateContract,
   reactOverridePropsContract,
   reactProfileReportContract,
+  reactProfileSnapshotContract,
   reactProfileStartContract,
+  reactProfileStopContract,
+  reactRendersDiffContract,
+  reactResetOverridesContract,
   reactToggleSuspenseFallbackContract,
 } from './contracts'
-import { getEffectAudit } from './effect-tracker'
+import { getEffectAuditReport } from './effect-tracker'
 import { getErrorState } from './error-tracker'
 import {
+  appOnlyFilteredNote,
   buildTree,
   contextsForFiber,
   domForFiber,
@@ -30,6 +36,7 @@ import {
   findFiberById,
   findRootFiber,
   inspectFiber,
+  matchDetail,
   nameOf,
   owningComponentFor,
   registerFiber,
@@ -39,15 +46,21 @@ import {
   applyErrorOverride,
   applyHookStateOverride,
   applySuspenseOverride,
+  listOverrides,
   overrideFiberProps,
+  resetOverrides,
 } from './overrides'
 import {
   clearRenders,
   getCommitCount,
   getRenderSummary,
-  getRenders,
+  getRendersLeaderboards,
+  getRendersReport,
   isTracking,
+  rendersDiff,
   startRenderTracking,
+  stopRenderTracking,
+  takeSnapshot,
 } from './render-tracker'
 import { classifyFiber } from './source'
 
@@ -76,9 +89,18 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactFindComponentsContract,
-        handler: ({ query, exact, limit }) => {
+        handler: async ({ query, exact, limit }) => {
           const root = findRootFiber()
-          return { matches: root ? findByName(root, query, exact, limit) : [] }
+          if (!root) return { matches: [] }
+          const found = findByName(root, query, exact, limit)
+          const matches = await Promise.all(
+            found.map(async ({ id, name, path, fiber }) => {
+              const { kind, props } = matchDetail(fiber, 1)
+              const { source, isLibrary } = await classifyFiber(fiber)
+              return { id, name, path, kind, props, source, isLibrary }
+            }),
+          )
+          return { matches }
         },
       }),
       defineCollectorTool({
@@ -99,10 +121,15 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactOverrideHookStateContract,
-        handler: ({ id, hookIndex, path, value }) => {
+        handler: ({ id, hookIndex, stateIndex, path, value }) => {
           const fiber = requireFiber(id)
-          applyHookStateOverride(fiber, hookIndex, path, value)
-          return { ok: true, name: nameOf(fiber), hookIndex }
+          const resolved = applyHookStateOverride(fiber, { hookIndex, stateIndex }, path, value)
+          return {
+            ok: true,
+            name: nameOf(fiber),
+            hookIndex: resolved.flatIndex,
+            stateIndex: resolved.stateIndex,
+          }
         },
       }),
       defineCollectorTool({
@@ -119,7 +146,10 @@ export function reactCollector(): GenieCollector {
       defineCollectorTool({
         contract: reactToggleSuspenseFallbackContract,
         handler: ({ id, showFallback }) => {
-          const { boundary, active } = applySuspenseOverride(requireFiber(id), showFallback)
+          const { boundary, active } = applySuspenseOverride(
+            requireFiberForToggle(id, showFallback),
+            showFallback,
+          )
           return {
             ok: true,
             boundaryId: registerFiber(boundary),
@@ -131,7 +161,10 @@ export function reactCollector(): GenieCollector {
       defineCollectorTool({
         contract: reactForceErrorBoundaryContract,
         handler: ({ id, forceError }) => {
-          const { boundary, active } = applyErrorOverride(requireFiber(id), forceError)
+          const { boundary, active } = applyErrorOverride(
+            requireFiberForToggle(id, forceError),
+            forceError,
+          )
           return {
             ok: true,
             boundaryId: registerFiber(boundary),
@@ -140,6 +173,14 @@ export function reactCollector(): GenieCollector {
             activeOverrides: active,
           }
         },
+      }),
+      defineCollectorTool({
+        contract: reactListOverridesContract,
+        handler: () => listOverrides(),
+      }),
+      defineCollectorTool({
+        contract: reactResetOverridesContract,
+        handler: () => resetOverrides(),
       }),
       defineCollectorTool({
         contract: reactDomForComponentContract,
@@ -192,20 +233,37 @@ export function reactCollector(): GenieCollector {
       defineCollectorTool({
         contract: reactGetRendersContract,
         handler: async ({ component, sort, limit, appOnly }) => {
-          const [summary, components] = await Promise.all([
+          const [summary, { components, libraryHidden }] = await Promise.all([
             getRenderSummary(appOnly),
-            getRenders({ component, sort, limit, appOnly }),
+            getRendersReport({ component, sort, limit, appOnly }),
           ])
-          return { tracking: isTracking(), commits: getCommitCount(), summary, components }
+          const filteredNote = appOnly
+            ? appOnlyFilteredNote(components.length, libraryHidden, 'components')
+            : undefined
+          return {
+            tracking: isTracking(),
+            commits: getCommitCount(),
+            summary,
+            components,
+            filteredNote,
+          }
         },
       }),
       defineCollectorTool({
         contract: reactEffectAuditContract,
-        handler: async ({ component, onlyHot, appOnly, limit }) => ({
-          tracking: isTracking(),
-          commits: getCommitCount(),
-          components: await getEffectAudit({ component, onlyHot, appOnly, limit }),
-        }),
+        handler: async ({ component, onlyHot, appOnly, limit }) => {
+          const { components, libraryEffectsHidden } = await getEffectAuditReport({
+            component,
+            onlyHot,
+            appOnly,
+            limit,
+          })
+          const appEffects = components.reduce((sum, c) => sum + c.effects.length, 0)
+          const filteredNote = appOnly
+            ? appOnlyFilteredNote(appEffects, libraryEffectsHidden, 'effects')
+            : undefined
+          return { tracking: isTracking(), commits: getCommitCount(), components, filteredNote }
+        },
       }),
       defineCollectorTool({
         contract: reactErrorStateContract,
@@ -227,14 +285,31 @@ export function reactCollector(): GenieCollector {
         },
       }),
       defineCollectorTool({
+        contract: reactProfileStopContract,
+        handler: () => {
+          stopRenderTracking()
+          return { ok: true as const, tracking: false as const, commits: getCommitCount() }
+        },
+      }),
+      defineCollectorTool({
+        contract: reactProfileSnapshotContract,
+        handler: async ({ label }) => {
+          const result = await takeSnapshot(label)
+          return { ok: true as const, ...result }
+        },
+      }),
+      defineCollectorTool({
+        contract: reactRendersDiffContract,
+        handler: ({ baseline, thresholdMs }) => rendersDiff(baseline, thresholdMs),
+      }),
+      defineCollectorTool({
         contract: reactProfileReportContract,
         handler: async ({ limit }) => {
-          const [bySelfTime, byRenders, byUnnecessary, byUnstable] = await Promise.all([
-            getRenders({ sort: 'selfTime', limit }),
-            getRenders({ sort: 'renders', limit }),
-            getRenders({ sort: 'unnecessary', limit }),
-            getRenders({ sort: 'unstable', limit }),
-          ])
+          const boards = await getRendersLeaderboards(limit)
+          const bySelfTime = boards.slowest
+          const byRenders = boards.mostRerendered
+          const byUnnecessary = boards.mostUnnecessary
+          const byUnstable = boards.mostUnstable
           return {
             commits: getCommitCount(),
             tracking: isTracking(),
@@ -278,6 +353,18 @@ function requireFiber(id: NodeId): Fiber {
   const fiber = root ? findFiberById(root, id) : null
   if (!fiber) throw new Error(`Component ${id} not found (it may have unmounted).`)
   return fiber
+}
+
+// A release-shaped toggle (showFallback:false / forceError:false) whose id no longer resolves is the stuck case: the forced boundary's subtree re-id'd on unmount, so point the agent at the id-free recovery.
+function requireFiberForToggle(id: NodeId, activating: boolean): Fiber {
+  try {
+    return requireFiber(id)
+  } catch (error) {
+    if (activating) throw error
+    throw new Error(
+      `Component ${id} not found — its subtree likely re-mounted with new ids while forced. Call react_reset_overrides to release all forced boundaries without an id.`,
+    )
+  }
 }
 
 function detectReactVersion(): string | undefined {

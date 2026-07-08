@@ -1,12 +1,19 @@
 import type { Fiber, RenderPhase } from 'bippy'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   childrenChanged,
   clearRenders,
+  clearSnapshots,
   diffProps,
   getRenders,
+  isTracking,
   recordRender,
+  rendersDiff,
+  snapshotLabels,
+  startRenderTracking,
   stateChanged,
+  stopRenderTracking,
+  takeSnapshot,
 } from './render-tracker'
 
 // Fake fibers have no _debugStack: stub source lookup to null so every fiber classifies as app (isLibrary:false) and survives appOnly.
@@ -28,7 +35,7 @@ function componentFiber(opts: {
   actualDuration?: number
 }): Fiber {
   const type = (): null => null
-  ;(type as { displayName?: string }).displayName = opts.name
+  Object.assign(type, { displayName: opts.name })
   const hasAlternate = opts.prevProps !== undefined || opts.prevState !== undefined
   return asFiber({
     tag: 0,
@@ -291,7 +298,7 @@ describe('recordRender unstable-render accounting', () => {
 
   it('does not flag when state also changed', async () => {
     const type = (): null => null
-    ;(type as { displayName?: string }).displayName = 'WithState'
+    Object.assign(type, { displayName: 'WithState' })
     render(
       asFiber({
         tag: 0,
@@ -394,5 +401,146 @@ describe('getRenders', () => {
     expect(ranked[0]?.name).toBe('Churny')
     expect(ranked[0]?.unstableRenders).toBe(2)
     expect(ranked.find((r) => r.name === 'Calm')?.unstableRenders).toBe(0)
+  })
+})
+
+describe('start / stop tracking', () => {
+  afterAll(() => startRenderTracking())
+
+  it('stop makes isTracking() false; start resumes it', () => {
+    startRenderTracking()
+    expect(isTracking()).toBe(true)
+    stopRenderTracking()
+    expect(isTracking()).toBe(false)
+    startRenderTracking()
+    expect(isTracking()).toBe(true)
+  })
+})
+
+describe('snapshot + rendersDiff', () => {
+  beforeEach(() => {
+    clearRenders()
+    clearSnapshots()
+  })
+
+  // A fiber with a STABLE identity (hence stable bippy id) whose selfTime can be re-measured; recordRender takes a running max, so drive it low→snapshot→high for regressions, or clearRenders between for improvements.
+  const makeMeasured = (name: string) => {
+    const type = (): null => null
+    Object.assign(type, { displayName: name })
+    const fiber = asFiber({
+      tag: 0,
+      type,
+      memoizedProps: {},
+      memoizedState: null,
+      actualDuration: 0,
+      selfBaseDuration: 0,
+      child: null,
+      alternate: null,
+    })
+    return (selfTime: number, phase: RenderPhase) => {
+      Object.assign(fiber, { actualDuration: selfTime, selfBaseDuration: selfTime })
+      render(fiber, phase)
+    }
+  }
+
+  it('errors on an unknown baseline label, listing stored labels', async () => {
+    await takeSnapshot('before')
+    await expect(rendersDiff('nope', 0.5)).rejects.toThrow(/Stored labels: before/)
+  })
+
+  it('flags a component that got slower past the threshold as regressed', async () => {
+    const slow = makeMeasured('Slowpoke')
+    slow(1, 'mount')
+    await takeSnapshot('base')
+    slow(11, 'update')
+
+    const diff = await rendersDiff('base', 0.5)
+    const hit = diff.regressed.find((r) => r.name === 'Slowpoke')
+    expect(hit?.deltaMs).toBe(10)
+    expect(hit?.before.selfTime).toBe(1)
+    expect(hit?.after.selfTime).toBe(11)
+    expect(diff.improved).toEqual([])
+  })
+
+  it('flags a component that got faster as improved and respects the threshold', async () => {
+    const opt = makeMeasured('Optimized')
+    opt(10, 'mount')
+    await takeSnapshot('base')
+    // A real before/after: clear, then the same component re-renders cheaper.
+    clearRenders()
+    opt(2, 'mount')
+
+    const diff = await rendersDiff('base', 0.5)
+    expect(diff.improved.map((r) => r.name)).toContain('Optimized')
+    expect(diff.improved.find((r) => r.name === 'Optimized')?.deltaMs).toBe(-8)
+    expect(diff.regressed).toEqual([])
+  })
+
+  it('discloses counter clears since the baseline so a session-vs-session compare is identifiable', async () => {
+    const comp = makeMeasured('Steady')
+    comp(1, 'mount')
+    await takeSnapshot('base')
+    expect((await rendersDiff('base', 0.5)).clearsSinceBaseline).toBe(0)
+    clearRenders()
+    clearRenders()
+    expect((await rendersDiff('base', 0.5)).clearsSinceBaseline).toBe(2)
+  })
+
+  it('ignores a change smaller than the threshold', async () => {
+    const calm = makeMeasured('Calm')
+    calm(10, 'mount')
+    await takeSnapshot('base')
+    clearRenders()
+    calm(10.2, 'mount')
+    const diff = await rendersDiff('base', 0.5)
+    expect(diff.regressed).toEqual([])
+    expect(diff.improved).toEqual([])
+  })
+
+  it('reports added and removed components and sorts by |delta| desc', async () => {
+    const gone = makeMeasured('Gone')
+    const shrinks = makeMeasured('Shrinks')
+    const nudged = makeMeasured('Nudged')
+    gone(5, 'mount')
+    shrinks(9, 'mount')
+    nudged(5, 'mount')
+    await takeSnapshot('base')
+    clearRenders()
+    shrinks(1, 'mount')
+    nudged(3, 'mount')
+    // Shrinks −8, Nudged −2; Fresh is new; Gone never re-rendered so it is removed.
+    makeMeasured('Fresh')(4, 'mount')
+
+    const diff = await rendersDiff('base', 0.5)
+    expect(diff.added.map((r) => r.name)).toEqual(['Fresh'])
+    expect(diff.removed.map((r) => r.name)).toEqual(['Gone'])
+    expect(diff.improved.map((r) => r.name)).toEqual(['Shrinks', 'Nudged'])
+  })
+
+  it('computes total self-time pct, and returns null pct when the baseline was 0', async () => {
+    await takeSnapshot('empty') // nothing recorded → beforeSelf 0
+    makeMeasured('New')(3, 'mount')
+    const zeroBase = await rendersDiff('empty', 0.5)
+    expect(zeroBase.selfTimeMs.before).toBe(0)
+    expect(zeroBase.selfTimeMs.pct).toBeNull()
+
+    clearRenders()
+    clearSnapshots()
+    const base = makeMeasured('Base')
+    base(10, 'mount')
+    await takeSnapshot('nonzero')
+    base(15, 'update')
+    const withBase = await rendersDiff('nonzero', 0.5)
+    expect(withBase.selfTimeMs.before).toBe(10)
+    expect(withBase.selfTimeMs.delta).toBe(5)
+    expect(withBase.selfTimeMs.pct).toBe(50)
+  })
+
+  it('overwrites a snapshot re-used under the same label', async () => {
+    makeMeasured('X')(5, 'mount')
+    await takeSnapshot('base')
+    const second = await takeSnapshot('base')
+    expect(second.label).toBe('base')
+    expect(snapshotLabels()).toEqual(['base'])
   })
 })

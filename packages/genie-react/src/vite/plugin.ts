@@ -1,5 +1,6 @@
+import { createRequire } from 'node:module'
 import type { AddressInfo } from 'node:net'
-import { dirname, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type Plugin, type Rollup, searchForWorkspaceRoot, type ViteDevServer } from 'vite'
 import {
@@ -74,6 +75,21 @@ const NESTED_OPTIMIZED_DEPS = [
   'react',
 ]
 
+/** Installed TanStack peers reached through the excluded genie-react must be pre-bundled too, or their CJS use-sync-external-store shim hits the app graph un-interop'd (blank page in linked/workspace setups); absent peers stay out so the stubs keep applying. */
+function installedTanstackIncludes(root: string): string[] {
+  const appRequire = createRequire(join(root, 'package.json'))
+  return ['@tanstack/react-router', '@tanstack/react-query']
+    .filter((name) => {
+      try {
+        appRequire.resolve(`${name}/package.json`)
+        return true
+      } catch {
+        return false
+      }
+    })
+    .map((name) => `genie-react > ${name}`)
+}
+
 /** Dev-only plugin: mounts the hub on Vite's own HTTP server (no extra port), injects the client first in `<head>`, and writes a discovery file for the genie CLI. */
 export function genie(options: GenieViteOptions = {}): Plugin[] {
   const enabled = options.enabled ?? true
@@ -111,7 +127,7 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
         // esbuild pre-bundling bypasses the peer stubs (black-screening TanStack-less apps), so genie-react must stay excluded; pre-listing its nested deps keeps the first post-install boot from a mid-run re-optimize (stale 504s).
         optimizeDeps: {
           exclude: ['genie-react'],
-          include: [...NESTED_OPTIMIZED_DEPS],
+          include: [...NESTED_OPTIMIZED_DEPS, ...installedTanstackIncludes(root)],
         },
         server: { fs: { allow: [searchForWorkspaceRoot(root), genieRoot] } },
       }

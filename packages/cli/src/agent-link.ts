@@ -1,6 +1,7 @@
 import './ws-env'
 import {
   type AgentBoundMessage,
+  type AgentErrorCode,
   type AgentToolContract,
   type BridgeStatusMessage,
   decodeAgentBoundMessage,
@@ -23,10 +24,31 @@ export interface GenieAgentLinkOptions {
   sessionId?: string
 }
 
+/** Grace added on top of a per-call `timeoutMs` so the bridge's typed answer (timeout/busy) wins the race with the link's own guard. */
+export const INVOKE_GRACE_MS = 2_000
+
+/** A bridge-side failure that carries the machine-readable code (and optional retry hint) from the `bridge/result` frame. */
+export class BridgeCallError extends Error {
+  readonly errorCode?: AgentErrorCode
+  readonly retryInMs?: number
+
+  constructor(message: string, options?: { errorCode?: AgentErrorCode; retryInMs?: number }) {
+    super(message)
+    this.name = 'BridgeCallError'
+    this.errorCode = options?.errorCode
+    this.retryInMs = options?.retryInMs
+  }
+}
+
 interface Pending {
   resolve: (value: unknown) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
+}
+
+export interface InvokeOptions {
+  /** Per-call full-timeout budget forwarded to the bridge; the local guard waits this plus {@link INVOKE_GRACE_MS}. */
+  timeoutMs?: number
 }
 
 /** Agent-side WebSocket client to the bridge; reconnects and re-resolves the URL each attempt to survive dev-server restarts. */
@@ -73,25 +95,46 @@ export class GenieAgentLink {
     contract: C,
     args: ToolInput<C>,
     sessionId?: string | null,
+    options?: InvokeOptions,
   ): Promise<ToolOutput<C>>
   /** Pass a bare tool name for dynamic dispatch of a tool discovered at runtime over the wire. */
-  invoke(tool: string, args: unknown, sessionId?: string | null): Promise<unknown>
+  invoke(
+    tool: string,
+    args: unknown,
+    sessionId?: string | null,
+    options?: InvokeOptions,
+  ): Promise<unknown>
   async invoke(
     toolOrContract: string | AgentToolContract,
     args: unknown,
     sessionId: string | null | undefined = this.sessionId,
+    options: InvokeOptions = {},
   ): Promise<unknown> {
     const tool = typeof toolOrContract === 'string' ? toolOrContract : toolOrContract.name
     const ws = await this.ensureConnection()
     const id = newId()
+    // Give the bridge its per-call budget plus a grace window, so its typed timeout/busy result arrives before this local guard fires.
+    const localTimeoutMs =
+      options.timeoutMs === undefined ? this.invokeTimeoutMs : options.timeoutMs + INVOKE_GRACE_MS
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
-        reject(new Error(`Bridge did not respond to "${tool}" within ${this.invokeTimeoutMs}ms`))
-      }, this.invokeTimeoutMs)
+        reject(
+          new BridgeCallError(`Bridge did not respond to "${tool}" within ${localTimeoutMs}ms`, {
+            errorCode: 'timeout',
+          }),
+        )
+      }, localTimeoutMs)
       this.pending.set(id, { resolve, reject, timer })
       ws.send(
-        encodeMessage({ kind: 'agent/invoke', id, tool, args, sessionId: sessionId ?? undefined }),
+        encodeMessage({
+          kind: 'agent/invoke',
+          id,
+          tool,
+          args,
+          sessionId: sessionId ?? undefined,
+          timeoutMs: options.timeoutMs,
+        }),
       )
     })
   }
@@ -166,7 +209,13 @@ export class GenieAgentLink {
       clearTimeout(pending.timer)
       this.pending.delete(message.id)
       if (message.ok) pending.resolve(message.result)
-      else pending.reject(new Error(message.error ?? 'tool failed'))
+      else
+        pending.reject(
+          new BridgeCallError(message.error ?? 'tool failed', {
+            errorCode: message.errorCode,
+            retryInMs: message.retryInMs,
+          }),
+        )
     } else if (message.kind === 'bridge/status') {
       this.status = message
       this.onStatus?.(message)
@@ -185,7 +234,7 @@ export class GenieAgentLink {
         this.openWaiters = this.openWaiters.filter((waiter) => waiter !== onOpen)
         reject(
           new Error(
-            `Genie bridge not reachable at ${this.currentUrl || '(unresolved)'}. Start it: Vite apps run the dev server with the genie() plugin; Next.js/other apps run \`genie hub\` (or next dev with instrumentation).`,
+            `Genie bridge not reachable at ${this.currentUrl || '(unresolved)'}. Start it: Vite apps run the dev server with the genie() plugin; Next.js/other apps run \`genie-react hub\` (or next dev with instrumentation).`,
           ),
         )
       }, this.connectTimeoutMs)

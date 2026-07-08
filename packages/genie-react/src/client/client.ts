@@ -34,6 +34,7 @@ export interface GenieClientOptions {
 }
 
 const SOCKET_OPEN = 1
+const HEARTBEAT_INTERVAL_MS = 1_000
 
 export class GenieClient {
   private readonly url: string
@@ -47,6 +48,7 @@ export class GenieClient {
   private socket: SocketLike | null = null
   private started = false
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(options: GenieClientOptions) {
     this.url = options.url ?? defaultBridgeUrl()
@@ -66,6 +68,7 @@ export class GenieClient {
   stop(): void {
     this.started = false
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.stopHeartbeat()
     for (const cleanup of this.cleanups.values()) cleanup()
     this.cleanups.clear()
     this.socket?.close()
@@ -88,6 +91,7 @@ export class GenieClient {
     socket.onmessage = (event) => this.onMessage(String(event.data))
     socket.onclose = () => {
       this.socket = null
+      this.stopHeartbeat()
       if (this.started) this.scheduleReconnect()
     }
     socket.onerror = () => {}
@@ -107,6 +111,28 @@ export class GenieClient {
     // Hello must precede collector start() so the bridge doesn't drop snapshots pushed before the session registers.
     this.sendHello()
     for (const collector of this.collectors) this.runCollectorStart(collector)
+    this.startHeartbeat()
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    // The frame is constant for the session; encode once instead of per tick.
+    const frame = encodeMessage({ kind: 'app/heartbeat', sessionId: this.sessionId })
+    this.heartbeatTimer = setInterval(() => {
+      if (this.socket?.readyState === SOCKET_OPEN) this.socket.send(frame)
+    }, HEARTBEAT_INTERVAL_MS)
+    // Node-only guard so the interval never keeps a test process (or an SSR host) alive.
+    if (
+      typeof this.heartbeatTimer === 'object' &&
+      this.heartbeatTimer &&
+      'unref' in this.heartbeatTimer
+    )
+      this.heartbeatTimer.unref()
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
+    this.heartbeatTimer = null
   }
 
   private registerCollectorTools(collector: GenieCollector): void {
