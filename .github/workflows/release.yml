@@ -47,12 +47,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Publish via npm (pnpm's OIDC path 404s — pnpm/pnpm#11513) once no changesets remain. OIDC auth + provenance come from the job's id-token permission and the Trusted Publisher registered on npm.
-      - name: Publish to npm
+      # Publish via npm (pnpm's OIDC path 404s — pnpm/pnpm#11513) once no changesets remain, then tag + create a GitHub Release per newly published package. OIDC auth and provenance come from the job's id-token permission and the Trusted Publisher registered on npm.
+      - name: Publish and release
         if: steps.changesets.outputs.hasChangesets == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           pnpm build
           for manifest in packages/*/package.json; do
+            dir=$(dirname "$manifest")
             name=$(node -p "require('./$manifest').name || ''")
             version=$(node -p "require('./$manifest').version || ''")
             isPrivate=$(node -p "require('./$manifest').private === true")
@@ -61,8 +64,10 @@ jobs:
             fi
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "$name@$version already published — skipping"
-            else
-              echo "Publishing $name@$version"
-              ( cd "$(dirname "$manifest")" && npm publish --access public )
+              continue
             fi
+            echo "Publishing $name@$version"
+            ( cd "$dir" && npm publish --access public )
+            notes=$(awk -v hdr="## $version" '$0==hdr{s=1} /^## /&&$0!=hdr{if(s)exit} s' "$dir/CHANGELOG.md")
+            gh release create "$name@$version" --target "$GITHUB_SHA" --title "$name@$version" --notes "${notes:-$name@$version}"
           done
