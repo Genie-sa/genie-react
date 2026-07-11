@@ -31,5 +31,8 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Verify release artifacts
+        run: pnpm check:release
+
       - name: Test
         run: pnpm test

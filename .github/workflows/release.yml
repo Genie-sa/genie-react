@@ -47,27 +47,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Publish via npm (pnpm's OIDC path 404s — pnpm/pnpm#11513) once no changesets remain, then tag + create a GitHub Release per newly published package. OIDC auth and provenance come from the job's id-token permission and the Trusted Publisher registered on npm.
+      # Pack with pnpm so workspace ranges resolve, then publish the tarballs with npm because pnpm's OIDC path currently 404s (pnpm/pnpm#11513).
       - name: Publish and release
         if: steps.changesets.outputs.hasChangesets == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           pnpm build
-          for manifest in packages/*/package.json; do
-            dir=$(dirname "$manifest")
-            name=$(node -p "require('./$manifest').name || ''")
-            version=$(node -p "require('./$manifest').version || ''")
-            isPrivate=$(node -p "require('./$manifest').private === true")
-            if [ -z "$name" ] || [ "$isPrivate" = "true" ]; then
-              continue
-            fi
+          release_dir="$RUNNER_TEMP/genie-release"
+          pnpm exec node scripts/prepare-release.mjs --output "$release_dir"
+          while IFS=$'\t' read -r name version dir tarball; do
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "$name@$version already published — skipping"
               continue
             fi
             echo "Publishing $name@$version"
-            ( cd "$dir" && npm publish --access public )
+            npm publish "$tarball" --access public
             notes=$(awk -v hdr="## $version" '$0==hdr{s=1} /^## /&&$0!=hdr{if(s)exit} s' "$dir/CHANGELOG.md")
             gh release create "$name@$version" --target "$GITHUB_SHA" --title "$name@$version" --notes "${notes:-$name@$version}"
-          done
+          done < "$release_dir/release-plan.tsv"
