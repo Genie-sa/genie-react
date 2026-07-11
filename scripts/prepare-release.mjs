@@ -93,6 +93,18 @@ function assertPublishable(manifest) {
   }
 }
 
+function assertTrustedPublishingRepository(manifest) {
+  const githubRepository = process.env.GITHUB_REPOSITORY
+  if (!githubRepository) return
+  const expected = `git+https://github.com/${githubRepository}.git`
+  const actual = manifest.repository?.url
+  if (actual !== expected) {
+    throw new Error(
+      `${manifest.name} repository.url must be ${expected} for npm trusted publishing, got ${actual ?? 'undefined'}`,
+    )
+  }
+}
+
 function smokeInstall(tarballs, temporaryRoot) {
   const projectDirectory = mkdtempSync(join(temporaryRoot, 'install-'))
   writeFileSync(
@@ -115,6 +127,7 @@ try {
     const tarball = pack(entry, outputDirectory)
     const manifest = packedManifest(tarball, temporaryRoot)
     assertPublishable(manifest)
+    assertTrustedPublishingRepository(manifest)
     return {
       name: manifest.name,
       version: manifest.version,
