@@ -2,13 +2,29 @@
   "name": "genie-react",
   "version": "0.6.0",
   "type": "module",
-  "description": "Live DevTools for a running React + TanStack app, driven from the terminal by an AI agent — browser collectors, the <Genie /> component, the Vite plugin, and the WebSocket hub in one package.",
+  "description": "Live React and TanStack DevTools for AI coding agents. Find performance problems, test app states, and verify fixes end to end.",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Genie-sa/genie-react.git",
     "directory": "packages/genie-react"
   },
+  "homepage": "https://github.com/Genie-sa/genie-react#readme",
+  "bugs": "https://github.com/Genie-sa/genie-react/issues",
+  "keywords": [
+    "react",
+    "react-devtools",
+    "react-performance",
+    "react-profiler",
+    "tanstack-query",
+    "tanstack-router",
+    "vite",
+    "nextjs",
+    "react-native",
+    "ai-agent",
+    "developer-tools",
+    "debugging"
+  ],
   "author": "y0u-0",
   "files": [
     "dist"

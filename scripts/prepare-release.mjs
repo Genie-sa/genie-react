@@ -77,10 +77,21 @@ function pack(entry, outputDirectory) {
   return resolve(result.filename)
 }
 
-function packedManifest(tarball, extractionRoot) {
+function inspectPackage(tarball, extractionRoot) {
   const extractionDirectory = mkdtempSync(join(extractionRoot, 'inspect-'))
   execFileSync('tar', ['-xzf', tarball, '-C', extractionDirectory])
-  return readJson(join(extractionDirectory, 'package', 'package.json'))
+  const packageDirectory = join(extractionDirectory, 'package')
+  return {
+    manifest: readJson(join(packageDirectory, 'package.json')),
+    packageDirectory,
+  }
+}
+
+function assertReadme(name, packageDirectory) {
+  const readme = readdirSync(packageDirectory).find((file) => /^readme(?:\..+)?$/i.test(file))
+  if (!readme || readFileSync(join(packageDirectory, readme), 'utf8').trim().length === 0) {
+    throw new Error(`${name} release tarball must include a non-empty package-root README`)
+  }
 }
 
 function assertPublishable(manifest) {
@@ -125,9 +136,10 @@ try {
   mkdirSync(outputDirectory, { recursive: true })
   const plan = dependencyFirst(publicPackages()).map((entry) => {
     const tarball = pack(entry, outputDirectory)
-    const manifest = packedManifest(tarball, temporaryRoot)
+    const { manifest, packageDirectory } = inspectPackage(tarball, temporaryRoot)
     assertPublishable(manifest)
     assertTrustedPublishingRepository(manifest)
+    assertReadme(manifest.name, packageDirectory)
     return {
       name: manifest.name,
       version: manifest.version,
