@@ -1,7 +1,7 @@
 {
   "name": "@genie-react/cli",
   "version": "0.5.2",
-  "description": "Genie CLI: wire the Vite plugin, then drive your app's live DevTools tools from a shell (status, tools, call).",
+  "description": "Give AI coding agents live React and TanStack DevTools from the terminal. Inspect, optimize, test, and verify a running app.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -12,11 +12,18 @@
   "bugs": "https://github.com/Genie-sa/genie-react/issues",
   "keywords": [
     "react",
-    "tanstack",
-    "devtools",
+    "react-devtools",
+    "react-performance",
+    "tanstack-query",
+    "tanstack-router",
     "ai-agent",
-    "claude",
+    "coding-agent",
+    "claude-code",
+    "codex",
     "vite",
+    "nextjs",
+    "debugging",
+    "json",
     "cli"
   ],
   "author": "y0u-0",
