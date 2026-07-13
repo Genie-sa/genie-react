@@ -84,7 +84,6 @@ function compareMetric(
     candidateStats.median,
   )
   const sampleFloor = Math.min(baselineStats.samples, candidateStats.samples)
-  const confidence = confidenceFor(sampleFloor, minimumRuns)
   const reasons: string[] = []
   let verdict: MetricResult['verdict'] = budget ? 'pass' : 'informational'
 
@@ -123,7 +122,6 @@ function compareMetric(
     missingBaselineCaptureIds: baselineSamples.missing,
     missingCandidateCaptureIds: candidateSamples.missing,
     delta: { median: medianDelta, regressionPct },
-    confidence,
     ...(budget ? { budget } : {}),
     verdict,
     reasons,
@@ -170,13 +168,6 @@ function quantile(sorted: number[], probability: number): number {
   const lower = sorted[lowerIndex] ?? 0
   const upper = sorted[upperIndex] ?? lower
   return lower + (upper - lower) * (position - lowerIndex)
-}
-
-function confidenceFor(sampleFloor: number, minimumRuns: number): MetricResult['confidence'] {
-  if (sampleFloor < minimumRuns) return 'insufficient'
-  if (sampleFloor >= 10) return 'high'
-  if (sampleFloor >= 5) return 'medium'
-  return 'low'
 }
 
 function metricRegressionPct(

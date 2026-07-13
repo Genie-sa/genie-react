@@ -344,7 +344,7 @@ describe('per-effect source attribution', () => {
     expect(rec?.effects[0]?.isLibrary).toBe(false)
     expect(rec?.effects[0]?.provenance).toMatchObject({
       ownership: 'app',
-      confidence: 'high',
+      evidence: 'exact',
       reason: 'exact-hook-order',
       packageName: null,
     })
@@ -352,7 +352,7 @@ describe('per-effect source attribution', () => {
     expect(rec?.effects[1]?.isLibrary).toBe(true)
     expect(rec?.effects[1]?.provenance).toMatchObject({
       ownership: 'library',
-      confidence: 'high',
+      evidence: 'exact',
       packageName: '@tanstack/react-query',
     })
   })
@@ -388,7 +388,7 @@ describe('per-effect source attribution', () => {
     expect(record?.componentProvenance.ownership).toBe('library')
     expect(record?.effects[0]?.provenance).toMatchObject({
       ownership: 'app',
-      confidence: 'high',
+      evidence: 'exact',
       hookSource: { file: '/src/effect-demo.tsx', line: 11 },
     })
   })
@@ -424,7 +424,7 @@ describe('per-effect source attribution', () => {
     expect(rec?.effects[0]?.isLibrary).toBe(false)
     expect(rec?.effects[0]?.provenance).toMatchObject({
       ownership: 'unknown',
-      confidence: 'none',
+      evidence: 'unknown',
       reason: 'hook-inspection-unavailable',
     })
   })
@@ -450,7 +450,7 @@ describe('per-effect source attribution', () => {
     expect(all?.effects.every((e) => e.isLibrary === true)).toBe(true)
     expect(all?.effects[0]?.provenance).toMatchObject({
       ownership: 'library',
-      confidence: 'medium',
+      evidence: 'inferred',
       reason: 'library-only-hook-tree',
       packageName: null,
     })

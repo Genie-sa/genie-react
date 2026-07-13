@@ -63,6 +63,7 @@ function renderCausalEvidence(causes: unknown): string | null {
 }
 
 function renderCausalCause(cause: Record<string, unknown>): string {
+  const inferred = cause.evidence === 'inferred' ? ' (inferred)' : ''
   switch (cause.kind) {
     case 'mount':
       return 'mount'
@@ -76,14 +77,14 @@ function renderCausalCause(cause: Record<string, unknown>): string {
       return `context ${String(cause.name)} ${renderChangeValue(cause.before)}→${renderChangeValue(cause.after)}`
     case 'query': {
       const hash = typeof cause.queryHash === 'string' ? ` ${cause.queryHash}` : ''
-      return `query${hash}${changedFieldsSuffix(cause.changedFields)}`
+      return `query${hash}${changedFieldsSuffix(cause.changedFields)}${inferred}`
     }
     case 'router':
-      return `router${changedFieldsSuffix(cause.changedFields)}`
+      return `router${changedFieldsSuffix(cause.changedFields)}${inferred}`
     case 'external-store':
       return `external store hook[${num(cause.hookIndex)}]${changedFieldsSuffix(cause.changedFields)}`
     case 'parent':
-      return `parent ${String(cause.parentName)} #${num(cause.parentId)}`
+      return `parent ${String(cause.parentName)} #${num(cause.parentId)}${inferred}`
     default:
       return 'unknown cause'
   }
@@ -140,10 +141,14 @@ export function summarizeEffects(result: unknown): string | null {
       if (typeof effect.note === 'string' && effect.note.length > 0)
         parts.push(`· ! ${effect.note}`)
       const provenance = isRecord(effect.provenance) ? effect.provenance : null
+      const evidence = provenanceEvidence(provenance)
       if (provenance?.ownership === 'library')
         parts.push(
-          typeof provenance.packageName === 'string' ? `· lib:${provenance.packageName}` : '· lib',
+          typeof provenance.packageName === 'string'
+            ? `· lib:${provenance.packageName}/${evidence}`
+            : `· library/${evidence}`,
         )
+      else if (provenance?.ownership === 'app') parts.push(`· app/${evidence}`)
       else if (provenance?.ownership === 'unknown')
         parts.push(`· owner unknown (${String(provenance.reason)})`)
       else if (!provenance && effect.isLibrary === true) parts.push('· lib')
@@ -151,6 +156,19 @@ export function summarizeEffects(result: unknown): string | null {
     }
   }
   return lines.join('\n')
+}
+
+function provenanceEvidence(provenance: Record<string, unknown> | null): string {
+  if (
+    provenance?.evidence === 'exact' ||
+    provenance?.evidence === 'inferred' ||
+    provenance?.evidence === 'unknown'
+  ) {
+    return provenance.evidence
+  }
+  if (provenance?.confidence === 'high') return 'exact'
+  if (provenance?.confidence === 'medium') return 'inferred'
+  return 'unknown'
 }
 
 export function summarizeDom(result: unknown): string | null {

@@ -14,6 +14,7 @@ describe('react output', () => {
           causes: [
             {
               kind: 'query',
+              evidence: 'inferred',
               queryHash: '["row",7]',
               changedFields: ['data', 'isFetching'],
             },
@@ -25,7 +26,7 @@ describe('react output', () => {
           componentId: 8,
           componentName: 'Child',
           necessity: 'unknown',
-          causes: [{ kind: 'parent', parentName: 'Shell', parentId: 2 }],
+          causes: [{ kind: 'parent', evidence: 'inferred', parentName: 'Shell', parentId: 2 }],
           source: null,
         },
       ],
@@ -33,9 +34,9 @@ describe('react output', () => {
 
     expect(output).toContain('2 causal render events · 12 commits')
     expect(output).toContain(
-      'commit 12 · ReviewCard #7 · necessary · ↻ query ["row",7] changed data,isFetching (ReviewCard.tsx:42)',
+      'commit 12 · ReviewCard #7 · necessary · ↻ query ["row",7] changed data,isFetching (inferred) (ReviewCard.tsx:42)',
     )
-    expect(output).toContain('Child #8 · unknown · ↻ parent Shell #2')
+    expect(output).toContain('Child #8 · unknown · ↻ parent Shell #2 (inferred)')
     expect(summarizeRenderCauses({ nope: true })).toBeNull()
   })
 })

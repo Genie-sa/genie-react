@@ -630,7 +630,7 @@ export function recordRender(fiber: Fiber, phase: RenderPhase): void {
 
   if (phase === 'mount') {
     record.mounts += 1
-    const causes: RenderCause[] = [{ kind: 'mount', confidence: 'high' }]
+    const causes: RenderCause[] = [{ kind: 'mount', evidence: 'exact' }]
     record.causes = causes
     record.necessity = 'necessary'
     retainCauseEvent(record, causes, record.necessity)
@@ -650,7 +650,7 @@ export function recordRender(fiber: Fiber, phase: RenderPhase): void {
     ...propChanges.map(
       (change): RenderCause => ({
         kind: 'props',
-        confidence: 'high',
+        evidence: 'exact',
         name: change.name,
         unstable: change.unstable,
       }),
@@ -658,14 +658,14 @@ export function recordRender(fiber: Fiber, phase: RenderPhase): void {
     ...stateChanges.map(
       (change): RenderCause => ({
         kind: 'state',
-        confidence: 'high',
+        evidence: 'exact',
         name: change.name,
         before: change.before,
         after: change.after,
         ...('hook' in change ? { hook: change.hook } : {}),
       }),
     ),
-    ...(childrenDidChange ? ([{ kind: 'children', confidence: 'high' }] as const) : []),
+    ...(childrenDidChange ? ([{ kind: 'children', evidence: 'exact' }] as const) : []),
     ...contextChanges,
     ...externalStoreChanges,
   ]
@@ -675,7 +675,7 @@ export function recordRender(fiber: Fiber, phase: RenderPhase): void {
       ? observableCauses
       : parentCause
         ? [parentCause]
-        : [{ kind: 'unknown', confidence: 'none', reason: 'no-observable-fiber-input-change' }]
+        : [{ kind: 'unknown', evidence: 'unknown', reason: 'no-observable-fiber-input-change' }]
   const necessity: RenderNecessity =
     observableCauses.length > 0 ? 'necessary' : parentCause ? 'unknown' : 'unnecessary'
   record.causes = causes
@@ -758,7 +758,7 @@ function renderedParentCause(fiber: Fiber): RenderCause | null {
   }
   return {
     kind: 'parent',
-    confidence: 'medium',
+    evidence: 'inferred',
     parentId: getFiberId(parent),
     parentName: nameOf(parent),
     reason: 'nearest-rendered-ancestor',

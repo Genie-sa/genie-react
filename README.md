@@ -126,7 +126,7 @@ npx @genie-react/cli call devtools_capture_compare \
   '{"baselineCaptureIds":["<before-1>","<before-2>","<before-3>"],"candidateCaptureIds":["<after-1>","<after-2>","<after-3>"],"metrics":["react.renders","react.selfTimeMs"],"budgets":[{"metric":"react.renders","maxRegressionPct":0}]}'
 ```
 
-The result includes median, p95, spread, confidence, and a clear budget verdict. Small or missing samples are `insufficient-data`, never a false pass. The hub keeps the latest 20 captures, so export important JSON results.
+The result includes sample counts, median, p95, spread, and a clear budget verdict. Small or missing samples are `insufficient-data`, never a false pass. The hub keeps the latest 20 captures, so export important JSON results.
 
 ## Try a change before it ships
 

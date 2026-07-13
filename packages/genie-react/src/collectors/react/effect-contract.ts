@@ -3,7 +3,7 @@ import { defineAgentToolContract } from '../../protocol'
 import { sourceSchema } from './contract-schemas'
 
 const effectOwnershipSchema = z.enum(['app', 'library', 'unknown'])
-const provenanceConfidenceSchema = z.enum(['high', 'medium', 'none'])
+const provenanceEvidenceSchema = z.enum(['exact', 'inferred', 'unknown'])
 
 const effectHotnessSchema = z.object({
   label: z.enum(['hot', 'not-hot', 'insufficient-data']),
@@ -52,7 +52,7 @@ const effectFindingSchema = z.object({
     ),
   provenance: z.object({
     ownership: effectOwnershipSchema,
-    confidence: provenanceConfidenceSchema,
+    evidence: provenanceEvidenceSchema,
     reason: z.enum([
       'exact-hook-order',
       'no-user-effect-callsite',
@@ -77,7 +77,7 @@ export const reactEffectAuditContract = defineAgentToolContract({
   name: 'react_effect_audit',
   title: 'Effect audit (did effects fire & why)',
   description:
-    'Audit useEffect / useLayoutEffect / useInsertionEffect executions: observed firing counts, dependency mode/change, cleanup, thresholded hotness with sample evidence, and explicit implementation provenance separate from the owning component. Ownership is app/library/unknown with a confidence and reason; unknown effects are never silently filtered as application code. appOnly (default true) drops only effects confidently attributed to libraries. Interact with the app (or react_clear_renders to reset) first, then read this.',
+    'Audit useEffect / useLayoutEffect / useInsertionEffect executions: observed firing counts, dependency mode/change, cleanup, thresholded hotness with sample evidence, and explicit implementation provenance separate from the owning component. Ownership is app/library/unknown, while evidence is exact/inferred/unknown; unknown effects are never silently filtered as application code. appOnly (default true) drops only effects attributed to libraries. Interact with the app (or react_clear_renders to reset) first, then read this.',
   group: 'react.render',
   input: z.object({
     component: z.string().optional().describe('Only components whose name contains this string.'),
@@ -124,7 +124,7 @@ export const reactEffectAuditContract = defineAgentToolContract({
         isLibrary: z.boolean(),
         componentProvenance: z.object({
           ownership: effectOwnershipSchema,
-          confidence: z.enum(['medium', 'none']),
+          evidence: z.enum(['inferred', 'unknown']),
           reason: z.enum(['nearest-symbolicated-fiber', 'source-unresolved']),
           source: sourceSchema,
         }),

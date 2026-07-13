@@ -86,7 +86,7 @@ function queryHashNearHook(fiber: Fiber, stopIndex: number): string | undefined 
   return undefined
 }
 
-/** Exact useSyncExternalStore snapshot changes; Query/Router labels are bounded medium-confidence shape inference. */
+/** Exact useSyncExternalStore snapshot changes; Query/Router labels are bounded shape inference. */
 export function diffExternalStoreChanges(fiber: Fiber): RenderCause[] {
   const causes: RenderCause[] = []
   let current: MemoizedState | null = fiber.memoizedState
@@ -108,7 +108,7 @@ export function diffExternalStoreChanges(fiber: Fiber): RenderCause[] {
         const queryHash = queryHashNearHook(fiber, index)
         causes.push({
           kind: 'query',
-          confidence: 'medium',
+          evidence: 'inferred',
           reason: 'query-result-shape',
           ...common,
           ...(queryHash ? { queryHash } : {}),
@@ -116,14 +116,14 @@ export function diffExternalStoreChanges(fiber: Fiber): RenderCause[] {
       } else if (domain === 'router') {
         causes.push({
           kind: 'router',
-          confidence: 'medium',
+          evidence: 'inferred',
           reason: 'router-state-shape',
           ...common,
         })
       } else {
         causes.push({
           kind: 'external-store',
-          confidence: 'high',
+          evidence: 'exact',
           reason: 'sync-external-store-snapshot-changed',
           ...common,
         })
@@ -147,7 +147,7 @@ export function diffContextChanges(fiber: Fiber): RenderCause[] {
       const context = current.context as { displayName?: unknown }
       causes.push({
         kind: 'context',
-        confidence: 'high',
+        evidence: 'exact',
         contextIndex: index,
         name: typeof context.displayName === 'string' ? context.displayName : `Context[${index}]`,
         before: stateValue(previous.memoizedValue),

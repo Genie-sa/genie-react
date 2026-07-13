@@ -70,9 +70,8 @@ describe('capture output', () => {
         {
           metric: 'react.renders',
           verdict: 'fail',
-          confidence: 'low',
-          baseline: { median: 10, p95: 11, mad: 1 },
-          candidate: { median: 12, p95: 13, mad: 1 },
+          baseline: { samples: 3, median: 10, p95: 11, mad: 1 },
+          candidate: { samples: 3, median: 12, p95: 13, mad: 1 },
           delta: { median: 2, regressionPct: 20 },
           budget: { metric: 'react.renders', maxRegressionPct: 10 },
           reasons: ['regression 20% exceeds maxRegressionPct 10%'],
@@ -82,7 +81,7 @@ describe('capture output', () => {
     }
     expect(summarizeCaptureComparison(comparison)).toBe(
       'FAIL comparison · 3 baseline vs 3 candidate · min 3 runs · cmp_123\n' +
-        '  FAIL react.renders · median 10→12 · regression +20% · p95 11→13 · MAD 1→1 · low confidence · budget regression≤10%\n' +
+        '  FAIL react.renders · median 10→12 · regression +20% · p95 11→13 · MAD 1→1 · samples 3→3 · budget regression≤10%\n' +
         '    ! regression 20% exceeds maxRegressionPct 10%\n' +
         '  ! Capture cohorts span two runtimes.',
     )

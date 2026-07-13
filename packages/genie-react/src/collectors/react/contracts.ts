@@ -456,25 +456,25 @@ const renderExternalStoreCauseBase = z.object({
 })
 
 export const renderCauseSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('mount'), confidence: z.literal('high') }),
+  z.object({ kind: z.literal('mount'), evidence: z.literal('exact') }),
   z.object({
     kind: z.literal('props'),
-    confidence: z.literal('high'),
+    evidence: z.literal('exact'),
     name: z.string(),
     unstable: z.boolean(),
   }),
   z.object({
     kind: z.literal('state'),
-    confidence: z.literal('high'),
+    evidence: z.literal('exact'),
     name: z.string(),
     before: z.unknown(),
     after: z.unknown(),
     hook: renderHookStateChangeSchema.shape.hook.optional(),
   }),
-  z.object({ kind: z.literal('children'), confidence: z.literal('high') }),
+  z.object({ kind: z.literal('children'), evidence: z.literal('exact') }),
   z.object({
     kind: z.literal('context'),
-    confidence: z.literal('high'),
+    evidence: z.literal('exact'),
     contextIndex: z.number().int().nonnegative(),
     name: z.string(),
     before: z.unknown(),
@@ -482,30 +482,30 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
   }),
   renderExternalStoreCauseBase.extend({
     kind: z.literal('external-store'),
-    confidence: z.literal('high'),
+    evidence: z.literal('exact'),
     reason: z.literal('sync-external-store-snapshot-changed'),
   }),
   renderExternalStoreCauseBase.extend({
     kind: z.literal('query'),
-    confidence: z.literal('medium'),
+    evidence: z.literal('inferred'),
     reason: z.literal('query-result-shape'),
     queryHash: z.string().optional(),
   }),
   renderExternalStoreCauseBase.extend({
     kind: z.literal('router'),
-    confidence: z.literal('medium'),
+    evidence: z.literal('inferred'),
     reason: z.literal('router-state-shape'),
   }),
   z.object({
     kind: z.literal('parent'),
-    confidence: z.literal('medium'),
+    evidence: z.literal('inferred'),
     parentId: z.number().int(),
     parentName: z.string(),
     reason: z.literal('nearest-rendered-ancestor'),
   }),
   z.object({
     kind: z.literal('unknown'),
-    confidence: z.literal('none'),
+    evidence: z.literal('unknown'),
     reason: z.literal('no-observable-fiber-input-change'),
   }),
 ])
@@ -613,7 +613,7 @@ export const reactRenderCausesContract = defineAgentToolContract({
   name: 'react_render_causes',
   title: 'Recent causal render events',
   description:
-    'Report bounded recent component renders with their React commit ID and evidence-backed cause: props, state, children, Context, useSyncExternalStore snapshot, Query-shaped or Router-shaped external snapshots, nearest rendered parent, or explicit unknown. Query/Router labels are medium-confidence shape inference; generic external-store attribution is high-confidence React hook evidence. Use after react_clear_renders plus one exact interaction. commit and afterCommit are mutually exclusive.',
+    'Report bounded recent component renders with their React commit ID and evidence-backed cause: props, state, children, Context, useSyncExternalStore snapshot, Query-shaped or Router-shaped external snapshots, nearest rendered parent, or explicit unknown. Each cause says whether its evidence is exact, inferred, or unknown. Use after react_clear_renders plus one exact interaction. commit and afterCommit are mutually exclusive.',
   group: 'react.render',
   input: z
     .object({

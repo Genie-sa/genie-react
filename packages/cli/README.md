@@ -40,7 +40,7 @@ The agent gets the component, source line, render cost, and exact cause. Causes 
 npx @genie-react/cli call react_effect_audit '{"appOnly":true,"onlyHot":true}'
 ```
 
-Each effect reports its own source, whether it belongs to app or library code, and how confident that answer is. Hotness uses a minimum sample count and a confidence interval, so a short run is marked `insufficient-data`.
+Each effect reports its own source and whether ownership evidence is `exact`, `inferred`, or `unknown`. Hotness uses a minimum sample count and a 95% interval, so a short run is marked `insufficient-data`.
 
 ## Inspect live hooks
 
@@ -128,6 +128,6 @@ npx @genie-react/cli call devtools_capture_compare \
   '{"baselineCaptureIds":["<before-1>","<before-2>","<before-3>"],"candidateCaptureIds":["<after-1>","<after-2>","<after-3>"],"metrics":["react.renders"],"budgets":[{"metric":"react.renders","maxRegressionPct":0}]}'
 ```
 
-The verdict is `pass`, `fail`, or `insufficient-data`. It also reports median, p95, spread, and confidence. The hub keeps the latest 20 captures.
+The verdict is `pass`, `fail`, or `insufficient-data`. It also reports sample counts, median, p95, and spread. The hub keeps the latest 20 captures.
 
 See the [full setup and tool list](https://github.com/Genie-sa/genie-react#readme).

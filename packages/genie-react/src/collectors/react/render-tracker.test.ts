@@ -254,7 +254,7 @@ describe('causal render attribution', () => {
     expect(diffExternalStoreChanges(fiber)).toMatchObject([
       {
         kind: 'external-store',
-        confidence: 'high',
+        evidence: 'exact',
         hookIndex: 0,
         before: false,
         after: true,
@@ -267,7 +267,7 @@ describe('causal render attribution', () => {
     expect(report).toMatchObject({
       unnecessary: 0,
       necessity: 'necessary',
-      causes: [{ kind: 'external-store', confidence: 'high' }],
+      causes: [{ kind: 'external-store', evidence: 'exact' }],
       causeCounts: { 'external-store': 1 },
     })
   })
@@ -293,7 +293,7 @@ describe('causal render attribution', () => {
     expect(causes).toMatchObject([
       {
         kind: 'query',
-        confidence: 'medium',
+        evidence: 'inferred',
         hookIndex: 1,
         queryHash: '["todos"]',
         changedFields: ['fetchStatus', 'dataUpdatedAt'],
@@ -308,7 +308,7 @@ describe('causal render attribution', () => {
       diffExternalStoreChanges(
         causalFiber('RouterConsumer', [externalStoreHook(after)], [externalStoreHook(before)]),
       ),
-    ).toMatchObject([{ kind: 'router', confidence: 'medium' }])
+    ).toMatchObject([{ kind: 'router', evidence: 'inferred' }])
     expect(
       diffExternalStoreChanges(
         causalFiber(
@@ -317,12 +317,12 @@ describe('causal render attribution', () => {
           [externalStoreHook({ href: '/', pathname: '/', searchStr: '' })],
         ),
       ),
-    ).toMatchObject([{ kind: 'router', confidence: 'medium' }])
+    ).toMatchObject([{ kind: 'router', evidence: 'inferred' }])
     expect(
       diffExternalStoreChanges(
         causalFiber('ScalarStore', [externalStoreHook('b')], [externalStoreHook('a')]),
       ),
-    ).toMatchObject([{ kind: 'external-store', confidence: 'high' }])
+    ).toMatchObject([{ kind: 'external-store', evidence: 'exact' }])
   })
 
   it('retains exact Context before/after evidence and its display name', () => {
@@ -340,7 +340,7 @@ describe('causal render attribution', () => {
     expect(diffContextChanges(fiber)).toEqual([
       {
         kind: 'context',
-        confidence: 'high',
+        evidence: 'exact',
         contextIndex: 0,
         name: 'Theme',
         before: 'light',
@@ -363,11 +363,11 @@ describe('causal render attribution', () => {
     )
     expect(reports.get('Child')).toMatchObject({
       necessity: 'unknown',
-      causes: [{ kind: 'parent', parentName: 'Parent', confidence: 'medium' }],
+      causes: [{ kind: 'parent', parentName: 'Parent', evidence: 'inferred' }],
     })
     expect(reports.get('Unknown')).toMatchObject({
       necessity: 'unnecessary',
-      causes: [{ kind: 'unknown', confidence: 'none' }],
+      causes: [{ kind: 'unknown', evidence: 'unknown' }],
     })
   })
 

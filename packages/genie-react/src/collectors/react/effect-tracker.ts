@@ -143,7 +143,7 @@ export interface EffectAuditQuery {
 }
 
 export type EffectOwnership = 'app' | 'library' | 'unknown'
-export type ProvenanceConfidence = 'high' | 'medium' | 'none'
+export type ProvenanceEvidence = 'exact' | 'inferred' | 'unknown'
 export type EffectProvenanceReason =
   | 'exact-hook-order'
   | 'no-user-effect-callsite'
@@ -155,7 +155,7 @@ export type EffectProvenanceReason =
 
 export interface EffectProvenance {
   ownership: EffectOwnership
-  confidence: ProvenanceConfidence
+  evidence: ProvenanceEvidence
   reason: EffectProvenanceReason
   hookSource: ResolvedSource | null
   packageName: string | null
@@ -199,7 +199,7 @@ export interface EffectAuditRecord {
   isLibrary: boolean
   componentProvenance: {
     ownership: EffectOwnership
-    confidence: 'medium' | 'none'
+    evidence: 'inferred' | 'unknown'
     reason: 'nearest-symbolicated-fiber' | 'source-unresolved'
     source: ResolvedSource | null
   }
@@ -251,7 +251,7 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
       isLibrary,
       componentProvenance: {
         ownership: componentOwnership,
-        confidence: source ? 'medium' : 'none',
+        evidence: source ? 'inferred' : 'unknown',
         reason: source ? 'nearest-symbolicated-fiber' : 'source-unresolved',
         source,
       },
@@ -432,7 +432,7 @@ function effectProvenance(
   if (resolution.status === 'no-user-effects') {
     return {
       ownership: 'library',
-      confidence: 'medium',
+      evidence: 'inferred',
       reason: 'no-user-effect-callsite',
       hookSource: null,
       packageName: null,
@@ -446,7 +446,7 @@ function effectProvenance(
     const ownership: EffectOwnership = isLibraryFile(hookSource.file) ? 'library' : 'app'
     return {
       ownership,
-      confidence: 'high',
+      evidence: 'exact',
       reason: 'exact-hook-order',
       hookSource,
       packageName: ownership === 'library' ? packageNameFromFile(hookSource.file) : null,
@@ -456,7 +456,7 @@ function effectProvenance(
   if (sources.length > 0 && sources.every((source) => source && isLibraryFile(source.file))) {
     return {
       ownership: 'library',
-      confidence: 'medium',
+      evidence: 'inferred',
       reason: 'library-only-hook-tree',
       hookSource: null,
       packageName: commonPackageName(sources),
@@ -466,7 +466,7 @@ function effectProvenance(
 }
 
 function unknownProvenance(reason: EffectProvenanceReason): EffectProvenance {
-  return { ownership: 'unknown', confidence: 'none', reason, hookSource: null, packageName: null }
+  return { ownership: 'unknown', evidence: 'unknown', reason, hookSource: null, packageName: null }
 }
 
 function commonPackageName(sources: (ResolvedSource | null)[]): string | null {

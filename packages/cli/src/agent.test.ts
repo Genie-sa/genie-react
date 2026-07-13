@@ -353,6 +353,7 @@ describe('summarizeEffects', () => {
               hotness: { label: 'hot', samples: 3, minUpdates: 3 },
               provenance: {
                 ownership: 'library',
+                evidence: 'exact',
                 packageName: '@tanstack/react-query',
                 reason: 'exact-hook-order',
               },
@@ -368,6 +369,7 @@ describe('summarizeEffects', () => {
               hotness: { label: 'insufficient-data', samples: 1, minUpdates: 3 },
               provenance: {
                 ownership: 'unknown',
+                evidence: 'unknown',
                 packageName: null,
                 reason: 'hook-count-mismatch',
               },
@@ -378,7 +380,7 @@ describe('summarizeEffects', () => {
     })
 
     expect(output).toContain('hot ≥3 updates @ 100%')
-    expect(output).toContain('fired 3/3 HOT no-cleanup · lib:@tanstack/react-query')
+    expect(output).toContain('fired 3/3 HOT no-cleanup · lib:@tanstack/react-query/exact')
     expect(output).toContain(
       'fired 1/1 sample 1/3 no-cleanup · owner unknown (hook-count-mismatch)',
     )

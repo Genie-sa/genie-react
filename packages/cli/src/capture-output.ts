@@ -73,8 +73,9 @@ export function summarizeCaptureComparison(result: unknown): string | null {
     const regression =
       typeof delta.regressionPct === 'number' ? ` · regression ${signed(delta.regressionPct)}%` : ''
     const spread = `p95 ${statValue(baseline.p95)}→${statValue(candidate.p95)} · MAD ${statValue(baseline.mad)}→${statValue(candidate.mad)}`
+    const samples = `samples ${num(baseline.samples)}→${num(candidate.samples)}`
     lines.push(
-      `  ${String(metric.verdict).toUpperCase()} ${String(metric.metric)} · median ${statValue(baseline.median)}→${statValue(candidate.median)}${regression} · ${spread} · ${String(metric.confidence)} confidence${budgetSuffix(metric.budget)}`,
+      `  ${String(metric.verdict).toUpperCase()} ${String(metric.metric)} · median ${statValue(baseline.median)}→${statValue(candidate.median)}${regression} · ${spread} · ${samples}${budgetSuffix(metric.budget)}`,
     )
     if (Array.isArray(metric.reasons)) {
       for (const reason of metric.reasons.slice(0, 3)) lines.push(`    ! ${String(reason)}`)

@@ -117,7 +117,6 @@ const captureComparisonMetricSchema = z.object({
     median: z.number().nullable(),
     regressionPct: z.number().nullable(),
   }),
-  confidence: z.enum(['insufficient', 'low', 'medium', 'high']),
   budget: captureMetricBudgetSchema.optional(),
   verdict: z.enum(['pass', 'fail', 'insufficient-data', 'informational']),
   reasons: z.array(z.string()),

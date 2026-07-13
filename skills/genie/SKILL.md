@@ -72,7 +72,7 @@ This step is complete when the output covers one known interaction.
 - Memory: `browser_get_memory`.
 - Frame rate: `browser_fps` while the tab is visible.
 
-Effect results include ownership, confidence, and the effect's own source. A hotness result is only strong after enough updates. Treat `insufficient-data` as unknown, not healthy or hot.
+Effect results include ownership, the effect's own source, and `exact`, `inferred`, or `unknown` evidence. A hotness result is only strong after enough updates. Treat `insufficient-data` as unknown, not healthy or hot.
 
 Use `genie-react tools` to list groups. Use `genie-react tools <tool>` for the full schema and an example. Do not dump every contract unless it is needed.
 
@@ -93,7 +93,7 @@ genie-react call devtools_capture_compare \
   '{"baselineCaptureIds":["<before-1>","<before-2>","<before-3>"],"candidateCaptureIds":["<after-1>","<after-2>","<after-3>"],"metrics":["react.renders","react.selfTimeMs"],"budgets":[{"metric":"react.renders","maxRegressionPct":0}]}'
 ```
 
-The comparison reports median, p95, median absolute deviation, confidence, and budget failures. `insufficient-data` is not a pass. Use the same app build, route, device, and interaction for both groups.
+The comparison reports sample counts, median, p95, median absolute deviation, and budget failures. `insufficient-data` is not a pass. Use the same app build, route, device, and interaction for both groups.
 
 This step is complete when the requested budgets pass and the UI behavior is still correct.
 

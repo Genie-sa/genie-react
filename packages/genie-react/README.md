@@ -107,7 +107,7 @@ ok=true · restored=1
 
 The agent can extract what it needs without asking you for screenshots, logs, or guesses.
 
-For a stronger performance check, repeat the same flow at least three times before and after the change. Save each run with `devtools_capture_create`, then pass the IDs to `devtools_capture_compare`. The result reports median, p95, spread, confidence, and a typed budget verdict. Small samples are `insufficient-data`, not a false pass.
+For a stronger performance check, repeat the same flow at least three times before and after the change. Save each run with `devtools_capture_create`, then pass the IDs to `devtools_capture_compare`. The result reports sample counts, median, p95, spread, and a typed budget verdict. Small samples are `insufficient-data`, not a false pass.
 
 Works with React 18 and 19, Vite, TanStack Start, Next.js, React Native, Expo, TanStack Query, and TanStack Router.
 

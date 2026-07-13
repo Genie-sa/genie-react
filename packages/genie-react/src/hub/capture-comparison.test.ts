@@ -191,7 +191,6 @@ describe('compareCaptureCohorts', () => {
       baseline: { samples: 3, median: 10 },
       candidate: { samples: 3, median: 12 },
       delta: { median: 2, regressionPct: 20 },
-      confidence: 'low',
       verdict: 'fail',
     })
     expect(result.metrics[1]?.delta.regressionPct).toBeCloseTo(8.3333, 4)
@@ -228,7 +227,6 @@ describe('compareCaptureCohorts', () => {
     )
     expect(tooSmall.overall).toBe('insufficient-data')
     expect(tooSmall.metrics[0]).toMatchObject({
-      confidence: 'insufficient',
       verdict: 'insufficient-data',
     })
 

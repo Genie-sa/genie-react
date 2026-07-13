@@ -45,7 +45,7 @@ describe('react_get_renders output contract', () => {
           causes: [
             {
               kind: 'state',
-              confidence: 'high',
+              evidence: 'exact',
               name: 'state[0]',
               hook: { index: 0, stateIndex: 0, kind: 'state' },
               before: 1,
