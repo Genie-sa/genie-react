@@ -1,5 +1,11 @@
 # genie-react
 
+## 0.10.0
+
+### Minor Changes
+
+- 6f4f7ed: Make agent diagnostics decision-safe with explicit provenance and coverage, noise-aware comparisons, effect and store notification attribution, atomic interaction captures, bounded output, collision-safe sessions, live health checks, and a versioned bundled skill.
+
 ## 0.9.0
 
 ### Minor Changes
