@@ -84,9 +84,9 @@ const memoryBreakdownEntrySchema = z.object({
 
 const browserGetMemoryContract = defineAgentToolContract({
   name: 'browser_get_memory',
-  title: 'Browser JS heap usage',
+  title: 'JavaScript heap usage',
   description:
-    'Read the current browser JavaScript heap size (used/total/limit, in bytes) via the non-standard, Chromium-only performance.memory. This is the V8 heap for the whole page, NOT React-specific memory, and the browser coarsens the values for security. Returns supported:false with a note on non-Chromium browsers (Firefox, Safari) and non-browser runtimes.',
+    'Read the current JavaScript heap size (used/total/limit, in bytes) via performance.memory when the runtime exposes numeric fields. This is runtime-wide, not React-specific memory. Chromium and React Native/Hermes expose different fields and precision; otherwise this returns supported:false with an explanatory note.',
   group: 'memory',
   input: z.object({}),
   output: z.object({
@@ -119,8 +119,8 @@ export function memoryCollector(): GenieCollector {
   return defineCollector({
     meta: {
       id: 'memory',
-      title: 'Browser memory',
-      description: 'Browser JS heap readings (not React-specific memory)',
+      title: 'Runtime memory',
+      description: 'JavaScript runtime heap readings (not React-specific memory)',
     },
     capabilities: ['memory'],
     tools: [
@@ -131,19 +131,19 @@ export function memoryCollector(): GenieCollector {
           if (!memory) {
             return {
               supported: false,
-              note: 'performance.memory is unavailable. It is a non-standard, Chromium-only API not exposed by Firefox, Safari, or most non-browser runtimes.',
+              note: 'performance.memory is unavailable in this runtime. Chromium and some React Native/Hermes versions expose it; other browsers and runtimes may not.',
             }
           }
           const normalized = normalizePerformanceMemory(memory)
           if (!normalized.supported) {
             return {
               supported: false,
-              note: 'performance.memory is present but did not expose numeric heap fields in this runtime. This commonly happens in React Native or other non-browser runtimes.',
+              note: 'performance.memory is present but did not expose numeric heap fields in this runtime.',
             }
           }
           return {
             ...normalized,
-            note: 'Browser JavaScript (V8) heap for the whole page, not React-specific memory. Values are coarsened by the browser for security.',
+            note: 'JavaScript heap reported by the current runtime, not React-specific memory. Availability and precision vary by runtime.',
           }
         },
       }),

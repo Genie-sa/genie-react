@@ -208,6 +208,71 @@ describe('resolveSource caching', () => {
     expect(getSource).not.toHaveBeenCalled()
   })
 
+  it('reads a verified Error stack exposed through Hermes-style getter semantics', async () => {
+    const stack =
+      'Error: react-stack-top-frame\n' +
+      '    at jsxDEV (http://127.0.0.1:8081/index.bundle?platform=ios:100:7)\n' +
+      '    at App (http://127.0.0.1:8081/index.bundle?platform=ios:200:11)\n' +
+      '    at react_stack_bottom_frame (http://127.0.0.1:8081/index.bundle?platform=ios:300:1)'
+    const debugStack = new Error('react-stack-top-frame')
+    Reflect.deleteProperty(debugStack, 'stack')
+    Object.setPrototypeOf(
+      debugStack,
+      Object.create(Error.prototype, {
+        stack: { configurable: true, get: () => stack },
+      }),
+    )
+    formatOwnerStack.mockImplementation((value) => value)
+    parseStack.mockReturnValue([
+      {
+        fileName: 'http://127.0.0.1:8081/index.bundle?platform=ios',
+        lineNumber: 200,
+        columnNumber: 11,
+        functionName: 'App',
+      },
+    ])
+
+    await expect(resolveSource(asFiber({ _debugStack: debugStack }))).resolves.toMatchObject({
+      file: '/index.bundle',
+      line: 200,
+      column: 11,
+      functionName: 'App',
+    })
+  })
+
+  it('marks a bundle frame mapped when stack symbolication resolves its source file', async () => {
+    const debugStack = new Error('captured')
+    Object.defineProperty(debugStack, 'stack', {
+      value:
+        'Error: react-stack-top-frame\n' +
+        '    at App (http://127.0.0.1:8081/index.bundle?platform=ios:200:11)\n' +
+        '    at react_stack_bottom_frame (http://127.0.0.1:8081/index.bundle?platform=ios:300:1)',
+    })
+    parseStack.mockReturnValue([
+      {
+        fileName: 'http://127.0.0.1:8081/index.bundle?platform=ios',
+        lineNumber: 200,
+        columnNumber: 11,
+        functionName: 'App',
+      },
+    ])
+    symbolicateStack.mockResolvedValue([
+      {
+        fileName: '/src/App.tsx',
+        lineNumber: 17,
+        columnNumber: 5,
+        functionName: 'App',
+      },
+    ])
+
+    await expect(resolveSource(asFiber({ _debugStack: debugStack }))).resolves.toMatchObject({
+      file: '/src/App.tsx',
+      line: 17,
+      column: 5,
+      sourceMapConfidence: 'mapped',
+    })
+  })
+
   it('caches successes but retries nulls', async () => {
     const fetchMock = vi.fn(() => Promise.reject(new Error('no source map')))
     vi.stubGlobal('fetch', fetchMock)
