@@ -141,7 +141,10 @@ export async function resolveSource(fiber: Fiber): Promise<ResolvedSource | null
         ...position,
         functionName: source.functionName ?? null,
         sourceMapConfidence:
-          original.file !== null && position.file === original.file ? 'mapped' : 'served',
+          source.sourceMapConfidence === 'mapped' ||
+          (original.file !== null && position.file === original.file)
+            ? 'mapped'
+            : 'served',
       }
       if (generation === cacheGeneration) cache.set(id, resolved)
       return resolved
@@ -160,6 +163,7 @@ interface SafeFiberSource {
   lineNumber?: number | null
   columnNumber?: number | null
   functionName?: string | null
+  sourceMapConfidence?: 'mapped'
 }
 
 /** Read only React-captured debug metadata; never use bippy's component re-invocation fallback. */
@@ -181,7 +185,13 @@ async function safeFiberSource(fiber: Fiber): Promise<SafeFiberSource | null> {
 
   const debugStack = dataPropertyValue(fiber, '_debugStack')
   if (!(debugStack instanceof Error)) return null
-  const stack = dataPropertyValue(debugStack, 'stack')
+  // Hermes exposes Error.stack lazily; this React-created Error is the only accessor read, so app-object reads stay descriptor-safe.
+  let stack: unknown
+  try {
+    stack = debugStack.stack
+  } catch {
+    return null
+  }
   if (typeof stack !== 'string') return null
   const trustedStack = formatOwnerStack(stack)
   if (!trustedStack) return null
@@ -189,12 +199,18 @@ async function safeFiberSource(fiber: Fiber): Promise<SafeFiberSource | null> {
   if (!frame?.fileName) return null
   const [symbolicated] = await symbolicateStack([frame])
   const resolved = symbolicated?.fileName ? symbolicated : frame
+  const symbolicationChangedPosition =
+    symbolicated?.fileName !== undefined &&
+    (normalizeFileName(symbolicated.fileName) !== normalizeFileName(frame.fileName) ||
+      symbolicated.lineNumber !== frame.lineNumber ||
+      symbolicated.columnNumber !== frame.columnNumber)
   return resolved.fileName
     ? {
         fileName: resolved.fileName,
         lineNumber: resolved.lineNumber ?? null,
         columnNumber: resolved.columnNumber ?? null,
         functionName: resolved.functionName ?? null,
+        ...(symbolicationChangedPosition ? { sourceMapConfidence: 'mapped' as const } : {}),
       }
     : null
 }

@@ -1,0 +1,32 @@
+{
+  "name": "@genie-react/expo-demo",
+  "version": "0.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "build:genie": "pnpm --filter genie-react build",
+    "start": "pnpm build:genie && expo start",
+    "android": "pnpm build:genie && expo start --android",
+    "ios": "pnpm build:genie && expo start --ios",
+    "export:android": "pnpm build:genie && expo export --platform android --output-dir dist/android",
+    "export:ios": "pnpm build:genie && expo export --platform ios --output-dir dist/ios",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck && pnpm export:ios && pnpm export:android",
+    "hub": "pnpm --filter @genie-react/cli... build && genie-react hub --port 4390"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.101.2",
+    "@tanstack/react-router": "^1.170.0",
+    "expo": "~57.0.7",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.0"
+  },
+  "devDependencies": {
+    "@genie-react/cli": "workspace:*",
+    "@types/react": "~19.2.2",
+    "genie-react": "workspace:*",
+    "typescript": "~6.0.3"
+  }
+}
