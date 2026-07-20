@@ -34,8 +34,8 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "tailwindcss": "^4.3.2",
-    "typescript": "^6.0.3",
-    "vite": "^8.1.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.5",
     "wrangler": "^4.112.0"
   },
   "engines": {

@@ -31,12 +31,12 @@
     "release": "pnpm build && changeset publish"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.1",
-    "@changesets/cli": "^2.31.0",
-    "@types/node": "^26.0.1",
-    "pkg-pr-new": "^0.0.75",
-    "tsdown": "^0.22.3",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "@biomejs/biome": "^2.5.4",
+    "@changesets/cli": "^2.31.1",
+    "@types/node": "^26.1.1",
+    "pkg-pr-new": "^0.0.78",
+    "tsdown": "^0.22.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }
