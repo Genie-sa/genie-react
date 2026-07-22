@@ -75,11 +75,14 @@ jobs:
 
       - name: Setup
         uses: ./.github/actions/setup
-        with:
-          node-version: ${{ matrix.node }}
 
       - name: Build packages
         run: pnpm build
+
+      - name: Setup compatibility Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
 
       - name: Verify dependency compatibility
         run: node scripts/check-compatibility.mjs --profile ${{ matrix.profile }}
