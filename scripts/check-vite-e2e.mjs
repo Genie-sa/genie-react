@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, readFile, realpath, rm, rmdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, rmdir, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -9,12 +9,15 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const DEMO_ROOT = join(ROOT, 'apps/vite-demo')
 const RUNTIME_PACKAGE_ROOT = join(ROOT, 'packages/genie-react')
 const CLI_PACKAGE_ROOT = join(ROOT, 'packages/cli')
-const DISCOVERY_DIRECTORY = join(DEMO_ROOT, '.genie')
-const DISCOVERY_FILE = join(DISCOVERY_DIRECTORY, 'bridge.json')
 const MAX_PROCESS_OUTPUT = 20_000
+const CONSUMER_DEPENDENCIES = [
+  'react@19.2.7',
+  'react-dom@19.2.7',
+  'vite@8.1.0',
+  '@tanstack/react-query@5.101.2',
+]
 
 const childProcesses = new Set()
 let browser
@@ -23,7 +26,10 @@ let ownedDiscovery
 let cleanupPromise
 let interrupted = false
 let temporaryRoot
-let cliBin
+let cliEntry
+let viteEntry
+let discoveryDirectory
+let discoveryFile
 
 function appendBounded(current, chunk) {
   const combined = current + chunk.toString()
@@ -44,8 +50,9 @@ function processIsAlive(pid) {
 }
 
 async function readDiscovery() {
+  if (!discoveryFile) return undefined
   try {
-    const value = JSON.parse(await readFile(DISCOVERY_FILE, 'utf8'))
+    const value = JSON.parse(await readFile(discoveryFile, 'utf8'))
     if (!value || typeof value !== 'object') return undefined
     return {
       pid: typeof value.pid === 'number' ? value.pid : undefined,
@@ -71,21 +78,12 @@ async function availablePort() {
 }
 
 function startVite(port) {
+  if (!temporaryRoot || !viteEntry) throw new Error('Packed Vite consumer is not installed')
   const child = spawn(
-    'pnpm',
-    [
-      '--filter',
-      '@genie-react/vite-demo',
-      'exec',
-      'vite',
-      '--host',
-      '127.0.0.1',
-      '--port',
-      String(port),
-      '--strictPort',
-    ],
+    process.execPath,
+    [viteEntry, '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
     {
-      cwd: ROOT,
+      cwd: temporaryRoot,
       detached: process.platform !== 'win32',
       env: process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -162,12 +160,12 @@ async function runProcess(command, args, { cwd, env = process.env, timeoutMs = 1
 }
 
 async function runCli(args, timeoutMs = 12_000) {
-  if (!cliBin) throw new Error('Packed CLI is not installed')
+  if (!temporaryRoot || !cliEntry) throw new Error('Packed CLI is not installed')
   const env = { ...process.env }
   delete env.GENIE_BRIDGE_URL
   delete env.GENIE_BRIDGE_PORT
   delete env.GENIE_SESSION
-  return runProcess(cliBin, args, { cwd: DEMO_ROOT, env, timeoutMs })
+  return runProcess(process.execPath, [cliEntry, ...args], { cwd: temporaryRoot, env, timeoutMs })
 }
 
 function parseSuccessfulJson(command, result) {
@@ -187,11 +185,50 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
-async function preparePackagedCli() {
+async function preparePackagedConsumer() {
   temporaryRoot = await mkdtemp(join(tmpdir(), 'genie-vite-e2e-'))
+  discoveryDirectory = join(temporaryRoot, '.genie')
+  discoveryFile = join(discoveryDirectory, 'bridge.json')
+  await mkdir(join(temporaryRoot, 'src'), { recursive: true })
   await writeFile(
     join(temporaryRoot, 'package.json'),
-    `${JSON.stringify({ name: 'genie-vite-e2e', private: true }, null, 2)}\n`,
+    `${JSON.stringify({ name: 'genie-vite-e2e', private: true, type: 'module' }, null, 2)}\n`,
+  )
+  await writeFile(
+    join(temporaryRoot, 'index.html'),
+    '<!doctype html><html><body><div id="root"></div><script type="module" src="/src/main.js"></script></body></html>\n',
+  )
+  await writeFile(
+    join(temporaryRoot, 'vite.config.mjs'),
+    `import { defineConfig } from 'vite'
+import { genie } from 'genie-react/vite'
+
+export default defineConfig({ plugins: [genie()] })
+`,
+  )
+  await writeFile(
+    join(temporaryRoot, 'src/main.js'),
+    `import { createElement } from 'react'
+import { createRoot } from 'react-dom/client'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { Genie } from 'genie-react'
+
+const queryClient = new QueryClient()
+
+function App() {
+  const query = useQuery({ queryKey: ['greeting'], queryFn: async () => 'hello' })
+  return createElement('main', { id: 'lab' }, query.data ?? query.status)
+}
+
+createRoot(document.getElementById('root')).render(
+  createElement(
+    QueryClientProvider,
+    { client: queryClient },
+    createElement(App),
+    createElement(Genie, { queryClient }),
+  ),
+)
+`,
   )
 
   const tarballs = []
@@ -212,22 +249,25 @@ async function preparePackagedCli() {
 
   const installed = await runProcess(
     'npm',
-    ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', ...tarballs],
+    [
+      'install',
+      '--ignore-scripts',
+      '--no-audit',
+      '--no-fund',
+      '--package-lock=false',
+      ...tarballs,
+      ...CONSUMER_DEPENDENCIES,
+    ],
     { cwd: temporaryRoot, timeoutMs: 120_000 },
   )
   if (installed.code !== 0) {
     throw new Error(
-      `Install packed CLI exited ${installed.code ?? installed.signal}\nstdout:\n${installed.stdout}\nstderr:\n${installed.stderr}`,
+      `Install packed consumer exited ${installed.code ?? installed.signal}\nstdout:\n${installed.stdout}\nstderr:\n${installed.stderr}`,
     )
   }
 
-  const installedBin = join(temporaryRoot, 'node_modules', '.bin', 'genie-react')
-  const packedCli = join(temporaryRoot, 'node_modules', '@genie-react', 'cli', 'dist', 'cli.js')
-  assert(
-    (await realpath(installedBin)) === (await realpath(packedCli)),
-    'Installed genie-react bin does not point at the packed CLI',
-  )
-  cliBin = installedBin
+  cliEntry = join(temporaryRoot, 'node_modules', '@genie-react', 'cli', 'dist', 'cli.js')
+  viteEntry = join(temporaryRoot, 'node_modules', 'vite', 'bin', 'vite.js')
 }
 
 async function stopChild(child) {
@@ -255,8 +295,8 @@ async function removeOwnedDiscovery() {
   if (!ownedDiscovery) return
   const current = await readDiscovery()
   if (current?.pid !== ownedDiscovery.pid || current.url !== ownedDiscovery.url) return
-  await rm(DISCOVERY_FILE, { force: true })
-  await rmdir(DISCOVERY_DIRECTORY).catch(() => {})
+  await rm(discoveryFile, { force: true })
+  await rmdir(discoveryDirectory).catch(() => {})
 }
 
 async function cleanup() {
@@ -285,14 +325,14 @@ const onSigint = () => handleSignal('SIGINT')
 const onSigterm = () => handleSignal('SIGTERM')
 
 async function main() {
+  await preparePackagedConsumer()
   const existingDiscovery = await readDiscovery()
   if (existingDiscovery?.pid && processIsAlive(existingDiscovery.pid)) {
     throw new Error(
-      `A Genie dev server is already using ${DISCOVERY_FILE} (pid ${existingDiscovery.pid}); stop it before running the E2E check.`,
+      `A Genie dev server is already using ${discoveryFile} (pid ${existingDiscovery.pid}); stop it before running the E2E check.`,
     )
   }
 
-  await preparePackagedCli()
   const port = await availablePort()
   viteProcess = startVite(port)
   await waitForVite(port)
@@ -370,7 +410,7 @@ async function main() {
   assert(pageErrors.length === 0, `Browser page errors:\n${pageErrors.join('\n')}`)
 
   process.stdout.write(
-    `Vite E2E passed on port ${port}: CLI status ready, ${tree.nodes.length} React nodes, and ${queryList.queries.length} Query record(s).\n`,
+    `Packed Vite E2E passed on port ${port}: CLI status ready, ${tree.nodes.length} React nodes, and ${queryList.queries.length} Query record(s).\n`,
   )
 }
 

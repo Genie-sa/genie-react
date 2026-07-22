@@ -68,6 +68,8 @@ jobs:
           - profile: minimum
             node: 22.12.0
           - profile: current
+            node: 24
+          - profile: current
             node: 26
     steps:
       - name: Checkout

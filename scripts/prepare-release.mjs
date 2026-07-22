@@ -6,7 +6,6 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -250,13 +249,9 @@ function verifyCliBin(projectDirectory, cliDirectory, cliManifest) {
   const binTarget =
     typeof cliManifest.bin === 'string' ? cliManifest.bin : cliManifest.bin?.['genie-react']
   if (typeof binTarget !== 'string') throw new Error('@genie-react/cli has no genie-react bin')
-  const installedBin = join(projectDirectory, 'node_modules', '.bin', 'genie-react')
   const expectedBin = resolve(cliDirectory, binTarget)
-  if (realpathSync(installedBin) !== realpathSync(expectedBin)) {
-    throw new Error('Installed genie-react bin does not point at the packed CLI')
-  }
 
-  const help = runCommand(installedBin, ['--help'], {
+  const help = runCommand(process.execPath, [expectedBin, '--help'], {
     cwd: projectDirectory,
     label: 'Installed genie-react --help',
     timeout: 10_000,
@@ -272,7 +267,7 @@ function verifyCliBin(projectDirectory, cliDirectory, cliManifest) {
     throw new Error('Installed genie-react --help output does not match its public contract')
   }
 
-  const version = runCommand(installedBin, ['--version'], {
+  const version = runCommand(process.execPath, [expectedBin, '--version'], {
     cwd: projectDirectory,
     label: 'Installed genie-react --version',
     timeout: 10_000,

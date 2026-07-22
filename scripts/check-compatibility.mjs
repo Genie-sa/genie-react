@@ -7,6 +7,17 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PACKAGE_ROOT = join(ROOT, 'packages/genie-react')
+const TYPESCRIPT_VERSION = '6.0.3'
+const REACT_TYPE_PROFILES = {
+  minimum: {
+    '@types/react': '18.3.31',
+    '@types/react-dom': '18.3.7',
+  },
+  current: {
+    '@types/react': '19.2.17',
+    '@types/react-dom': '19.2.3',
+  },
+}
 const PROFILES = {
   minimum: {
     react: '18.0.0',
@@ -54,16 +65,33 @@ function writeConsumer(directory, profile, versions, tarball) {
   })
   writeFileSync(
     join(directory, 'index.html'),
-    '<!doctype html><html><head><meta charset="UTF-8"></head><body><div id="root"></div><script type="module" src="/src/main.js"></script></body></html>\n',
+    '<!doctype html><html><head><meta charset="UTF-8"></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>\n',
   )
+  writeJson(join(directory, 'tsconfig.json'), {
+    compilerOptions: {
+      target: 'ES2022',
+      useDefineForClassFields: true,
+      lib: ['ES2022', 'DOM', 'DOM.Iterable'],
+      allowJs: false,
+      skipLibCheck: false,
+      strict: true,
+      noEmit: true,
+      esModuleInterop: true,
+      module: 'ESNext',
+      moduleResolution: 'Bundler',
+      resolveJsonModule: true,
+      isolatedModules: true,
+      jsx: 'react-jsx',
+    },
+    include: ['src', 'vite.config.mjs'],
+  })
   writeFileSync(
     join(directory, 'vite.config.mjs'),
     `import { defineConfig } from 'vite'\nimport { genie } from 'genie-react/vite'\n\nexport default defineConfig({ plugins: [genie()] })\n`,
   )
   writeFileSync(
-    join(directory, 'src/main.js'),
-    `import { createElement } from 'react'
-import { createRoot } from 'react-dom/client'
+    join(directory, 'src/main.tsx'),
+    `import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { RootRoute, Route, Router, RouterProvider } from '@tanstack/react-router'
 import { Genie } from 'genie-react'
@@ -79,16 +107,17 @@ const router = new Router({ routeTree: rootRoute.addChildren([indexRoute]) })
 
 function App() {
   const query = useQuery({ queryKey: ['compatibility'], queryFn: async () => 'ready' })
-  return createElement('main', null, query.data ?? query.status)
+  return <main>{query.data ?? query.status}</main>
 }
 
-createRoot(document.getElementById('root')).render(
-  createElement(
-    QueryClientProvider,
-    { client: queryClient },
-    createElement(RouterProvider, { router }),
-    createElement(Genie, { queryClient, router }),
-  ),
+const rootElement = document.getElementById('root')
+if (!rootElement) throw new Error('Missing root element')
+
+createRoot(rootElement).render(
+  <QueryClientProvider client={queryClient}>
+    <RouterProvider router={router} />
+    <Genie queryClient={queryClient} router={router} />
+  </QueryClientProvider>,
 )
 `,
   )
@@ -133,6 +162,8 @@ if (!Array.isArray(plugins) || plugins.length !== 2) {
   const dependencies = [
     tarball,
     ...Object.entries(versions).map(([name, version]) => `${name}@${version}`),
+    `typescript@${TYPESCRIPT_VERSION}`,
+    ...Object.entries(REACT_TYPE_PROFILES[profile]).map(([name, version]) => `${name}@${version}`),
   ]
   execFileSync(
     'npm',
@@ -160,6 +191,10 @@ function assertInstalledVersions(directory, expected) {
 
 function verifyConsumer(directory) {
   execFileSync(process.execPath, ['verify-imports.mjs'], { cwd: directory, stdio: 'inherit' })
+  execFileSync(process.execPath, [join(directory, 'node_modules/typescript/bin/tsc'), '--noEmit'], {
+    cwd: directory,
+    stdio: 'inherit',
+  })
   execFileSync(process.execPath, [join(directory, 'node_modules/vite/bin/vite.js'), 'build'], {
     cwd: directory,
     stdio: 'inherit',
@@ -174,7 +209,11 @@ try {
     const directory = join(temporaryRoot, profile)
     const versions = PROFILES[profile]
     writeConsumer(directory, profile, versions, tarball)
-    assertInstalledVersions(directory, versions)
+    assertInstalledVersions(directory, {
+      ...versions,
+      typescript: TYPESCRIPT_VERSION,
+      ...REACT_TYPE_PROFILES[profile],
+    })
     verifyConsumer(directory)
     process.stdout.write(
       `Compatibility ${profile} passed on Node ${process.version}: ${Object.entries(versions)
