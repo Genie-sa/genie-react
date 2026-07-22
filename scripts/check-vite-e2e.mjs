@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { readFile, rm, rmdir } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, rmdir, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DEMO_ROOT = join(ROOT, 'apps/vite-demo')
-const CLI_PATH = join(ROOT, 'packages/cli/dist/cli.js')
+const RUNTIME_PACKAGE_ROOT = join(ROOT, 'packages/genie-react')
+const CLI_PACKAGE_ROOT = join(ROOT, 'packages/cli')
 const DISCOVERY_DIRECTORY = join(DEMO_ROOT, '.genie')
 const DISCOVERY_FILE = join(DISCOVERY_DIRECTORY, 'bridge.json')
 const MAX_PROCESS_OUTPUT = 20_000
@@ -20,6 +22,8 @@ let viteProcess
 let ownedDiscovery
 let cleanupPromise
 let interrupted = false
+let temporaryRoot
+let cliBin
 
 function appendBounded(current, chunk) {
   const combined = current + chunk.toString()
@@ -132,14 +136,9 @@ async function waitForVite(port) {
   )
 }
 
-async function runCli(args, timeoutMs = 12_000) {
-  const env = { ...process.env }
-  delete env.GENIE_BRIDGE_URL
-  delete env.GENIE_BRIDGE_PORT
-  delete env.GENIE_SESSION
-
-  const child = spawn(process.execPath, [CLI_PATH, ...args], {
-    cwd: DEMO_ROOT,
+async function runProcess(command, args, { cwd, env = process.env, timeoutMs = 12_000 } = {}) {
+  const child = spawn(command, args, {
+    cwd,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -153,10 +152,22 @@ async function runCli(args, timeoutMs = 12_000) {
     stderr = appendBounded(stderr, chunk)
   })
   const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs)
-  const [code, signal] = await once(child, 'close')
-  clearTimeout(timer)
-  childProcesses.delete(child)
-  return { code, signal, stdout, stderr }
+  try {
+    const [code, signal] = await once(child, 'close')
+    return { code, signal, stdout, stderr }
+  } finally {
+    clearTimeout(timer)
+    childProcesses.delete(child)
+  }
+}
+
+async function runCli(args, timeoutMs = 12_000) {
+  if (!cliBin) throw new Error('Packed CLI is not installed')
+  const env = { ...process.env }
+  delete env.GENIE_BRIDGE_URL
+  delete env.GENIE_BRIDGE_PORT
+  delete env.GENIE_SESSION
+  return runProcess(cliBin, args, { cwd: DEMO_ROOT, env, timeoutMs })
 }
 
 function parseSuccessfulJson(command, result) {
@@ -174,6 +185,49 @@ function parseSuccessfulJson(command, result) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
+}
+
+async function preparePackagedCli() {
+  temporaryRoot = await mkdtemp(join(tmpdir(), 'genie-vite-e2e-'))
+  await writeFile(
+    join(temporaryRoot, 'package.json'),
+    `${JSON.stringify({ name: 'genie-vite-e2e', private: true }, null, 2)}\n`,
+  )
+
+  const tarballs = []
+  for (const packageRoot of [RUNTIME_PACKAGE_ROOT, CLI_PACKAGE_ROOT]) {
+    const packed = parseSuccessfulJson(
+      `pnpm pack ${packageRoot}`,
+      await runProcess('pnpm', ['pack', '--json', '--pack-destination', temporaryRoot], {
+        cwd: packageRoot,
+        timeoutMs: 30_000,
+      }),
+    )
+    assert(
+      typeof packed.filename === 'string',
+      `pnpm pack did not return a filename for ${packageRoot}`,
+    )
+    tarballs.push(resolve(packed.filename))
+  }
+
+  const installed = await runProcess(
+    'npm',
+    ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', ...tarballs],
+    { cwd: temporaryRoot, timeoutMs: 120_000 },
+  )
+  if (installed.code !== 0) {
+    throw new Error(
+      `Install packed CLI exited ${installed.code ?? installed.signal}\nstdout:\n${installed.stdout}\nstderr:\n${installed.stderr}`,
+    )
+  }
+
+  const installedBin = join(temporaryRoot, 'node_modules', '.bin', 'genie-react')
+  const packedCli = join(temporaryRoot, 'node_modules', '@genie-react', 'cli', 'dist', 'cli.js')
+  assert(
+    (await realpath(installedBin)) === (await realpath(packedCli)),
+    'Installed genie-react bin does not point at the packed CLI',
+  )
+  cliBin = installedBin
 }
 
 async function stopChild(child) {
@@ -212,6 +266,7 @@ async function cleanup() {
     if (browser) await Promise.race([browser.close(), delay(3_000)]).catch(() => {})
     await Promise.all([...childProcesses].map(stopChild))
     await removeOwnedDiscovery()
+    if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true })
   })()
   return cleanupPromise
 }
@@ -237,6 +292,7 @@ async function main() {
     )
   }
 
+  await preparePackagedCli()
   const port = await availablePort()
   viteProcess = startVite(port)
   await waitForVite(port)
