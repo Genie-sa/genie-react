@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
-import { GenieToolError, useGenieTool } from 'genie-react'
+import { defineGenieTool, GenieToolError, useGenieTools } from 'genie-react'
 import { z } from 'zod'
 
 type Role = 'guest' | 'member' | 'admin'
@@ -63,80 +63,78 @@ export function TaskPanel(): ReactNode {
   const toggleTask = useMutation({ mutationFn: taskApi.toggle, onSuccess: invalidateTasks })
   const removeTask = useMutation({ mutationFn: taskApi.remove, onSuccess: invalidateTasks })
 
-  useGenieTool({
-    name: 'session',
-    kind: 'query',
-    description:
-      'Current demo session: the active role and what the task UI permits (guest reads, member adds, admin also deletes).',
-    handler: () => ({ role, canAdd: CAN_ADD[role], canDelete: CAN_DELETE[role] }),
-  })
-
-  useGenieTool({
-    name: 'login_as',
-    kind: 'action',
-    idempotent: true,
-    description:
-      'Switches the demo session role and re-gates the task UI instantly — no login form to drive. Use before testing role-restricted interactions.',
-    input: z.object({ role: z.enum(['guest', 'member', 'admin']) }),
-    handler: ({ role: next }) => {
-      setRole(next)
-      return { role: next, canAdd: CAN_ADD[next], canDelete: CAN_DELETE[next] }
-    },
-  })
-
-  useGenieTool({
-    name: 'seed_tasks',
-    kind: 'action',
-    description:
-      'Seeds N fixture tasks through the same fake API the UI uses, then refetches the ["tasks"] query. Use to set up list state before testing interactions.',
-    input: z.object({
-      count: z.number().int().min(1).max(25).default(3),
-      done: z.boolean().default(false),
+  useGenieTools([
+    defineGenieTool({
+      name: 'session',
+      kind: 'query',
+      description:
+        'Current demo session: the active role and what the task UI permits (guest reads, member adds, admin also deletes).',
+      handler: () => ({ role, canAdd: CAN_ADD[role], canDelete: CAN_DELETE[role] }),
     }),
-    handler: async ({ count, done }) => {
-      for (let i = 0; i < count; i++) {
-        tasks.push({ id: nextId++, title: `seeded task #${nextId - 1}`, done })
-      }
-      await invalidateTasks()
-      return { created: count, total: tasks.length }
-    },
-  })
-
-  useGenieTool({
-    name: 'reset_tasks',
-    kind: 'action',
-    destructive: true,
-    description:
-      'Deletes every task and refetches — a clean slate before the next test run. Destructive: there is no undo.',
-    handler: async () => {
-      if (tasks.length === 0) {
-        throw new GenieToolError('task list is already empty', {
-          code: 'NO_OP',
-          hint: 'seed fixtures with app_seed_tasks',
-        })
-      }
-      const removed = tasks.length
-      tasks = []
-      await invalidateTasks()
-      return { removed }
-    },
-  })
-
-  useGenieTool({
-    name: 'chaos',
-    kind: 'action',
-    description:
-      'Injects faults into the fake task API: fail the next N requests and/or set request latency in ms. Use to reproduce loading and error states, then inspect them with query_list or react_error_state.',
-    input: z.object({
-      failNextRequests: z.number().int().min(0).max(10).optional(),
-      latencyMs: z.number().int().min(0).max(5000).optional(),
+    defineGenieTool({
+      name: 'login_as',
+      kind: 'action',
+      idempotent: true,
+      description:
+        'Switches the demo session role and re-gates the task UI instantly — no login form to drive. Use before testing role-restricted interactions.',
+      input: z.object({ role: z.enum(['guest', 'member', 'admin']) }),
+      handler: ({ role: next }) => {
+        setRole(next)
+        return { role: next, canAdd: CAN_ADD[next], canDelete: CAN_DELETE[next] }
+      },
     }),
-    handler: ({ failNextRequests, latencyMs }) => {
-      if (failNextRequests !== undefined) chaos.failNextRequests = failNextRequests
-      if (latencyMs !== undefined) chaos.latencyMs = latencyMs
-      return { ...chaos }
-    },
-  })
+    defineGenieTool({
+      name: 'seed_tasks',
+      kind: 'action',
+      description:
+        'Seeds N fixture tasks through the same fake API the UI uses, then refetches the ["tasks"] query. Use to set up list state before testing interactions.',
+      input: z.object({
+        count: z.number().int().min(1).max(25).default(3),
+        done: z.boolean().default(false),
+      }),
+      handler: async ({ count, done }) => {
+        for (let i = 0; i < count; i++) {
+          tasks.push({ id: nextId++, title: `seeded task #${nextId - 1}`, done })
+        }
+        await invalidateTasks()
+        return { created: count, total: tasks.length }
+      },
+    }),
+    defineGenieTool({
+      name: 'reset_tasks',
+      kind: 'action',
+      destructive: true,
+      description:
+        'Deletes every task and refetches — a clean slate before the next test run. Destructive: there is no undo.',
+      handler: async () => {
+        if (tasks.length === 0) {
+          throw new GenieToolError('task list is already empty', {
+            code: 'NO_OP',
+            hint: 'seed fixtures with app_seed_tasks',
+          })
+        }
+        const removed = tasks.length
+        tasks = []
+        await invalidateTasks()
+        return { removed }
+      },
+    }),
+    defineGenieTool({
+      name: 'chaos',
+      kind: 'action',
+      description:
+        'Injects faults into the fake task API: fail the next N requests and/or set request latency in ms. Use to reproduce loading and error states, then inspect them with query_list or react_error_state.',
+      input: z.object({
+        failNextRequests: z.number().int().min(0).max(10).optional(),
+        latencyMs: z.number().int().min(0).max(5000).optional(),
+      }),
+      handler: ({ failNextRequests, latencyMs }) => {
+        if (failNextRequests !== undefined) chaos.failNextRequests = failNextRequests
+        if (latencyMs !== undefined) chaos.latencyMs = latencyMs
+        return { ...chaos }
+      },
+    }),
+  ])
 
   const submitTask = (): void => {
     const trimmed = title.trim()

@@ -149,9 +149,43 @@ npx @genie-react/cli tools app
 npx @genie-react/cli call app_login_as '{"role":"admin"}'
 ```
 
-Args are validated by the schema in the app. A tool whose component unmounted stays listed as
-unavailable with the place it was registered. Use this for what only the app can do: switch roles,
-seed fixtures, inject API failures, jump wizard steps. See the
+Register several tools with one hook call — handlers still see the latest render's state:
+
+```tsx
+import { defineGenieTool, useGenieTools } from 'genie-react'
+
+useGenieTools([
+  defineGenieTool({ name: 'session', kind: 'query', description: '…', handler: () => ({ role }) }),
+  defineGenieTool({ name: 'login_as', kind: 'action', description: '…', input, handler }),
+])
+```
+
+Outside components — a store, an API client, any module:
+
+```ts
+import { defineGenieTool, registerGenieTools } from 'genie-react/client'
+
+const unregister = registerGenieTools(
+  defineGenieTool({
+    name: 'cart_state',
+    kind: 'query',
+    description: 'Current cart line items and totals from the zustand store.',
+    handler: () => useCartStore.getState().summary(),
+  }),
+  defineGenieTool({
+    name: 'cart_clear',
+    kind: 'action',
+    destructive: true,
+    description: 'Empties the cart store. No undo.',
+    handler: () => useCartStore.getState().clear(),
+  }),
+)
+```
+
+Registration waits for the genie client if it has not started yet; `unregister()` tombstones the
+tools. Args are validated by the schema in the app. A tool whose component unmounted stays listed
+as unavailable with the place it was registered. Use this for what only the app can do: switch
+roles, seed fixtures, inject API failures, jump wizard steps. See the
 [App tools reference](https://genie-react.com/docs/tools/app-tools).
 
 ## Prove a fix

@@ -43,7 +43,7 @@ export function useGenieTool<
 
 const NO_TOOLS: readonly GenieAppTool[] = []
 
-/** Registers tools built with `defineGenieTool` (typically shared, module-level definitions) for the component's lifetime. */
+/** Registers several tools (built with `defineGenieTool`, inline or module-level) in one call for the component's lifetime; inline handlers always see the latest render's closure, exactly like `useGenieTool`. */
 export function useGenieTools(tools: readonly GenieAppTool[] = NO_TOOLS): void {
   const latest = useRef(tools)
   useEffect(() => {
@@ -53,6 +53,11 @@ export function useGenieTools(tools: readonly GenieAppTool[] = NO_TOOLS): void {
   const names = tools.map((tool) => tool.contract.name).join(' ')
   useEffect(() => {
     if (names.length === 0) return
-    return registerGenieTools(...latest.current)
+    // Same-name positions are stable while `names` is unchanged, so each wrapper can follow its slot to the newest render's handler.
+    const wrapped = latest.current.map((tool, index) => ({
+      ...tool,
+      handler: (args: never) => (latest.current[index] ?? tool).handler(args),
+    }))
+    return registerGenieTools(...wrapped)
   }, [names])
 }

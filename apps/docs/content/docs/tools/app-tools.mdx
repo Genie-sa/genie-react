@@ -39,8 +39,62 @@ The handler always sees the latest render's state. There is no dependency array.
 and description are fixed at mount — to change them at runtime, key the hook off `enabled` or the
 `name`.
 
-Outside components, use `defineGenieTool` and `registerGenieTools(...)`; both are exported from
-`genie-react` and `genie-react/client`. `<Genie tools={[...]} />` registers app-lifetime tools.
+## Register several tools at once
+
+One `useGenieTools` call registers a whole panel; inline handlers keep the same latest-render
+guarantee:
+
+```tsx
+import { defineGenieTool, useGenieTools } from 'genie-react'
+
+useGenieTools([
+  defineGenieTool({
+    name: 'session',
+    kind: 'query',
+    description: 'Active role and what the task UI permits.',
+    handler: () => ({ role }),
+  }),
+  defineGenieTool({
+    name: 'login_as',
+    kind: 'action',
+    description: 'Switches the session role and re-gates the UI.',
+    input: z.object({ role: z.enum(['guest', 'member', 'admin']) }),
+    handler: ({ role: next }) => setRole(next),
+  }),
+])
+```
+
+`apps/vite-demo/src/TaskPanel.tsx` registers its five tools this way.
+
+## Register from a store or any module
+
+Outside React, `registerGenieTools` works from a store, an API client, or module scope. It waits
+for the genie client if it has not started yet, and returns an unregister function:
+
+```ts
+import { defineGenieTool, registerGenieTools } from 'genie-react/client'
+import { useCartStore } from './cart-store'
+
+const unregister = registerGenieTools(
+  defineGenieTool({
+    name: 'cart_state',
+    kind: 'query',
+    description: 'Current cart line items and totals from the zustand store.',
+    handler: () => useCartStore.getState().summary(),
+  }),
+  defineGenieTool({
+    name: 'cart_clear',
+    kind: 'action',
+    destructive: true,
+    description: 'Empties the cart store. No undo.',
+    handler: () => useCartStore.getState().clear(),
+  }),
+)
+```
+
+Store handlers read state at call time (`getState()`), so nothing goes stale. Calling
+`unregister()` tombstones the tools instead of deleting them. For tools that should live as long
+as the app, pass them to the provider instead: `<Genie tools={[...]} />`.
 
 Options:
 
