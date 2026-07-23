@@ -193,7 +193,10 @@ export class GenieClient {
       pushSnapshot: (domain, data) =>
         this.send({ kind: 'app/snapshot', domain, data, ts: Date.now() }),
       pushEvent: (domain, event) => this.send({ kind: 'app/event', domain, event, ts: Date.now() }),
-      refreshTools: () => this.sendHello(),
+      refreshTools: () => {
+        this.rebuildCollectorTools()
+        this.sendHello()
+      },
       markActivity: () => this.sendHeartbeat(),
     }
   }
@@ -270,6 +273,17 @@ export class GenieClient {
       })
       return
     }
+    const availability = tool.availability?.()
+    if (availability && !availability.available) {
+      this.send({
+        kind: 'app/response',
+        id,
+        ok: false,
+        error: `Tool "${toolName}" is currently unavailable — ${availability.reason}`,
+        errorCode: 'tool-unavailable',
+      })
+      return
+    }
     const args = remapNameAlias(tool.contract.input, rawArgs)
     const rejectedKeys = unknownArgKeysError(toolName, tool.contract.input, args)
     if (rejectedKeys) {
@@ -293,7 +307,7 @@ export class GenieClient {
         id,
         ok: false,
         error: invocationError(toolName, error),
-        errorCode: error instanceof z.ZodError ? 'invalid-args' : 'tool-error',
+        errorCode: isZodErrorLike(error) ? 'invalid-args' : 'tool-error',
       })
     }
   }
@@ -345,15 +359,38 @@ const DOMAIN_GATING_HINTS: Record<string, string> = {
     'mutation tools appear only when a QueryClient is discovered (render <Genie /> or register queryCollector(queryClient))',
   router:
     'router tools appear only when a TanStack Router is discovered (render <Genie /> or register routerCollector(router))',
+  app: 'app tools are registered by the application itself (useGenieTool / registerGenieTools) and exist only once that code runs',
 }
 
 // Three historical spellings of "component name" across the react tools; agents mix them up constantly.
 const NAME_ALIASES = ['component', 'query', 'name'] as const
 
+/** Keys of an object schema's shape; duck-typed via the zod 4 `_zod.def` protocol so app-tool schemas from a foreign zod copy still qualify. */
+function objectShapeKeys(input: AgentToolContract['input']): string[] | null {
+  if (input instanceof z.ZodObject) return Object.keys(input.shape)
+  const def = (input as { _zod?: { def?: { type?: string; shape?: Record<string, unknown> } } })
+    ._zod?.def
+  if (def?.type === 'object' && typeof def.shape === 'object' && def.shape !== null) {
+    return Object.keys(def.shape)
+  }
+  return null
+}
+
+/** `instanceof z.ZodError` fails across zod copies (app-provided schemas); duck-type the issues array with an exact class name so business errors can't spoof validation formatting. */
+function isZodErrorLike(error: unknown): error is z.ZodError {
+  if (error instanceof z.ZodError) return true
+  return (
+    error instanceof Error &&
+    (error.name === 'ZodError' || error.name === '$ZodError') &&
+    'issues' in error &&
+    Array.isArray((error as { issues: unknown }).issues)
+  )
+}
+
 /** Remaps an off-by-spelling name arg when the schema wants exactly one of the aliases and the caller sent exactly one other — unambiguous, so just accept it. */
 function remapNameAlias(input: AgentToolContract['input'], args: unknown): unknown {
-  if (!(input instanceof z.ZodObject) || typeof args !== 'object' || args === null) return args
-  const shape = Object.keys(input.shape)
+  const shape = objectShapeKeys(input)
+  if (!shape || typeof args !== 'object' || args === null) return args
   const wanted = NAME_ALIASES.filter((alias) => shape.includes(alias))
   if (wanted.length !== 1) return args
   const target = wanted[0] as string
@@ -372,8 +409,8 @@ function unknownArgKeysError(
   input: AgentToolContract['input'],
   args: unknown,
 ): string | null {
-  if (!(input instanceof z.ZodObject) || typeof args !== 'object' || args === null) return null
-  const known = Object.keys(input.shape)
+  const known = objectShapeKeys(input)
+  if (!known || typeof args !== 'object' || args === null) return null
   const unknown = Object.keys(args).filter((key) => !known.includes(key))
   if (unknown.length === 0) return null
   const rejected = unknown.map((key) => `"${key}"`).join(', ')
@@ -381,7 +418,7 @@ function unknownArgKeysError(
 }
 
 function invocationError(toolName: string, error: unknown): string {
-  if (error instanceof z.ZodError) {
+  if (isZodErrorLike(error)) {
     return formatToolValidationError(toolName, error.issues)
   }
   return errorMessage(error)
@@ -408,16 +445,39 @@ function readNodeEnv(): Record<string, string | undefined> | undefined {
   return (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
 }
 
+// Contracts are immutable per tool, so the schema conversion (the expensive part of a hello) runs once per contract, not once per hello.
+const descriptorCache = new WeakMap<AgentToolContract, ToolDescriptor>()
+
 function toDescriptor(tool: ErasedCollectorTool): ToolDescriptor {
   const { contract } = tool
-  return {
-    name: contract.name,
-    title: contract.title,
-    description: contract.description,
-    group: contract.group,
-    inputJsonSchema: z.toJSONSchema(contract.input, { io: 'input' }),
-    outputJsonSchema: z.toJSONSchema(contract.output),
-    annotations: contract.annotations,
+  let base = descriptorCache.get(contract)
+  if (!base) {
+    base = {
+      name: contract.name,
+      title: contract.title,
+      description: contract.description,
+      group: contract.group,
+      inputJsonSchema: safeToJsonSchema(contract.name, contract.input, 'input'),
+      outputJsonSchema: safeToJsonSchema(contract.name, contract.output, 'output'),
+      annotations: contract.annotations,
+    }
+    descriptorCache.set(contract, base)
+  }
+  const availability = tool.availability?.()
+  return availability && !availability.available
+    ? { ...base, available: false, unavailableReason: availability.reason }
+    : base
+}
+
+/** JSON Schema conversion can throw on schemas from a mismatched zod copy; a missing schema degrades discovery (warned loudly), a throw would kill the hello. */
+function safeToJsonSchema(toolName: string, schema: z.ZodType, io: 'input' | 'output'): unknown {
+  try {
+    return io === 'input' ? z.toJSONSchema(schema, { io: 'input' }) : z.toJSONSchema(schema)
+  } catch (error) {
+    console.warn(
+      `[genie] tool "${toolName}": could not derive the ${io} JSON Schema (${errorMessage(error)}) — the tool stays callable and validated, but agents cannot discover its ${io} contract`,
+    )
+    return undefined
   }
 }
 

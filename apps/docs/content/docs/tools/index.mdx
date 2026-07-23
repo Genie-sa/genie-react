@@ -4,8 +4,9 @@ description: Inputs, outputs, limits, and agent use for every live Genie tool.
 icon: Blocks
 ---
 
-The built-in collectors expose 73 tools. The active app may expose fewer. Run `status` to see its
-domains, then discover one exact contract:
+The built-in collectors expose 73 tools. The active app may expose fewer, and can add its own under
+the `app` group ([App tools](/docs/tools/app-tools)). Run `status` to see its domains, then discover
+one exact contract:
 
 ```bash
 npx @genie-react/cli tools react_render_causes
@@ -43,6 +44,7 @@ npx @genie-react/cli tools react_render_causes --json
   <Card title="Router" href="/docs/tools/router" />
   <Card title="Browser" href="/docs/tools/browser" />
   <Card title="Plugins" href="/docs/tools/plugins" />
+  <Card title="App tools" href="/docs/tools/app-tools" />
 </Cards>
 
 ## Rules for safe use

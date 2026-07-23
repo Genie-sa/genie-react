@@ -15,10 +15,14 @@ export interface CollectorTool<I extends z.ZodType = z.ZodType, O extends z.ZodT
   handler: (args: z.infer<I>, ctx: CollectorContext) => z.infer<O> | Promise<z.infer<O>>
 }
 
+/** Live availability of an advertised tool: an unavailable tool stays listed (with a recovery hint) instead of vanishing. */
+export type ToolAvailability = { available: true } | { available: false; reason: string }
+
 /** Type-erased tool as stored by the registry; the `never` arg keeps every concrete {@link CollectorTool} contravariantly assignable. */
 export interface ErasedCollectorTool {
   contract: AgentToolContract
   handler: (args: never, ctx: CollectorContext) => unknown
+  availability?: () => ToolAvailability
 }
 
 /** The extension seam: built-in and third-party collectors implement this; the client aggregates their tools and app info. */

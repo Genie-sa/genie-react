@@ -1,6 +1,6 @@
 ---
 name: genie
-description: Drive live DevTools on a RUNNING React, React Native, or TanStack app with the `genie-react` CLI. Use it to inspect components, explain renders, audit effect schedules and hotness, read Query or Router state, force hard-to-reach UI, and prove a change with repeated runtime captures. Pair it with agent-browser on web or agent-device on native. Do not use it for static source review.
+description: Drive live DevTools on a RUNNING React, React Native, or TanStack app with the `genie-react` CLI. Use it to inspect components, explain renders, audit effect schedules and hotness, read Query or Router state, force hard-to-reach UI, call the app's own registered dev tools (`app_*` — seed fixtures, switch roles, inject failures), and prove a change with repeated runtime captures. Pair it with agent-browser on web or agent-device on native. Do not use it for static source review.
 metadata:
   version: "0.9.0"
   package: "@genie-react/cli"
@@ -101,6 +101,7 @@ This step is complete when the output covers one known interaction.
 - Route state: `router_get_state`, `router_list_matches`, or a focused Router action.
 - Memory: `browser_get_memory`.
 - Frame rate: `browser_fps` while the tab is visible.
+- The app's own domain (log in as a role, seed fixtures, inject API failures): `genie-react tools app` lists tools the app registered, named `app_*`. Check it before hand-driving a login or setup flow. `✗ unavailable` is not gone — the detail view names where the tool was registered; return there (often one `router_navigate`) and retry. Errors like `[NO_OP] … — hint: …` come from the app; follow the hint.
 
 Read evidence literally:
 

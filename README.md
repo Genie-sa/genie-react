@@ -127,6 +127,67 @@ npx @genie-react/cli call react_component_cohort '{"component":"Row","exact":tru
 
 The result separates updated, mounted-but-idle, unmounted, and missing rows. It also reports rows omitted by the limit.
 
+### Use the app's own dev tools
+
+An app can register its own tools with `useGenieTool`. They appear under the `app` group:
+
+```tsx
+import { useGenieTool } from 'genie-react'
+import { z } from 'zod'
+
+useGenieTool({
+  name: 'login_as',
+  kind: 'action', // or 'query' — tells the agent read vs mutate
+  description: 'Switches the session role and re-gates the UI.',
+  input: z.object({ role: z.enum(['guest', 'member', 'admin']) }),
+  handler: ({ role }) => switchRole(role),
+})
+```
+
+```bash
+npx @genie-react/cli tools app
+npx @genie-react/cli call app_login_as '{"role":"admin"}'
+```
+
+Register several tools with one hook call — handlers still see the latest render's state:
+
+```tsx
+import { defineGenieTool, useGenieTools } from 'genie-react'
+
+useGenieTools([
+  defineGenieTool({ name: 'session', kind: 'query', description: '…', handler: () => ({ role }) }),
+  defineGenieTool({ name: 'login_as', kind: 'action', description: '…', input, handler }),
+])
+```
+
+Outside components — a store, an API client, any module:
+
+```ts
+import { defineGenieTool, registerGenieTools } from 'genie-react/client'
+
+const unregister = registerGenieTools(
+  defineGenieTool({
+    name: 'cart_state',
+    kind: 'query',
+    description: 'Current cart line items and totals from the zustand store.',
+    handler: () => useCartStore.getState().summary(),
+  }),
+  defineGenieTool({
+    name: 'cart_clear',
+    kind: 'action',
+    destructive: true,
+    description: 'Empties the cart store. No undo.',
+    handler: () => useCartStore.getState().clear(),
+  }),
+)
+```
+
+Registration waits for the genie client if it has not started yet; `unregister()` tombstones the
+tools. Args are validated by the schema in the app. A tool whose component unmounted stays listed
+as unavailable with the place it was registered. Use this for what only the app can do: switch
+roles, seed fixtures, inject API failures, jump wizard steps. See the
+[App tools reference](https://genie-react.com/docs/tools/app-tools).
+
 ## Prove a fix
 
 For a quick same-session check:

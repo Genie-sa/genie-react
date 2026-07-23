@@ -17,10 +17,12 @@ export type BuiltInToolGroup =
   | 'memory'
   | 'perf'
   | 'action'
+  | 'app'
 
-/** Built-in groups plus `Register`-contributed ones; the fallback is `never`, so an unregistered group is a type error. */
+/** Built-in groups plus app-declared subgroups (`app.cart`) and `Register`-contributed ones; the fallback is `never`, so an unregistered group is a type error. */
 export type ToolGroup =
   | BuiltInToolGroup
+  | `app.${string}`
   | (Register extends { toolGroups: infer G extends string } ? G : never)
 
 /** Hints advertised alongside each tool so the agent can reason about it (read-only vs. mutating, idempotent) before calling. */

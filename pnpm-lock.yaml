@@ -306,6 +306,9 @@ importers:
       tailwindcss:
         specifier: ^4.1.18
         version: 4.3.2
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@genie-react/cli':
         specifier: workspace:*
@@ -364,6 +367,9 @@ importers:
       react-dom:
         specifier: ^19.2.7
         version: 19.2.7(react@19.2.7)
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@genie-react/cli':
         specifier: workspace:*

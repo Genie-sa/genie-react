@@ -8,11 +8,13 @@ export type ToolsSelection =
   | { kind: 'group'; tools: ToolDescriptor[] }
   | { kind: 'unknown'; message: string }
 
-/** Exact tool name → its full contract; exact group → that group's listing; else suggestions, never a full dump. */
+/** Exact tool name → its full contract; a group or group family (`app` covers `app.cart`, `react` covers `react.tree`) → that listing; else suggestions, never a full dump. */
 export function resolveToolsSelector(tools: ToolDescriptor[], selector: string): ToolsSelection {
   const tool = tools.find((candidate) => candidate.name === selector)
   if (tool) return { kind: 'tool', tool }
-  const inGroup = tools.filter((candidate) => candidate.group === selector)
+  const inGroup = tools.filter(
+    (candidate) => candidate.group === selector || candidate.group.startsWith(`${selector}.`),
+  )
   if (inGroup.length > 0) return { kind: 'group', tools: inGroup }
 
   const needle = selector.toLowerCase()
@@ -77,11 +79,18 @@ export function formatGroupIndex(appName: string | undefined, tools: ToolDescrip
   const groups = groupIndex(appName, tools).groups
   const width = Math.max(0, ...groups.map((group) => group.group.length))
   const lines = [`${tools.length} tools from ${appName ?? 'the app'} · ${groups.length} groups`, '']
+  let appMarkerShown = false
   for (const group of groups) {
     const preview =
       group.tools.slice(0, 3).join(', ') +
       (group.tools.length > 3 ? `, +${group.tools.length - 3} more` : '')
-    lines.push(`  ${group.group.padEnd(width)} ${String(group.count).padStart(2)} — ${preview}`)
+    const isAppGroup = group.group === 'app' || group.group.startsWith('app.')
+    const marker =
+      isAppGroup && !appMarkerShown ? ' ← custom tools this app registered for you' : ''
+    if (isAppGroup) appMarkerShown = true
+    lines.push(
+      `  ${group.group.padEnd(width)} ${String(group.count).padStart(2)} — ${preview}${marker}`,
+    )
   }
   lines.push(
     '',
@@ -92,13 +101,14 @@ export function formatGroupIndex(appName: string | undefined, tools: ToolDescrip
 
 /** Layer 3 of tool discovery: one complete contract and a runnable example. */
 export function formatToolDetail(tool: ToolDescriptor): string {
-  const lines = [
-    `${tool.name} — ${tool.title} [${tool.group}]`,
-    '',
-    tool.description,
-    '',
-    'params:',
-  ]
+  const lines = [`${tool.name} — ${tool.title} [${tool.group}]${kindBadge(tool)}`]
+  if (tool.available === false) {
+    lines.push(
+      '',
+      `currently unavailable: ${tool.unavailableReason ?? 'the code that registers it is not running'}`,
+    )
+  }
+  lines.push('', tool.description, '', 'params:')
   const object = objectSchema(tool.inputJsonSchema)
   const properties = object && isRecord(object.properties) ? object.properties : {}
   const required = new Set(Array.isArray(object?.required) ? object.required : [])
@@ -108,8 +118,16 @@ export function formatToolDetail(tool: ToolDescriptor): string {
     const property = properties[name]
     appendSchemaProperty(lines, name, property, required.has(name), 2, 0)
   }
-  lines.push('', `example: genie-react call ${tool.name} '${exampleArgs(properties, required)}'`)
+  lines.push(
+    '',
+    `example: genie-react call ${tool.name} ${shellSingleQuote(exampleArgs(properties, required))}`,
+  )
   return lines.join('\n')
+}
+
+/** POSIX-safe single quoting for generated examples — schema-derived strings must never break out of the quotes. */
+function shellSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
 function appendSchemaProperty(
@@ -159,12 +177,26 @@ function nestedObjectSchema(schema: Record<string, unknown>): Record<string, unk
   return null
 }
 
+/** `(read-only)` / `(action)` / `(destructive)` from the advertised annotations, so intent is visible before calling; the `action` group implies mutation even without an explicit hint. */
+function kindBadge(tool: ToolDescriptor): string {
+  if (tool.annotations?.destructiveHint === true) return ' (destructive)'
+  if (tool.annotations?.readOnlyHint === true) return ' (read-only)'
+  if (tool.annotations?.readOnlyHint === false || tool.group === 'action') return ' (action)'
+  return ''
+}
+
 export function slimDescriptor(tool: ToolDescriptor): {
   name: string
   title: string
   params: string
+  available?: boolean
 } {
-  return { name: tool.name, title: tool.title, params: describeToolParams(tool.inputJsonSchema) }
+  return {
+    name: tool.name,
+    title: tool.title,
+    params: describeToolParams(tool.inputJsonSchema),
+    ...(tool.available === false ? { available: false } : {}),
+  }
 }
 
 /** Renders the complete catalog grouped by domain; optional params carry a question mark. */
@@ -182,8 +214,10 @@ export function formatToolsListing(status: {
   for (const [group, tools] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
     lines.push('', `  ${group}`)
     for (const tool of tools.sort((a, b) => a.name.localeCompare(b.name))) {
+      const unavailable =
+        tool.available === false ? ' · ✗ unavailable (genie-react tools <tool> explains)' : ''
       lines.push(
-        `    ${tool.name} — ${tool.title}`,
+        `    ${tool.name} — ${tool.title}${kindBadge(tool)}${unavailable}`,
         `      ${describeToolParams(tool.inputJsonSchema)}`,
       )
     }

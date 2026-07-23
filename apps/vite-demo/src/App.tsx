@@ -12,6 +12,9 @@ import {
   type ReactNode,
 } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useGenieTool } from 'genie-react'
+import { FlagsPanel } from './FlagsPanel'
+import { TaskPanel } from './TaskPanel'
 import reactLogo from './assets/react.svg'
 import viteLogo from './assets/vite.svg'
 import heroImg from './assets/hero.png'
@@ -48,6 +51,13 @@ function HotEffectProbe({ count }: { count: number }): ReactNode {
 }
 
 function Unmountable(): ReactNode {
+  useGenieTool({
+    name: 'unmountable_ping',
+    description:
+      'Confirms the Unmountable component is mounted. Exists to demo route-scoped app tools: toggle the component off and this tool tombstones.',
+    kind: 'query',
+    handler: () => ({ mounted: true }),
+  })
   return <p className="lab-line">unmountable is mounted</p>
 }
 
@@ -217,6 +227,14 @@ function App(): ReactNode {
         </button>
         {showUnmountable && <Unmountable />}
       </section>
+
+      <div className="ticks"></div>
+
+      <TaskPanel />
+
+      <div className="ticks"></div>
+
+      <FlagsPanel />
 
       <div className="ticks"></div>
       <StressGrid />

@@ -196,3 +196,100 @@ describe('tool output', () => {
     expect(detail).toContain('budgets[].maxRegressionPct?: number [>=0]')
   })
 })
+
+describe('app tools rendering', () => {
+  const appTool = tool({
+    name: 'app_seed_cart',
+    title: 'Seed cart',
+    group: 'app',
+    description: 'Fills the cart with sample items.',
+    annotations: { readOnlyHint: false },
+    inputJsonSchema: {
+      type: 'object',
+      properties: { count: { type: 'integer', default: 3 } },
+      required: [],
+    },
+  })
+
+  it('formatGroupIndex calls out the app group', () => {
+    const index = formatGroupIndex('Demo', [...CATALOG, appTool])
+    expect(index).toContain('custom tools this app registered for you')
+  })
+
+  it('formatToolDetail shows the kind badge and an unavailability warning with the reason', () => {
+    expect(formatToolDetail(appTool)).toContain('app_seed_cart — Seed cart [app] (action)')
+
+    const gone = { ...appTool, available: false, unavailableReason: 'the cart page unmounted' }
+    expect(formatToolDetail(gone as never)).toContain(
+      'currently unavailable: the cart page unmounted',
+    )
+  })
+
+  it('formatToolsListing marks read-only, destructive, and unavailable tools', () => {
+    const out = listing([
+      { ...appTool, available: false } as never,
+      tool({
+        name: 'app_cart_state',
+        title: 'Cart state',
+        group: 'app',
+        annotations: { readOnlyHint: true },
+      }),
+      tool({
+        name: 'app_wipe_cart',
+        title: 'Wipe cart',
+        group: 'app',
+        annotations: { readOnlyHint: false, destructiveHint: true },
+      }),
+    ])
+    expect(out).toContain('app_seed_cart — Seed cart (action) · ✗ unavailable')
+    expect(out).toContain('app_cart_state — Cart state (read-only)')
+    expect(out).toContain('app_wipe_cart — Wipe cart (destructive)')
+  })
+})
+
+describe('group families', () => {
+  const grouped = [
+    tool({ name: 'app_increase_steps', title: 'Increase steps', group: 'app.steps' }),
+    tool({ name: 'app_login_as', title: 'Login as', group: 'app' }),
+    tool({ name: 'react_get_renders', title: 'Renders', group: 'react.render' }),
+  ]
+
+  it('a family selector covers the parent group and its subgroups', () => {
+    const app = resolveToolsSelector(grouped, 'app')
+    expect(app.kind).toBe('group')
+    if (app.kind === 'group') expect(app.tools).toHaveLength(2)
+
+    const react = resolveToolsSelector(grouped, 'react')
+    expect(react.kind).toBe('group')
+    if (react.kind === 'group')
+      expect(react.tools.map((t) => t.name)).toEqual(['react_get_renders'])
+  })
+
+  it('the group index marks the app family once', () => {
+    const index = formatGroupIndex('Demo', grouped)
+    expect(index.match(/custom tools this app registered/g)).toHaveLength(1)
+    expect(index).toContain('app.steps')
+  })
+})
+
+describe('example shell safety', () => {
+  it('quotes schema-derived example values so they cannot break out of the shell string', () => {
+    const detail = formatToolDetail(
+      tool({
+        name: 'app_review',
+        title: 'Review',
+        group: 'app',
+        description: 'Exercises quoting.',
+        inputJsonSchema: {
+          type: 'object',
+          properties: { value: { enum: ["'; printf injected; #"] } },
+          required: ['value'],
+        },
+      }),
+    )
+    const example = detail.split('\n').find((line) => line.startsWith('example:'))
+    expect(example).toBe(
+      `example: genie-react call app_review '{"value":"'\\''; printf injected; #"}'`,
+    )
+  })
+})

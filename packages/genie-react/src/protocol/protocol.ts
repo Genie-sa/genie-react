@@ -38,6 +38,9 @@ export const toolDescriptorSchema = z.object({
   inputJsonSchema: z.unknown().optional(),
   outputJsonSchema: z.unknown().optional(),
   annotations: toolAnnotationsSchema.optional(),
+  /** Absent means available; `false` keeps a known tool listed (e.g. its registering component unmounted) instead of vanishing. */
+  available: z.boolean().optional(),
+  unavailableReason: z.string().optional(),
 })
 export type ToolDescriptor = z.infer<typeof toolDescriptorSchema>
 
@@ -131,7 +134,7 @@ export const appEventSchema = z.object({
   ts: z.number(),
 })
 
-const appErrorCodeSchema = z.enum(['invalid-args', 'tool-error'])
+const appErrorCodeSchema = z.enum(['invalid-args', 'tool-error', 'tool-unavailable'])
 
 export const appResponseSchema = z.object({
   kind: z.literal('app/response'),
@@ -224,6 +227,7 @@ export const agentErrorCodeSchema = z.enum([
   'timeout',
   'invalid-args',
   'tool-error',
+  'tool-unavailable',
 ])
 export type AgentErrorCode = z.infer<typeof agentErrorCodeSchema>
 export const AGENT_ERROR_CODES = agentErrorCodeSchema.options
