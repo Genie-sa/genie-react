@@ -105,6 +105,7 @@ type AgentFailureReason =
   | 'unknown-session'
   | 'invalid-args'
   | 'tool-error'
+  | 'tool-unavailable'
 
 interface AgentFailureOptions {
   userActionRequired?: boolean
@@ -597,7 +598,16 @@ export async function runCall(
         reason === 'invalid_input' ||
         reason === 'invalid-args' ||
         reason === 'unknown-session' ||
+        reason === 'tool-unavailable' ||
         reason === 'operational_failure',
+      ...(reason === 'tool-unavailable'
+        ? {
+            next: {
+              command: 'genie-react tools app',
+              argv: ['genie-react', 'tools', 'app'],
+            },
+          }
+        : {}),
       ...(reason === 'invalid-args'
         ? {
             next: toolHelpNext(tool),

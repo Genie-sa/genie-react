@@ -1,0 +1,117 @@
+---
+title: App tools
+description: Tools the app registers itself — domain actions and queries agents call like built-ins.
+icon: Wrench
+---
+
+The JSON examples below show selected fields from the full response.
+
+Apps can register their own tools with `useGenieTool`. They appear under the `app` group, named
+`app_<name>`, and are called like any built-in. Use them for what only the app can do: log in as a
+role, seed fixtures, inject API failures, jump a wizard step.
+
+The tools on this page come from the demo apps (`apps/vite-demo`, `apps/router-demo`). Your app
+defines its own. The contract command is always the source of truth:
+
+```bash
+npx @genie-react/cli tools app
+```
+
+## Register a tool
+
+One declaration in a component. The zod schema drives validation, TypeScript types, and the
+advertised JSON Schema:
+
+```tsx
+import { useGenieTool } from 'genie-react'
+import { z } from 'zod'
+
+useGenieTool({
+  name: 'login_as',
+  kind: 'action', // or 'query' — tells the agent read vs mutate
+  description: 'Switches the session role and re-gates the UI.',
+  input: z.object({ role: z.enum(['guest', 'member', 'admin']) }),
+  handler: ({ role }) => switchRole(role),
+})
+```
+
+The handler always sees the latest render's state. There is no dependency array. The name, schema,
+and description are fixed at mount — to change them at runtime, key the hook off `enabled` or the
+`name`.
+
+Outside components, use `defineGenieTool` and `registerGenieTools(...)`; both are exported from
+`genie-react` and `genie-react/client`. `<Genie tools={[...]} />` registers app-lifetime tools.
+
+Options:
+
+- `kind: 'query'` marks the tool read-only and safe to retry. `kind: 'action'` marks a mutation;
+  actions also accept `destructive: true` and `idempotent: true`.
+- `group: 'checkout'` lists the tool under `app.checkout` for progressive discovery on large
+  surfaces. `tools app` still covers every subgroup; `tools app.checkout` narrows to one. Omit it
+  when the app exposes a handful of tools — flat `app` reads fine.
+- `output` is an optional zod schema, advertised and drift-checked in dev builds.
+- `maxResultBytes` raises the 128KB result cap when a large result is intentional.
+- `enabled: false` gates registration, e.g. behind a feature flag.
+
+Throw `GenieToolError` for failures the agent should act on:
+
+```tsx
+throw new GenieToolError('cart is empty', { code: 'CART_EMPTY', hint: 'seed with app_seed_tasks' })
+```
+
+The agent sees `[CART_EMPTY] cart is empty — hint: seed with app_seed_tasks`. Plain throws are
+wrapped with the tool name so an app bug is not blamed on Genie.
+
+## Discover and call
+
+```bash
+npx @genie-react/cli tools app
+npx @genie-react/cli call app_login_as '{"role":"admin"}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{ "role": "admin", "canAdd": true, "canDelete": true }
+```
+
+Arguments are validated in the app by the tool's own schema: per-field errors, defaults applied,
+unknown keys rejected with the valid keys listed.
+
+Badges in listings state intent before a call: `(read-only)` is free, `(action)` mutates,
+`(destructive)` has no undo.
+
+## Unavailable tools
+
+A tool registered by an unmounted component stays listed instead of vanishing:
+
+```bash
+npx @genie-react/cli call app_checkout_state '{}'
+# Call to app_checkout_state failed [tool-unavailable]: Tool "app_checkout_state" is currently
+# unavailable — the code that registers it is not mounted (it was registered at URL path /checkout).
+# Drive the app back to that UI, then retry.
+```
+
+The failure carries `errorCode: "tool-unavailable"` (distinct from a handler throwing), so scripts
+can branch on it. Recovery is usually one call — `router_navigate` to the named route, then retry.
+The listing marks these tools with `✗ unavailable`; the detail view carries the reason.
+
+## Patterns
+
+| Pattern         | Demo tool                          | Replaces                                    |
+| --------------- | ---------------------------------- | ------------------------------------------- |
+| Impersonation   | `app_login_as`                     | Driving a login form for every role         |
+| Fixtures        | `app_seed_tasks`, `app_reset_tasks` | Hand-building test data per run             |
+| Fault injection | `app_chaos`                        | Hoping an error state happens naturally     |
+| Step-jumping    | `app_checkout_goto`                | Filling three wizard forms to test the last |
+
+`apps/vite-demo/src/TaskPanel.tsx` and `apps/router-demo/src/routes/checkout.tsx` show the full
+implementations.
+
+## Limits
+
+- Results are capped at 128KB per tool (override with `maxResultBytes`). Over the cap, the call
+  fails with the size and the top-level keys.
+- Keep synchronous handler work well under a second; a blocked main thread reads as busy.
+- Tools exist only while the registering code runs. In production builds without a Genie client,
+  registration is inert.

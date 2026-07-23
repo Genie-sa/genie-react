@@ -1,11 +1,13 @@
 import { type QueryClient, QueryClientContext } from '@tanstack/react-query'
 import { useRouter } from '@tanstack/react-router'
 import { useContext, useEffect } from 'react'
+import type { GenieAppTool } from '../app-tools'
 import { createGenieClient, sessionCollector } from '../client'
 import { defaultAppCollectors } from '../collectors/defaults'
 import { reactCollector } from '../collectors/react'
 import { isQueryClient } from '../collectors/tanstack/guards'
 import { readGenieGlobal } from '../protocol'
+import { useGenieTools } from './use-genie-tool'
 
 let started = false
 
@@ -18,6 +20,8 @@ export interface GenieProps {
   queryClient?: QueryClient
   /** Explicit Router for the router tools; wins over `useRouter()` context discovery. */
   router?: ReturnType<typeof useRouter>
+  /** App-level custom tools (built with `defineGenieTool`) registered for the app's lifetime; route-scoped tools belong in `useGenieTool`. */
+  tools?: readonly GenieAppTool[]
 }
 
 // useRouter's type omits `undefined`, but the Vite-plugin peer stub and the no-provider case return it; this is the single widening for that boundary.
@@ -40,6 +44,7 @@ export function Genie(props: GenieProps = {}): null {
   const contextRouter = useOptionalRouter()
   // Provider fallback so `QueryClientProvider` alone (no router context) still surfaces the query tools; the Vite plugin stubs the context when react-query is absent.
   const providerQueryClient = useContext(QueryClientContext)
+  useGenieTools(props.tools)
 
   const router = props.router ?? contextRouter
   const queryClient =

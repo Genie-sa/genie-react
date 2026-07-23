@@ -1,38 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { decodeFrame, defineAgentToolContract, encodeMessage } from '../protocol'
-import { createGenieClient, type SocketLike } from './client'
+import { defineAgentToolContract } from '../protocol'
+import { FakeSocket, type Frame } from '../test-support/fake-socket'
+import { createGenieClient } from './client'
 import { defineCollector, defineCollectorTool } from './collector'
-
-// biome-ignore lint/suspicious/noExplicitAny: tests inspect decoded wire frames
-type Frame = any
-
-class FakeSocket implements SocketLike {
-  readyState = 0
-  readonly sent: string[] = []
-  onopen: ((event: unknown) => void) | null = null
-  onmessage: ((event: { data: unknown }) => void) | null = null
-  onclose: ((event: unknown) => void) | null = null
-  onerror: ((event: unknown) => void) | null = null
-
-  send(data: string): void {
-    this.sent.push(data)
-  }
-  close(): void {
-    this.readyState = 3
-    this.onclose?.(null)
-  }
-  open(): void {
-    this.readyState = 1
-    this.onopen?.(null)
-  }
-  receive(message: unknown): void {
-    this.onmessage?.({ data: encodeMessage(message) })
-  }
-  decoded(): Frame[] {
-    return this.sent.map((raw) => decodeFrame(raw))
-  }
-}
 
 const echoContract = defineAgentToolContract({
   name: 'echo',
