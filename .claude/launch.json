@@ -9,6 +9,24 @@
         "export PATH=$HOME/.nvm/versions/node/v22.22.3/bin:$PATH && pnpm --filter @genie-react/vite-demo dev"
       ],
       "port": 3040
+    },
+    {
+      "name": "router-demo",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=$HOME/.nvm/versions/node/v22.22.3/bin:$PATH && pnpm --filter @genie-react/router-demo dev"
+      ],
+      "port": 3030
+    },
+    {
+      "name": "docs",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=$HOME/.nvm/versions/node/v22.22.3/bin:$PATH && pnpm --filter @genie-react/docs dev"
+      ],
+      "port": 3100
     }
   ]
 }

@@ -320,3 +320,57 @@ describe('maxResultBytes override', () => {
     expect(lastResponse(socket, 'm1').ok).toBe(true)
   })
 })
+
+describe('review regressions', () => {
+  it('falls back to the surviving registration when a duplicate releases first', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { socket } = startClient()
+    registerGenieTools(seedCartTool(() => ({ added: 'A' })))
+    const unregisterB = registerGenieTools(seedCartTool(() => ({ added: 'B' })))
+    unregisterB()
+    warn.mockRestore()
+    await flush()
+
+    expect(advertisedTool(socket, 'app_seed_cart').available).toBeUndefined()
+    socket.receive({ kind: 'bridge/request', id: 'd1', tool: 'app_seed_cart', args: {} })
+    await flush()
+    expect(lastResponse(socket, 'd1').result).toEqual({ added: 'A' })
+  })
+
+  it('rejects results that superjson would silently drop, naming the path', async () => {
+    const { socket } = startClient()
+    registerGenieTools(
+      defineGenieTool({
+        name: 'leak_fn',
+        description: 'Returns a function on purpose, to exercise the lossy-value guard.',
+        kind: 'query',
+        handler: () => ({ data: { onClick: () => 'nope' } }),
+      }),
+    )
+    await flush()
+    socket.receive({ kind: 'bridge/request', id: 'l1', tool: 'app_leak_fn', args: {} })
+    await flush()
+
+    const response = lastResponse(socket, 'l1')
+    expect(response.ok).toBe(false)
+    expect(response.error).toContain('result.data.onClick is a function')
+  })
+
+  it('caps tombstones so dynamic names cannot grow the catalog forever', async () => {
+    const { socket } = startClient()
+    for (let i = 0; i < 40; i++) {
+      registerGenieTools(
+        defineGenieTool({
+          name: `dynamic_${i}`,
+          description: 'Short-lived dynamically named tool used to exercise tombstone pruning.',
+          kind: 'query',
+          handler: () => ({ i }),
+        }),
+      )()
+    }
+    await flush()
+
+    const appTools = lastHello(socket).tools.filter((t: Frame) => t.name.startsWith('app_dynamic_'))
+    expect(appTools.length).toBeLessThanOrEqual(32)
+  })
+})

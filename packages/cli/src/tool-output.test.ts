@@ -271,3 +271,25 @@ describe('group families', () => {
     expect(index).toContain('app.steps')
   })
 })
+
+describe('example shell safety', () => {
+  it('quotes schema-derived example values so they cannot break out of the shell string', () => {
+    const detail = formatToolDetail(
+      tool({
+        name: 'app_review',
+        title: 'Review',
+        group: 'app',
+        description: 'Exercises quoting.',
+        inputJsonSchema: {
+          type: 'object',
+          properties: { value: { enum: ["'; printf injected; #"] } },
+          required: ['value'],
+        },
+      }),
+    )
+    const example = detail.split('\n').find((line) => line.startsWith('example:'))
+    expect(example).toBe(
+      `example: genie-react call app_review '{"value":"'\\''; printf injected; #"}'`,
+    )
+  })
+})

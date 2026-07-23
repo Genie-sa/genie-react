@@ -178,11 +178,12 @@ function emitFailure(
 
 const SAFE_TOOL_NAME = /^[a-z][a-z0-9_.-]{0,127}$/
 
-function toolHelpNext(tool: string): AgentFailureOptions['next'] | undefined {
+function toolHelpNext(tool: string, session?: string): AgentFailureOptions['next'] | undefined {
   if (!SAFE_TOOL_NAME.test(tool)) return undefined
+  const sessionArgs = session ? ['--session', session] : []
   return {
-    command: `genie-react tools ${tool}`,
-    argv: ['genie-react', 'tools', tool],
+    command: ['genie-react', 'tools', tool, ...sessionArgs].join(' '),
+    argv: ['genie-react', 'tools', tool, ...sessionArgs],
   }
 }
 
@@ -601,16 +602,11 @@ export async function runCall(
         reason === 'tool-unavailable' ||
         reason === 'operational_failure',
       ...(reason === 'tool-unavailable'
-        ? {
-            next: {
-              command: 'genie-react tools app',
-              argv: ['genie-react', 'tools', 'app'],
-            },
-          }
+        ? { next: toolHelpNext(tool, resolveSession(opts.session)) }
         : {}),
       ...(reason === 'invalid-args'
         ? {
-            next: toolHelpNext(tool),
+            next: toolHelpNext(tool, resolveSession(opts.session)),
             ...(tool === devtoolsWaitContract.name
               ? {
                   correctedExample: {
@@ -903,6 +899,7 @@ export async function runBatch(
         const userActionRequired =
           error instanceof ResultSelectionError ||
           errorCode === 'invalid-args' ||
+          errorCode === 'tool-unavailable' ||
           errorCode === 'unknown-session' ||
           errorCode === 'not-connected'
         emitBatchResult({
@@ -923,8 +920,8 @@ export async function runBatch(
           ...(error instanceof BridgeCallError && error.busyTelemetry !== undefined
             ? { busyTelemetry: error.busyTelemetry }
             : {}),
-          ...(errorCode === 'invalid-args'
-            ? { next: toolHelpNext(item.tool) }
+          ...(errorCode === 'invalid-args' || errorCode === 'tool-unavailable'
+            ? { next: toolHelpNext(item.tool, resolveSession(opts.session)) }
             : errorCode === 'unknown-session' || errorCode === 'not-connected'
               ? { next: { command: 'genie-react status', argv: ['genie-react', 'status'] } }
               : {}),

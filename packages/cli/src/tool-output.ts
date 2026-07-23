@@ -118,8 +118,16 @@ export function formatToolDetail(tool: ToolDescriptor): string {
     const property = properties[name]
     appendSchemaProperty(lines, name, property, required.has(name), 2, 0)
   }
-  lines.push('', `example: genie-react call ${tool.name} '${exampleArgs(properties, required)}'`)
+  lines.push(
+    '',
+    `example: genie-react call ${tool.name} ${shellSingleQuote(exampleArgs(properties, required))}`,
+  )
   return lines.join('\n')
+}
+
+/** POSIX-safe single quoting for generated examples — schema-derived strings must never break out of the quotes. */
+function shellSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
 function appendSchemaProperty(

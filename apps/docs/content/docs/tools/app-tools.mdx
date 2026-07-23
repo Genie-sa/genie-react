@@ -22,6 +22,9 @@ npx @genie-react/cli tools app
 One declaration in a component. The zod schema drives validation, TypeScript types, and the
 advertised JSON Schema:
 
+The examples import `zod`; add it to the app directly (`pnpm add zod`) — genie-react depends on
+it internally, but package managers do not expose transitive dependencies to your imports.
+
 ```tsx
 import { useGenieTool } from 'genie-react'
 import { z } from 'zod'
@@ -46,6 +49,7 @@ guarantee:
 
 ```tsx
 import { defineGenieTool, useGenieTools } from 'genie-react'
+import { z } from 'zod'
 
 useGenieTools([
   defineGenieTool({

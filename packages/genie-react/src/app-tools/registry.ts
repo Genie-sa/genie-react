@@ -17,13 +17,19 @@ import { type GenieAppTool, GenieToolError } from './define'
 // Agents pay for every byte a tool returns; past the cap the honest move is a loud failure naming the fix, not silent truncation.
 const DEFAULT_RESULT_BYTE_CAP = 128 * 1024
 
+// Bounded so dynamically-named tools can't grow the catalog and every future hello forever.
+const MAX_TOMBSTONES = 32
+
 /** Store shared by every registration surface; an unregistered tool becomes a tombstone — still advertised, marked unavailable with a recovery hint, revived in place on remount. */
 interface AppToolEntry {
+  /** Live registrations, oldest first; the newest one answers calls, so releasing a duplicate falls back to the survivor. */
+  registrations: GenieAppTool[]
+  /** Latest known definition — keeps the tombstone's contract after the last registration releases. */
   tool: GenieAppTool
-  /** Stable erased wrapper (lazy): reads `tool`/`refs` live, so refreshes reuse one object instead of re-allocating per tool. */
+  /** Stable erased wrapper (lazy): reads the entry live, so refreshes reuse one object instead of re-allocating per tool. */
   erased?: ErasedCollectorTool
-  refs: number
   lastPathname: string | undefined
+  releasedAt: number | undefined
 }
 
 const entries = new Map<string, AppToolEntry>()
@@ -62,7 +68,7 @@ export function registerGenieTools(...tools: GenieAppTool[]): () => void {
   return () => {
     if (released) return
     released = true
-    for (const tool of tools) release(tool.contract.name)
+    for (const tool of tools) release(tool)
     scheduleRefresh()
   }
 }
@@ -95,30 +101,61 @@ function upsert(tool: GenieAppTool): void {
   const name = tool.contract.name
   const existing = entries.get(name)
   if (!existing) {
-    entries.set(name, { tool, refs: 1, lastPathname: currentPathname() })
+    entries.set(name, {
+      registrations: [tool],
+      tool,
+      lastPathname: currentPathname(),
+      releasedAt: undefined,
+    })
     return
   }
-  if (existing.refs > 0) {
+  if (existing.registrations.length > 0) {
     console.warn(`[genie] app tool "${name}" registered more than once — the latest handler wins`)
   }
-  existing.tool = tool
-  // The replaced definition may carry a new contract; rebuild the wrapper so discovery matches it.
-  existing.erased = erase(existing)
-  existing.refs += 1
+  existing.registrations.push(tool)
+  adoptNewest(existing)
   existing.lastPathname = currentPathname()
+  existing.releasedAt = undefined
 }
 
-function release(name: string): void {
-  const entry = entries.get(name)
+/** Releases one exact registration; a surviving duplicate takes over, so a released handler can never answer again. */
+function release(tool: GenieAppTool): void {
+  const entry = entries.get(tool.contract.name)
   if (!entry) return
-  entry.refs = Math.max(0, entry.refs - 1)
+  const index = entry.registrations.lastIndexOf(tool)
+  if (index === -1) return
+  entry.registrations.splice(index, 1)
+  if (entry.registrations.length > 0) adoptNewest(entry)
+  else {
+    entry.releasedAt = Date.now()
+    pruneTombstones()
+  }
+}
+
+/** Points the entry (and its advertised contract) at the newest live registration. */
+function adoptNewest(entry: AppToolEntry): void {
+  const newest = entry.registrations[entry.registrations.length - 1]
+  if (!newest || newest === entry.tool) return
+  entry.tool = newest
+  entry.erased = erase(entry)
+}
+
+function pruneTombstones(): void {
+  const tombstones = [...entries.entries()].filter(([, entry]) => entry.registrations.length === 0)
+  if (tombstones.length <= MAX_TOMBSTONES) return
+  tombstones.sort(([, a], [, b]) => (a.releasedAt ?? 0) - (b.releasedAt ?? 0))
+  for (const [name] of tombstones.slice(0, tombstones.length - MAX_TOMBSTONES)) {
+    entries.delete(name)
+  }
 }
 
 function erase(entry: AppToolEntry): ErasedCollectorTool {
   return {
     contract: entry.tool.contract,
     availability: (): ToolAvailability =>
-      entry.refs > 0 ? { available: true } : { available: false, reason: unavailableReason(entry) },
+      entry.registrations.length > 0
+        ? { available: true }
+        : { available: false, reason: unavailableReason(entry) },
     handler: (args: never) => runHandler(entry, args),
   }
 }
@@ -138,8 +175,21 @@ async function runHandler(entry: AppToolEntry, args: never): Promise<unknown> {
   return result
 }
 
-/** Pre-flights the wire encoding: an unserializable result would otherwise vanish into a bridge timeout, and an unbounded one floods the agent's context. */
+/** Pre-flights the wire encoding: an unserializable result would otherwise vanish into a bridge timeout or silently collapse, and an unbounded one floods the agent's context. */
 function guardResultSize(name: string, result: unknown, capBytes: number): void {
+  let lossy: string | null
+  try {
+    lossy = findLossyValue(result, 'result', new Set())
+  } catch (error) {
+    throw new Error(
+      `"${name}" returned a value that cannot be serialized (${errorMessage(error)}) — return plain data, not DOM nodes, fibers, or class instances`,
+    )
+  }
+  if (lossy) {
+    throw new Error(
+      `"${name}" returned a value that cannot cross the wire: ${lossy} — return plain serializable data`,
+    )
+  }
   let encoded: string
   try {
     encoded = encodeMessage(result)
@@ -158,6 +208,42 @@ function guardResultSize(name: string, result: unknown, capBytes: number): void 
   throw new Error(
     `"${name}" returned ~${kb}KB — over its ${Math.round(capBytes / 1024)}KB result cap, too large for an agent to read${shape}. Return a summary, accept limit/filter args, or raise maxResultBytes on the tool if this size is intentional.`,
   )
+}
+
+/** SuperJSON drops functions and symbols silently, so a handler returning one would report `ok:true` with a hollow result; name the offending path instead. */
+function findLossyValue(value: unknown, path: string, seen: Set<object>): string | null {
+  if (typeof value === 'function') return `${path} is a function`
+  if (typeof value === 'symbol') return `${path} is a symbol`
+  if (typeof value !== 'object' || value === null) return null
+  if (seen.has(value)) return null
+  seen.add(value)
+  if (value instanceof Date || value instanceof RegExp) return null
+  if (value instanceof Map) {
+    for (const [key, item] of value) {
+      const found = findLossyValue(item, `${path}.get(${String(key)})`, seen)
+      if (found) return found
+    }
+    return null
+  }
+  if (value instanceof Set) {
+    for (const item of value) {
+      const found = findLossyValue(item, `${path} (set item)`, seen)
+      if (found) return found
+    }
+    return null
+  }
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index++) {
+      const found = findLossyValue(value[index], `${path}[${index}]`, seen)
+      if (found) return found
+    }
+    return null
+  }
+  for (const [key, item] of Object.entries(value)) {
+    const found = findLossyValue(item, `${path}.${key}`, seen)
+    if (found) return found
+  }
+  return null
 }
 
 function unavailableReason(entry: AppToolEntry): string {
