@@ -1,5 +1,13 @@
 # @genie-react/cli
 
+## 0.12.1
+
+### Patch Changes
+
+- d6d12c3: Restore Genie profiling and WebSocket reconnection after React Native reloads without requiring an app relaunch.
+- Updated dependencies [d6d12c3]
+  - genie-react@0.12.1
+
 ## 0.12.0
 
 ### Minor Changes
