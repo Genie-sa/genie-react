@@ -25,7 +25,7 @@ const {
   takeSnapshot,
 } = await import('./render-tracker')
 const { clearEffects, getEffectAuditReport, recordEffect } = await import('./effect-tracker')
-const { buildTree } = await import('./fiber')
+const { appOnlyFilteredNote, buildProvenanceReport, buildTree } = await import('./fiber')
 const { noteDocumentCommit } = await import('./observation')
 const { clearSourceCache } = await import('./source')
 
@@ -95,6 +95,8 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 const NODE_MODULES = '/node_modules/.vite/deps/dep.js'
+const EXPO_HERMES_BUNDLE =
+  'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle//&platform=ios&dev=true'
 
 describe('getRendersReport filteredNote count', () => {
   it('does not attribute unresolved ownership to the app', async () => {
@@ -108,6 +110,27 @@ describe('getRendersReport filteredNote count', () => {
     expect(unfiltered.components).toMatchObject([
       { name: 'UnknownOwner', sourceOwnership: 'unknown' },
     ])
+  })
+
+  it('keeps an opaque Metro source diagnostic without promoting it to app ownership', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new Error('metro unreachable')
+    })
+    recordRender(renderFiber('OpaqueMetroOwner', at(EXPO_HERMES_BUNDLE)), 'mount')
+
+    const unfiltered = await getRendersReport({ sort: 'renders', limit: 50, appOnly: false })
+    const appOnly = await getRendersReport({ sort: 'renders', limit: 50, appOnly: true })
+
+    expect(unfiltered.components).toMatchObject([
+      {
+        name: 'OpaqueMetroOwner',
+        source: { file: 'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle' },
+        sourceOwnership: 'unknown',
+        isLibrary: false,
+      },
+    ])
+    expect(appOnly.components).toEqual([])
+    expect(appOnly.libraryHidden).toBe(1)
   })
 
   it('counts library components hidden by appOnly, and 0 when appOnly is off', async () => {
@@ -366,6 +389,63 @@ describe('getEffectAuditReport filteredNote count', () => {
     })
   })
 
+  it('keeps an opaque Metro component source without promoting its effects to app ownership', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new Error('metro unreachable')
+    })
+    recordEffect(effectFiber('OpaqueMetroEffectOwner', at(EXPO_HERMES_BUNDLE), 1), 'mount')
+
+    const unfiltered = await getEffectAuditReport({ limit: 50, appOnly: false })
+    const appOnly = await getEffectAuditReport({ limit: 50, appOnly: true })
+
+    expect(unfiltered.components[0]).toMatchObject({
+      name: 'OpaqueMetroEffectOwner',
+      source: { file: 'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle' },
+      componentProvenance: {
+        ownership: 'unknown',
+        evidence: 'unknown',
+        reason: 'source-unresolved',
+      },
+    })
+    expect(appOnly.components).toEqual([])
+    expect(appOnly.libraryEffectsHidden).toBe(1)
+  })
+
+  it('does not promote an exact but unsymbolicated Metro hook callsite to app ownership', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new Error('metro unreachable')
+    })
+    const fiber = Object.assign(effectFiber('OpaqueMetroHookOwner', at(EXPO_HERMES_BUNDLE), 1), {
+      __hooks: [{ name: 'Effect', hookSource: at(EXPO_HERMES_BUNDLE), subHooks: [] }],
+    })
+    recordEffect(fiber, 'mount')
+    const getRetainedHookTree = (candidate: Fiber): never =>
+      (candidate as Fiber & { __hooks: unknown[] }).__hooks as never
+
+    const unfiltered = await getEffectAuditReport({
+      limit: 50,
+      appOnly: false,
+      getRetainedHookTree,
+    })
+    const appOnly = await getEffectAuditReport({
+      limit: 50,
+      appOnly: true,
+      getRetainedHookTree,
+    })
+
+    expect(unfiltered.components[0]?.effects[0]).toMatchObject({
+      source: { file: 'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle' },
+      isLibrary: false,
+      provenance: {
+        ownership: 'unknown',
+        evidence: 'unknown',
+        reason: 'hook-source-unresolved',
+      },
+    })
+    expect(appOnly.components).toEqual([])
+    expect(appOnly.libraryEffectsHidden).toBe(1)
+  })
+
   it('counts library-origin effects hidden by appOnly, and 0 when off', async () => {
     recordEffect(effectFiber('AppEffects', at('/src/App.tsx'), 1), 'mount')
     recordEffect(effectFiber('LibEffects', at(NODE_MODULES), 2), 'mount')
@@ -401,6 +481,106 @@ describe('getEffectAuditReport filteredNote count', () => {
         ],
       },
     ])
+  })
+
+  it('does not blame appOnly when onlyHot removes the surviving app effect', async () => {
+    const withEffectHook = (
+      fiber: Fiber,
+      source: ReturnType<typeof at>,
+    ): Fiber & { __hooks: unknown[] } =>
+      Object.assign(fiber, {
+        __hooks: [{ name: 'Effect', hookSource: source, subHooks: [] }],
+      })
+    const app = withEffectHook(
+      effectFiber('ColdAppEffect', at('/src/App.tsx'), 1),
+      at('/src/use-app-effect.ts'),
+    )
+    const library = withEffectHook(
+      effectFiber('LibraryEffect', at(NODE_MODULES), 1),
+      at(NODE_MODULES),
+    )
+    recordEffect(app, 'mount')
+    recordEffect(library, 'mount')
+
+    const report = await getEffectAuditReport({
+      limit: 50,
+      appOnly: true,
+      onlyHot: true,
+      getRetainedHookTree: (fiber) => (fiber as Fiber & { __hooks?: unknown[] }).__hooks as never,
+    })
+    const shownEffects = report.components.reduce(
+      (sum, component) => sum + component.effects.length,
+      0,
+    )
+
+    expect(report.components).toEqual([])
+    expect(report.libraryEffectsHidden).toBe(1)
+    expect(
+      appOnlyFilteredNote(
+        shownEffects,
+        report.libraryEffectsHidden,
+        'effects',
+        report.appEffectsAfterAppOnly,
+      ),
+    ).toBe('0 app effects (1 library/unknown effects hidden — set appOnly:false to include)')
+  })
+})
+
+describe('appOnlyFilteredNote', () => {
+  it('stays a plain disclosure while anything survives the filter', () => {
+    expect(appOnlyFilteredNote(3, 12, 'components')).toBe(
+      '3 components shown (12 library/unknown components hidden — set appOnly:false to include)',
+    )
+    expect(appOnlyFilteredNote(1, 37, 'effects')).toBe(
+      '1 app effects (37 library/unknown effects hidden — set appOnly:false to include)',
+    )
+  })
+
+  it('escalates to a warning when the filter returns no app-owned result', () => {
+    expect(appOnlyFilteredNote(0, 148, 'components')).toBe(
+      'WARNING: appOnly returned no app-owned result, so this is not evidence that nothing happened. 0 components shown (148 library/unknown components hidden — set appOnly:false to include)',
+    )
+    expect(appOnlyFilteredNote(0, 37, 'effects')).toMatch(
+      /^WARNING: appOnly returned no app-owned result/,
+    )
+  })
+
+  it('says nothing when nothing was hidden', () => {
+    expect(appOnlyFilteredNote(0, 0, 'components')).toBeUndefined()
+    expect(appOnlyFilteredNote(5, 0, 'effects')).toBeUndefined()
+  })
+})
+
+describe('buildProvenanceReport ownership', () => {
+  it('counts an opaque Metro fallback as unresolved unknown ownership', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new Error('metro unreachable')
+    })
+    const fiber = renderFiber('OpaqueMetroProvenance', at(EXPO_HERMES_BUNDLE))
+
+    const unfiltered = await buildProvenanceReport(fiber, {
+      limit: 10,
+      appOnly: false,
+    })
+    const appOnly = await buildProvenanceReport(fiber, {
+      limit: 10,
+      appOnly: true,
+    })
+
+    expect(unfiltered.records).toMatchObject([
+      {
+        name: 'OpaqueMetroProvenance',
+        ownership: 'unknown',
+        source: { file: 'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle' },
+      },
+    ])
+    expect(unfiltered.summary).toMatchObject({
+      resolved: 0,
+      unresolved: 1,
+      ownership: { app: 0, library: 0, unknown: 1 },
+    })
+    expect(appOnly.records).toEqual([])
+    expect(appOnly.hiddenByOwnership).toBe(1)
   })
 })
 
@@ -438,6 +618,78 @@ describe('buildTree filteredNote', () => {
       /library\/unknown components hidden — set appOnly:false to include/,
     )
     expect(result.nodes.map((n) => n.name)).not.toContain('LibChild')
+  })
+
+  it('reparents an app component through folded library internals to the retained boundary', async () => {
+    const nestedApp = treeFiber('NestedApp', '/src/NestedApp.tsx')
+    const libChild = treeFiber('LibChild', NODE_MODULES, { child: nestedApp })
+    const libRoot = treeFiber('LibRoot', NODE_MODULES, { child: libChild })
+    const app = treeFiber('App', '/src/App.tsx', { child: libRoot })
+    const root = asFiber({ tag: 3, type: null, child: app, _debugSource: null })
+
+    const result = await buildTree(root, {
+      depth: 30,
+      includeHost: false,
+      maxNodes: 400,
+      appOnly: true,
+    })
+
+    const retainedBoundary = result.nodes.find((node) => node.name === 'LibRoot')
+    const retainedApp = result.nodes.find((node) => node.name === 'NestedApp')
+    expect(result.nodes.map((node) => node.name)).toEqual(['App', 'LibRoot', 'NestedApp'])
+    expect(retainedApp?.parentId).toBe(retainedBoundary?.id)
+    expect(
+      result.nodes.every(
+        (node) =>
+          node.parentId === null || result.nodes.some((parent) => parent.id === node.parentId),
+      ),
+    ).toBe(true)
+  })
+
+  it('warns when only a folded library boundary survives appOnly', async () => {
+    const libChild = treeFiber('LibChild', NODE_MODULES)
+    const libRoot = treeFiber('LibRoot', NODE_MODULES, { child: libChild })
+    const root = asFiber({ tag: 3, type: null, child: libRoot, _debugSource: null })
+
+    const result = await buildTree(root, {
+      depth: 30,
+      includeHost: false,
+      maxNodes: 400,
+      appOnly: true,
+    })
+
+    expect(result.nodes.map((node) => node.name)).toEqual(['LibRoot'])
+    expect(result.filteredNote).toMatch(/^WARNING: appOnly returned no app-owned result/)
+  })
+
+  it('keeps an opaque Metro node structurally visible without counting it as app-owned', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new Error('metro unreachable')
+    })
+    const libChild = treeFiber('LibChild', NODE_MODULES)
+    const libRoot = treeFiber('LibRoot', NODE_MODULES, { child: libChild })
+    const opaque = treeFiber('OpaqueMetroBoundary', EXPO_HERMES_BUNDLE, { child: libRoot })
+    const root = asFiber({ tag: 3, type: null, child: opaque, _debugSource: null })
+
+    const result = await buildTree(root, {
+      depth: 30,
+      includeHost: false,
+      maxNodes: 400,
+      appOnly: true,
+    })
+
+    expect(result.nodes.map((node) => node.name)).toEqual(['OpaqueMetroBoundary', 'LibRoot'])
+    expect(result.nodes[0]).toMatchObject({
+      source: { file: 'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle' },
+      isLibrary: false,
+    })
+    expect(result.filteredNote).toMatch(/^WARNING: appOnly returned no app-owned result/)
+    expect(
+      result.nodes.every(
+        (node) =>
+          node.parentId === null || result.nodes.some((parent) => parent.id === node.parentId),
+      ),
+    ).toBe(true)
   })
 
   it('omits filteredNote when nothing is hidden', async () => {

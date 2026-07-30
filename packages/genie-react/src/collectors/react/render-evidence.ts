@@ -2,9 +2,9 @@ import type { Fiber } from 'bippy'
 import { countExternalStoreHooks, type RenderCause } from './render-causes'
 import {
   type ExternalStoreSourceResolution,
-  isLibraryFile,
   type ResolvedSource,
   resolveExternalStoreSourceResolutionBeforeDeadline,
+  sourceOwnershipForSource,
 } from './source'
 
 const HOOK_SOURCE_ATTRIBUTION_LIMIT = 80
@@ -50,9 +50,7 @@ export function hasExactAppExternalStoreCallsite(
   expectedCount: number,
 ): boolean {
   if (resolution?.status !== 'resolved' || resolution.hooks?.length !== expectedCount) return false
-  return resolution.hooks.some(
-    (hook) => hook.callsite !== null && !isLibraryFile(hook.callsite.file),
-  )
+  return resolution.hooks.some((hook) => sourceOwnershipForSource(hook.callsite) === 'app')
 }
 
 function externalStoreHookProvenance(
