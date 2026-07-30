@@ -1,5 +1,13 @@
 # genie-react
 
+## 0.12.2
+
+### Patch Changes
+
+- b192452: Answer `react_component_cohort` per instance instead of collapsing the whole result to `unknown`. Fibers the commit walk reached but the analysis budget declined are now recorded by identity, so a skipped fiber costs that one instance its verdict rather than every instance in the cohort. Instances the walk reached and did not record report `mounted-idle`, and an instance whose render was actually recorded keeps its `mounted-updated` verdict even when an unrelated coverage gap is open. Deferred lifecycle work remains unknown until it is processed, while a failed traversal keeps the rest of the observation window incomplete. Skipped-render identity detail is bounded and fails closed on overflow. `coverage.complete` keeps its existing meaning.
+- c74cef9: Attribute React Native components to their real source files, including Expo/Hermes bundle URLs and framework-wrapped app roots. Metro frames are symbolicated through the dev server's `/symbolicate` endpoint with shared in-flight lookups and retryable failures. An unsymbolicated bundle remains visible as diagnostic source data but has unknown ownership, so `appOnly` never guesses that it belongs to the app. Folded library trees preserve valid parent links, and filtered reads warn only when no app-owned result survived the ownership filter.
+- 6b5bb60: Allow callers to request render observation budgets large enough for large React Native screens. Defaults remain 250 fibers / 20,000 operations / 8ms, and adaptive growth applies only to later commits after exhaustion, so discard an incomplete one-action observation and rerun it with an explicit larger budget. The target deadline now extends one normalized reserve duration beyond the normalized general deadline, explicitly requested budgets are not clamped down to adaptive ceilings, and the opt-in ceilings rise to 20,000 fibers / 2,000,000 operations / 500ms (250ms target reserve).
+
 ## 0.12.1
 
 ### Patch Changes
