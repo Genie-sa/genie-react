@@ -337,24 +337,33 @@ export function summarizeQueryList(result: unknown): string | null {
   if (!isRecord(result) || !Array.isArray(result.queries)) return null
   const queries = result.queries.filter(isRecord)
   const total = num(result.total)
-  const stale = queries.filter((query) => query.isStale === true).length
+  const stale = queries.filter(
+    (query) => query.isStale === true && !(query.isDisabled === true && query.hasFetched === false),
+  ).length
   const fetching = queries.filter((query) => query.fetchStatus === 'fetching').length
-  const orphaned = isRecord(result.churn) ? num(result.churn.orphaned) : 0
+  const churnFamilies =
+    isRecord(result.churn) && Array.isArray(result.churn.families)
+      ? result.churn.families.filter(isRecord).length
+      : 0
   const head = [`${total} quer${total === 1 ? 'y' : 'ies'}`]
   if (queries.length < total) head.push(`(showing ${queries.length})`)
   if (stale > 0) head.push(`· ${stale} stale`)
   if (fetching > 0) head.push(`· ${fetching} fetching`)
-  if (orphaned > 0) head.push(`· ! ${orphaned} orphaned (churn)`)
+  if (churnFamilies > 0)
+    head.push(`· ! ${churnFamilies} churn ${churnFamilies === 1 ? 'family' : 'families'}`)
   const lines = [head.join(' ')]
   for (const query of queries) {
-    const parts = [
-      `  ${keyPreview(query.queryKey, query.queryHash)}`,
-      String(query.status),
-      query.isStale === true ? 'stale' : 'fresh',
-    ]
+    const parts = [`  ${keyPreview(query.queryKey, query.queryHash)}`]
+    if (query.isDisabled === true) parts.push('disabled')
+    else parts.push(String(query.status), query.isStale === true ? 'stale' : 'fresh')
+    if (query.hasFetched === false) parts.push('never fetched')
+    if (query.isCached === true && num(query.observerCount) === 0) parts.push('cached')
     if (query.fetchStatus !== 'idle') parts.push(String(query.fetchStatus))
-    parts.push(`${num(query.observerCount)} obs`)
-    if (num(query.recentFetches) > 0) parts.push(`! ${num(query.recentFetches)} fetches/10s`)
+    const observerCount = num(query.observerCount)
+    parts.push(`${observerCount} ${observerCount === 1 ? 'observer' : 'observers'}`)
+    const recentFetches = num(query.recentFetches)
+    if (recentFetches > 0)
+      parts.push(`! ${recentFetches} ${recentFetches === 1 ? 'fetch' : 'fetches'}/10s`)
     if (typeof query.error === 'string') parts.push(`error: ${query.error}`)
     lines.push(parts.join(' · '))
   }
