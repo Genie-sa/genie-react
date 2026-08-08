@@ -1,5 +1,5 @@
 import type { Fiber } from 'bippy'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Honor a per-fiber _debugSource so a component can classify as library (node_modules) — the shape source.test.ts uses; getFiberHooks stays empty so per-effect attribution is a no-op and component-level filtering drives the counts.
 const getSource = vi.fn(async (fiber: { _debugSource?: unknown }) => fiber._debugSource ?? null)
@@ -78,12 +78,6 @@ function effectFiber(
     _debugSource: source,
   })
 }
-
-// Burn bippy's falsy id 0 so every fixture gets a stable truthy id.
-beforeAll(() => {
-  recordRender(renderFiber('__warm__', null), 'mount')
-  recordEffect(effectFiber('__warmE__', null, 1), 'mount')
-})
 
 beforeEach(() => {
   clearRenders()

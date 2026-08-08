@@ -1,5 +1,5 @@
 import { type Fiber, getFiberId, type RenderPhase } from 'bippy'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   querySubscriberFor,
   recordRouterNotification,
@@ -78,11 +78,6 @@ function componentFiber(opts: {
 }
 
 const render = (fiber: Fiber, phase: RenderPhase) => recordRender(fiber, phase)
-
-// bippy gives the very first fiber the falsy id 0 and reassigns it on the next lookup; burn it up front so every test fiber gets a stable, truthy id.
-beforeAll(() => {
-  recordRender(componentFiber({ name: '__warmup__', props: {} }), 'mount')
-})
 
 beforeEach(() => clearRenders())
 
