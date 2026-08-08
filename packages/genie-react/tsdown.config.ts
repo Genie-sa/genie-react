@@ -26,16 +26,21 @@ export default defineConfig([
     },
     platform: 'neutral',
     clean: true,
-    external: [
-      /^bippy/,
-      /^react/,
-      /^@tanstack\//,
-      /^genie-react\//,
-      'zod',
-      'superjson',
-      'ws',
-      '@jridgewell/sourcemap-codec',
-    ],
+    deps: {
+      // Zod is private to the browser runtime so a host's Zod 3/4 cannot satisfy Genie schemas or prevent the app from mounting.
+      alwaysBundle: ['zod'],
+      onlyBundle: ['zod'],
+      dts: { neverBundle: ['zod'] },
+      neverBundle: [
+        /^bippy/,
+        /^react/,
+        /^@tanstack\//,
+        /^genie-react\//,
+        'superjson',
+        'ws',
+        '@jridgewell/sourcemap-codec',
+      ],
+    },
   },
   {
     ...shared,
@@ -45,7 +50,7 @@ export default defineConfig([
     },
     platform: 'node',
     clean: false,
-    external: ['vite', 'ws', 'zod', 'superjson'],
+    deps: { neverBundle: ['vite', 'ws', 'zod', 'superjson'] },
   },
   {
     format: ['iife'],
@@ -57,6 +62,6 @@ export default defineConfig([
     fixedExtension: false,
     clean: false,
     // Self-contained on purpose: the hub serves this single file to pages with no bundler integration.
-    noExternal: [/./],
+    deps: { alwaysBundle: [/./], onlyBundle: false },
   },
 ])

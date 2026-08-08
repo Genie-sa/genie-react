@@ -25,6 +25,7 @@ const PROFILES = {
     vite: '5.0.0',
     '@tanstack/react-query': '5.0.0',
     '@tanstack/react-router': '1.0.0',
+    zod: '3.25.76',
   },
   // Keep these exact pins aligned with the workspace's resolved development stack.
   current: {
@@ -33,6 +34,7 @@ const PROFILES = {
     vite: '8.1.0',
     '@tanstack/react-query': '5.101.2',
     '@tanstack/react-router': '1.170.17',
+    zod: '4.4.3',
   },
 }
 
@@ -159,6 +161,41 @@ if (!Array.isArray(plugins) || plugins.length !== 4) {
 `,
   )
   writeFileSync(
+    join(directory, 'src/zod-check.ts'),
+    `import { agentErrorCodeSchema } from 'genie-react/protocol'
+
+export const parsed = agentErrorCodeSchema.safeParse('invalid-args')
+`,
+  )
+  writeFileSync(
+    join(directory, 'verify-vite-zod.mjs'),
+    `import { createServer } from 'vite'
+import { genie } from 'genie-react/vite'
+
+const server = await createServer({
+  root: process.cwd(),
+  configFile: false,
+  logLevel: 'silent',
+  plugins: [genie()],
+  server: { middlewareMode: true },
+})
+try {
+  const loaded = await server.ssrLoadModule('/src/zod-check.ts')
+  if (loaded.parsed?.success !== true) {
+    throw new Error('Bundled protocol schema did not parse through the host Vite runtime')
+  }
+  const hostZodModules = [...server.moduleGraph.idToModuleMap.keys()].filter((id) =>
+    id.replaceAll('\\\\', '/').includes('/node_modules/zod/'),
+  )
+  if (hostZodModules.length > 0) {
+    throw new Error(\`Genie protocol resolved host Zod modules:\\n\${hostZodModules.join('\\n')}\`)
+  }
+} finally {
+  await server.close()
+}
+`,
+  )
+  writeFileSync(
     join(directory, 'production.html'),
     '<!doctype html><html><body><div id="root"></div><script type="module" src="/src/production.tsx"></script></body></html>\n',
   )
@@ -277,6 +314,7 @@ function assertInstalledVersions(directory, expected) {
 
 function verifyConsumer(directory) {
   execFileSync(process.execPath, ['verify-imports.mjs'], { cwd: directory, stdio: 'inherit' })
+  execFileSync(process.execPath, ['verify-vite-zod.mjs'], { cwd: directory, stdio: 'inherit' })
   execFileSync(process.execPath, [join(directory, 'node_modules/typescript/bin/tsc'), '--noEmit'], {
     cwd: directory,
     stdio: 'inherit',
