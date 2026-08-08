@@ -1,5 +1,5 @@
 const DEFAULT_OPERATION_LIMIT = 20_000
-const DEFAULT_TIME_LIMIT_MS = 8
+export const DEFAULT_TIME_LIMIT_MS = 8
 
 export interface CommitWorkBudget {
   remainingOperations: number
@@ -14,6 +14,14 @@ export interface CommitWorkBudgetOptions {
   now?: () => number
 }
 
+export function normalizeTimeLimitMs(
+  value: number | undefined,
+  fallback = DEFAULT_TIME_LIMIT_MS,
+): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback
+  return Math.max(0.1, value)
+}
+
 function monotonicNow(): number {
   return globalThis.performance?.now?.() ?? Date.now()
 }
@@ -22,7 +30,7 @@ function monotonicNow(): number {
 export function createCommitWorkBudget(options: CommitWorkBudgetOptions = {}): CommitWorkBudget {
   const now = options.now ?? monotonicNow
   const operationLimit = boundedPositiveInteger(options.operationLimit, DEFAULT_OPERATION_LIMIT)
-  const timeLimitMs = boundedPositiveNumber(options.timeLimitMs, DEFAULT_TIME_LIMIT_MS)
+  const timeLimitMs = normalizeTimeLimitMs(options.timeLimitMs)
   return {
     remainingOperations: operationLimit,
     deadlineAt: now() + timeLimitMs,
@@ -59,9 +67,4 @@ export function commitWorkExhaustions(budget: CommitWorkBudget): string[] {
 function boundedPositiveInteger(value: number | undefined, fallback: number): number {
   if (value === undefined || !Number.isFinite(value)) return fallback
   return Math.max(1, Math.floor(value))
-}
-
-function boundedPositiveNumber(value: number | undefined, fallback: number): number {
-  if (value === undefined || !Number.isFinite(value)) return fallback
-  return Math.max(0.1, value)
 }

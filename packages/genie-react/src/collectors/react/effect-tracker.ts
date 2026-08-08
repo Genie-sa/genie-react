@@ -25,10 +25,10 @@ import {
   classifyFibersWithinBudget,
   type EffectSourceResolution,
   type FiberClassification,
-  isLibraryFile,
   type ResolvedSource,
   resolveEffectSourceResolutionBeforeDeadline,
   sourceLabel,
+  sourceOwnershipForSource,
 } from './source'
 
 // React's ReactHookEffectTags, stable across 16.8+/18/19 (bippy doesn't re-export them): HasEffect = will run this commit; the kind bit is fixed per effect.
@@ -47,6 +47,7 @@ const DEFAULT_HOT_MIN_FIRE_RATE = 1
 const HOTNESS_CONFIDENCE_LEVEL = 0.95
 const UNCLASSIFIED_FIBER: FiberClassification = {
   source: null,
+  ownership: 'unknown',
   isLibrary: false,
 }
 
@@ -438,6 +439,7 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
   omittedByLimit: number
   effectsOmittedByLimit: number
   libraryEffectsHidden: number
+  appEffectsAfterAppOnly: number
   hotnessCriteria: EffectHotnessCriteria
   packageFilter?: {
     packageName: string
@@ -477,20 +479,19 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
     ? resolvedEffectSourcesByIndex
     : list.map(staleReportResolution)
   const all: EffectAuditRecord[] = list.map((record, index) => {
-    const { source, isLibrary } = classes[index] ?? UNCLASSIFIED_FIBER
+    const { source, ownership, isLibrary } = classes[index] ?? UNCLASSIFIED_FIBER
     const name = record.name === 'Anonymous' ? (sourceLabel(source) ?? record.name) : record.name
     const stats = record.stats.filter(Boolean)
     const effectSourceResolution = effectSourcesByIndex[index] ?? budgetExceededResolution()
-    const componentOwnership: EffectOwnership = source ? (isLibrary ? 'library' : 'app') : 'unknown'
     return {
       id: record.id,
       name,
       source,
       isLibrary,
       componentProvenance: {
-        ownership: componentOwnership,
-        evidence: source ? 'inferred' : 'unknown',
-        reason: source ? 'nearest-symbolicated-fiber' : 'source-unresolved',
+        ownership,
+        evidence: ownership === 'unknown' ? 'unknown' : 'inferred',
+        reason: ownership === 'unknown' ? 'source-unresolved' : 'nearest-symbolicated-fiber',
         source,
       },
       effects: stats.map((stat, position) => {
@@ -508,6 +509,7 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
 
   let findings = all
   let libraryEffectsHidden = 0
+  let appEffectsAfterAppOnly = totalEffects(findings)
   let packageFilter:
     | {
         packageName: string
@@ -552,6 +554,7 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
             record.effects.some((effect) => effect.provenance.ownership === 'app')),
       )
     libraryEffectsHidden = totalEffects(all) - totalEffects(findings)
+    appEffectsAfterAppOnly = totalEffects(findings)
   }
   if (query.onlyHot) {
     findings = findings
@@ -579,6 +582,7 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
     omittedByLimit,
     effectsOmittedByLimit,
     libraryEffectsHidden,
+    appEffectsAfterAppOnly,
     hotnessCriteria,
     ...(packageFilter === undefined ? {} : { packageFilter }),
   }
@@ -769,7 +773,18 @@ function effectProvenance(
     const hookSource = sources[position] ?? null
     const hookAncestry = effectHookAncestry(resolution, position)
     if (!hookSource) return unknownProvenance('hook-source-unresolved', hookAncestry)
-    const ownership: EffectOwnership = isLibraryFile(hookSource.file) ? 'library' : 'app'
+    const ownership = sourceOwnershipForSource(hookSource)
+    if (ownership === 'unknown') {
+      return {
+        ownership,
+        evidence: 'unknown',
+        reason: 'hook-source-unresolved',
+        hookSource,
+        packageName: null,
+        hookAncestry,
+        ...splitEffectProvenance(null, hookAncestry, null),
+      }
+    }
     return {
       ownership,
       evidence: 'exact',
@@ -785,7 +800,10 @@ function effectProvenance(
     }
   }
 
-  if (sources.length > 0 && sources.every((source) => source && isLibraryFile(source.file))) {
+  if (
+    sources.length > 0 &&
+    sources.every((source) => sourceOwnershipForSource(source) === 'library')
+  ) {
     return {
       ownership: 'library',
       evidence: 'inferred',
@@ -847,11 +865,7 @@ function effectHookAncestry(
   position: number,
 ): EffectHookAncestryFrame[] {
   return (resolution.callsites?.[position]?.hookAncestry ?? []).map((frame) => {
-    const ownership: EffectOwnership = frame.source
-      ? isLibraryFile(frame.source.file)
-        ? 'library'
-        : 'app'
-      : 'unknown'
+    const ownership = sourceOwnershipForSource(frame.source)
     return {
       name: frame.name,
       source: frame.source,

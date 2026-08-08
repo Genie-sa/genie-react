@@ -6,6 +6,7 @@ import {
   type ToolDescriptor,
   toolDescriptorSchema,
 } from './protocol'
+import { renderObservationBudgetInputSchema } from './react-observation-schema'
 
 export const CAPTURE_SCHEMA_VERSION = '1.0' as const
 export const CAPTURE_DOMAINS = [
@@ -534,23 +535,7 @@ export const INTERACTION_SCHEMA_VERSION = '1.0' as const
 const interactionObservationInputSchema = z.object({
   components: z.array(z.string().trim().min(1).max(160)).max(20).default([]),
   roots: z.array(z.number().int()).max(20).default([]),
-  budget: z
-    .object({
-      fiberLimit: z.number().int().min(50).max(5_000).default(250),
-      operationLimit: z.number().int().min(1_000).max(200_000).default(20_000),
-      timeLimitMs: z.number().min(1).max(50).default(8),
-      targetOperationReserve: z.number().int().min(100).max(50_000).default(4_000),
-      targetTimeReserveMs: z.number().min(0.5).max(25).default(4),
-      adaptive: z.boolean().default(true),
-    })
-    .default({
-      fiberLimit: 250,
-      operationLimit: 20_000,
-      timeLimitMs: 8,
-      targetOperationReserve: 4_000,
-      targetTimeReserveMs: 4,
-      adaptive: true,
-    }),
+  budget: renderObservationBudgetInputSchema,
   lifecycle: z
     .object({
       bufferLimit: z.number().int().min(100).max(20_000).default(1_000),

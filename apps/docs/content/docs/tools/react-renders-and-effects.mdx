@@ -14,9 +14,14 @@ Clears render counters and starts a new causal observation window.
 1–160 character string. `roots` defaults to `[]` and accepts at most 20 integer component IDs.
 `budget` is optional. `fiberLimit` defaults to 250, `operationLimit` to 20000, `timeLimitMs` to 8,
 `targetOperationReserve` to 4000, `targetTimeReserveMs` to 4, and `adaptive` to `true`; the numeric ranges are
-50–5000, 1000–200000, 1–50, 100–50000, and 0.5–25 respectively. `lifecycle`
+50–20000, 1000–2000000, 1–500, 100–500000, and 0.5–250 respectively. `lifecycle`
 defaults to `{bufferLimit:1000,targetReserve:100}`; `bufferLimit` is an integer from 100 to 20000,
 `targetReserve` is an integer from 0 to 5000, and the reserve cannot exceed the buffer.
+
+The expanded maxima are opt-in; defaults are unchanged. `adaptive:true` increases only later commit
+budgets after exhaustion and cannot restore evidence skipped by the exhausted commit. For a
+one-action window, especially on a large React Native tree, discard incomplete coverage and rerun
+the action from a fresh window with an explicitly larger budget.
 
 ```bash
 npx @genie-react/cli call react_clear_renders \
@@ -45,7 +50,9 @@ npx @genie-react/cli call react_clear_renders \
 
 **Agent use:** Drive exactly one interaction next, then join render and effect evidence by
 `observation.id`. This call discards earlier counters and starts fresh retained histories, so capture
-needed evidence before clearing again.
+needed evidence before clearing again. Use the subsequent render and cause evidence only when its
+coverage is complete and `budgetExhaustedCommits` is zero; adaptive recovery later in the window
+does not repair an earlier incomplete commit.
 
 ## `react_get_renders`
 
@@ -245,8 +252,11 @@ npx @genie-react/cli call react_component_cohort \
 }
 ```
 
-**Agent use:** Decide whether a list fix targets updated rows, unmounted rows, or identity churn.
-Do not call absent or omitted instances idle; require complete cohort coverage first.
+**Agent use:** Decide whether a list fix targets updated rows, unmounted rows, or identity churn. Read
+each returned instance's status even when global `coverage.complete` is `false`: `mounted-updated` and
+`mounted-idle` remain authoritative, as does an exact `unmounted` tombstone; `mounted-unknown` does
+not. The tool emits top-level `absent` only when root and lifecycle evidence is sufficient. Do not
+manufacture absence from `matched: 0` when the status is `unknown`, or from omitted instances.
 
 ## `react_effect_audit`
 
@@ -645,9 +655,14 @@ Clears render counters and starts a profiling observation.
 1–160 character string. `roots` defaults to `[]` and accepts at most 20 integer component IDs.
 `budget` is optional. `fiberLimit` defaults to 250, `operationLimit` to 20000, `timeLimitMs` to 8,
 `targetOperationReserve` to 4000, `targetTimeReserveMs` to 4, and `adaptive` to `true`; the numeric ranges are
-50–5000, 1000–200000, 1–50, 100–50000, and 0.5–25 respectively. `lifecycle`
+50–20000, 1000–2000000, 1–500, 100–500000, and 0.5–250 respectively. `lifecycle`
 defaults to `{bufferLimit:1000,targetReserve:100}`; `bufferLimit` is an integer from 100 to 20000,
 `targetReserve` is an integer from 0 to 5000, and the reserve cannot exceed the buffer.
+
+The expanded maxima are opt-in; defaults are unchanged. `adaptive:true` increases only later commit
+budgets after exhaustion and cannot restore evidence skipped by the exhausted commit. For a
+one-action profile, especially on a large React Native tree, discard incomplete coverage and rerun
+the flow from a fresh profile with an explicitly larger budget.
 
 ```bash
 npx @genie-react/cli call react_profile_start \
@@ -674,7 +689,8 @@ npx @genie-react/cli call react_profile_start \
 ```
 
 **Agent use:** Run the exact flow to measure next, then stop before reading the final report. Starting
-clears current counters but keeps named snapshots for later diffs.
+clears current counters but keeps named snapshots for later diffs. Compare the result only when
+coverage is complete and `budgetExhaustedCommits` is zero.
 
 ## `react_profile_stop`
 

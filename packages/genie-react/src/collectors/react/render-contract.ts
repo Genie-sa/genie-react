@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { defineAgentToolContract } from '../../protocol'
+import { renderObservationBudgetInputSchema } from '../../protocol/react-observation-schema'
 import { sourceProvenanceSchema, sourceSchema, wrapperFrameSchema } from './contract-schemas'
 
 export const observationSchema = z.object({
@@ -492,23 +493,7 @@ export const renderObservationInputSchema = z.object({
     .max(20)
     .default([])
     .describe('Reserve analysis work for these component node IDs and their descendants.'),
-  budget: z
-    .object({
-      fiberLimit: z.number().int().min(50).max(5_000).default(250),
-      operationLimit: z.number().int().min(1_000).max(200_000).default(20_000),
-      timeLimitMs: z.number().min(1).max(50).default(8),
-      targetOperationReserve: z.number().int().min(100).max(50_000).default(4_000),
-      targetTimeReserveMs: z.number().min(0.5).max(25).default(4),
-      adaptive: z.boolean().default(true),
-    })
-    .default({
-      fiberLimit: 250,
-      operationLimit: 20_000,
-      timeLimitMs: 8,
-      targetOperationReserve: 4_000,
-      targetTimeReserveMs: 4,
-      adaptive: true,
-    }),
+  budget: renderObservationBudgetInputSchema,
   lifecycle: z
     .object({
       bufferLimit: z.number().int().min(100).max(20_000).default(1_000),
@@ -658,7 +643,11 @@ export const reactComponentCohortContract = defineAgentToolContract({
       }),
     ),
     coverage: z.object({
-      complete: z.boolean().describe('Completeness of lifecycle and cohort observation.'),
+      complete: z
+        .boolean()
+        .describe(
+          'Global completeness of lifecycle and cohort capture; returned per-instance statuses can remain authoritative when false.',
+        ),
       inputAttributionComplete: z.boolean(),
       scannedFibers: z.number().int().nonnegative(),
       scanLimit: z.number().int().positive(),

@@ -35,6 +35,10 @@ npx @genie-react/cli call react_get_renders '{"sort":"selfTime","limit":3}'
 npx @genie-react/cli call react_render_causes '{"component":"Button","limit":3}'
 ```
 
+Use the observation only when its coverage is complete and `budgetExhaustedCommits` is zero. On a
+large React Native tree, discard an incomplete one-action window and rerun it with an explicit larger
+budget; adaptive growth on later commits cannot restore evidence skipped by the exhausted commit.
+
 Real demo output:
 
 ```text
