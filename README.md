@@ -294,6 +294,9 @@ It normally finds the Router and Query client. You can also pass them:
 {import.meta.env.DEV && <Genie queryClient={queryClient} router={router} />}
 ```
 
+The `genie()` plugin removes this dedicated component import during production builds, so the guard
+adds no Genie browser modules or protocol code to production assets.
+
 ### Next.js
 
 `init` adds `<GenieScript />` to the root layout and creates `instrumentation.ts`. This setup uses

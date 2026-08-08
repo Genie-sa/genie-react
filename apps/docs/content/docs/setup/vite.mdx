@@ -34,6 +34,10 @@ them elsewhere:
 }
 ```
 
+During production builds, the `genie()` plugin replaces this dedicated component import before
+Rollup resolves the app graph. Genie browser modules and protocol code therefore stay out of the
+production assets.
+
 ## Check the setup
 
 ```bash
