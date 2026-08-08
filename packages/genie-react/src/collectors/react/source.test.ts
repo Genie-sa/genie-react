@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const getSource = vi.fn(async (fiber: { _debugSource?: unknown }) => fiber._debugSource ?? null)
 const getFiberHooks = vi.fn<(fiber: unknown) => HooksNode[]>(() => [])
 const formatOwnerStack = vi.fn((stack: string) => stack)
-const parseStack = vi.fn<() => unknown[]>(() => [])
+const parseStack = vi.fn<(stack: string) => unknown[]>(() => [])
 const symbolicateStack = vi.fn<(frames: unknown[]) => Promise<unknown[]>>(async (frames) => frames)
 const getSourceMap = vi.fn<(url: string) => Promise<object | null>>(async () => null)
 const getSourceFromSourceMap = vi.fn<
@@ -19,8 +19,11 @@ const normalize = (file: string) => file.replace(/\?.*$/, '').replace(/^https?:\
 vi.mock('bippy/source', () => ({
   getSource: (fiber: { _debugSource?: unknown }) => getSource(fiber),
   formatOwnerStack: (stack: string) => formatOwnerStack(stack),
-  parseStack: () => parseStack(),
-  isSourceFile: (file: string) => !file.includes('/node_modules/') && !file.includes('/.next/'),
+  parseStack: (stack: string) => parseStack(stack),
+  isSourceFile: (file: string) =>
+    /\.(jsx|tsx|ts|js)$/.test(normalize(file)) &&
+    !file.includes('/node_modules/') &&
+    !file.includes('/.next/'),
   normalizeFileName: normalize,
   getFiberHooks: (fiber: unknown) => getFiberHooks(fiber),
   symbolicateStack: (frames: unknown[]) => symbolicateStack(frames),
@@ -79,11 +82,18 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('isLibraryFile', () => {
-  it('treats project sources as app and node_modules (incl. vite deps) as library', () => {
+  it('recognizes dependency files without treating opaque bundler chunks as libraries', () => {
     expect(isLibraryFile('/src/App.tsx')).toBe(false)
     expect(isLibraryFile('/apps/demo/.next/dev/server/chunks/ssr/root.js')).toBe(false)
     expect(isLibraryFile('/node_modules/.vite/deps/cmdk.js')).toBe(true)
     expect(isLibraryFile('/node_modules/.pnpm/@base-ui+react/dist/index.js')).toBe(true)
+  })
+
+  it('does not misclassify an unsymbolicated Metro bundle entry as library code', () => {
+    expect(isLibraryFile('/index.bundle')).toBe(false)
+    expect(isLibraryFile('/.expo/.virtual-metro-entry.bundle')).toBe(false)
+    expect(isLibraryFile('/main.jsbundle')).toBe(false)
+    expect(isLibraryFile('/node_modules/react-native/Libraries/Text/Text.js')).toBe(true)
   })
 })
 
@@ -176,6 +186,22 @@ describe('classifyFiber', () => {
     expect(isLibrary).toBe(false)
   })
 
+  it('keeps an unmapped Next/Turbopack dev chunk as unknown ownership', async () => {
+    const { source, ownership, isLibrary } = await classifyFiber(
+      asFiber({
+        _debugSource: at('/apps/demo/.next/dev/server/chunks/ssr/root.js', 190),
+      }),
+    )
+
+    expect(source).toMatchObject({
+      file: '/apps/demo/.next/dev/server/chunks/ssr/root.js',
+      line: 190,
+      sourceMapConfidence: 'served',
+    })
+    expect(ownership).toBe('unknown')
+    expect(isLibrary).toBe(false)
+  })
+
   it('inherits the nearest composite ancestor when a fiber has no source of its own', async () => {
     const parent = asFiber({ _debugSource: at('/node_modules/.vite/deps/cmdk.js', 200) })
     const child = asFiber({ return: parent })
@@ -183,10 +209,726 @@ describe('classifyFiber', () => {
     expect(isLibrary).toBe(true)
   })
 
-  it('leaves an unresolved fiber as app (never silently hidden)', async () => {
-    const { source, isLibrary } = await classifyFiber(asFiber({}))
+  it('keeps unresolved ownership unknown', async () => {
+    const { source, isLibrary, ownership } = await classifyFiber(asFiber({}))
     expect(source).toBeNull()
     expect(isLibrary).toBe(false)
+    expect(ownership).toBe('unknown')
+  })
+})
+
+describe('Metro symbolication', () => {
+  const BUNDLE = 'http://127.0.0.1:8081/index.bundle?platform=android&dev=true'
+  const EXPO_HERMES_BUNDLE =
+    'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle//&platform=ios&dev=true'
+  type FetchMock = (url: string, init?: { method?: string; body?: string }) => Promise<unknown>
+  const respondWith = (frame: unknown) => ({ ok: true, json: async () => ({ stack: [frame] }) })
+
+  it('maps a Metro bundle frame to its app source through the dev server endpoint', async () => {
+    const fetchMock = vi.fn<FetchMock>(async () =>
+      respondWith({ file: '/app/(home)/index.tsx', lineNumber: 42, column: 7 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { source, isLibrary } = await classifyFiber(asFiber({ _debugSource: at(BUNDLE, 200) }))
+
+    expect(source).toMatchObject({
+      file: '/app/(home)/index.tsx',
+      line: 42,
+      column: 7,
+      sourceMapConfidence: 'mapped',
+    })
+    expect(isLibrary).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://127.0.0.1:8081/symbolicate')
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('POST')
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body ?? 'null')).toEqual({
+      stack: [{ file: BUNDLE, lineNumber: 200, column: 0 }],
+    })
+  })
+
+  it('maps the native Expo Hermes bundle URL through the Metro endpoint', async () => {
+    const fetchMock = vi.fn<FetchMock>(async () =>
+      respondWith({ file: '/examples/expo-demo/App.tsx', lineNumber: 31, column: 5 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { source, isLibrary } = await classifyFiber(
+      asFiber({ _debugSource: at(EXPO_HERMES_BUNDLE, 98210) }),
+    )
+
+    expect(source).toMatchObject({
+      file: '/examples/expo-demo/App.tsx',
+      line: 31,
+      column: 5,
+      sourceMapConfidence: 'mapped',
+    })
+    expect(isLibrary).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://127.0.0.1:8081/symbolicate')
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body ?? 'null')).toEqual({
+      stack: [{ file: EXPO_HERMES_BUNDLE, lineNumber: 98210, column: 0 }],
+    })
+  })
+
+  it('recovers an app component body frame when Expo created its fiber inside a library wrapper', async () => {
+    const usageStack = new Error('wrapped-app-usage')
+    usageStack.stack = 'wrapped-app-usage'
+    const ownedChildStack = new Error('owned-app-body')
+    ownedChildStack.stack = 'owned-app-body'
+    const App = (): null => null
+    Object.assign(App, { displayName: 'App' })
+    const app = asFiber({
+      tag: 0,
+      type: App,
+      alternate: null,
+      _debugStack: usageStack,
+      child: null,
+    })
+    const ownedChild = asFiber({
+      tag: 5,
+      _debugOwner: app,
+      _debugStack: ownedChildStack,
+      child: null,
+      sibling: null,
+      return: app,
+    })
+    Object.assign(app, { child: ownedChild })
+    parseStack.mockImplementation((stack) =>
+      stack === 'owned-app-body'
+        ? [
+            {
+              fileName: EXPO_HERMES_BUNDLE,
+              lineNumber: 400,
+              columnNumber: 0,
+              functionName: 'App',
+            },
+          ]
+        : [
+            {
+              fileName: EXPO_HERMES_BUNDLE,
+              lineNumber: 200,
+              columnNumber: 0,
+              functionName: 'withDevTools',
+            },
+          ],
+    )
+    const fetchMock = vi.fn<FetchMock>(async (_url, init) => {
+      const frame = JSON.parse(init?.body ?? 'null')?.stack?.[0]
+      return frame?.lineNumber === 400
+        ? respondWith({
+            file: '/examples/expo-demo/App.tsx',
+            lineNumber: 31,
+            column: 5,
+          })
+        : respondWith({
+            file: '/node_modules/expo/src/launch/withDevTools.ios.tsx',
+            lineNumber: 18,
+            column: 2,
+          })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const classification = await classifyFiber(app)
+
+    expect(classification).toMatchObject({
+      source: {
+        file: '/examples/expo-demo/App.tsx',
+        line: 31,
+        column: 5,
+        functionName: 'App',
+      },
+      ownership: 'app',
+      isLibrary: false,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not return a stale usage frame when the cache clears during owned-child recovery', async () => {
+    type SymbolicateResponse = ReturnType<typeof respondWith>
+    let resolveOwnedFrame: ((response: SymbolicateResponse) => void) | undefined
+    const usageStack = new Error('stale-wrapper-usage')
+    usageStack.stack = 'stale-wrapper-usage'
+    const ownedChildStack = new Error('stale-owned-body')
+    ownedChildStack.stack = 'stale-owned-body'
+    const App = (): null => null
+    Object.assign(App, { displayName: 'App' })
+    const app = asFiber({
+      tag: 0,
+      type: App,
+      alternate: null,
+      _debugStack: usageStack,
+      child: null,
+    })
+    const ownedChild = asFiber({
+      tag: 5,
+      _debugOwner: app,
+      _debugStack: ownedChildStack,
+      child: null,
+      sibling: null,
+      return: app,
+    })
+    Object.assign(app, { child: ownedChild })
+    parseStack.mockImplementation((stack) => [
+      {
+        fileName: EXPO_HERMES_BUNDLE,
+        lineNumber: stack === 'stale-owned-body' ? 400 : 200,
+        columnNumber: 0,
+        functionName: stack === 'stale-owned-body' ? 'App' : 'withDevTools',
+      },
+    ])
+    const fetchMock = vi
+      .fn<FetchMock>()
+      .mockResolvedValueOnce(
+        respondWith({
+          file: '/node_modules/expo/src/launch/withDevTools.ios.tsx',
+          lineNumber: 18,
+          column: 2,
+        }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOwnedFrame = resolve as (response: SymbolicateResponse) => void
+          }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const pending = resolveSource(app)
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    clearSourceCache()
+    resolveOwnedFrame?.(
+      respondWith({ file: '/examples/expo-demo/App.tsx', lineNumber: 31, column: 5 }),
+    )
+
+    await expect(pending).resolves.toBeNull()
+  })
+
+  it('retries an unresolved owned App frame for the same mounted wrapper fiber', async () => {
+    await resolveSource(asFiber({}))
+    const usageStack = new Error('retry-wrapper-usage')
+    usageStack.stack = 'retry-wrapper-usage'
+    const ownedChildStack = new Error('retry-owned-body')
+    ownedChildStack.stack = 'retry-owned-body'
+    const App = (): null => null
+    Object.assign(App, { displayName: 'App' })
+    const app = asFiber({
+      tag: 0,
+      type: App,
+      alternate: null,
+      _debugStack: usageStack,
+      child: null,
+    })
+    const ownedChild = asFiber({
+      tag: 5,
+      _debugOwner: app,
+      _debugStack: ownedChildStack,
+      child: null,
+      sibling: null,
+      return: app,
+    })
+    Object.assign(app, { child: ownedChild })
+    parseStack.mockImplementation((stack) => [
+      {
+        fileName: EXPO_HERMES_BUNDLE,
+        lineNumber: stack === 'retry-owned-body' ? 400 : 200,
+        columnNumber: 0,
+        functionName: stack === 'retry-owned-body' ? 'App' : 'withDevTools',
+      },
+    ])
+    let ownedAttempts = 0
+    const fetchMock = vi.fn<FetchMock>(async (_url, init) => {
+      const frame = JSON.parse(init?.body ?? 'null')?.stack?.[0]
+      if (frame?.lineNumber === 400) {
+        ownedAttempts += 1
+        return ownedAttempts === 1
+          ? { ok: false, json: async () => null }
+          : respondWith({
+              file: '/examples/expo-demo/App.tsx',
+              lineNumber: 31,
+              column: 5,
+            })
+      }
+      return respondWith({
+        file: '/node_modules/expo/src/launch/withDevTools.ios.tsx',
+        lineNumber: 18,
+        column: 2,
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(classifyFiber(app)).resolves.toMatchObject({
+      source: { file: '/node_modules/expo/src/launch/withDevTools.ios.tsx' },
+      ownership: 'library',
+    })
+    await expect(classifyFiber(app)).resolves.toMatchObject({
+      source: { file: '/examples/expo-demo/App.tsx' },
+      ownership: 'app',
+    })
+    expect(ownedAttempts).toBe(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not treat an unowned child as component definition evidence', async () => {
+    const usageStack = new Error('library-usage')
+    usageStack.stack = 'library-usage'
+    const unownedChildStack = new Error('unowned-app-body')
+    unownedChildStack.stack = 'unowned-app-body'
+    const LibraryComponent = (): null => null
+    const library = asFiber({
+      tag: 0,
+      type: LibraryComponent,
+      alternate: null,
+      _debugStack: usageStack,
+      child: null,
+    })
+    const unownedChild = asFiber({
+      tag: 5,
+      _debugOwner: null,
+      _debugStack: unownedChildStack,
+      child: null,
+      sibling: null,
+      return: library,
+    })
+    Object.assign(library, { child: unownedChild })
+    parseStack.mockImplementation((stack) => [
+      {
+        fileName: EXPO_HERMES_BUNDLE,
+        lineNumber: stack === 'unowned-app-body' ? 400 : 200,
+        columnNumber: 0,
+        functionName: stack === 'unowned-app-body' ? 'App' : 'LibraryComponent',
+      },
+    ])
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<FetchMock>(async (_url, init) => {
+        const frame = JSON.parse(init?.body ?? 'null')?.stack?.[0]
+        return frame?.lineNumber === 400
+          ? respondWith({ file: '/examples/expo-demo/App.tsx', lineNumber: 31, column: 5 })
+          : respondWith({
+              file: '/node_modules/expo/src/launch/withDevTools.ios.tsx',
+              lineNumber: 18,
+              column: 2,
+            })
+      }),
+    )
+
+    const classification = await classifyFiber(library)
+
+    expect(classification).toMatchObject({
+      source: { file: '/node_modules/expo/src/launch/withDevTools.ios.tsx' },
+      ownership: 'library',
+      isLibrary: true,
+    })
+  })
+
+  it('does not replace a library component with an owned render-prop callback source', async () => {
+    const usageStack = new Error('library-render-prop-usage')
+    usageStack.stack = 'library-render-prop-usage'
+    const renderPropStack = new Error('owned-render-prop')
+    renderPropStack.stack = 'owned-render-prop'
+    const LibraryList = (): null => null
+    Object.assign(LibraryList, { displayName: 'LibraryList' })
+    const library = asFiber({
+      tag: 0,
+      type: LibraryList,
+      alternate: null,
+      _debugStack: usageStack,
+      child: null,
+    })
+    const renderPropChild = asFiber({
+      tag: 5,
+      _debugOwner: library,
+      _debugStack: renderPropStack,
+      child: null,
+      sibling: null,
+      return: library,
+    })
+    Object.assign(library, { child: renderPropChild })
+    parseStack.mockImplementation((stack) => [
+      {
+        fileName: EXPO_HERMES_BUNDLE,
+        lineNumber: stack === 'owned-render-prop' ? 400 : 200,
+        columnNumber: 0,
+        functionName: stack === 'owned-render-prop' ? 'renderItem' : 'LibraryList',
+      },
+    ])
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<FetchMock>(async (_url, init) => {
+        const frame = JSON.parse(init?.body ?? 'null')?.stack?.[0]
+        return frame?.lineNumber === 400
+          ? respondWith({ file: '/src/ListScreen.tsx', lineNumber: 47, column: 8 })
+          : respondWith({
+              file: '/node_modules/list-library/src/LibraryList.tsx',
+              lineNumber: 18,
+              column: 2,
+            })
+      }),
+    )
+
+    const classification = await classifyFiber(library)
+
+    expect(classification).toMatchObject({
+      source: { file: '/node_modules/list-library/src/LibraryList.tsx' },
+      ownership: 'library',
+      isLibrary: true,
+    })
+  })
+
+  it('does not trust a mutable displayName over the target function identity', async () => {
+    const usageStack = new Error('renamed-library-usage')
+    usageStack.stack = 'renamed-library-usage'
+    const sameNameCallbackStack = new Error('same-display-name-callback')
+    sameNameCallbackStack.stack = 'same-display-name-callback'
+    const LibraryList = (): null => null
+    Object.assign(LibraryList, { displayName: 'App' })
+    const library = asFiber({
+      tag: 0,
+      type: LibraryList,
+      alternate: null,
+      _debugStack: usageStack,
+      child: null,
+    })
+    const callbackChild = asFiber({
+      tag: 5,
+      _debugOwner: library,
+      _debugStack: sameNameCallbackStack,
+      child: null,
+      sibling: null,
+      return: library,
+    })
+    Object.assign(library, { child: callbackChild })
+    parseStack.mockImplementation((stack) => [
+      {
+        fileName: EXPO_HERMES_BUNDLE,
+        lineNumber: stack === 'same-display-name-callback' ? 400 : 200,
+        columnNumber: 0,
+        functionName: stack === 'same-display-name-callback' ? 'App' : 'withDevTools',
+      },
+    ])
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<FetchMock>(async (_url, init) => {
+        const frame = JSON.parse(init?.body ?? 'null')?.stack?.[0]
+        return frame?.lineNumber === 400
+          ? respondWith({ file: '/src/App.tsx', lineNumber: 47, column: 8 })
+          : respondWith({
+              file: '/node_modules/list-library/src/LibraryList.tsx',
+              lineNumber: 18,
+              column: 2,
+            })
+      }),
+    )
+
+    const classification = await classifyFiber(library)
+
+    expect(classification).toMatchObject({
+      source: { file: '/node_modules/list-library/src/LibraryList.tsx' },
+      ownership: 'library',
+      isLibrary: true,
+    })
+  })
+
+  it('bounds owned-child definition recovery on very deep subtrees', async () => {
+    const usageStack = new Error('bounded-library-usage')
+    usageStack.stack = 'bounded-library-usage'
+    const distantOwnedStack = new Error('distant-owned-app-body')
+    distantOwnedStack.stack = 'distant-owned-app-body'
+    const App = (): null => null
+    Object.assign(App, { displayName: 'App' })
+    const app = asFiber({
+      tag: 0,
+      type: App,
+      alternate: null,
+      _debugStack: usageStack,
+      child: null,
+    })
+    let parent = app
+    for (let index = 0; index < 201; index += 1) {
+      const child = asFiber({
+        tag: 5,
+        _debugOwner: index === 200 ? app : null,
+        _debugStack: index === 200 ? distantOwnedStack : null,
+        child: null,
+        sibling: null,
+        return: parent,
+      })
+      Object.assign(parent, { child })
+      parent = child
+    }
+    parseStack.mockImplementation((stack) => [
+      {
+        fileName: EXPO_HERMES_BUNDLE,
+        lineNumber: stack === 'distant-owned-app-body' ? 400 : 200,
+        columnNumber: 0,
+        functionName: stack === 'distant-owned-app-body' ? 'App' : 'withDevTools',
+      },
+    ])
+    const fetchMock = vi.fn<FetchMock>(async (_url, init) => {
+      const frame = JSON.parse(init?.body ?? 'null')?.stack?.[0]
+      return frame?.lineNumber === 400
+        ? respondWith({ file: '/examples/expo-demo/App.tsx', lineNumber: 31, column: 5 })
+        : respondWith({
+            file: '/node_modules/expo/src/launch/withDevTools.ios.tsx',
+            lineNumber: 18,
+            column: 2,
+          })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const classification = await classifyFiber(app)
+
+    expect(classification).toMatchObject({
+      source: { file: '/node_modules/expo/src/launch/withDevTools.ios.tsx' },
+      ownership: 'library',
+      isLibrary: true,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a symbolicated dependency frame classified as library', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<FetchMock>(async () =>
+        respondWith({
+          file: '/node_modules/react-native/Libraries/Components/View/View.js',
+          lineNumber: 12,
+          column: 3,
+        }),
+      ),
+    )
+
+    const { source, isLibrary } = await classifyFiber(asFiber({ _debugSource: at(BUNDLE, 200) }))
+
+    expect(source?.file).toBe('/node_modules/react-native/Libraries/Components/View/View.js')
+    expect(isLibrary).toBe(true)
+  })
+
+  it('normalizes and classifies a Windows Metro dependency path as library', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<FetchMock>(async () =>
+        respondWith({
+          file: String.raw`C:\repo\node_modules\react-native\Libraries\Text\Text.js`,
+          lineNumber: 12,
+          column: 3,
+        }),
+      ),
+    )
+
+    const { source, isLibrary } = await classifyFiber(asFiber({ _debugSource: at(BUNDLE, 200) }))
+
+    expect(source?.file).not.toContain('\\')
+    expect(source?.file).toContain('/node_modules/react-native/Libraries/Text/Text.js')
+    expect(isLibrary).toBe(true)
+  })
+
+  it('ignores a symbolicate response that hands back the bundle entry', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<FetchMock>(async () => respondWith({ file: BUNDLE, lineNumber: 200, column: 0 })),
+    )
+
+    const { source, isLibrary, ownership } = await classifyFiber(
+      asFiber({ _debugSource: at(BUNDLE, 200) }),
+    )
+
+    expect(source).toMatchObject({
+      file: '/index.bundle',
+      line: 200,
+      sourceMapConfidence: 'served',
+    })
+    expect(isLibrary).toBe(false)
+    expect(ownership).toBe('unknown')
+  })
+
+  it('never downloads the bundle itself when symbolication fails', async () => {
+    const fetchMock = vi.fn<FetchMock>(async () => {
+      throw new Error('metro unreachable')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { source, isLibrary } = await classifyFiber(asFiber({ _debugSource: at(BUNDLE, 200) }))
+
+    expect(source).toMatchObject({ file: '/index.bundle', line: 200, column: 0 })
+    expect(isLibrary).toBe(false)
+    expect(fetchMock.mock.calls.every(([url]) => url.endsWith('/symbolicate'))).toBe(true)
+  })
+
+  it('keeps a native Expo Hermes bundle visible when Metro is unavailable', async () => {
+    const fetchMock = vi.fn<FetchMock>(async () => {
+      throw new Error('metro unreachable')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { source, isLibrary } = await classifyFiber(
+      asFiber({ _debugSource: at(EXPO_HERMES_BUNDLE, 98210) }),
+    )
+
+    expect(source).toMatchObject({
+      file: '/examples/expo-demo/index.ts.bundle',
+      line: 98210,
+      column: 0,
+      sourceMapConfidence: 'served',
+    })
+    expect(isLibrary).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://127.0.0.1:8081/symbolicate')
+  })
+
+  it('symbolicates a given bundle frame once across fibers, but retries after a failure', async () => {
+    const fetchMock = vi.fn<FetchMock>(async () => ({ ok: false, json: async () => null }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await classifyFiber(asFiber({ _debugSource: at(BUNDLE, 200) }))
+    await classifyFiber(asFiber({ _debugSource: at(BUNDLE, 200) }))
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    fetchMock.mockResolvedValue(respondWith({ file: '/app/Late.tsx', lineNumber: 9, column: 1 }))
+    await classifyFiber(asFiber({ _debugSource: at(BUNDLE, 200) }))
+    await classifyFiber(asFiber({ _debugSource: at(BUNDLE, 200) }))
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('retries failed Metro attribution for the same mounted fiber', async () => {
+    // Burn bippy's falsy first id so this fixture keeps one stable cache key.
+    await resolveSource(asFiber({}))
+    const fiber = asFiber({ _debugSource: at(BUNDLE, 200) })
+    const fetchMock = vi
+      .fn<FetchMock>()
+      .mockResolvedValueOnce({ ok: false, json: async () => null })
+      .mockResolvedValueOnce(respondWith({ file: '/app/Recovered.tsx', lineNumber: 19, column: 3 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(classifyFiber(fiber)).resolves.toMatchObject({
+      source: { file: '/index.bundle' },
+      ownership: 'unknown',
+    })
+    await expect(classifyFiber(fiber)).resolves.toMatchObject({
+      source: { file: '/app/Recovered.tsx', line: 19, column: 3 },
+      ownership: 'app',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('shares one in-flight Metro request across fibers at the same frame', async () => {
+    type SymbolicateResponse = ReturnType<typeof respondWith>
+    let resolveResponse: ((response: SymbolicateResponse) => void) | undefined
+    const fetchMock = vi.fn<FetchMock>(
+      () =>
+        new Promise((resolve) => {
+          resolveResponse = resolve as (response: SymbolicateResponse) => void
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const lookups = Array.from({ length: 12 }, () =>
+      classifyFiber(asFiber({ _debugSource: at(BUNDLE, 200) })),
+    )
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    resolveResponse?.(respondWith({ file: '/app/Shared.tsx', lineNumber: 17, column: 4 }))
+    const classes = await Promise.all(lookups)
+
+    expect(classes.every(({ source }) => source?.file === '/app/Shared.tsx')).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('isolates in-flight Metro requests across cache generations', async () => {
+    type SymbolicateResponse = ReturnType<typeof respondWith>
+    let resolveStale: ((response: SymbolicateResponse) => void) | undefined
+    let resolveCurrent: ((response: SymbolicateResponse) => void) | undefined
+    const fetchMock = vi
+      .fn<FetchMock>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveStale = resolve as (response: SymbolicateResponse) => void
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveCurrent = resolve as (response: SymbolicateResponse) => void
+          }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const staleLookup = classifyFiber(asFiber({ _debugSource: at(BUNDLE, 200) }))
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+    clearSourceCache()
+    const currentLookup = classifyFiber(asFiber({ _debugSource: at(BUNDLE, 200) }))
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+
+    resolveStale?.(respondWith({ file: '/app/Stale.tsx', lineNumber: 8, column: 1 }))
+    await expect(staleLookup).resolves.toMatchObject({ source: null })
+
+    const dedupedCurrentLookup = classifyFiber(asFiber({ _debugSource: at(BUNDLE, 200) }))
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    resolveCurrent?.(respondWith({ file: '/app/Current.tsx', lineNumber: 9, column: 2 }))
+
+    await expect(currentLookup).resolves.toMatchObject({
+      source: { file: '/app/Current.tsx', line: 9, column: 2 },
+    })
+    await expect(dedupedCurrentLookup).resolves.toMatchObject({
+      source: { file: '/app/Current.tsx', line: 9, column: 2 },
+    })
+    await expect(classifyFiber(asFiber({ _debugSource: at(BUNDLE, 200) }))).resolves.toMatchObject({
+      source: { file: '/app/Current.tsx', line: 9, column: 2 },
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('times out a stalled Metro request and lets the same frame retry', async () => {
+    vi.useFakeTimers()
+    try {
+      await resolveSource(asFiber({}))
+      const fiber = asFiber({ _debugSource: at(BUNDLE, 200) })
+      const fetchMock = vi
+        .fn<FetchMock>()
+        .mockImplementationOnce(() => new Promise(() => {}))
+        .mockResolvedValueOnce(
+          respondWith({ file: '/app/AfterTimeout.tsx', lineNumber: 27, column: 6 }),
+        )
+      vi.stubGlobal('fetch', fetchMock)
+
+      const first = classifyFiber(fiber)
+      const outcome = Promise.race([
+        first.then(() => 'settled' as const),
+        new Promise<'test-timeout'>((resolve) => {
+          setTimeout(() => resolve('test-timeout'), 1_500)
+        }),
+      ])
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      expect(await outcome).toBe('settled')
+      await expect(first).resolves.toMatchObject({
+        source: { file: '/index.bundle' },
+        ownership: 'unknown',
+      })
+      await expect(classifyFiber(fiber)).resolves.toMatchObject({
+        source: { file: '/app/AfterTimeout.tsx', line: 27, column: 6 },
+        ownership: 'app',
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('leaves a non-Metro url on the source map path', async () => {
+    const fetchMock = vi.fn<FetchMock>(async () => {
+      throw new Error('no network in tests')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await classifyFiber(asFiber({ _debugSource: at('http://localhost:3100/src/App.tsx', 10) }))
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://localhost:3100/src/App.tsx')
+    expect(fetchMock.mock.calls[0]?.[1]).toBeUndefined()
   })
 })
 
@@ -240,17 +982,65 @@ describe('resolveSource caching', () => {
     })
   })
 
-  it('marks a bundle frame mapped when stack symbolication resolves its source file', async () => {
+  it('routes a Metro debug stack directly to symbolicate without downloading the bundle', async () => {
+    const bundle =
+      'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle//&platform=ios&dev=true'
+    const debugStack = new Error('captured')
+    Object.defineProperty(debugStack, 'stack', {
+      value: `at App (${bundle}:98210:11)`,
+    })
+    parseStack.mockReturnValue([
+      {
+        fileName: bundle,
+        lineNumber: 98210,
+        columnNumber: 11,
+        functionName: 'App',
+      },
+    ])
+    symbolicateStack.mockImplementation(async (frames) => {
+      await fetch(bundle)
+      return frames
+    })
+    const fetchMock = vi.fn(async (_url: string, init?: { method?: string }) =>
+      init?.method === 'POST'
+        ? {
+            ok: true,
+            json: async () => ({
+              stack: [
+                {
+                  file: '/examples/expo-demo/App.tsx',
+                  lineNumber: 31,
+                  column: 5,
+                },
+              ],
+            }),
+          }
+        : { ok: false },
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(resolveSource(asFiber({ _debugStack: debugStack }))).resolves.toMatchObject({
+      file: '/examples/expo-demo/App.tsx',
+      line: 31,
+      column: 5,
+      sourceMapConfidence: 'mapped',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://127.0.0.1:8081/symbolicate')
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('POST')
+  })
+
+  it('marks a non-Metro frame mapped when stack symbolication resolves its source file', async () => {
     const debugStack = new Error('captured')
     Object.defineProperty(debugStack, 'stack', {
       value:
         'Error: react-stack-top-frame\n' +
-        '    at App (http://127.0.0.1:8081/index.bundle?platform=ios:200:11)\n' +
-        '    at react_stack_bottom_frame (http://127.0.0.1:8081/index.bundle?platform=ios:300:1)',
+        '    at App (http://127.0.0.1:5173/assets/app.js:200:11)\n' +
+        '    at react_stack_bottom_frame (http://127.0.0.1:5173/assets/app.js:300:1)',
     })
     parseStack.mockReturnValue([
       {
-        fileName: 'http://127.0.0.1:8081/index.bundle?platform=ios',
+        fileName: 'http://127.0.0.1:5173/assets/app.js',
         lineNumber: 200,
         columnNumber: 11,
         functionName: 'App',

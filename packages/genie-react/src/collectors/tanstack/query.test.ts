@@ -66,6 +66,38 @@ describe('queryCollector', () => {
     expect(typeof todos?.queryHash).toBe('string')
   })
 
+  it('query_list distinguishes a disabled never-fetched cached query from churn', async () => {
+    const client = new QueryClient()
+    client.getQueryCache().build(client, {
+      queryKey: ['teams'],
+      queryFn: async () => [],
+    })
+    const collector = queryCollector(client)
+
+    const result = (await call(collector, 'query_list', { staleOnly: false, limit: 100 })) as {
+      queries: Array<{
+        queryKey: unknown
+        isDisabled: boolean
+        hasFetched: boolean
+        isCached: boolean
+        observerCount: number
+      }>
+      churn: { orphaned: number; families: unknown[] }
+    }
+
+    expect(result.queries).toMatchObject([
+      {
+        queryKey: ['teams'],
+        isDisabled: true,
+        hasFetched: false,
+        isCached: true,
+        observerCount: 0,
+      },
+    ])
+    expect(result.churn.orphaned).toBe(1)
+    expect(result.churn.families).toEqual([])
+  })
+
   it('query_get returns depth-bounded data for a queryHash', async () => {
     const client = new QueryClient()
     client.setQueryData(['profile'], { name: 'Ada', roles: ['admin'] })
@@ -438,7 +470,7 @@ describe('queryCollector', () => {
     expect(result.mutations).toEqual([])
   })
 
-  it('query_list churn flags orphaned cache families', async () => {
+  it('query_list does not infer churn from orphaned cache families alone', async () => {
     const client = new QueryClient()
     client.setQueryData(['metrics', 'alpha'], 1)
     client.setQueryData(['metrics', 'beta'], 2)
@@ -455,26 +487,78 @@ describe('queryCollector', () => {
     }
 
     expect(result.churn.orphaned).toBeGreaterThanOrEqual(3)
-    const metrics = result.churn.families.find((f) => f.keyPrefix === JSON.stringify(['metrics']))
-    expect(metrics).toBeDefined()
-    expect(metrics?.count).toBe(3)
-    expect(metrics?.orphaned).toBe(3)
-    expect(result.churn.families.some((f) => f.keyPrefix === JSON.stringify('settings'))).toBe(
-      false,
-    )
+    expect(result.churn.families).toEqual([])
   })
 
-  it('query_list churn ignores families below the threshold', async () => {
+  it('query_list churn reports measured cache turnover', async () => {
     const client = new QueryClient()
-    client.setQueryData(['solo', 'one'], 1)
     const collector = queryCollector(client)
+    const stop = collector.start?.(ctx)
+
+    client.setQueryData(['search', 'a'], 1)
+    client.removeQueries({ queryKey: ['search', 'a'], exact: true })
+    client.setQueryData(['search', 'b'], 2)
+    client.removeQueries({ queryKey: ['search', 'b'], exact: true })
+    client.setQueryData(['search', 'c'], 3)
 
     const result = (await call(collector, 'query_list', { staleOnly: false, limit: 100 })) as {
-      churn: { orphaned: number; families: unknown[] }
+      churn: {
+        orphaned: number
+        families: Array<{
+          keyPrefix: string
+          additions: number
+          removals: number
+          unobservedFetches: number
+          reasons: string[]
+        }>
+      }
     }
 
     expect(result.churn.orphaned).toBe(1)
-    expect(result.churn.families).toEqual([])
+    expect(result.churn.families).toEqual([
+      expect.objectContaining({
+        keyPrefix: JSON.stringify(['search']),
+        additions: 3,
+        removals: 2,
+        unobservedFetches: 0,
+        reasons: ['cache-turnover'],
+      }),
+    ])
+    stop?.()
+  })
+
+  it('query_list churn reports repeated unobserved fetching', async () => {
+    const client = new QueryClient()
+    const collector = queryCollector(client)
+    const stop = collector.start?.(ctx)
+    let request = 0
+
+    for (let index = 0; index < 3; index += 1) {
+      await client.fetchQuery({
+        queryKey: ['background-poll'],
+        queryFn: async () => ++request,
+        staleTime: 0,
+      })
+    }
+
+    const result = (await call(collector, 'query_list', { staleOnly: false, limit: 100 })) as {
+      churn: {
+        families: Array<{
+          keyPrefix: string
+          unobservedFetches: number
+          reasons: string[]
+        }>
+      }
+    }
+
+    expect(result.churn.families).toEqual([
+      expect.objectContaining({
+        keyPrefix: JSON.stringify('background-poll'),
+        unobservedFetches: 3,
+        reasons: ['unobserved-fetching'],
+      }),
+    ])
+    stop?.()
   })
 
   it('query_get exposes fetchCount and recentFetches', async () => {

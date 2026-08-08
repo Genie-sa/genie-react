@@ -133,6 +133,21 @@ describe('render report evidence', () => {
           status: 'resolved',
           hooks: [
             {
+              callsite: source('/index.bundle', 10),
+              primitiveSource: null,
+              hookAncestry: [],
+            },
+          ],
+        },
+        1,
+      ),
+    ).toBe(false)
+    expect(
+      hasExactAppExternalStoreCallsite(
+        {
+          status: 'resolved',
+          hooks: [
+            {
               callsite: source('/node_modules/store/index.js', 10),
               primitiveSource: null,
               hookAncestry: [],

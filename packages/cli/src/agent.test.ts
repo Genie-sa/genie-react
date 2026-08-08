@@ -531,9 +531,70 @@ describe('new summarizers', () => {
         },
       ],
     })
-    expect(outText).toContain('2 queries (showing 1) · 1 stale · ! 1 orphaned (churn)')
-    expect(outText).toContain('["a"] · success · stale · 1 obs · ! 3 fetches/10s')
+    expect(outText).toContain('2 queries (showing 1) · 1 stale')
+    expect(outText).not.toContain('churn')
+    expect(outText).toContain('["a"] · success · stale · 1 observer · ! 3 fetches/10s')
     expect(summarizeQueryList({ queries: 'nope' })).toBeNull()
+  })
+
+  it('summarizeQueryList: prints explicit lifecycle states and evidence-backed churn', () => {
+    const outText = summarizeQueryList({
+      total: 1,
+      churn: {
+        orphaned: 1,
+        families: [
+          {
+            keyPrefix: '["teams"]',
+            count: 1,
+            orphaned: 1,
+            additions: 3,
+            removals: 2,
+            unobservedFetches: 0,
+            reasons: ['cache-turnover'],
+          },
+        ],
+      },
+      queries: [
+        {
+          queryHash: '["teams"]',
+          queryKey: ['teams'],
+          status: 'pending',
+          fetchStatus: 'idle',
+          isStale: true,
+          isActive: false,
+          isDisabled: true,
+          hasFetched: false,
+          isCached: true,
+          observerCount: 0,
+          dataUpdatedAt: 0,
+          recentFetches: 0,
+        },
+      ],
+    })
+
+    expect(outText).toContain('1 query · ! 1 churn family')
+    expect(outText).toContain('["teams"] · disabled · never fetched · cached · 0 observers')
+    expect(outText).not.toContain('pending')
+    expect(outText).not.toContain('orphaned')
+  })
+
+  it('summarizeQueryList: uses singular fetch wording', () => {
+    const outText = summarizeQueryList({
+      total: 1,
+      churn: { orphaned: 0, families: [] },
+      queries: [
+        {
+          queryKey: ['greeting'],
+          status: 'success',
+          fetchStatus: 'idle',
+          isStale: true,
+          observerCount: 1,
+          recentFetches: 1,
+        },
+      ],
+    })
+
+    expect(outText).toContain('! 1 fetch/10s')
   })
 
   it('summarizeErrorState: caught + suspended + hint; empty state is one calm line', () => {

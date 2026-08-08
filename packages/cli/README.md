@@ -26,6 +26,10 @@ npx @genie-react/cli call react_get_renders '{"sort":"selfTime","limit":3}'
 npx @genie-react/cli call react_render_causes '{"component":"Button","limit":3}'
 ```
 
+Use the observation only when its coverage is complete and `budgetExhaustedCommits` is zero. On a
+large React Native tree, discard an incomplete one-action window and rerun it with an explicit larger
+budget; adaptive growth on later commits cannot restore evidence skipped by the exhausted commit.
+
 Real demo output:
 
 ```text
@@ -135,6 +139,9 @@ npx @genie-react/cli call react_clear_renders '{}'
 # Drive the flow.
 npx @genie-react/cli call devtools_capture_create '{"name":"before-1"}' --json
 ```
+
+Discard a capture whose React coverage is incomplete or budget-exhausted rather than comparing a
+lower-bound observation.
 
 Run the same flow at least three times before and after the change. Then compare the returned IDs:
 

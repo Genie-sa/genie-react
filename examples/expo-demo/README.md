@@ -39,6 +39,21 @@ pnpm --filter @genie-react/expo-demo exec genie-react call \
   react_find_components '{"query":"App","exact":true}'
 ```
 
+For a deterministic render-observation smoke test, start a fresh window with an explicit budget,
+press **Increment** once, and capture the result:
+
+```sh
+pnpm --filter @genie-react/expo-demo exec genie-react call react_clear_renders \
+  '{"budget":{"fiberLimit":12000,"operationLimit":900000,"timeLimitMs":200,"targetOperationReserve":300000,"targetTimeReserveMs":100,"adaptive":false}}' --json
+# Press Increment once in the app.
+pnpm --filter @genie-react/expo-demo exec genie-react call \
+  react_profile_snapshot '{"label":"expo-increment"}' --json
+```
+
+Require complete coverage with zero budget-exhausted commits. If the result is incomplete, discard
+the window and rerun with the smallest larger explicit budget that covers the app; `timeLimitMs`
+bounds synchronous commit analysis and should not be raised farther than needed.
+
 List the complete runtime catalog after the tool fixtures have mounted:
 
 ```sh
