@@ -383,11 +383,16 @@ Clears React observations and starts one bounded interaction window on the selec
 **Input:** `name` is required, trimmed, 1–80 characters, and cannot contain control characters.
 `components` is an optional list of at most 20 trimmed names, each 1–160 characters, and defaults to
 `[]`. `roots` is an optional list of at most 20 integers and defaults to `[]`. `budget` is optional:
-`fiberLimit` is an integer 50–5,000 (default 250), `operationLimit` is an integer 1,000–200,000
-(default 20,000), `timeLimitMs` is 1–50 (default 8), `targetOperationReserve` is an integer
-100–50,000 (default 4,000), `targetTimeReserveMs` is 0.5–25 (default 4), and `adaptive` is boolean
+`fiberLimit` is an integer 50–20,000 (default 250), `operationLimit` is an integer 1,000–2,000,000
+(default 20,000), `timeLimitMs` is 1–500 (default 8), `targetOperationReserve` is an integer
+100–500,000 (default 4,000), `targetTimeReserveMs` is 0.5–250 (default 4), and `adaptive` is boolean
 (default `true`). `lifecycle` is optional: `bufferLimit` is an integer 100–20,000 (default 1,000)
 and `targetReserve` is an integer 0–5,000 (default 100) that cannot exceed `bufferLimit`.
+
+The expanded maxima are opt-in; defaults are unchanged. This window records one named action, so
+adaptive growth after an exhausted commit cannot restore evidence skipped by that action. For a
+large React Native interaction, provide an explicit budget and rerun from a fresh window if the
+stopped React coverage is incomplete.
 
 ```bash
 npx @genie-react/cli call devtools_interaction_begin \
@@ -418,6 +423,7 @@ npx @genie-react/cli call devtools_interaction_begin \
 
 **Agent use:** Keep the returned `interactionId`, verify its physical document and boundary IDs,
 drive exactly one named UI action, then stop that same ID even if the UI result is surprising.
+Use the React evidence only when its coverage is complete and `budgetExhaustedCommits` is zero.
 
 **Limits:** The interaction ID is bridge-owned and is not a capture ID, observation ID, session
 alias, or marker. Only one interaction can record per physical document, with at most 20 active

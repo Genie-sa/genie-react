@@ -6,7 +6,7 @@ import {
   registerQueryObserver,
   registerRouterStore,
 } from '../causal/external-store-registry'
-import { wasInstanceObserved } from './instance-identity'
+import { wasInstanceObserved, wasInstanceRenderUnanalyzed } from './instance-identity'
 import {
   childrenChanged,
   clearRenders,
@@ -24,6 +24,7 @@ import {
   getPropsNotEnumeratedFiberCount,
   getRenderCauseEventsReport,
   getRenderCauseMeasurement,
+  getRenderObservationConfig,
   getRenders,
   getRendersLeaderboardsMeasurement,
   getRendersMeasurement,
@@ -1063,6 +1064,20 @@ describe('recordRender unnecessary accounting', () => {
 })
 
 describe('commit analysis budget', () => {
+  const exhaustOneCommit = (): void => {
+    const budget = createCommitAnalysisBudget(250, {
+      operationLimit: 1,
+      timeLimitMs: 100,
+      now: () => 0,
+    })
+    recordCommitFiber(
+      componentFiber({ name: 'Exhausting', props: { value: 2 }, prevProps: { value: 1 } }),
+      'update',
+      budget,
+    )
+    finalizeCommitAnalysisBudget(budget)
+  }
+
   it('keeps named targets in a reserved lane after the general fiber budget is exhausted', async () => {
     clearRenders({ components: ['CriticalRow'] })
     const budget = createCommitAnalysisBudget(
@@ -1087,6 +1102,67 @@ describe('commit analysis budget', () => {
     })
   })
 
+  it('keeps the target time reserve spendable after the general time budget runs out', async () => {
+    clearRenders({ components: ['CriticalRow'] })
+    let clock = 0
+    const budget = createCommitAnalysisBudget(
+      50,
+      { operationLimit: 10_000, timeLimitMs: 10, now: () => clock },
+      { operationLimit: 10_000, timeLimitMs: 5, now: () => clock },
+    )
+    clock = 12
+
+    recordCommitFiber(componentFiber({ name: 'BackgroundRow', props: {} }), 'mount', budget)
+    recordCommitFiber(componentFiber({ name: 'CriticalRow', props: {} }), 'mount', budget)
+
+    expect(budget.processed).toBe(0)
+    expect(budget.targetProcessed).toBe(1)
+    expect((await getRenders({ sort: 'renders', limit: 10 })).map(({ name }) => name)).toEqual([
+      'CriticalRow',
+    ])
+  })
+
+  it('honours an explicitly requested budget above the adaptive ceiling', () => {
+    clearRenders({ budget: { fiberLimit: 12_000, operationLimit: 900_000, timeLimitMs: 200 } })
+
+    expect(getRenderObservationConfig()).toMatchObject({
+      fiberLimit: 12_000,
+      operationLimit: 900_000,
+      timeLimitMs: 200,
+    })
+  })
+
+  it('grows a small budget adaptively after an exhausted commit', () => {
+    clearRenders({ budget: { fiberLimit: 250, operationLimit: 20_000, timeLimitMs: 8 } })
+    exhaustOneCommit()
+
+    expect(getRenderObservationConfig()).toMatchObject({
+      adaptiveScale: 2,
+      fiberLimit: 500,
+      operationLimit: 40_000,
+      timeLimitMs: 16,
+    })
+  })
+
+  it('stops adaptive growth at the ceiling', () => {
+    clearRenders({ budget: { fiberLimit: 20_000, operationLimit: 2_000_000, timeLimitMs: 500 } })
+    exhaustOneCommit()
+
+    expect(getRenderObservationConfig()).toMatchObject({
+      adaptiveScale: 2,
+      fiberLimit: 20_000,
+      operationLimit: 2_000_000,
+      timeLimitMs: 500,
+    })
+  })
+
+  it('does not grow a budget that opted out of adaptive scaling', () => {
+    clearRenders({ budget: { fiberLimit: 250, adaptive: false } })
+    exhaustOneCommit()
+
+    expect(getRenderObservationConfig()).toMatchObject({ fiberLimit: 250, timeLimitMs: 8 })
+  })
+
   it('bounds expensive per-fiber commit analysis and records skipped candidates', async () => {
     const budget = createCommitAnalysisBudget(2)
     for (let i = 0; i < 5; i++) {
@@ -1097,6 +1173,37 @@ describe('commit analysis budget', () => {
     expect(budget.skipped).toBe(3)
     expect(getSkippedCommitFiberCount()).toBe(3)
     expect(await getRenders({ sort: 'renders', limit: 10 })).toHaveLength(2)
+  })
+
+  it('names every declined fiber so the cohort never mistakes it for idle', () => {
+    const budget = createCommitAnalysisBudget(1)
+    const analyzed = componentFiber({ name: 'Analyzed', props: {} })
+    const declined = componentFiber({ name: 'Declined', props: {} })
+
+    expect(recordCommitFiber(analyzed, 'mount', budget)).toBe(true)
+    expect(recordCommitFiber(declined, 'mount', budget)).toBe(false)
+
+    expect(wasInstanceRenderUnanalyzed(getFiberId(analyzed))).toBe(false)
+    expect(wasInstanceRenderUnanalyzed(getFiberId(declined))).toBe(true)
+  })
+
+  it('does not name a fiber the analyzer was never going to record', () => {
+    const budget = createCommitAnalysisBudget(0)
+    const hostFiber = asFiber({ tag: 5, type: 'View', flags: 0 })
+
+    expect(recordCommitFiber(hostFiber, 'update', budget)).toBe(false)
+    expect(wasInstanceRenderUnanalyzed(getFiberId(hostFiber))).toBe(false)
+  })
+
+  it('forgets declined fibers when a new observation starts', () => {
+    const budget = createCommitAnalysisBudget(0)
+    const declined = componentFiber({ name: 'DeclinedThenCleared', props: {} })
+    recordCommitFiber(declined, 'mount', budget)
+    expect(wasInstanceRenderUnanalyzed(getFiberId(declined))).toBe(true)
+
+    clearRenders()
+
+    expect(wasInstanceRenderUnanalyzed(getFiberId(declined))).toBe(false)
   })
 
   it('does not spend commit budget on host fibers', () => {

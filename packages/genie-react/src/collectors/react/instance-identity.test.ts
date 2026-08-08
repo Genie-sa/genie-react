@@ -1,4 +1,4 @@
-import type { Fiber } from 'bippy'
+import { type Fiber, getFiberId } from 'bippy'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   beginInstanceObservation,
@@ -7,8 +7,11 @@ import {
   getInstanceIdentityCoverage,
   getInstanceTombstones,
   instanceForMountedFiber,
+  invalidateLiveInstancesForRefresh,
   noteInstanceRender,
+  noteUnanalyzedInstanceRender,
   wasInstanceObserved,
+  wasInstanceRenderUnanalyzed,
 } from './instance-identity'
 
 const asFiber = (value: unknown): Fiber => value as Fiber
@@ -130,6 +133,80 @@ describe('React component instance identity', () => {
 
     beginInstanceObservation('observation:2')
     expect(wasInstanceObserved(idle.fiberId)).toBe(false)
+  })
+
+  it('prunes skipped-render uncertainty when exact evidence resolves the instance', () => {
+    beginInstanceObservation('observation:1')
+    const updated = component('Updated')
+    const updatedId = instanceForMountedFiber(updated).fiberId
+    noteUnanalyzedInstanceRender(updated)
+    expect(wasInstanceRenderUnanalyzed(updatedId)).toBe(true)
+
+    noteInstanceRender(updated, 'update', 1, 1)
+    expect(wasInstanceRenderUnanalyzed(updatedId)).toBe(false)
+    noteUnanalyzedInstanceRender(updated)
+    expect(wasInstanceRenderUnanalyzed(updatedId)).toBe(false)
+
+    const unmounted = component('Unmounted')
+    const unmountedId = instanceForMountedFiber(unmounted).fiberId
+    noteUnanalyzedInstanceRender(unmounted)
+    noteInstanceRender(unmounted, 'unmount', 2, 2)
+    expect(wasInstanceRenderUnanalyzed(unmountedId)).toBe(false)
+
+    const excluded = component('Excluded')
+    const excludedId = instanceForMountedFiber(excluded).fiberId
+    noteUnanalyzedInstanceRender(excluded)
+    discardExcludedInstanceUnmount(excluded)
+    expect(wasInstanceRenderUnanalyzed(excludedId)).toBe(false)
+  })
+
+  it('bounds skipped-render identity detail and fails closed on overflow', () => {
+    beginInstanceObservation('observation:1')
+    const first = component('Skipped0')
+    const firstId = instanceForMountedFiber(first).fiberId
+    noteUnanalyzedInstanceRender(first)
+    for (let index = 1; index < 1_000; index += 1) {
+      noteUnanalyzedInstanceRender(component(`Skipped${index}`))
+    }
+
+    expect(getInstanceIdentityCoverage().unanalyzedRenderIdentityComplete).toBe(true)
+    expect(wasInstanceRenderUnanalyzed(firstId)).toBe(true)
+
+    noteUnanalyzedInstanceRender(component('Skipped1000'))
+    expect(getInstanceIdentityCoverage().unanalyzedRenderIdentityComplete).toBe(false)
+    expect(wasInstanceRenderUnanalyzed(firstId)).toBe(false)
+
+    beginInstanceObservation('observation:2')
+    expect(getInstanceIdentityCoverage().unanalyzedRenderIdentityComplete).toBe(true)
+  })
+
+  it('deduplicates current and alternate skipped-render callbacks without consuming the bound', () => {
+    beginInstanceObservation('observation:1')
+    const current = component('Alternating')
+    const alternate = { ...current, alternate: current } as Fiber
+    ;(current as { alternate: Fiber }).alternate = alternate
+
+    for (let index = 0; index < 2_000; index += 1) {
+      noteUnanalyzedInstanceRender(index % 2 === 0 ? current : alternate)
+    }
+
+    expect(getFiberId(current)).toBe(getFiberId(alternate))
+    expect(getInstanceIdentityCoverage().unanalyzedRenderIdentityComplete).toBe(true)
+    expect(wasInstanceRenderUnanalyzed(getFiberId(current))).toBe(true)
+  })
+
+  it('prunes refresh-invalidated detail without manufacturing complete identity coverage', () => {
+    beginInstanceObservation('observation:1')
+    const fiber = component('RefreshedSkipped')
+    const fiberId = instanceForMountedFiber(fiber).fiberId
+    noteUnanalyzedInstanceRender(fiber)
+
+    invalidateLiveInstancesForRefresh()
+
+    expect(wasInstanceRenderUnanalyzed(fiberId)).toBe(false)
+    expect(getInstanceIdentityCoverage().unanalyzedRenderIdentityComplete).toBe(false)
+    beginInstanceObservation('observation:2')
+    expect(getInstanceIdentityCoverage().unanalyzedRenderIdentityComplete).toBe(true)
   })
 
   it('drops HMR-invalidated live identity and records a lifecycle coverage gap', () => {
