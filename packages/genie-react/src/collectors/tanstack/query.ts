@@ -59,6 +59,11 @@ const querySummarySchema = z.object({
   fetchStatus: z.string(),
   isStale: z.boolean(),
   isActive: z.boolean(),
+  isDisabled: z
+    .boolean()
+    .describe('True when every observer is disabled, or an unobserved query never fetched.'),
+  hasFetched: z.boolean().describe('True after at least one data or error result settled.'),
+  isCached: z.literal(true).describe('The query is currently retained in the Query cache.'),
   observerCount: z.number(),
   dataUpdatedAt: z.number(),
   recentFetches: z.number().describe('Fetches recorded for this query in the last 10s.'),
@@ -69,12 +74,16 @@ const querySummarySchema = z.object({
 const churnSchema = z.object({
   orphaned: z
     .number()
-    .describe('Cached queries with zero observers — likely abandoned cache churn.'),
+    .describe('Cached queries with zero observers. This lifecycle count is not churn evidence.'),
   families: z.array(
     z.object({
       keyPrefix: z.string(),
       count: z.number(),
       orphaned: z.number(),
+      additions: z.number(),
+      removals: z.number(),
+      unobservedFetches: z.number(),
+      reasons: z.array(z.enum(['cache-turnover', 'unobserved-fetching'])),
     }),
   ),
 })
@@ -93,7 +102,7 @@ const queryListContract = defineAgentToolContract({
   name: 'query_list',
   title: 'List TanStack queries',
   description:
-    'List all TanStack Query cache entries with status, staleness, fetchStatus, and observer counts. `churn` flags cache churn / orphaned keys (many near-duplicate entries with no observers, e.g. a query key built from a value re-created each render). Use a queryHash with query_get for the full state, or a queryKey with query_get_data for a light read.',
+    'List all TanStack Query cache entries with explicit disabled, fetched, cached, and observer lifecycle state. `churn.families` contains only measured repeated cache turnover or unobserved fetching within the last 10 seconds; `churn.orphaned` is a neutral zero-observer count. Use a queryHash with query_get for the full state, or a queryKey with query_get_data for a light read.',
   group: 'query',
   input: z.object({
     staleOnly: z.boolean().default(false),
@@ -474,6 +483,11 @@ const mutationRerunContract = defineAgentToolContract({
 const FETCH_RING_CAP = 50
 const FETCH_RETENTION_MS = 60_000
 const RECENT_FETCH_WINDOW_MS = 10_000
+const CHURN_WINDOW_MS = 10_000
+const CACHE_TURNOVER_ADDITION_THRESHOLD = 3
+const CACHE_TURNOVER_REMOVAL_THRESHOLD = 2
+const UNOBSERVED_FETCH_THRESHOLD = 3
+const FAMILY_ACTIVITY_CAP = 500
 
 interface FetchActivity {
   timestamps: number[]
@@ -481,6 +495,15 @@ interface FetchActivity {
   lastDataUpdatedAt: number
   awaitingSettle: boolean
 }
+
+interface FamilyActivity {
+  additions: number[]
+  removals: number[]
+  unobservedFetches: number[]
+  lastSeenAt: number
+}
+
+type FamilyActivityKind = 'additions' | 'removals' | 'unobservedFetches'
 
 type SimulatedState = 'pending' | 'error'
 
@@ -502,7 +525,36 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
   const mutationCache = () => queryClient.getMutationCache()
 
   const fetchActivity = new Map<string, FetchActivity>()
+  const familyActivity = new Map<string, FamilyActivity>()
   const querySimulations = new Map<string, QuerySimulation>()
+
+  const recordFamilyActivity = (
+    query: CachedQuery,
+    kind: FamilyActivityKind,
+    timestamp = Date.now(),
+  ): void => {
+    const key = familyKey(query.queryKey)
+    const activity = familyActivity.get(key) ?? {
+      additions: [],
+      removals: [],
+      unobservedFetches: [],
+      lastSeenAt: timestamp,
+    }
+    const cutoff = timestamp - CHURN_WINDOW_MS
+    for (const timestamps of [activity.additions, activity.removals, activity.unobservedFetches]) {
+      while (timestamps[0] !== undefined && timestamps[0] < cutoff) timestamps.shift()
+    }
+    activity[kind].push(timestamp)
+    activity.lastSeenAt = timestamp
+    familyActivity.set(key, activity)
+    if (familyActivity.size > FAMILY_ACTIVITY_CAP) {
+      let oldest: [string, FamilyActivity] | undefined
+      for (const entry of familyActivity) {
+        if (!oldest || entry[1].lastSeenAt < oldest[1].lastSeenAt) oldest = entry
+      }
+      if (oldest) familyActivity.delete(oldest[0])
+    }
+  }
 
   const simulationFor = (query: CachedQuery): QuerySimulation | undefined => {
     const simulation = querySimulations.get(query.queryHash)
@@ -557,6 +609,9 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
         entry.timestamps.splice(0, entry.timestamps.length - FETCH_RING_CAP)
       }
     }
+    if (startedFetching && query.getObserversCount() === 0) {
+      recordFamilyActivity(query, 'unobservedFetches', now)
+    }
     entry.lastFetchStatus = query.state.fetchStatus
     entry.lastDataUpdatedAt = query.state.dataUpdatedAt
   }
@@ -580,10 +635,44 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
       if (isOrphan) family.orphaned += 1
       families.set(key, family)
     }
-    const flagged = [...families.entries()]
-      .filter(([, family]) => family.count >= 2 && family.orphaned >= 2)
-      .map(([keyPrefix, family]) => ({ keyPrefix, count: family.count, orphaned: family.orphaned }))
-      .sort((a, b) => b.orphaned - a.orphaned)
+    const now = Date.now()
+    const cutoff = now - CHURN_WINDOW_MS
+    const flagged = [...new Set([...families.keys(), ...familyActivity.keys()])]
+      .map((keyPrefix) => {
+        const family = families.get(keyPrefix) ?? { count: 0, orphaned: 0 }
+        const activity = familyActivity.get(keyPrefix) ?? {
+          additions: [],
+          removals: [],
+          unobservedFetches: [],
+          lastSeenAt: 0,
+        }
+        const additions = activity.additions.filter((timestamp) => timestamp >= cutoff).length
+        const removals = activity.removals.filter((timestamp) => timestamp >= cutoff).length
+        const unobservedFetches = activity.unobservedFetches.filter(
+          (timestamp) => timestamp >= cutoff,
+        ).length
+        const reasons: Array<'cache-turnover' | 'unobserved-fetching'> = []
+        if (
+          additions >= CACHE_TURNOVER_ADDITION_THRESHOLD &&
+          removals >= CACHE_TURNOVER_REMOVAL_THRESHOLD
+        ) {
+          reasons.push('cache-turnover')
+        }
+        if (unobservedFetches >= UNOBSERVED_FETCH_THRESHOLD) {
+          reasons.push('unobserved-fetching')
+        }
+        return {
+          keyPrefix,
+          count: family.count,
+          orphaned: family.orphaned,
+          additions,
+          removals,
+          unobservedFetches,
+          reasons,
+        }
+      })
+      .filter((family) => family.reasons.length > 0)
+      .sort((a, b) => b.removals + b.unobservedFetches - (a.removals + a.unobservedFetches))
       .slice(0, 10)
     return { orphaned, families: flagged }
   }
@@ -595,6 +684,9 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
     fetchStatus: query.state.fetchStatus,
     isStale: query.isStale(),
     isActive: query.isActive(),
+    isDisabled: query.isDisabled(),
+    hasFetched: query.isFetched(),
+    isCached: true as const,
     observerCount: query.getObserversCount(),
     dataUpdatedAt: query.state.dataUpdatedAt,
     recentFetches: recentFetches(query.queryHash),
@@ -669,7 +761,11 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
           observerCleanups.get(event.observer)?.()
           observerCleanups.delete(event.observer)
         }
+        if (event.type === 'added') {
+          recordFamilyActivity(event.query, 'additions')
+        }
         if (event.type === 'removed') {
+          recordFamilyActivity(event.query, 'removals')
           fetchActivity.delete(event.query.queryHash)
           if (simulationFor(event.query)) querySimulations.delete(event.query.queryHash)
         } else if (!simulationFor(event.query)) {
