@@ -75,6 +75,101 @@ const NESTED_OPTIMIZED_DEPS = [
   'react',
 ]
 
+// `genie init` emits this dedicated component import; replacing it before resolution keeps the browser runtime out of production without relying on cross-package tree-shaking.
+const GENIE_COMPONENT_IMPORT =
+  /(^|\n)([ \t]*)import\s*\{\s*Genie(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*,?\s*\}\s*from\s*(['"])genie-react\4[ \t]*;?/g
+const PRODUCTION_RUNTIME_ID = '\0virtual:dev-only-runtime-noop'
+const PRODUCTION_RUNTIME_CODE = `
+/* @__NO_SIDE_EFFECTS__ */ const noop = () => undefined
+export const Genie = () => null
+export const useGenieTool = noop
+export const useGenieTools = noop
+export const registerGenieTools = () => noop
+export const defineGenieTool = noop
+export class GenieToolError extends Error {
+  constructor(message, options = {}) {
+    const prefix = options.code ? \`[\${options.code}] \` : ''
+    const suffix = options.hint ? \` — hint: \${options.hint}\` : ''
+    super(\`\${prefix}\${message}\${suffix}\`)
+    this.name = 'GenieToolError'
+    this.code = options.code
+    this.hint = options.hint
+  }
+}
+`
+const PRODUCTION_NOOP_CALLS = new Set([
+  'defineGenieTool',
+  'registerGenieTools',
+  'useGenieTool',
+  'useGenieTools',
+])
+
+interface AstNode {
+  type: string
+  start: number
+  end: number
+  [key: string]: unknown
+}
+
+function isAstNode(value: unknown): value is AstNode {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    typeof (value as Partial<AstNode>).type === 'string' &&
+    typeof (value as Partial<AstNode>).start === 'number' &&
+    typeof (value as Partial<AstNode>).end === 'number'
+  )
+}
+
+function removeProductionHelperCalls(code: string, program: AstNode): string {
+  const locals = new Set<string>()
+  const body = Array.isArray(program.body) ? program.body : []
+  for (const statement of body) {
+    if (!isAstNode(statement) || statement.type !== 'ImportDeclaration') continue
+    const source = isAstNode(statement.source) ? statement.source.value : undefined
+    if (source !== 'genie-react') continue
+    const specifiers = Array.isArray(statement.specifiers) ? statement.specifiers : []
+    for (const specifier of specifiers) {
+      if (!isAstNode(specifier) || specifier.type !== 'ImportSpecifier') continue
+      const imported = isAstNode(specifier.imported) ? specifier.imported.name : undefined
+      const local = isAstNode(specifier.local) ? specifier.local.name : undefined
+      if (
+        typeof imported === 'string' &&
+        typeof local === 'string' &&
+        PRODUCTION_NOOP_CALLS.has(imported)
+      ) {
+        locals.add(local)
+      }
+    }
+  }
+  if (locals.size === 0) return code
+
+  const ranges: Array<{ start: number; end: number }> = []
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item)
+      return
+    }
+    if (!isAstNode(value)) return
+    if (value.type === 'CallExpression' && isAstNode(value.callee)) {
+      const name = value.callee.type === 'Identifier' ? value.callee.name : undefined
+      if (typeof name === 'string' && locals.has(name)) {
+        ranges.push({ start: value.start, end: value.end })
+        return
+      }
+    }
+    for (const [key, child] of Object.entries(value)) {
+      if (key !== 'start' && key !== 'end' && key !== 'loc') visit(child)
+    }
+  }
+  visit(program)
+  let transformed = code
+  for (const range of ranges.sort((a, b) => b.start - a.start)) {
+    transformed = `${transformed.slice(0, range.start)}undefined${transformed.slice(range.end)}`
+  }
+  return transformed
+}
+
 /** Installed TanStack peers reached through the excluded genie-react must be pre-bundled too, or their CJS use-sync-external-store shim hits the app graph un-interop'd (blank page in linked/workspace setups); absent peers stay out so the stubs keep applying. */
 function installedTanstackIncludes(root: string): string[] {
   const appRequire = createRequire(join(root, 'package.json'))
@@ -210,7 +305,43 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
     },
   }
 
-  return [plugin, optionalPeersPlugin()]
+  return [plugin, optionalPeersPlugin(), productionNoopPlugin(), productionToolStripPlugin()]
+}
+
+function productionNoopPlugin(): Plugin {
+  return {
+    name: 'genie:production-noop',
+    apply: 'build',
+    enforce: 'pre',
+    resolveId(source) {
+      return source === 'genie-react' ? PRODUCTION_RUNTIME_ID : null
+    },
+    load(id) {
+      return id === PRODUCTION_RUNTIME_ID ? PRODUCTION_RUNTIME_CODE : null
+    },
+    transform(code) {
+      const transformed = code.replace(
+        GENIE_COMPONENT_IMPORT,
+        (_statement, lineStart: string, indent: string, alias: string | undefined) =>
+          `${lineStart}${indent}const ${alias ?? 'Genie'} = () => null`,
+      )
+      if (transformed === code) return undefined
+      return { code: transformed, map: null }
+    },
+  }
+}
+
+function productionToolStripPlugin(): Plugin {
+  return {
+    name: 'genie:production-strip-tools',
+    apply: 'build',
+    enforce: 'post',
+    transform(code) {
+      const transformed = removeProductionHelperCalls(code, this.parse(code) as unknown as AstNode)
+      if (transformed === code) return undefined
+      return { code: transformed, map: null }
+    },
+  }
 }
 
 // No `apply` on purpose: unlike the serve-only genie plugin, the peer stubs must also run during `vite build`.

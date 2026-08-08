@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Plugin } from 'vite'
+import { type Plugin, parseAst } from 'vite'
 import { describe, expect, it } from 'vitest'
 import { GENIE_DISCOVERY_FILE } from '../protocol'
 import { genie, hasCloudflarePlugin } from './plugin'
@@ -16,6 +16,7 @@ function getHook<T>(plugin: Plugin, name: keyof Plugin): T {
 
 type ResolveCtx = {
   resolve: (source: string, importer?: string, options?: object) => Promise<unknown>
+  parse?: typeof parseAst
   warn?: (message: string) => void
 }
 type ResolveIdFn = (
@@ -55,14 +56,77 @@ const optionalPeerPlaceholder: ResolveCtx = {
 }
 
 describe('genie() plugin array', () => {
-  it('returns the serve plugin plus the optional-peers plugin', () => {
+  it('returns serve, optional-peer, and split production plugins', () => {
     const plugins = genie()
-    expect(plugins).toHaveLength(2)
+    expect(plugins).toHaveLength(4)
     expect(plugins[0]?.name).toBe('genie')
     expect(plugins[0]?.apply).toBe('serve')
     expect(plugins[1]?.name).toBe('genie:optional-peers')
     // No `apply`: the stub must run in build too, not only serve.
     expect(plugins[1]?.apply).toBeUndefined()
+    expect(plugins[2]?.name).toBe('genie:production-noop')
+    expect(plugins[2]?.apply).toBe('build')
+    expect(plugins[3]?.name).toBe('genie:production-strip-tools')
+    expect(plugins[3]?.apply).toBe('build')
+  })
+})
+
+describe('production component removal', () => {
+  const production = genie()[2] as Plugin
+  const transform = getHook<TransformFn>(production, 'transform')
+  const resolveId = getHook<(source: string) => string | null>(production, 'resolveId')
+  const load = getHook<LoadFn>(production, 'load')
+  const productionCtx = { ...absent, parse: parseAst }
+  const stripTools = getHook<TransformFn>(genie()[3] as Plugin, 'transform')
+
+  it('removes the documented Genie import before Rollup resolves the production graph', async () => {
+    const out = await transform.call(
+      productionCtx,
+      `import { Genie } from 'genie-react'\nexport const app = import.meta.env.DEV && Genie()\n`,
+      '/app/src/main.tsx',
+    )
+
+    expect(out?.code).not.toContain("from 'genie-react'")
+    expect(out?.code).toContain('const Genie = () => null\nexport const app')
+    expect(out?.code).toContain('import.meta.env.DEV && Genie()')
+  })
+
+  it('supports an aliased Genie component and leaves unrelated modules alone', async () => {
+    const out = await transform.call(
+      productionCtx,
+      `import { Genie as DevGenie } from "genie-react";\nconst app = DevGenie()\n`,
+      '/app/src/main.tsx',
+    )
+    expect(out?.code).toContain('const DevGenie = () => null')
+    expect(
+      await transform.call(productionCtx, 'export const value = 1', '/app/src/value.ts'),
+    ).toBeUndefined()
+  })
+
+  it('stubs the full root runtime when production code imports app-tool helpers', () => {
+    const id = resolveId.call(null, 'genie-react')
+    expect(id).toBe('\0virtual:dev-only-runtime-noop')
+    const code = load.call(null, id as string)
+    expect(code).toContain('export const useGenieTool = noop')
+    expect(code).toContain('export const useGenieTools = noop')
+    expect(code).toContain('export const defineGenieTool')
+    expect(code).toContain('export class GenieToolError')
+    expect(resolveId.call(null, 'genie-react/protocol')).toBeNull()
+  })
+
+  it('removes custom-tool helper calls and their protocol-only arguments', async () => {
+    const out = await stripTools.call(
+      productionCtx,
+      `import { defineGenieTool, useGenieTool as useTool } from 'genie-react'
+const tool = defineGenieTool({ description: 'query_list', input: schema() })
+useTool({ description: 'react_get_tree', handler: () => tool })
+`,
+      '/app/src/tools.js',
+    )
+
+    expect(out?.code).not.toContain('query_list')
+    expect(out?.code).not.toContain('react_get_tree')
+    expect(out?.code).toContain('const tool = undefined')
   })
 })
 

@@ -155,7 +155,7 @@ if (
   throw new Error('Router collector did not initialize with the expected tools')
 }
 const plugins = genie({ enabled: false })
-if (!Array.isArray(plugins) || plugins.length !== 2) {
+if (!Array.isArray(plugins) || plugins.length !== 4) {
   throw new Error('Vite plugin did not initialize')
 }
 `,
@@ -193,6 +193,92 @@ try {
 } finally {
   await server.close()
 }
+`,
+  )
+  writeFileSync(
+    join(directory, 'production.html'),
+    '<!doctype html><html><body><div id="root"></div><script type="module" src="/src/production.tsx"></script></body></html>\n',
+  )
+  writeFileSync(
+    join(directory, 'verify-production.mjs'),
+    `import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { build } from 'vite'
+import { genie } from 'genie-react/vite'
+
+const root = process.cwd()
+const entry = join(root, 'src/production.tsx')
+const shared = \`import { createRoot } from 'react-dom/client'
+
+const marker = 'installed-consumer'
+\`
+
+function source(mode) {
+  const genieImport = mode === 'component'
+    ? \`import { Genie } from 'genie-react'\\n\`
+    : mode === 'runtime'
+      ? \`import { Genie, useGenieTool } from 'genie-react'\\n\`
+      : ''
+  const helperCall = mode === 'runtime'
+    ? \`useGenieTool({ name: 'probe', kind: 'query', description: 'query_list', handler: () => ({}) })\\n\`
+    : ''
+  const genieRender = mode === 'none' ? '' : \`{import.meta.env.DEV && <Genie />}\`
+  return \`\${genieImport}\${shared}\${helperCall}
+createRoot(document.getElementById('root')).render(
+  <><main>{marker}</main>\${genieRender}</>,
+)
+\`
+}
+
+async function buildVariant(mode) {
+  await writeFile(entry, source(mode))
+  const result = await build({
+    root,
+    configFile: false,
+    logLevel: 'silent',
+    plugins: [genie()],
+    build: {
+      write: false,
+      minify: true,
+      rollupOptions: { input: join(root, 'production.html') },
+    },
+  })
+  const outputs = Array.isArray(result) ? result.flatMap((item) => item.output) : result.output
+  const bytes = outputs.reduce((total, output) => {
+    if (output.type === 'chunk') return total + Buffer.byteLength(output.code)
+    return total + (typeof output.source === 'string' ? Buffer.byteLength(output.source) : output.source.byteLength)
+  }, 0)
+  const code = outputs
+    .map((output) => output.type === 'chunk' ? output.code : typeof output.source === 'string' ? output.source : Buffer.from(output.source).toString())
+    .join('\\n')
+  const modules = outputs.flatMap((output) => output.type === 'chunk' ? Object.keys(output.modules) : [])
+  return { bytes, code, modules }
+}
+
+const baseline = await buildVariant('none')
+const instrumented = await buildVariant('component')
+const rootRuntime = await buildVariant('runtime')
+const forbiddenProtocol = /__genie|query_list|react_get_tree|genie-client/i
+for (const [label, variant] of [['component', instrumented], ['root runtime', rootRuntime]]) {
+  if (forbiddenProtocol.test(variant.code)) {
+    throw new Error(\`Production \${label} assets contain Genie protocol strings\`)
+  }
+  const genieModules = variant.modules.filter((id) =>
+    id.replaceAll('\\\\', '/').includes('/node_modules/genie-react/'),
+  )
+  if (genieModules.length > 0) {
+    throw new Error(\`Production \${label} graph contains Genie modules:\\n\${genieModules.join('\\n')}\`)
+  }
+}
+const delta = instrumented.bytes - baseline.bytes
+if (Math.abs(delta) > 16) {
+  throw new Error(
+    \`Production bundle delta is meaningful: baseline=\${baseline.bytes}B instrumented=\${instrumented.bytes}B delta=\${delta}B\`,
+  )
+}
+process.stdout.write(
+  \`Production footprint passed: baseline=\${baseline.bytes}B instrumented=\${instrumented.bytes}B delta=\${delta}B\\n\`,
+)
 `,
   )
 
@@ -234,6 +320,10 @@ function verifyConsumer(directory) {
     stdio: 'inherit',
   })
   execFileSync(process.execPath, [join(directory, 'node_modules/vite/bin/vite.js'), 'build'], {
+    cwd: directory,
+    stdio: 'inherit',
+  })
+  execFileSync(process.execPath, ['verify-production.mjs'], {
     cwd: directory,
     stdio: 'inherit',
   })
