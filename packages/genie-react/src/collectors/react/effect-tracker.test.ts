@@ -1,6 +1,6 @@
 import type { Effect, Fiber, RenderPhase } from 'bippy'
 import type { HooksNode } from 'bippy/source'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getEffectScheduleEvents } from './effect-events'
 import {
   clearEffects,
@@ -117,11 +117,6 @@ function makeComponent(
 }
 
 const byName = async () => new Map((await getEffectAudit({ limit: 50 })).map((r) => [r.name, r]))
-
-// Burn the falsy id 0 (bippy reassigns it) so every test fiber gets a stable id.
-beforeAll(() => {
-  makeComponent('__warmup__').commit('mount', [{ tag: PASSIVE | HAS_EFFECT, deps: null }])
-})
 
 beforeEach(() => {
   clearEffects()

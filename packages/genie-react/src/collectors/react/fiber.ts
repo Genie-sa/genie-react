@@ -114,9 +114,7 @@ const UNCLASSIFIED_FIBER: FiberClassification = {
 }
 
 export function registerFiber(fiber: Fiber): NodeId {
-  // bippy treats a stored id of 0 as absent and silently reassigns on the next read; re-reading here settles the first-ever fiber on its stable id before it is handed out.
-  let id = asNodeId(getFiberId(fiber))
-  if (id === 0) id = asNodeId(getFiberId(fiber))
+  const id = asNodeId(getFiberId(fiber))
   if (fiber.alternate) setFiberId(fiber.alternate, id)
   if (!fiberRegistry.delete(id) && fiberRegistry.size >= REGISTRY_LIMIT) {
     const oldest = fiberRegistry.keys().next().value

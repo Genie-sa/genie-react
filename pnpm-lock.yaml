@@ -455,8 +455,8 @@ importers:
         specifier: ^1.5.5
         version: 1.5.5
       bippy:
-        specifier: ^0.6.0
-        version: 0.6.0(react@19.2.7)
+        specifier: ^0.6.1
+        version: 0.6.1(react@19.2.7)
       superjson:
         specifier: ^2.2.6
         version: 2.2.6
@@ -3907,8 +3907,8 @@ packages:
     resolution: {integrity: sha512-QxD8cf2eVqJOOz63z6JIN9BzvVs/dlySa5HGSBH5xtR8dPteIRQnBxxKqkNTiT6jbDTF6jAfrd4oMcND9RGbQg==}
     engines: {node: '>=0.6'}
 
-  bippy@0.6.0:
-    resolution: {integrity: sha512-6rdykmrQPOxyylsctFS3I1veDBWP03c2TbdD3sOowQ1w/3Y1FUQE52MhuNOyFvFQTNOxZOofRvdA1a0L/3Aagw==}
+  bippy@0.6.1:
+    resolution: {integrity: sha512-ky4m94Y/KfsddjGkKTsV4uFjZqkJjpOjQ2t5gKPdX6XH1MNxMNX5FrVefsxV4lpjemEmEdwe0e0YbzAMNs3oUQ==}
     peerDependencies:
       react: '>=17.0.1'
 
@@ -11439,7 +11439,7 @@ snapshots:
 
   big-integer@1.6.52: {}
 
-  bippy@0.6.0(react@19.2.7):
+  bippy@0.6.1(react@19.2.7):
     dependencies:
       react: 19.2.7
 
