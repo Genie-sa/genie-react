@@ -45,24 +45,33 @@ const ANCESTRY_LIMIT = 50
 const SIBLING_SCAN_LIMIT = 2_000
 const TOMBSTONE_LIMIT = 1_000
 const GENERATION_HISTORY_LIMIT = 10_000
+const UNANALYZED_RENDER_IDENTITY_LIMIT = 1_000
 
 let mountSequence = 0
 let activeObservationId: string | null = null
 const liveInstances = new Map<number, InstanceDescriptor>()
 const generationsByPath = new Map<string, number>()
 const observedInstanceIds = new Set<number>()
+const unanalyzedRenderIds = new Set<number>()
+let seenUnanalyzedFibers = new WeakSet<Fiber>()
 const tombstones: InstanceTombstone[] = []
 let droppedTombstones = 0
 let excludedLifecycleFibers = 0
 let generationHistoryEvictions = 0
+let unanalyzedRenderIdentityRegistrations = 0
+let unanalyzedRenderIdentityComplete = true
 
 /** Reset only the measurement cohort. Physical mount identity intentionally survives a clear. */
 export function beginInstanceObservation(observationId: string): void {
   activeObservationId = observationId
   observedInstanceIds.clear()
+  unanalyzedRenderIds.clear()
+  seenUnanalyzedFibers = new WeakSet()
   tombstones.length = 0
   droppedTombstones = 0
   excludedLifecycleFibers = 0
+  unanalyzedRenderIdentityRegistrations = 0
+  unanalyzedRenderIdentityComplete = true
 }
 
 export function noteInstanceRender(
@@ -98,6 +107,7 @@ export function prepareInstanceRender(
         prepared.publish()
         liveInstances.delete(prepared.instance.fiberId)
         observedInstanceIds.delete(prepared.instance.fiberId)
+        forgetUnanalyzedInstance(fiber, prepared.instance.fiberId)
         if (!observationId) return
         tombstones.push({
           componentName,
@@ -122,6 +132,7 @@ export function prepareInstanceRender(
       if (published) return
       published = true
       prepared.publish()
+      forgetUnanalyzedInstance(fiber, prepared.instance.fiberId)
       observedInstanceIds.add(prepared.instance.fiberId)
     },
   }
@@ -149,6 +160,31 @@ export function wasInstanceObserved(instanceId: number): boolean {
   return observedInstanceIds.has(instanceId)
 }
 
+export function noteUnanalyzedInstanceRender(fiber: Fiber): void {
+  if (!activeObservationId || !unanalyzedRenderIdentityComplete) return
+  try {
+    const alternate = fiber.alternate
+    if (seenUnanalyzedFibers.has(fiber) || (alternate && seenUnanalyzedFibers.has(alternate))) {
+      return
+    }
+    if (unanalyzedRenderIdentityRegistrations >= UNANALYZED_RENDER_IDENTITY_LIMIT) {
+      abandonUnanalyzedRenderIdentityDetail()
+      return
+    }
+    const fiberId = registerFiber(fiber) as number
+    unanalyzedRenderIdentityRegistrations += 1
+    seenUnanalyzedFibers.add(fiber)
+    if (alternate) seenUnanalyzedFibers.add(alternate)
+    if (!observedInstanceIds.has(fiberId)) unanalyzedRenderIds.add(fiberId)
+  } catch {
+    abandonUnanalyzedRenderIdentityDetail()
+  }
+}
+
+export function wasInstanceRenderUnanalyzed(instanceId: number): boolean {
+  return unanalyzedRenderIds.has(instanceId)
+}
+
 export function getInstanceTombstones(): readonly InstanceTombstone[] {
   return tombstones
 }
@@ -157,8 +193,14 @@ export function getInstanceIdentityCoverage(): {
   droppedTombstones: number
   excludedLifecycleFibers: number
   generationHistoryEvictions: number
+  unanalyzedRenderIdentityComplete: boolean
 } {
-  return { droppedTombstones, excludedLifecycleFibers, generationHistoryEvictions }
+  return {
+    droppedTombstones,
+    excludedLifecycleFibers,
+    generationHistoryEvictions,
+    unanalyzedRenderIdentityComplete,
+  }
 }
 
 /** Remove HMR-invalidated identity without claiming a user-visible unmount in the cohort. */
@@ -166,14 +208,20 @@ export function discardExcludedInstanceUnmount(fiber: Fiber): void {
   const fiberId = registerFiber(fiber) as number
   liveInstances.delete(fiberId)
   observedInstanceIds.delete(fiberId)
+  forgetUnanalyzedInstance(fiber, fiberId)
   excludedLifecycleFibers += 1
 }
 
 /** Invalidate identities across a refresh commit whose synthetic lifecycle cannot be reported exactly. */
 export function invalidateLiveInstancesForRefresh(): void {
-  excludedLifecycleFibers += liveInstances.size
+  if (liveInstances.size > 0) excludedLifecycleFibers += liveInstances.size
+  else if (activeObservationId && excludedLifecycleFibers === 0) excludedLifecycleFibers = 1
   liveInstances.clear()
   observedInstanceIds.clear()
+  if (unanalyzedRenderIds.size > 0) unanalyzedRenderIdentityComplete = false
+  unanalyzedRenderIds.clear()
+  seenUnanalyzedFibers = new WeakSet()
+  unanalyzedRenderIdentityRegistrations = 0
 }
 
 export function clearInstanceIdentityForTests(): void {
@@ -182,10 +230,30 @@ export function clearInstanceIdentityForTests(): void {
   liveInstances.clear()
   generationsByPath.clear()
   observedInstanceIds.clear()
+  unanalyzedRenderIds.clear()
+  seenUnanalyzedFibers = new WeakSet()
   tombstones.length = 0
   droppedTombstones = 0
   excludedLifecycleFibers = 0
   generationHistoryEvictions = 0
+  unanalyzedRenderIdentityRegistrations = 0
+  unanalyzedRenderIdentityComplete = true
+}
+
+function forgetUnanalyzedInstance(fiber: Fiber, fiberId: number): void {
+  unanalyzedRenderIds.delete(fiberId)
+  seenUnanalyzedFibers.delete(fiber)
+  try {
+    if (fiber.alternate) seenUnanalyzedFibers.delete(fiber.alternate)
+  } catch {
+    abandonUnanalyzedRenderIdentityDetail()
+  }
+}
+
+function abandonUnanalyzedRenderIdentityDetail(): void {
+  unanalyzedRenderIdentityComplete = false
+  unanalyzedRenderIds.clear()
+  seenUnanalyzedFibers = new WeakSet()
 }
 
 function prepareInstanceDescription(

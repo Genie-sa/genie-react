@@ -23,7 +23,11 @@ import {
 
 const SOURCE_CLASSIFY_LIMIT = 120
 const SOURCE_CLASSIFY_BUDGET_MS = 500
-const UNCLASSIFIED_FIBER: FiberClassification = { source: null, isLibrary: false }
+const UNCLASSIFIED_FIBER: FiberClassification = {
+  source: null,
+  ownership: 'unknown',
+  isLibrary: false,
+}
 
 export interface RenderQuery {
   component?: string
@@ -89,7 +93,8 @@ async function classifyRecordReports(
     guard?.isCurrent() === false ? list.map(() => staleRecordSourceEvidence()) : resolvedEvidence
   return list.map((record, index): ClassifiedRecord => {
     const entry = evidence[index] ?? unknownRecordSourceEvidence()
-    const { source, isLibrary, hookSources, externalStoreCount, libraryOnly, appOwned } = entry
+    const { source, ownership, isLibrary, hookSources, externalStoreCount, libraryOnly, appOwned } =
+      entry
     const { fiber: _fiber, latestRenderEventId: _latestRenderEventId, ...rest } = record
     return {
       record,
@@ -110,7 +115,7 @@ async function classifyRecordReports(
         source,
         sourceAttribution: sourceAttributionForSource(source),
         sourceProvenance: sourceProvenanceForSource(source),
-        sourceOwnership: source ? (isLibrary ? 'library' : 'app') : 'unknown',
+        sourceOwnership: ownership,
         isLibrary,
         wrapperAncestry: wrapperAncestryOf(record.fiber),
       },
@@ -128,12 +133,12 @@ async function recordSourceEvidence(records: RenderRecord[]): Promise<RecordSour
     const hooks = hookSources[index] ?? { status: 'deadline-exceeded', hooks: null }
     const externalStoreCount = countExternalStoreHooks(record.fiber)
     const exactAppHook = hasExactAppExternalStoreCallsite(hooks, externalStoreCount)
-    const appOwned = (classification.source !== null && !classification.isLibrary) || exactAppHook
+    const appOwned = classification.ownership === 'app' || exactAppHook
     return {
       ...classification,
       hookSources: hooks,
       externalStoreCount,
-      libraryOnly: classification.isLibrary && !exactAppHook,
+      libraryOnly: classification.ownership === 'library' && !exactAppHook,
       appOwned,
     }
   })
@@ -288,7 +293,7 @@ export async function buildRenderCauseEventsReport(
       sourceAttribution: eventSource
         ? sourceAttributionForSource(eventSource)
         : { role: 'unavailable', evidence: 'unknown' },
-      sourceOwnership: eventSource ? (classification.isLibrary ? 'library' : 'app') : 'unknown',
+      sourceOwnership: eventSource ? classification.ownership : 'unknown',
       isLibrary: eventSource ? classification.isLibrary : false,
     }
     return {

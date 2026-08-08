@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { devtoolsInteractionBeginContract } from '../../protocol'
 import {
+  reactClearRendersContract,
   reactComponentCohortContract,
   reactEffectAuditContract,
   reactGetRendersContract,
@@ -299,5 +301,187 @@ describe('react_component_cohort contract', () => {
       limit: 50,
     })
     expect(() => reactComponentCohortContract.input.parse({ component: '', limit: 50 })).toThrow()
+  })
+})
+
+describe('react_clear_renders observation budget bounds', () => {
+  it('defaults to the low-overhead budget', () => {
+    expect(reactClearRendersContract.input.parse({}).budget).toEqual({
+      fiberLimit: 250,
+      operationLimit: 20_000,
+      timeLimitMs: 8,
+      targetOperationReserve: 4_000,
+      targetTimeReserveMs: 4,
+      adaptive: true,
+    })
+  })
+
+  it('accepts the expanded opt-in budget ceilings', () => {
+    expect(
+      reactClearRendersContract.input.parse({
+        budget: {
+          fiberLimit: 20_000,
+          operationLimit: 2_000_000,
+          timeLimitMs: 500,
+          targetOperationReserve: 500_000,
+          targetTimeReserveMs: 250,
+        },
+      }).budget,
+    ).toMatchObject({
+      fiberLimit: 20_000,
+      operationLimit: 2_000_000,
+      timeLimitMs: 500,
+      targetOperationReserve: 500_000,
+      targetTimeReserveMs: 250,
+    })
+  })
+
+  it('rejects a budget beyond the ceiling', () => {
+    expect(() =>
+      reactClearRendersContract.input.parse({ budget: { fiberLimit: 20_001 } }),
+    ).toThrow()
+    expect(() => reactClearRendersContract.input.parse({ budget: { timeLimitMs: 501 } })).toThrow()
+    expect(() =>
+      reactClearRendersContract.input.parse({ budget: { operationLimit: 2_000_001 } }),
+    ).toThrow()
+    expect(() =>
+      reactClearRendersContract.input.parse({ budget: { targetTimeReserveMs: 251 } }),
+    ).toThrow()
+    expect(() =>
+      reactClearRendersContract.input.parse({ budget: { targetOperationReserve: 500_001 } }),
+    ).toThrow()
+  })
+})
+
+describe('observation budget schemas', () => {
+  const defaultBudget = {
+    fiberLimit: 250,
+    operationLimit: 20_000,
+    timeLimitMs: 8,
+    targetOperationReserve: 4_000,
+    targetTimeReserveMs: 4,
+    adaptive: true,
+  }
+
+  const parseBothBudgets = (budget?: Record<string, unknown>) => ({
+    clear: reactClearRendersContract.input.safeParse(budget === undefined ? {} : { budget }),
+    interaction: devtoolsInteractionBeginContract.input.safeParse(
+      budget === undefined ? { name: 'press' } : { name: 'press', budget },
+    ),
+  })
+
+  it.each([undefined, {}])('applies identical defaults for budget %j', (budget) => {
+    const { clear, interaction } = parseBothBudgets(budget)
+
+    expect(clear.success).toBe(true)
+    expect(interaction.success).toBe(true)
+    if (!clear.success || !interaction.success) return
+    expect(clear.data.budget).toEqual(defaultBudget)
+    expect(interaction.data.budget).toEqual(defaultBudget)
+  })
+
+  it('fills identical defaults for a partial budget', () => {
+    const { clear, interaction } = parseBothBudgets({ fiberLimit: 1_000, adaptive: false })
+    const expected = { ...defaultBudget, fiberLimit: 1_000, adaptive: false }
+
+    expect(clear.success).toBe(true)
+    expect(interaction.success).toBe(true)
+    if (!clear.success || !interaction.success) return
+    expect(clear.data.budget).toEqual(expected)
+    expect(interaction.data.budget).toEqual(expected)
+  })
+
+  const boundaryCases: Array<{
+    name: string
+    budget: Record<string, unknown>
+    accepted: boolean
+  }> = [
+    { name: 'fiber minimum - 1', budget: { fiberLimit: 49 }, accepted: false },
+    { name: 'fiber minimum', budget: { fiberLimit: 50 }, accepted: true },
+    { name: 'fiber maximum', budget: { fiberLimit: 20_000 }, accepted: true },
+    { name: 'fiber maximum + 1', budget: { fiberLimit: 20_001 }, accepted: false },
+    { name: 'fractional fiber limit', budget: { fiberLimit: 50.5 }, accepted: false },
+    { name: 'operation minimum - 1', budget: { operationLimit: 999 }, accepted: false },
+    { name: 'operation minimum', budget: { operationLimit: 1_000 }, accepted: true },
+    { name: 'operation maximum', budget: { operationLimit: 2_000_000 }, accepted: true },
+    {
+      name: 'operation maximum + 1',
+      budget: { operationLimit: 2_000_001 },
+      accepted: false,
+    },
+    {
+      name: 'fractional operation limit',
+      budget: { operationLimit: 1_000.5 },
+      accepted: false,
+    },
+    { name: 'time minimum - epsilon', budget: { timeLimitMs: 0.999 }, accepted: false },
+    { name: 'time minimum', budget: { timeLimitMs: 1 }, accepted: true },
+    { name: 'time maximum', budget: { timeLimitMs: 500 }, accepted: true },
+    { name: 'time maximum + epsilon', budget: { timeLimitMs: 500.001 }, accepted: false },
+    { name: 'NaN time limit', budget: { timeLimitMs: Number.NaN }, accepted: false },
+    {
+      name: 'infinite time limit',
+      budget: { timeLimitMs: Number.POSITIVE_INFINITY },
+      accepted: false,
+    },
+    {
+      name: 'target operation minimum - 1',
+      budget: { targetOperationReserve: 99 },
+      accepted: false,
+    },
+    {
+      name: 'target operation minimum',
+      budget: { targetOperationReserve: 100 },
+      accepted: true,
+    },
+    {
+      name: 'target operation maximum',
+      budget: { targetOperationReserve: 500_000 },
+      accepted: true,
+    },
+    {
+      name: 'target operation maximum + 1',
+      budget: { targetOperationReserve: 500_001 },
+      accepted: false,
+    },
+    {
+      name: 'fractional target operation reserve',
+      budget: { targetOperationReserve: 100.5 },
+      accepted: false,
+    },
+    {
+      name: 'target time minimum - epsilon',
+      budget: { targetTimeReserveMs: 0.499 },
+      accepted: false,
+    },
+    { name: 'target time minimum', budget: { targetTimeReserveMs: 0.5 }, accepted: true },
+    { name: 'target time maximum', budget: { targetTimeReserveMs: 250 }, accepted: true },
+    {
+      name: 'target time maximum + epsilon',
+      budget: { targetTimeReserveMs: 250.001 },
+      accepted: false,
+    },
+    {
+      name: 'NaN target time reserve',
+      budget: { targetTimeReserveMs: Number.NaN },
+      accepted: false,
+    },
+    {
+      name: 'infinite target time reserve',
+      budget: { targetTimeReserveMs: Number.NEGATIVE_INFINITY },
+      accepted: false,
+    },
+    { name: 'adaptive enabled', budget: { adaptive: true }, accepted: true },
+    { name: 'adaptive disabled', budget: { adaptive: false }, accepted: true },
+    { name: 'non-boolean adaptive value', budget: { adaptive: 'true' }, accepted: false },
+  ]
+
+  it.each(boundaryCases)('enforces $name identically', ({ budget, accepted }) => {
+    const { clear, interaction } = parseBothBudgets(budget)
+
+    expect(clear.success).toBe(accepted)
+    expect(interaction.success).toBe(accepted)
+    if (!clear.success || !interaction.success) return
+    expect(interaction.data.budget).toEqual(clear.data.budget)
   })
 })

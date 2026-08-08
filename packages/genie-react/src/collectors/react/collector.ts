@@ -73,6 +73,7 @@ import {
   getBudgetExhaustedSubsystems,
   getCommitCount,
   getDroppedPendingUnmountFiberCount,
+  getPendingUnmountFiberCount,
   getPropsNotEnumeratedFiberCount,
   getRenderCauseMeasurement,
   getRenderObservationConfig,
@@ -419,6 +420,7 @@ export function reactCollector(): GenieCollector {
               propsNotEnumeratedFibers: getPropsNotEnumeratedFiberCount(),
               budgetExhaustedCommits: getBudgetExhaustedCommitCount(),
               budgetExhaustedSubsystems: getBudgetExhaustedSubsystems(),
+              pendingUnmountFibers: getPendingUnmountFiberCount(),
             },
           ),
       }),
@@ -444,6 +446,7 @@ export function reactCollector(): GenieCollector {
             omittedByLimit,
             effectsOmittedByLimit,
             libraryEffectsHidden,
+            appEffectsAfterAppOnly,
             hotnessCriteria,
             packageFilter,
           } = await getEffectAuditReport({
@@ -463,7 +466,12 @@ export function reactCollector(): GenieCollector {
           const completedAtAnalysisGeneration = getAnalysisGeneration()
           const appEffects = components.reduce((sum, c) => sum + c.effects.length, 0)
           const filteredNote = appOnly
-            ? appOnlyFilteredNote(appEffects, libraryEffectsHidden, 'effects')
+            ? appOnlyFilteredNote(
+                appEffects,
+                libraryEffectsHidden,
+                'effects',
+                appEffectsAfterAppOnly,
+              )
             : undefined
           return {
             tracking,

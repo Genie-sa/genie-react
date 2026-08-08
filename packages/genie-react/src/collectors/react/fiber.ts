@@ -107,12 +107,14 @@ const fiberRegistry = new Map<NodeId, Fiber>()
 
 const TREE_SOURCE_CLASSIFY_LIMIT = 120
 const TREE_SOURCE_CLASSIFY_BUDGET_MS = 500
-const UNCLASSIFIED_FIBER: FiberClassification = { source: null, isLibrary: false }
+const UNCLASSIFIED_FIBER: FiberClassification = {
+  source: null,
+  ownership: 'unknown',
+  isLibrary: false,
+}
 
 export function registerFiber(fiber: Fiber): NodeId {
-  // bippy treats a stored id of 0 as absent and silently reassigns on the next read; re-reading here settles the first-ever fiber on its stable id before it is handed out.
-  let id = asNodeId(getFiberId(fiber))
-  if (id === 0) id = asNodeId(getFiberId(fiber))
+  const id = asNodeId(getFiberId(fiber))
   if (fiber.alternate) setFiberId(fiber.alternate, id)
   if (!fiberRegistry.delete(id) && fiberRegistry.size >= REGISTRY_LIMIT) {
     const oldest = fiberRegistry.keys().next().value
@@ -387,10 +389,14 @@ export function appOnlyFilteredNote(
   shown: number,
   hidden: number,
   subject: 'components' | 'effects',
+  appOwnedShown = shown,
 ): string | undefined {
   if (hidden <= 0) return undefined
   const label = subject === 'effects' ? 'app effects' : 'components shown'
-  return `${shown} ${label} (${hidden} library/unknown ${subject} hidden — set appOnly:false to include)`
+  const note = `${shown} ${label} (${hidden} library/unknown ${subject} hidden — set appOnly:false to include)`
+  return appOwnedShown === 0
+    ? `WARNING: appOnly returned no app-owned result, so this is not evidence that nothing happened. ${note}`
+    : note
 }
 
 export async function buildTree(
@@ -501,7 +507,12 @@ export async function buildTree(
     const folded = await foldLibrarySubtrees(entries)
     nodes = folded.nodes
     classificationPartial = folded.partial
-    filteredNote = appOnlyFilteredNote(nodes.length, folded.hidden, 'components')
+    filteredNote = appOnlyFilteredNote(
+      nodes.length,
+      folded.hidden,
+      'components',
+      folded.appOwnedShown,
+    )
     if (folded.partial) {
       const partialNote =
         'source classification budget reached; some library components may be shown'
@@ -559,16 +570,11 @@ export async function buildProvenanceReport(
   })
   const classified = selected.map((fiber, index) => {
     const classification = classes[index] ?? UNCLASSIFIED_FIBER
-    const ownership = classification.source
-      ? classification.isLibrary
-        ? ('library' as const)
-        : ('app' as const)
-      : ('unknown' as const)
     return {
       id: registerFiber(fiber),
       name: nameOf(fiber),
       wrapperAncestry: wrapperAncestryOf(fiber),
-      ownership,
+      ownership: classification.ownership,
       source: classification.source,
       provenance: sourceProvenanceForSource(classification.source),
     }
@@ -609,7 +615,7 @@ export async function buildProvenanceReport(
 // Classifies each node, labels anonymous nodes by source (`cmdk.js:1998`), and folds each library subtree into its top node instead of a wall of "Anonymous"; hidden counts the folded-away library nodes.
 async function foldLibrarySubtrees(
   entries: { node: TreeNode; fiber: Fiber }[],
-): Promise<{ nodes: TreeNode[]; hidden: number; partial: boolean }> {
+): Promise<{ nodes: TreeNode[]; hidden: number; partial: boolean; appOwnedShown: number }> {
   const { classes, partial } = await classifyTreeEntries(entries)
   if (partial) scheduleClassificationWarmup(entries.map((entry) => entry.fiber))
   entries.forEach((entry, index) => {
@@ -623,14 +629,27 @@ async function foldLibrarySubtrees(
   })
 
   // Drop a library node whose nearest kept parent is also library: subtrees collapse to their top node while app components composed under library providers are kept.
-  const byId = new Map(entries.map((entry) => [entry.node.id, entry.node]))
-  const isLibraryInternal = (node: TreeNode): boolean => {
-    if (!node.isLibrary) return false
-    const parent = node.parentId != null ? byId.get(node.parentId) : undefined
-    return parent?.isLibrary === true
+  const nearestRetainedById = new Map<NodeId, NodeId | null>()
+  const retainedById = new Map<NodeId, TreeNode>()
+  const nodes: TreeNode[] = []
+  let appOwnedShown = 0
+  for (const [index, { node }] of entries.entries()) {
+    const retainedParentId =
+      node.parentId === null ? null : (nearestRetainedById.get(node.parentId) ?? null)
+    const retainedParent =
+      retainedParentId === null ? undefined : retainedById.get(retainedParentId)
+    if (node.isLibrary && retainedParent?.isLibrary) {
+      nearestRetainedById.set(node.id, retainedParentId)
+      continue
+    }
+    node.parentId = retainedParentId
+    nodes.push(node)
+    retainedById.set(node.id, node)
+    nearestRetainedById.set(node.id, node.id)
+    const classification = classes[index] ?? UNCLASSIFIED_FIBER
+    if (classification.ownership === 'app') appOwnedShown += 1
   }
-  const nodes = entries.map((entry) => entry.node).filter((node) => !isLibraryInternal(node))
-  return { nodes, hidden: entries.length - nodes.length, partial }
+  return { nodes, hidden: entries.length - nodes.length, partial, appOwnedShown }
 }
 
 async function classifyTreeEntries(
