@@ -13,7 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@tailwindcss/vite": "^4.1.18",
+    "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-query": "latest",
     "@tanstack/react-router": "latest",
