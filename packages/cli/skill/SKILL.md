@@ -1,8 +1,8 @@
 ---
 name: genie
-description: Drive live DevTools on a RUNNING React, React Native, or TanStack app with the genie-react CLI. Use for runtime render, effect, Query, Router, interaction, memory, and FPS evidence; do not use for static source review.
+description: Drive live DevTools on a RUNNING React, React Native, or TanStack app with the genie-react CLI. Use for runtime render, effect, Query, Router, interaction, memory, and FPS evidence, or to call the app's registered custom DevTools (`app_*`); do not use for static source review.
 metadata:
-  version: "0.9.0"
+  version: "0.12.3"
   package: "@genie-react/cli"
 ---
 
@@ -31,6 +31,30 @@ genie-react status --sessions-only --json --marker my-agent
 ```
 
 Never rely on an implicit current tab during concurrent work. Saved browser state must omit all `genie-react:*` sessionStorage keys; status reports and forks cloned logical identities when a collision is detected.
+
+## Prefer the app's custom tools
+
+Before hand-driving login, fixtures, fault injection, or wizard setup, discover what the running app registered:
+
+```bash
+genie-react tools app
+```
+
+The app defines the `app_*` names and schemas. Inspect the exact contract before calling one; `app.<name>` groups narrow large catalogs:
+
+```bash
+genie-react tools app.checkout
+genie-react tools app_login_as
+genie-react call app_login_as '{"role":"admin"}' --json
+```
+
+Read the advertised badge before calling: `read-only` is safe to retry, `action` mutates, and `destructive` has no undo. Before an action, read and record the exact target with an app query or built-in inspector. After it, re-read the same target and verify the visible UI. Retry an action only when its contract says `idempotent`.
+
+`unavailable` means the registering component is unmounted, not that the tool disappeared. Read its detail, drive the app back to the reported route, and retry. An app error such as `[CART_EMPTY] ... — hint: ...` belongs to the app tool; follow its hint.
+
+This branch is complete when the requested state is confirmed in both runtime data and the UI, and temporary roles, fixtures, failures, or overrides have been restored.
+
+When the user asks you to define, register, or improve custom app tools, read [APP_TOOLS.md](APP_TOOLS.md) before editing.
 
 ## Measure one bounded interaction
 
