@@ -386,7 +386,7 @@ describe('runDoctor — Next.js', () => {
 })
 
 describe('runInit — idempotency and dry-run', () => {
-  it('installs stale agent guidance from the bundled version and doctor verifies its hash', async () => {
+  it('installs stale agent guidance and references from the bundled version and doctor verifies their hash', async () => {
     const dir = await project({
       'package.json': pkg({ '@tanstack/react-router': 'latest' }),
       'index.html': '<div id="app"></div>',
@@ -394,14 +394,29 @@ describe('runInit — idempotency and dry-run', () => {
       'src/routes/__root.tsx': ROUTER_ROOT,
     })
     const activeSkill = join(dir, '.agents/skills/genie/SKILL.md')
+    const activeAppTools = join(dir, '.agents/skills/genie/APP_TOOLS.md')
     const bundledSkill = await readFile(join(process.cwd(), 'packages/cli/skill/SKILL.md'), 'utf8')
+    const bundledAppTools = await readFile(
+      join(process.cwd(), 'packages/cli/skill/APP_TOOLS.md'),
+      'utf8',
+    )
+
+    expect(bundledSkill).toContain('genie-react tools app')
+    expect(bundledSkill).toContain('`app_*`')
 
     runInit({ cwd: dir, logger: silent })
     expect(await readFile(activeSkill, 'utf8')).toBe(bundledSkill)
+    expect(await readFile(activeAppTools, 'utf8')).toBe(bundledAppTools)
     expect(runDoctor({ cwd: dir, logger: silent })).toMatchObject({
-      versions: { bundledSkill: '0.9.0', activeSkill: '0.9.0' },
+      versions: { bundledSkill: '0.12.3', activeSkill: '0.12.3' },
       skill: { current: true },
     })
+
+    await writeFile(activeAppTools, 'stale app-tools reference\n')
+    expect(runDoctor({ cwd: dir, logger: silent }).skill.current).toBe(false)
+
+    runInit({ cwd: dir, logger: silent })
+    expect(await readFile(activeAppTools, 'utf8')).toBe(bundledAppTools)
 
     await writeFile(activeSkill, '---\nmetadata:\n  version: "0.8.0"\n---\nstale\n')
     const stale = runDoctor({ cwd: dir, logger: silent })

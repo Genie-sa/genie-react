@@ -33,7 +33,9 @@ const VITE_CONFIG_FILES = [
 const GENIE_PACKAGE = 'genie-react'
 const VITE_PLUGIN_SPECIFIER = 'genie-react/vite'
 const CLI_PACKAGE = '@genie-react/cli'
-const AGENT_SKILL_PATH = '.agents/skills/genie/SKILL.md'
+const AGENT_SKILL_DIRECTORY = '.agents/skills/genie'
+const AGENT_SKILL_PATH = `${AGENT_SKILL_DIRECTORY}/SKILL.md`
+const APP_TOOLS_REFERENCE = 'APP_TOOLS.md'
 const VITE_IMPORT_LINE = `import { genie } from '${VITE_PLUGIN_SPECIFIER}'`
 const GENIE_IMPORT_LINE = `import { Genie } from '${GENIE_PACKAGE}'`
 const GENIE_RENDER_SNIPPET = '{import.meta.env.DEV && <Genie />}'
@@ -257,10 +259,16 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
     ? packageVersionAt(join(runtimeDirectory, 'package.json'))
     : null
   const bundledSkill = readBundledSkill()
+  const bundledAppTools = readBundledSkillFile(APP_TOOLS_REFERENCE)
   const activeSkillPath = findActiveSkill(cwd)
   const activeSkill = activeSkillPath ? readFileSafe(activeSkillPath) : ''
-  const bundledHash = bundledSkill ? sha256(bundledSkill) : null
-  const activeHash = activeSkill ? sha256(activeSkill) : null
+  const activeAppTools = activeSkillPath
+    ? readFileSafe(join(dirname(activeSkillPath), APP_TOOLS_REFERENCE))
+    : ''
+  const bundledHash =
+    bundledSkill && bundledAppTools ? sha256(`${bundledSkill}\0${bundledAppTools}`) : null
+  const activeHash =
+    activeSkill && activeAppTools ? sha256(`${activeSkill}\0${activeAppTools}`) : null
   const bundledSkillVersion = skillVersion(bundledSkill)
   const activeSkillVersion = skillVersion(activeSkill)
   const skillCurrent = bundledHash !== null && activeHash === bundledHash
@@ -1098,25 +1106,33 @@ function ensureGenieIgnored(ctx: ApplyContext): void {
 }
 
 function ensureAgentSkill(ctx: ApplyContext): void {
-  const bundled = readBundledSkill()
-  if (!bundled) {
+  const bundledFiles = [
+    ['SKILL.md', readBundledSkill()],
+    [APP_TOOLS_REFERENCE, readBundledSkillFile(APP_TOOLS_REFERENCE)],
+  ] as const
+  if (bundledFiles.some(([, contents]) => !contents)) {
     ctx.log.info(`${WARN} bundled Genie skill is unavailable; reinstall ${CLI_PACKAGE}`)
     return
   }
-  const path = join(ctx.cwd, AGENT_SKILL_PATH)
-  if (readFileSafe(path) === bundled) return
+  const directory = join(ctx.cwd, AGENT_SKILL_DIRECTORY)
+  if (bundledFiles.every(([name, contents]) => readFileSafe(join(directory, name)) === contents))
+    return
   if (ctx.dryRun) {
     ctx.log.info(`${PREVIEW}Would install the versioned agent skill at ${AGENT_SKILL_PATH}`)
     return
   }
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, bundled)
+  mkdirSync(directory, { recursive: true })
+  for (const [name, contents] of bundledFiles) writeFileSync(join(directory, name), contents)
   ctx.log.info(`${OK} installed the versioned agent skill at ${AGENT_SKILL_PATH}`)
 }
 
 function readBundledSkill(): string {
+  return readBundledSkillFile('SKILL.md')
+}
+
+function readBundledSkillFile(name: string): string {
   try {
-    return readFileSync(new URL('../skill/SKILL.md', import.meta.url), 'utf8')
+    return readFileSync(new URL(`../skill/${name}`, import.meta.url), 'utf8')
   } catch {
     return ''
   }
