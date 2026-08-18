@@ -363,7 +363,11 @@ Start the hub on your development machine:
 npx @genie-react/cli hub
 ```
 
-Then render Genie in development:
+Import the hook in your entry file (`index.js`) before anything that loads React, then render Genie in development:
+
+```tsx
+import 'genie-react/hook'
+```
 
 ```tsx
 import { Genie } from 'genie-react/native'
@@ -371,7 +375,7 @@ import { Genie } from 'genie-react/native'
 {__DEV__ && <Genie url="ws://127.0.0.1:4390/__genie/ws" />}
 ```
 
-Use `127.0.0.1` for the iOS simulator or `10.0.2.2` for the Android emulator. A physical device needs a port forward to the local hub. Pass `queryClient` or `router` to add those tools.
+The early hook import is what makes render collection work; without it, tree and inspect tools still function but render reports stay empty (`react_get_renders` reports `renderCollection` so you can tell the difference). Use `127.0.0.1` for the iOS simulator or `10.0.2.2` for the Android emulator. Desktop targets such as react-native-macos and react-native-windows run on the same machine as the hub, so `127.0.0.1` works with no port forward. A physical device needs a port forward to the local hub. Pass `queryClient` or `router` to add those tools.
 
 React Native has no DOM selectors. `react_dom_for_component` returns native view details instead. Browser-only tools stay unavailable.
 

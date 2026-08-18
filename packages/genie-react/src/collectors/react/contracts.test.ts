@@ -13,6 +13,7 @@ describe('react_get_renders output contract', () => {
   it('preserves detailed hook state changes for typed agent clients', () => {
     const result = reactGetRendersContract.output.parse({
       tracking: true,
+      renderCollection: 'available',
       commits: 1,
       documentCommitId: 7,
       observation: {

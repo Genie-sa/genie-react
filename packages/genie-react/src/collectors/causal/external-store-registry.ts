@@ -1,5 +1,6 @@
 /** Neutral causal identity shared by React and TanStack collectors. */
 
+import { safeStructuredClone } from '../structured-clone'
 import { publishEffectConsequence } from './effect-consequence'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from './safe-object'
 
@@ -476,12 +477,12 @@ export function externalStoreId(store: object): string {
 
 function publicQueryNotification(event: RetainedQueryNotification): QueryNotificationEvent {
   const { observer: _observer, resultReference: _resultReference, ...publicEvent } = event
-  return structuredClone(publicEvent)
+  return safeStructuredClone(publicEvent)
 }
 
 function publicRouterNotification(event: RetainedRouterNotification): RouterNotificationEvent {
   const { store: _store, snapshotReference: _snapshotReference, ...publicEvent } = event
-  return structuredClone(publicEvent)
+  return safeStructuredClone(publicEvent)
 }
 
 function changedAndReusedFields(

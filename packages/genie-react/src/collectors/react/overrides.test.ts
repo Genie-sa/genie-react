@@ -218,6 +218,13 @@ describe('applyHookStateOverride', () => {
     expect(harness.hookCalls).toEqual([[target, '1', ['filters', '0'], 'dark']])
   })
 
+  it('schedules a re-render after overriding, so memo boundaries and stale alternates still commit', () => {
+    const harness = fakeRenderer()
+    const target = fiber({ memoizedState: stateHook(0) })
+    applyHookStateOverride(target, { hookIndex: 0 }, [], 5, harness.renderer)
+    expect(harness.scheduled).toEqual([target])
+  })
+
   it('resolves a stateIndex to its flat hook index, skipping non-stateful hooks', () => {
     const harness = fakeRenderer()
     const target = fiber({ memoizedState: stateHook(0, effectHook(stateHook('x'))) })

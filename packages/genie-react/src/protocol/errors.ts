@@ -8,16 +8,25 @@ interface ValidationIssue {
   message: string
 }
 
+export interface ValidationCallHint {
+  requiredKeys: readonly string[]
+  exampleArgs: string
+}
+
 /** Stable, bounded validation text shared by browser tools and bridge-local tools. */
 export function formatToolValidationError(
   tool: string,
   issues: readonly ValidationIssue[],
+  hint?: ValidationCallHint,
 ): string {
   const details = issues
     .slice(0, 3)
     .map((issue) => `${jsonPointer(issue.path)}: ${safeDiagnostic(issue.message)}`)
     .join('; ')
-  return `Invalid arguments for "${safeDiagnostic(tool)}": ${details || '/: invalid arguments'}`
+  const base = `Invalid arguments for "${safeDiagnostic(tool)}": ${details || '/: invalid arguments'}`
+  if (!hint) return base
+  const required = hint.requiredKeys.join(', ') || '(none)'
+  return `${base} — required: ${required}; minimal call: ${safeDiagnostic(hint.exampleArgs)}`
 }
 
 /** RFC 6901 JSON Pointer keeps nested object/array failures unambiguous and shell-copyable. */

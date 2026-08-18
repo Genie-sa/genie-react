@@ -527,6 +527,11 @@ export const reactGetRendersContract = defineAgentToolContract({
   }),
   output: z.object({
     tracking: z.boolean(),
+    renderCollection: z
+      .string()
+      .describe(
+        'Whether render collection can observe commits at all. Anything but "available" means zero counts are not evidence that nothing re-rendered.',
+      ),
     commits: z.number(),
     documentCommitId: z.number().int().nonnegative(),
     observation: observationSchema.nullable(),

@@ -83,6 +83,7 @@ import {
   getSkippedCommitFiberCount,
   getTruncatedInputFiberCount,
   isTracking,
+  renderCollectionStatus,
   rendersDiff,
   setCommitListener,
   startRenderTracking,
@@ -206,14 +207,23 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactOverrideHookStateContract,
-        handler: ({ id, hookIndex, stateIndex, path, value }) => {
+        handler: async ({ id, hookIndex, stateIndex, path, value }) => {
           const fiber = requireFiber(id)
+          const commitsBefore = getCommitCount()
           const resolved = applyHookStateOverride(fiber, { hookIndex, stateIndex }, path, value)
+          const commitObserved = await observeCommitAfterOverride(commitsBefore)
           return {
             ok: true,
             name: nameOf(fiber),
             hookIndex: resolved.flatIndex,
             stateIndex: resolved.stateIndex,
+            commitObserved,
+            ...(commitObserved === false
+              ? {
+                  warning:
+                    'the override was applied but no commit was observed — the new value may not have propagated to children (memo boundaries keep their last render); verify with react_inspect_component on a child',
+                }
+              : {}),
           }
         },
       }),
@@ -342,6 +352,7 @@ export function reactCollector(): GenieCollector {
           const comparability = renderEvidenceComparability(coverage, report.attribution.status)
           return {
             tracking: report.tracking,
+            renderCollection: report.renderCollection,
             commits: report.commits,
             documentCommitId: report.documentCommitId,
             observation: report.observation,
@@ -658,6 +669,20 @@ function requireFiber(id: NodeId): Fiber {
   const fiber = root ? findFiberById(root, id) : null
   if (!fiber) throw new Error(`Component ${id} not found (it may have unmounted).`)
   return fiber
+}
+
+const OVERRIDE_COMMIT_TIMEOUT_MS = 300
+const OVERRIDE_COMMIT_POLL_MS = 16
+
+/** Null means commits cannot be observed at all, so absence of one is not evidence the override failed to propagate. */
+async function observeCommitAfterOverride(commitsBefore: number): Promise<boolean | null> {
+  if (!isTracking() || renderCollectionStatus().startsWith('unavailable')) return null
+  const deadline = Date.now() + OVERRIDE_COMMIT_TIMEOUT_MS
+  while (getCommitCount() <= commitsBefore) {
+    if (Date.now() >= deadline) return false
+    await new Promise((resolve) => setTimeout(resolve, OVERRIDE_COMMIT_POLL_MS))
+  }
+  return true
 }
 
 // A release-shaped toggle (showFallback:false / forceError:false) whose id no longer resolves is the stuck case: the forced boundary's subtree re-id'd on unmount, so point the agent at the id-free recovery.

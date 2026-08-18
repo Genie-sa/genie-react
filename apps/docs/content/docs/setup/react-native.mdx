@@ -44,6 +44,10 @@ The bundled defaults cover local virtual devices only:
 | iOS Simulator    | `ws://127.0.0.1:4390/__genie/ws` |
 | Android Emulator | `ws://10.0.2.2:4390/__genie/ws`  |
 
+Desktop React Native targets (react-native-macos, react-native-windows) are the easy case: the app
+and the hub run on the same machine, so `ws://127.0.0.1:4390/__genie/ws` works with no port
+forwarding.
+
 The hub listens on the development machine's loopback interface. A physical device cannot use
 these loopback examples directly; it requires an external, tested port forward. This repository
 does not provide a tunnel command. After that forward exists, point Expo at its reachable address:
@@ -100,6 +104,11 @@ pnpm --filter @genie-react/expo-demo exec genie-react tools --json
 
 If session selection fails, keep both long-running terminals open, make sure Expo has mounted the
 screen, then rerun the whole `status_json` block. Do not reuse an empty or stale session ID.
+
+Import `genie-react/hook` at the very top of the app's entry file (before anything that loads
+React), as `examples/expo-demo/index.ts` does. Without it, tree and inspect tools still work but
+every render report stays at zero; `react_get_renders` reports `renderCollection` as unavailable in
+that case so the empty report is not mistaken for "nothing re-rendered".
 
 The demo source defines `increment-button`, `counter-value`, and `genie-hub-url` test IDs for a
 device driver. React Native has no DOM selectors: `react_dom_for_component` returns native view

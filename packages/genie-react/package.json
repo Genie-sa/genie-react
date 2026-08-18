@@ -32,31 +32,38 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./hook": {
       "types": "./dist/hook.d.ts",
-      "import": "./dist/hook.js"
+      "import": "./dist/hook.js",
+      "default": "./dist/hook.js"
     },
     "./hook-hmr": {
       "types": "./dist/hook-hmr.d.ts",
-      "import": "./dist/hook-hmr.js"
+      "import": "./dist/hook-hmr.js",
+      "default": "./dist/hook-hmr.js"
     },
     "./client": {
       "types": "./dist/client.d.ts",
-      "import": "./dist/client.js"
+      "import": "./dist/client.js",
+      "default": "./dist/client.js"
     },
     "./collectors": {
       "types": "./dist/collectors.d.ts",
-      "import": "./dist/collectors.js"
+      "import": "./dist/collectors.js",
+      "default": "./dist/collectors.js"
     },
     "./collectors/query": {
       "types": "./dist/collectors/query.d.ts",
-      "import": "./dist/collectors/query.js"
+      "import": "./dist/collectors/query.js",
+      "default": "./dist/collectors/query.js"
     },
     "./collectors/router": {
       "types": "./dist/collectors/router.d.ts",
-      "import": "./dist/collectors/router.js"
+      "import": "./dist/collectors/router.js",
+      "default": "./dist/collectors/router.js"
     },
     "./native": {
       "types": "./dist/native.d.ts",
@@ -65,23 +72,28 @@
     },
     "./script": {
       "types": "./dist/script.d.ts",
-      "import": "./dist/script.js"
+      "import": "./dist/script.js",
+      "default": "./dist/script.js"
     },
     "./next": {
       "types": "./dist/next.d.ts",
-      "import": "./dist/next.js"
+      "import": "./dist/next.js",
+      "default": "./dist/next.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
+      "import": "./dist/vite.js",
+      "default": "./dist/vite.js"
     },
     "./hub": {
       "types": "./dist/hub.d.ts",
-      "import": "./dist/hub.js"
+      "import": "./dist/hub.js",
+      "default": "./dist/hub.js"
     },
     "./protocol": {
       "types": "./dist/protocol.d.ts",
-      "import": "./dist/protocol.js"
+      "import": "./dist/protocol.js",
+      "default": "./dist/protocol.js"
     },
     "./package.json": "./package.json"
   },
