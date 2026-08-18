@@ -9,6 +9,7 @@ import {
   formatToolValidationError,
   GENIE_PROTOCOL_VERSION,
   GENIE_WS_PATH,
+  minimalExampleArgs,
   newId,
   type ToolDescriptor,
   type ValidationCallHint,
@@ -464,29 +465,7 @@ function validationCallHint(input: AgentToolContract['input']): ValidationCallHi
   }
   if (!properties) return undefined
   const requiredKeys = (required ?? []).filter((key) => key in properties)
-  const example: Record<string, unknown> = {}
-  for (const key of requiredKeys) example[key] = exampleArgValue(properties[key], key)
-  return { requiredKeys, exampleArgs: JSON.stringify(example) }
-}
-
-function exampleArgValue(property: unknown, name: string): unknown {
-  if (typeof property !== 'object' || property === null) return `<${name}>`
-  const shape = property as { enum?: unknown[]; default?: unknown; type?: unknown }
-  if (Array.isArray(shape.enum) && shape.enum.length > 0) return shape.enum[0]
-  if (shape.default !== undefined) return shape.default
-  switch (shape.type) {
-    case 'number':
-    case 'integer':
-      return 1
-    case 'boolean':
-      return true
-    case 'array':
-      return []
-    case 'object':
-      return {}
-    default:
-      return `<${name}>`
-  }
+  return { requiredKeys, exampleArgs: minimalExampleArgs(properties, new Set(requiredKeys)) }
 }
 
 // Dev-only output-side twin of the input validation; warns instead of throwing so schema lag never breaks a running app.

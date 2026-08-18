@@ -13,6 +13,32 @@ export interface ValidationCallHint {
   exampleArgs: string
 }
 
+/** Minimal runnable args (required keys only) derived from a JSON-schema object — shared by CLI help and invalid-args errors. */
+export function minimalExampleArgs(
+  properties: Record<string, unknown>,
+  required: ReadonlySet<unknown>,
+): string {
+  const example: Record<string, unknown> = {}
+  for (const name of Object.keys(properties)) {
+    if (required.has(name)) example[name] = examplePropValue(properties[name], name)
+  }
+  return JSON.stringify(example)
+}
+
+function examplePropValue(schema: unknown, name: string): unknown {
+  if (typeof schema === 'object' && schema !== null) {
+    const { enum: options, default: fallback, type } = schema as Record<string, unknown>
+    if (Array.isArray(options) && options.length > 0) return options[0]
+    if (fallback !== undefined) return fallback
+    const first = Array.isArray(type) ? type[0] : type
+    if (first === 'number' || first === 'integer') return 1
+    if (first === 'boolean') return true
+    if (first === 'array') return []
+    if (first === 'object') return {}
+  }
+  return `<${name}>`
+}
+
 /** Stable, bounded validation text shared by browser tools and bridge-local tools. */
 export function formatToolValidationError(
   tool: string,

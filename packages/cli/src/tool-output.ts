@@ -1,4 +1,4 @@
-import type { BridgeStatusMessage } from 'genie-react/protocol'
+import { type BridgeStatusMessage, minimalExampleArgs } from 'genie-react/protocol'
 import { isRecord } from './guards'
 
 export type ToolDescriptor = BridgeStatusMessage['tools'][number]
@@ -120,7 +120,7 @@ export function formatToolDetail(tool: ToolDescriptor): string {
   }
   lines.push(
     '',
-    `example: genie-react call ${tool.name} ${shellSingleQuote(exampleArgs(properties, required))}`,
+    `example: genie-react call ${tool.name} ${shellSingleQuote(minimalExampleArgs(properties, required))}`,
   )
   return lines.join('\n')
 }
@@ -223,27 +223,6 @@ export function formatToolsListing(status: {
     }
   }
   return lines.join('\n')
-}
-
-function exampleArgs(properties: Record<string, unknown>, required: Set<unknown>): string {
-  const example: Record<string, unknown> = {}
-  for (const name of Object.keys(properties)) {
-    if (required.has(name)) example[name] = examplePropValue(properties[name], name)
-  }
-  return JSON.stringify(example)
-}
-
-function examplePropValue(schema: unknown, name: string): unknown {
-  if (isRecord(schema)) {
-    if (Array.isArray(schema.enum) && schema.enum.length > 0) return schema.enum[0]
-    if (schema.default !== undefined) return schema.default
-    const type = Array.isArray(schema.type) ? schema.type[0] : schema.type
-    if (type === 'number' || type === 'integer') return 1
-    if (type === 'boolean') return true
-    if (type === 'array') return []
-    if (type === 'object') return {}
-  }
-  return `<${name}>`
 }
 
 function describeToolParams(schema: unknown): string {
