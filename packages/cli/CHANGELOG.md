@@ -1,5 +1,13 @@
 # @genie-react/cli
 
+## 0.12.5
+
+### Patch Changes
+
+- 1b9106e: Fix React Native (Hermes) support and misleading zero-render reports (#69): fall back to a Map/Set/Date-aware clone where `structuredClone` is missing so importing `genie-react/native` no longer throws on Hermes; add `default` export conditions so Metro can resolve `genie-react/hook` and every other subpath; report `renderCollection` availability in `react_get_renders` so a hook installed after React is distinguishable from "nothing re-rendered"; schedule an explicit re-render after `react_override_hook_state` and report `commitObserved` with a warning when no commit followed; make `.genie/` self-gitignoring; and echo the required keys plus a minimal valid invocation in `invalid-args` tool errors.
+- Updated dependencies [1b9106e]
+  - genie-react@0.12.5
+
 ## 0.12.4
 
 ### Patch Changes
