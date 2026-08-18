@@ -579,6 +579,8 @@ export function applyHookStateOverride(
   const hook = hookChain(fiber)[resolved.flatIndex]
   const prior = hook ? hookValueAtPath(hook, path) : undefined
   renderer.overrideHookState?.(fiber, String(resolved.flatIndex), path.map(String), value)
+  // Schedule explicitly on the latest mounted fiber: the renderer's own scheduling can land on a stale alternate or bail through a memo boundary, leaving the value changed but never committed.
+  renderer.scheduleUpdate?.(mountedFiber(fiber) ?? fiber)
   recordHookOverride(fiber, resolved.flatIndex, path, value, prior)
   return resolved
 }

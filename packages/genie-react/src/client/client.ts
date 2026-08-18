@@ -9,8 +9,10 @@ import {
   formatToolValidationError,
   GENIE_PROTOCOL_VERSION,
   GENIE_WS_PATH,
+  minimalExampleArgs,
   newId,
   type ToolDescriptor,
+  type ValidationCallHint,
 } from '../protocol'
 import type { CollectorContext, ErasedCollectorTool, GenieCollector } from './collector'
 import {
@@ -326,7 +328,7 @@ export class GenieClient {
         kind: 'app/response',
         id,
         ok: false,
-        error: invocationError(toolName, error),
+        error: invocationError(toolName, error, tool.contract.input),
         errorCode: isZodErrorLike(error) ? 'invalid-args' : 'tool-error',
       })
     }
@@ -437,11 +439,33 @@ function unknownArgKeysError(
   return `Unknown argument${unknown.length === 1 ? '' : 's'} ${rejected} for "${toolName}" — valid keys: ${known.join(', ') || '(none)'}`
 }
 
-function invocationError(toolName: string, error: unknown): string {
+function invocationError(
+  toolName: string,
+  error: unknown,
+  input?: AgentToolContract['input'],
+): string {
   if (isZodErrorLike(error)) {
-    return formatToolValidationError(toolName, error.issues)
+    return formatToolValidationError(toolName, error.issues, input && validationCallHint(input))
   }
   return errorMessage(error)
+}
+
+/** A rejected call should teach the retry: name the required keys and echo a minimal valid invocation. */
+function validationCallHint(input: AgentToolContract['input']): ValidationCallHint | undefined {
+  let schema: unknown
+  try {
+    schema = z.toJSONSchema(input, { io: 'input' })
+  } catch {
+    return undefined
+  }
+  if (typeof schema !== 'object' || schema === null) return undefined
+  const { properties, required } = schema as {
+    properties?: Record<string, unknown>
+    required?: string[]
+  }
+  if (!properties) return undefined
+  const requiredKeys = (required ?? []).filter((key) => key in properties)
+  return { requiredKeys, exampleArgs: minimalExampleArgs(properties, new Set(requiredKeys)) }
 }
 
 // Dev-only output-side twin of the input validation; warns instead of throwing so schema lag never breaks a running app.

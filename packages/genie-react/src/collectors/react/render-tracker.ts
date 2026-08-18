@@ -19,6 +19,7 @@ import {
   registerQuerySubscriber,
   setExternalStoreObservation,
 } from '../causal/external-store-registry'
+import { safeStructuredClone } from '../structured-clone'
 import { type CommitWorkBudget, commitWorkExhaustions, consumeCommitWork } from './commit-budget'
 import { recordResultingEffectCommit } from './effect-events'
 import {
@@ -136,6 +137,7 @@ let instrumentation: Unsubscribe | null = null
 let instrumentedHook: ReturnType<typeof getRDTHook> | null = null
 // Stop is intentionally a soft flag: the commit handler stays wired so the client's liveness heartbeat continues while profiling is paused.
 let paused = false
+let renderersPresentAtInstall = false
 let skippedCommitFibers = 0
 let droppedPendingUnmountFibers = 0
 let analysisFailedFibers = 0
@@ -192,7 +194,7 @@ const DEFAULT_OBSERVATION_CONFIGURATION: RenderObservationConfiguration = {
   lifecycle: { bufferLimit: 1_000, targetReserve: 100 },
 }
 
-let observationConfiguration = structuredClone(DEFAULT_OBSERVATION_CONFIGURATION)
+let observationConfiguration = safeStructuredClone(DEFAULT_OBSERVATION_CONFIGURATION)
 let observationRootIds = new Set<number>()
 
 const ADAPTIVE_FIBER_CEILING = 20_000
@@ -224,6 +226,7 @@ export function startRenderTracking(): boolean {
   }
   if (installed && instrumentedHook === currentHook) return true
   if (installed) disposeRenderTracking()
+  renderersPresentAtInstall = (currentHook?.renderers?.size ?? 0) > 0
   try {
     instrumentation = instrument({
       name: 'genie-react',
@@ -390,6 +393,20 @@ export function stopRenderTracking(): void {
 
 export const isTracking = (): boolean => installed && !paused
 export const getCommitCount = (): number => commits
+
+/** Distinguishes "nothing re-rendered" from "the hook could not observe renders" — a zero report is only evidence when collection is available. */
+export function renderCollectionStatus(): string {
+  if (!installed) {
+    return 'unavailable (render tracking is not installed — import genie-react/hook before React)'
+  }
+  if (renderersPresentAtInstall && commits === 0) {
+    return 'unavailable (hook installed after React initialised — import genie-react/hook, or genie-react/native on React Native, before React)'
+  }
+  if (renderersPresentAtInstall) {
+    return 'degraded (hook installed after React initialised — commits before that point were not observed)'
+  }
+  return 'available'
+}
 export const getSkippedCommitFiberCount = (): number => skippedCommitFibers
 export const getDroppedPendingUnmountFiberCount = (): number => droppedPendingUnmountFibers
 export const getPendingUnmountFiberCount = (): number => pendingUnmounts.length
@@ -570,6 +587,7 @@ export async function getRendersReport(
 
 export async function getRendersMeasurement(query: RenderQuery): Promise<{
   tracking: boolean
+  renderCollection: string
   commits: number
   documentCommitId: number
   observation: ObservationWindow | null
@@ -603,6 +621,7 @@ export async function getRendersMeasurement(query: RenderQuery): Promise<{
   })
   return {
     tracking,
+    renderCollection: renderCollectionStatus(),
     commits: commitsAtStart,
     documentCommitId: epoch.documentCommitId,
     observation,
@@ -624,11 +643,11 @@ function snapshotRenderRecords(): Map<number, RenderRecord> {
       id,
       {
         ...record,
-        instance: structuredClone(record.instance),
-        changes: structuredClone(record.changes),
-        causes: structuredClone(record.causes),
+        instance: safeStructuredClone(record.instance),
+        changes: safeStructuredClone(record.changes),
+        causes: safeStructuredClone(record.causes),
         causeCounts: { ...record.causeCounts },
-        assessment: structuredClone(record.assessment),
+        assessment: safeStructuredClone(record.assessment),
         inputCoverage: { ...record.inputCoverage },
       },
     ]),
@@ -666,7 +685,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
   }
 }> {
   const recordsAtStart = snapshotRenderRecords()
-  const eventsAtStart = structuredClone(recentCauseEvents)
+  const eventsAtStart = safeStructuredClone(recentCauseEvents)
   const commitsAtStart = commits
   const epoch = captureReportEpoch()
   const observation = getActiveObservation()
@@ -1089,8 +1108,8 @@ function prepareCauseEventEvidence(
   coverage: RenderInputCoverage,
 ): PreparedCauseEventEvidence {
   return {
-    causes: structuredClone(causes),
-    assessment: structuredClone(assessment),
+    causes: safeStructuredClone(causes),
+    assessment: safeStructuredClone(assessment),
     inputCoverage: { ...coverage },
   }
 }

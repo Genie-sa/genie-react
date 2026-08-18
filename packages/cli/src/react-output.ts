@@ -71,6 +71,10 @@ export function summarizeRenders(result: unknown): string | null {
   if (!isRecord(summary) || !Array.isArray(components)) return null
 
   const trackingOff = result.tracking === false ? ' · ! tracking off (run react_profile_start)' : ''
+  const renderCollection =
+    typeof result.renderCollection === 'string' && result.renderCollection !== 'available'
+      ? ` · ! render collection ${result.renderCollection}`
+      : ''
   const noObservedInputChangeComponents = preferredCount(
     summary.noObservedInputChangeComponents,
     summary.unnecessaryComponents,
@@ -84,7 +88,7 @@ export function summarizeRenders(result: unknown): string | null {
       ? result.omittedByLimit
       : Math.max(0, num(summary.trackedComponents) - components.length)
   const lines = [
-    `${num(summary.commits)} commits · ${num(summary.trackedComponents)} components · ${semanticCount(summary.totalRenders, summary.semantics, 'renders')} · ${semanticCount(summary.totalUpdates, summary.semantics, 'updates')}${referenceOnlyPropComponents > 0 ? ` · ${referenceOnlyPropComponents} reference-only prop candidates` : ''} · ${noObservedInputChangeComponents} no observed input change${omitted > 0 ? ` · ${omitted} omitted` : ''}${comparabilitySuffix(result)}${attributionSuffix(result.attribution)}${coverageSuffix(result.coverage)}${trackingOff}`,
+    `${num(summary.commits)} commits · ${num(summary.trackedComponents)} components · ${semanticCount(summary.totalRenders, summary.semantics, 'renders')} · ${semanticCount(summary.totalUpdates, summary.semantics, 'updates')}${referenceOnlyPropComponents > 0 ? ` · ${referenceOnlyPropComponents} reference-only prop candidates` : ''} · ${noObservedInputChangeComponents} no observed input change${omitted > 0 ? ` · ${omitted} omitted` : ''}${comparabilitySuffix(result)}${attributionSuffix(result.attribution)}${coverageSuffix(result.coverage)}${trackingOff}${renderCollection}`,
   ]
 
   const topReferenceOnlyProps = Array.isArray(summary.topReferenceOnlyProps)

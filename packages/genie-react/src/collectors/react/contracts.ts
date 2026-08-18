@@ -378,6 +378,13 @@ export const reactOverrideHookStateContract = defineAgentToolContract({
       .number()
       .nullable()
       .describe('The stateful ordinal, when targeted by stateIndex.'),
+    commitObserved: z
+      .boolean()
+      .nullable()
+      .describe(
+        'Whether a React commit was observed after the override. false means the new value may not have reached children; null means commits cannot be observed (render collection unavailable).',
+      ),
+    warning: z.string().optional(),
   }),
   annotations: { destructiveHint: true, idempotentHint: false },
 })
