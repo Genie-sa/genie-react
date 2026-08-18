@@ -1,5 +1,16 @@
 # @genie-react/cli
 
+## 0.12.3
+
+### Patch Changes
+
+- f07d02e: Classify disabled and never-fetched Query cache entries explicitly, and require measured turnover or unobserved fetching before reporting churn.
+- Updated dependencies [c8f74c7]
+- Updated dependencies [f07d02e]
+- Updated dependencies [57b600f]
+- Updated dependencies [48ccdc9]
+  - genie-react@0.12.3
+
 ## 0.12.2
 
 ### Patch Changes

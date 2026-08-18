@@ -1,5 +1,14 @@
 # genie-react
 
+## 0.12.3
+
+### Patch Changes
+
+- c8f74c7: Bundle Zod privately in the browser runtime so host Zod versions cannot affect Genie initialization.
+- f07d02e: Classify disabled and never-fetched Query cache entries explicitly, and require measured turnover or unobserved fetching before reporting churn.
+- 57b600f: Upgrade Bippy to 0.6.1 so Fiber ID zero remains stable and custom-renderer host instances can be resolved from tracked roots.
+- 48ccdc9: Remove Genie runtime imports and custom-tool registration code from Vite production builds.
+
 ## 0.12.2
 
 ### Patch Changes

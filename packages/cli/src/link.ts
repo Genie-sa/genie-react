@@ -8,6 +8,7 @@ const LINKABLE = [
   { dir: 'genie-react', name: 'genie-react' },
   { dir: 'cli', name: '@genie-react/cli' },
 ] as const
+const SKILL_FILES = ['SKILL.md', 'APP_TOOLS.md'] as const
 
 export interface LinkOptions {
   cwd?: string
@@ -75,12 +76,14 @@ export function runLink(opts: LinkOptions = {}): number {
 }
 
 function installAgentSkill(cwd: string, packagesDir: string): string | null {
-  const source = join(packagesDir, 'cli', 'skill', 'SKILL.md')
-  if (!existsSync(source)) return null
-  const destination = join(cwd, '.agents', 'skills', 'genie', 'SKILL.md')
-  mkdirSync(dirname(destination), { recursive: true })
-  writeFileSync(destination, readFileSync(source))
-  return destination
+  const sourceDirectory = join(packagesDir, 'cli', 'skill')
+  if (SKILL_FILES.some((name) => !existsSync(join(sourceDirectory, name)))) return null
+  const destinationDirectory = join(cwd, '.agents', 'skills', 'genie')
+  mkdirSync(destinationDirectory, { recursive: true })
+  for (const name of SKILL_FILES) {
+    writeFileSync(join(destinationDirectory, name), readFileSync(join(sourceDirectory, name)))
+  }
+  return join(destinationDirectory, 'SKILL.md')
 }
 
 function dropGenieBin(cwd: string, packagesDir: string): string | null {

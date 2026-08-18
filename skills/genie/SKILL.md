@@ -2,7 +2,7 @@
 name: genie
 description: Drive live DevTools on a RUNNING React, React Native, or TanStack app with the `genie-react` CLI. Use it to inspect components, explain renders, audit effect schedules and hotness, read Query or Router state, force hard-to-reach UI, call the app's own registered dev tools (`app_*` — seed fixtures, switch roles, inject failures), and prove a change with repeated runtime captures. Pair it with agent-browser on web or agent-device on native. Do not use it for static source review.
 metadata:
-  version: "0.9.0"
+  version: "0.12.3"
   package: "@genie-react/cli"
 ---
 
@@ -101,7 +101,31 @@ This step is complete when the output covers one known interaction.
 - Route state: `router_get_state`, `router_list_matches`, or a focused Router action.
 - Memory: `browser_get_memory`.
 - Frame rate: `browser_fps` while the tab is visible.
-- The app's own domain (log in as a role, seed fixtures, inject API failures): `genie-react tools app` lists tools the app registered, named `app_*`. Check it before hand-driving a login or setup flow. `✗ unavailable` is not gone — the detail view names where the tool was registered; return there (often one `router_navigate`) and retry. Errors like `[NO_OP] … — hint: …` come from the app; follow the hint.
+- App-specific setup/state: follow the custom-tool branch below before hand-driving the flow.
+
+### Use custom app tools first
+
+Before hand-driving login, fixtures, fault injection, or wizard setup, discover what the running app registered:
+
+```bash
+genie-react tools app
+```
+
+The app defines the `app_*` names and schemas. Inspect the exact contract before calling one; `app.<name>` groups narrow large catalogs:
+
+```bash
+genie-react tools app.checkout
+genie-react tools app_login_as
+genie-react call app_login_as '{"role":"admin"}' --json
+```
+
+Read the advertised badge before calling: `read-only` is safe to retry, `action` mutates, and `destructive` has no undo. Before an action, read and record the exact target with an app query or built-in inspector. After it, re-read the same target and verify the visible UI. Retry an action only when its contract says `idempotent`.
+
+`unavailable` means the registering component is unmounted, not that the tool disappeared. Read its detail, drive the app back to the reported route, and retry. An app error such as `[CART_EMPTY] ... — hint: ...` belongs to the app tool; follow its hint.
+
+This branch is complete when the requested state is confirmed in both runtime data and the UI, and temporary roles, fixtures, failures, or overrides have been restored.
+
+When the user asks you to define, register, or improve custom app tools, read [APP_TOOLS.md](APP_TOOLS.md) before editing.
 
 Read evidence literally:
 
