@@ -721,11 +721,7 @@ async function toOriginalPosition(
   return { file: null, line, column }
 }
 
-/**
- * Bippy keys its source-map cache by the `fetchFn` identity (weakly), so handing it a fresh
- * function per generation is how `clearSourceCache` drops maps for rebuilt modules; the old
- * generation's entries become unreachable and are collected with it.
- */
+// Bippy keys its map cache weakly by `fetchFn`, so a fresh function per generation is how `clearSourceCache` drops maps for rebuilt modules.
 function boundFetch(): SourceFetch {
   return (url, init) => fetch(url, init)
 }

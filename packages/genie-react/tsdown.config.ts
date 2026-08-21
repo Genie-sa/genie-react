@@ -31,14 +31,7 @@ export default defineConfig([
       alwaysBundle: ['zod'],
       onlyBundle: ['zod'],
       dts: { neverBundle: ['zod'] },
-      neverBundle: [
-        /^bippy/,
-        /^react/,
-        /^@tanstack\//,
-        /^genie-react\//,
-        'superjson',
-        'ws',
-      ],
+      neverBundle: [/^bippy/, /^react/, /^@tanstack\//, /^genie-react\//, 'superjson', 'ws'],
     },
   },
   {

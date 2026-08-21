@@ -1,11 +1,4 @@
-/**
- * React Refresh instrumentation, vendored from bippy 0.6.1 (MIT, Aiden Bai) because
- * bippy 0.7 dropped the `bippy/react-refresh` entrypoint without a replacement.
- *
- * The react-refresh runtime calls `scheduleRefresh` on the renderer after every hot
- * update, so wrapping it works for any bundler that uses react-refresh. The bundler's
- * HMR transport is detected separately and only supplies the changed file paths.
- */
+// React Refresh instrumentation vendored from bippy 0.6.1 (MIT, Aiden Bai), which dropped this entrypoint in 0.7; wrapping the renderer's `scheduleRefresh` covers any react-refresh bundler, and the HMR transport only supplies changed file paths.
 import {
   type Fiber,
   type FiberRoot,
@@ -26,10 +19,7 @@ const SOURCE_EXTENSION = /\.(?:tsx|ts|jsx|js|mjs|cjs|css)$/
 const NEXT_ROUTE_GROUP = /^(?:\.\/)?\/?\([a-z][a-z0-9-]*\)\//
 
 export interface ReactRefreshUpdate {
-  /**
-   * Hot-updated source file paths reported by the bundler's HMR transport. Best-effort:
-   * empty when the bundler exposes no transport, or when its message has not arrived yet.
-   */
+  /** Changed files from the bundler's HMR transport; empty when there is no transport or its message has not arrived. */
   filePaths: string[]
   root: FiberRoot
   /** New component types that were remounted, losing state. */
@@ -405,10 +395,7 @@ const startTransport = (): void => {
   })
 }
 
-/**
- * Subscribes to react-refresh (fast refresh) updates. Returns an unsubscribe function
- * (a no-op outside client environments), which is also a `Disposable`.
- */
+/** Subscribes to react-refresh updates; returns a `Disposable` unsubscribe that no-ops outside client environments. */
 export const instrumentReactRefresh = (options: {
   onRefresh?: ReactRefreshHandler
 }): (() => void) & Disposable => {

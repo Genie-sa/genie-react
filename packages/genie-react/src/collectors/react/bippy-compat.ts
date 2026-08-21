@@ -1,7 +1,4 @@
-/**
- * Helpers bippy 0.7 removed from its public surface, vendored from 0.6.1 (MIT, Aiden Bai)
- * with identical semantics. Delete from here if bippy ever restores them.
- */
+// Helpers bippy 0.7 removed, vendored from 0.6.1 (MIT, Aiden Bai) with identical semantics; delete if bippy restores them.
 import { type Fiber, isHostFiber } from 'bippy'
 
 /** A hook effect entry on a fiber's `updateQueue`. */
@@ -35,10 +32,7 @@ export const getNearestHostFibers = (fiber: Fiber): Fiber[] => {
   return hostFibers
 }
 
-/**
- * Render timings for a fiber. `selfTime` subtracts child durations from `actualDuration`,
- * which React only populates in a profiling build.
- */
+/** Render timings; `selfTime` subtracts child durations from `actualDuration`, which only a profiling build populates. */
 export const getTimings = (fiber?: Fiber | null): { selfTime: number; totalTime: number } => {
   const totalTime = fiber?.actualDuration ?? 0
   let selfTime = totalTime

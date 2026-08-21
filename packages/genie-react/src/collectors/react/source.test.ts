@@ -7,8 +7,7 @@ const getFiberHooks = vi.fn<(fiber: unknown) => HooksNode[]>(() => [])
 const formatOwnerStack = vi.fn((stack: string) => stack)
 const parseStack = vi.fn<(stack: string) => unknown[]>(() => [])
 const symbolicateStack = vi.fn<(frames: unknown[]) => Promise<unknown[]>>(async (frames) => frames)
-// Mirrors bippy's contract: fetch the module through the caller's fetchFn and decode its
-// inline map, so tests drive source-map lookups through the fetch mock as the real one does.
+// Mirrors bippy's contract — fetch via the caller's fetchFn and decode the inline map — so tests drive lookups through the fetch mock.
 const decodeInlineSourceMap = async (
   url: string,
   _useCache?: boolean,

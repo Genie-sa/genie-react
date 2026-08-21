@@ -42,10 +42,7 @@ type DevCapability =
 const canDrive = (renderer: DevRenderer | null, capability: DevCapability): boolean =>
   typeof renderer?.scheduleUpdate === 'function' && typeof renderer[capability] === 'function'
 
-/**
- * The renderer that owns `fiber`, so an app with several injected renderers drives the right one.
- * Falls back to the first capable renderer for fibers no renderer claims (detached or pre-commit).
- */
+/** The renderer owning `fiber` so multi-renderer apps drive the right one; falls back to the first capable one for unclaimed (detached or pre-commit) fibers. */
 function requireRenderer(capability: DevCapability, fiber?: Fiber): DevRenderer {
   const owner = fiber ? getRenderer(fiber) : null
   if (canDrive(owner, capability)) return owner as DevRenderer
