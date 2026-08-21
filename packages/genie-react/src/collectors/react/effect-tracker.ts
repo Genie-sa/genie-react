@@ -1,14 +1,6 @@
-import {
-  type Effect,
-  type Fiber,
-  ForwardRefTag,
-  FunctionComponentTag,
-  getDisplayName,
-  getFiberId,
-  type RenderPhase,
-  SimpleMemoComponentTag,
-} from 'bippy'
+import { type Fiber, getDisplayName, getFiberId, type RenderPhase } from 'bippy'
 import type { HooksNode } from 'bippy/source'
+import type { Effect } from './bippy-compat'
 import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
 import {
   clearEffectEvents,
@@ -30,6 +22,7 @@ import {
   sourceLabel,
   sourceOwnershipForSource,
 } from './source'
+import { ownsEffectList } from './work-tags'
 
 // React's ReactHookEffectTags, stable across 16.8+/18/19 (bippy doesn't re-export them): HasEffect = will run this commit; the kind bit is fixed per effect.
 const HOOK_HAS_EFFECT = 0b0001
@@ -50,9 +43,6 @@ const UNCLASSIFIED_FIBER: FiberClassification = {
   ownership: 'unknown',
   isLibrary: false,
 }
-
-// Fibers that own a hook effect list; MemoComponentTag wraps an inner fiber that carries the effects as one of these tags, so it's not listed.
-const EFFECT_TAGS = new Set<number>([FunctionComponentTag, ForwardRefTag, SimpleMemoComponentTag])
 
 export type EffectKind = 'effect' | 'layout' | 'insertion'
 export type DepsMode = 'none' | 'empty' | 'list'
@@ -116,7 +106,7 @@ export function prepareEffect(
   profileCommitId = 0,
   budget?: CommitWorkBudget,
 ): PreparedEffectObservation {
-  if (!EFFECT_TAGS.has(fiber.tag)) return preparedEffect({ scheduled: 0, complete: true }, null)
+  if (!ownsEffectList(fiber)) return preparedEffect({ scheduled: 0, complete: true }, null)
 
   const id = getFiberId(fiber)
   if (phase === 'unmount') {
@@ -290,12 +280,12 @@ function instrumentPassiveEffect(effect: Effect, effectEventId: string): void {
 
 /** Remove an effect owner only after React's exact onCommitFiberUnmount callback. */
 export function removeEffectRecord(fiber: Fiber): void {
-  if (EFFECT_TAGS.has(fiber.tag)) records.delete(getFiberId(fiber))
+  if (ownsEffectList(fiber)) records.delete(getFiberId(fiber))
 }
 
 /** Exact commit-time count of this component's effects scheduled by React. */
 export function scheduledEffectCount(fiber: Fiber): number {
-  if (!EFFECT_TAGS.has(fiber.tag)) return 0
+  if (!ownsEffectList(fiber)) return 0
   return listEffects(fiber).effects.filter(
     (effect) => effectKind(effect.tag) !== null && (effect.tag & HOOK_HAS_EFFECT) !== 0,
   ).length
@@ -910,7 +900,8 @@ function listEffects(
   effects: Effect[]
   truncated: boolean
 } {
-  const last: Effect | null = fiber?.updateQueue?.lastEffect ?? null
+  // bippy 0.7 types `updateQueue` members as `unknown`; the hook effect list shape is React-internal.
+  const last = (fiber?.updateQueue?.lastEffect ?? null) as Effect | null
   const first = last?.next ?? null
   if (!first) return { effects: [], truncated: false }
   const list: Effect[] = []

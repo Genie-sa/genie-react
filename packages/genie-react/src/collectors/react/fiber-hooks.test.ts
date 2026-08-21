@@ -1,6 +1,11 @@
-import { ClassComponentTag, type Fiber, FunctionComponentTag, type MemoizedState } from 'bippy'
+import type { Fiber, MemoizedState } from 'bippy'
 import { describe, expect, it } from 'vitest'
 import { classifyHook, type HookKind, inspectFiber, isStatefulHook } from './fiber'
+
+import { defaultWorkTags } from './work-tags'
+
+const { ClassComponent: ClassComponentTag, FunctionComponent: FunctionComponentTag } =
+  defaultWorkTags
 
 // Fake fibers/hooks are structural stand-ins; one cast at the seam mirrors the existing collector tests' asFiber pattern.
 const asHook = (shape: unknown): MemoizedState => shape as MemoizedState

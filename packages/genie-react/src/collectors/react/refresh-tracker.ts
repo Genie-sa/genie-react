@@ -1,13 +1,12 @@
-import {
-  getDisplayName,
-  getRDTHook,
-  onRendererInject,
-  type ReactRenderer,
-  toUnsubscribe,
-  type Unsubscribe,
-} from 'bippy'
-import { instrumentReactRefresh, type ReactRefreshUpdate } from 'bippy/react-refresh'
+import { getDisplayName, getRDTHook, onRendererInject, type Unsubscribe } from 'bippy'
+import { toUnsubscribe } from './bippy-compat'
 import { type NodeId, nameOf, registerFiber } from './fiber'
+import {
+  instrumentReactRefresh,
+  type ReactRefreshUpdate,
+  type RefreshCapableRenderer,
+  type ScheduleRefresh,
+} from './react-refresh'
 import { classifyFibersWithinBudget, clearSourceCache, type ResolvedSource } from './source'
 
 const EVENT_LIMIT = 50
@@ -65,11 +64,11 @@ export interface RefreshEventsReport {
 
 const events: StoredRefreshEvent[] = []
 interface WrappedRenderer {
-  original: NonNullable<ReactRenderer['scheduleRefresh']>
-  wrapped: NonNullable<ReactRenderer['scheduleRefresh']>
+  original: ScheduleRefresh
+  wrapped: ScheduleRefresh
 }
 
-const wrappedRenderers = new Map<ReactRenderer, WrappedRenderer>()
+const wrappedRenderers = new Map<RefreshCapableRenderer, WrappedRenderer>()
 let sequence = 0
 let droppedEvents = 0
 let refreshDepth = 0
@@ -134,7 +133,7 @@ function recordRefresh(update: ReactRefreshUpdate): void {
   const event: StoredRefreshEvent = {
     sequence: ++sequence,
     timestamp: Date.now(),
-    filePaths: [...new Set(update.filePaths)],
+    filePaths: [...new Set<string>(update.filePaths)],
     updatedComponents: componentNames(update.updatedComponents),
     remountedComponents: componentNames(update.staleComponents),
     updatedFibers: update.updatedFibers.slice(0, FIBER_LIMIT_PER_KIND),
@@ -165,10 +164,10 @@ function safelyRecordRefresh(update: ReactRefreshUpdate): void {
   }
 }
 
-function wrapRenderer(renderer: ReactRenderer): void {
+function wrapRenderer(renderer: RefreshCapableRenderer): void {
   if (wrappedRenderers.has(renderer) || typeof renderer.scheduleRefresh !== 'function') return
   const original = renderer.scheduleRefresh
-  const wrapped: NonNullable<ReactRenderer['scheduleRefresh']> = (root, update) => {
+  const wrapped: ScheduleRefresh = (root, update) => {
     if (!refreshTrackingActive) return original.call(renderer, root, update)
     if (refreshDepth === 0 && !bundlerUpdateActive) excludedCommitsInCurrentRefresh = 0
     refreshDepth += 1

@@ -451,12 +451,9 @@ importers:
 
   packages/genie-react:
     dependencies:
-      '@jridgewell/sourcemap-codec':
-        specifier: ^1.5.5
-        version: 1.5.5
       bippy:
-        specifier: ^0.6.1
-        version: 0.6.1(react@19.2.7)
+        specifier: ^0.7.2
+        version: 0.7.2(@types/react@19.2.17)(react@19.2.7)
       superjson:
         specifier: ^2.2.6
         version: 2.2.6
@@ -3442,6 +3439,11 @@ packages:
     peerDependencies:
       '@types/react': ^19.2.0
 
+  '@types/react-reconciler@0.33.0':
+    resolution: {integrity: sha512-HZOXsKT0tGI9LlUw2LuedXsVeB88wFa536vVL0M6vE8zN63nI+sSr1ByxmPToP5K5bukaVscyeCJcF9guVNJ1g==}
+    peerDependencies:
+      '@types/react': '*'
+
   '@types/react@19.2.17':
     resolution: {integrity: sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw==}
 
@@ -3907,8 +3909,8 @@ packages:
     resolution: {integrity: sha512-QxD8cf2eVqJOOz63z6JIN9BzvVs/dlySa5HGSBH5xtR8dPteIRQnBxxKqkNTiT6jbDTF6jAfrd4oMcND9RGbQg==}
     engines: {node: '>=0.6'}
 
-  bippy@0.6.1:
-    resolution: {integrity: sha512-ky4m94Y/KfsddjGkKTsV4uFjZqkJjpOjQ2t5gKPdX6XH1MNxMNX5FrVefsxV4lpjemEmEdwe0e0YbzAMNs3oUQ==}
+  bippy@0.7.2:
+    resolution: {integrity: sha512-h8NFpBuVix0iuih7o5eclUP7W3DJyRUQz4OojD/S1DhyBGk6TeDrICvsAc0VMdl8KrMCEAyT4JbkX9ON3cHejg==}
     peerDependencies:
       react: '>=17.0.1'
 
@@ -10934,6 +10936,10 @@ snapshots:
     dependencies:
       '@types/react': 19.2.17
 
+  '@types/react-reconciler@0.33.0(@types/react@19.2.17)':
+    dependencies:
+      '@types/react': 19.2.17
+
   '@types/react@19.2.17':
     dependencies:
       csstype: 3.2.3
@@ -11439,9 +11445,12 @@ snapshots:
 
   big-integer@1.6.52: {}
 
-  bippy@0.6.1(react@19.2.7):
+  bippy@0.7.2(@types/react@19.2.17)(react@19.2.7):
     dependencies:
+      '@types/react-reconciler': 0.33.0(@types/react@19.2.17)
       react: 19.2.7
+    transitivePeerDependencies:
+      - '@types/react'
 
   birpc@4.0.0: {}
 

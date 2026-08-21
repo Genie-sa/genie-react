@@ -4,14 +4,11 @@ import {
   type FiberRoot,
   getFiberId,
   getRDTHook,
-  getTimings,
-  HostTextTag,
   hasMemoCache,
   instrument,
   isCompositeFiber,
   isHostFiber,
   type RenderPhase,
-  SuspenseComponentTag,
   traverseRenderedFibers,
   type Unsubscribe,
 } from 'bippy'
@@ -20,6 +17,7 @@ import {
   setExternalStoreObservation,
 } from '../causal/external-store-registry'
 import { safeStructuredClone } from '../structured-clone'
+import { getTimings } from './bippy-compat'
 import { type CommitWorkBudget, commitWorkExhaustions, consumeCommitWork } from './commit-budget'
 import { recordResultingEffectCommit } from './effect-events'
 import {
@@ -95,6 +93,7 @@ import {
 import { captureReportEpoch, reportAttribution, reportStateMatches } from './report-attribution'
 import { isSafeRenderer, supportedCommitHandler } from './safe-instrumentation'
 import { clearSourceCache } from './source'
+import { isHostTextFiber, isSuspenseFiber } from './work-tags'
 
 export type {
   RenderCause,
@@ -232,7 +231,7 @@ export function startRenderTracking(): boolean {
       name: 'genie-react',
       onCommitFiberUnmount: (rendererId: number, fiber: Fiber) => {
         if (!isSafeRenderer(rendererId)) return
-        if (isHostFiber(fiber) || fiber.tag === HostTextTag) {
+        if (isHostFiber(fiber) || isHostTextFiber(fiber)) {
           pendingHostUnmountRenderers.add(rendererId)
         }
         queuePendingUnmount(rendererId, fiber)
@@ -811,9 +810,7 @@ function noteSkippedCommitFiber(fiber: Fiber): void {
 
 function shouldAnalyzeCommitFiber(fiber: Fiber): boolean {
   return (
-    isCompositeFiber(fiber) ||
-    fiber.tag === SuspenseComponentTag ||
-    ((fiber.flags ?? 0) & DID_CAPTURE) !== 0
+    isCompositeFiber(fiber) || isSuspenseFiber(fiber) || ((fiber.flags ?? 0) & DID_CAPTURE) !== 0
   )
 }
 

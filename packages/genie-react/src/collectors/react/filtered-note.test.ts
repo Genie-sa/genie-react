@@ -12,6 +12,16 @@ vi.mock('bippy/source', () => ({
     throw new Error('no inspector in this test')
   },
   symbolicateStack: async (frames: unknown[]) => frames,
+  // Source-map lookups go through bippy; these tests only need the fetch it issues to be controllable.
+  getSourceMap: async (
+    url: string,
+    _useCache?: boolean,
+    fetchFn?: (input: string, init?: RequestInit) => Promise<Response>,
+  ) => {
+    await (fetchFn ?? fetch)(url)
+    return null
+  },
+  getSourceFromSourceMap: () => null,
 }))
 
 const {

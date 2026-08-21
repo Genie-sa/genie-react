@@ -1,16 +1,21 @@
-import type { Fiber, ReactRenderer, RendererRefreshUpdate } from 'bippy'
-import type { ReactRefreshHandler, ReactRefreshUpdate } from 'bippy/react-refresh'
+import type { Fiber } from 'bippy'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type {
+  ReactRefreshHandler,
+  ReactRefreshUpdate,
+  RefreshCapableRenderer,
+  ScheduleRefresh,
+} from './react-refresh'
 
 const mocks = vi.hoisted(() => {
-  const renderers = new Map<number, ReactRenderer>()
+  const renderers = new Map<number, RefreshCapableRenderer>()
   return {
     renderers,
     currentHook: { renderers },
     hookLookupError: false,
     refreshInstallations: 0,
     refreshHandler: null as ReactRefreshHandler | null,
-    injectedListener: null as ((renderer: ReactRenderer) => void) | null,
+    injectedListener: null as ((renderer: RefreshCapableRenderer) => void) | null,
     clearSourceCache: vi.fn(),
     registerFiber: vi.fn((fiber: { id?: number }) => (fiber.id ?? 0) as never),
     nameOf: vi.fn((fiber: { name?: string }) => fiber.name ?? 'Anonymous'),
@@ -27,16 +32,19 @@ vi.mock('bippy', () => ({
     if (mocks.hookLookupError) throw new Error('hook lookup failed')
     return mocks.currentHook
   },
-  onRendererInject: (listener: (renderer: ReactRenderer) => void) => {
+  onRendererInject: (listener: (renderer: RefreshCapableRenderer) => void) => {
     mocks.injectedListener = listener
     return unsubscribe(() => {
       if (mocks.injectedListener === listener) mocks.injectedListener = null
     })
   },
+}))
+
+vi.mock('./bippy-compat', () => ({
   toUnsubscribe: unsubscribe,
 }))
 
-vi.mock('bippy/react-refresh', () => ({
+vi.mock('./react-refresh', () => ({
   instrumentReactRefresh: ({ onRefresh }: { onRefresh?: ReactRefreshHandler }) => {
     mocks.refreshInstallations += 1
     if (mocks.probeViteClient) void fetch('/@vite/client')
@@ -169,17 +177,20 @@ describe('refresh tracking', () => {
     const update = refreshUpdate([updated], [remounted])
     let suppressedDuringCommit = false
     const renderer = {
-      scheduleRefresh(root: ReactRefreshUpdate['root'], rendererUpdate: RendererRefreshUpdate) {
+      scheduleRefresh(
+        root: ReactRefreshUpdate['root'],
+        rendererUpdate: Parameters<ScheduleRefresh>[1],
+      ) {
         suppressedDuringCommit = tracker.isRefreshCommit()
         tracker.noteExcludedRefreshCommit()
         mocks.refreshHandler?.({ ...update, root })
         return rendererUpdate
       },
-    } as unknown as ReactRenderer
+    } as unknown as RefreshCapableRenderer
     mocks.renderers.set(1, renderer)
 
     expect(tracker.startRefreshTracking()).toBe(true)
-    renderer.scheduleRefresh?.(update.root, {} as RendererRefreshUpdate)
+    renderer.scheduleRefresh?.(update.root, {} as Parameters<ScheduleRefresh>[1])
 
     const report = await tracker.getRefreshEvents({ limit: 10, includeSource: true })
     expect(suppressedDuringCommit).toBe(true)
@@ -204,7 +215,7 @@ describe('refresh tracking', () => {
       scheduleRefresh() {
         observed = tracker.isRefreshCommit()
       },
-    } as unknown as ReactRenderer
+    } as unknown as RefreshCapableRenderer
     mocks.injectedListener?.(lateRenderer)
     lateRenderer.scheduleRefresh?.({} as never, {} as never)
     expect(observed).toBe(true)
@@ -245,7 +256,7 @@ describe('refresh tracking', () => {
       scheduleRefresh() {
         mocks.refreshHandler?.(update)
       },
-    } as unknown as ReactRenderer
+    } as unknown as RefreshCapableRenderer
     mocks.renderers.set(1, renderer)
     tracker.startRefreshTracking()
     renderer.scheduleRefresh?.({} as never, {} as never)
@@ -267,7 +278,7 @@ describe('refresh tracking', () => {
       scheduleRefresh() {
         mocks.refreshHandler?.(update)
       },
-    } as unknown as ReactRenderer
+    } as unknown as RefreshCapableRenderer
     mocks.renderers.set(1, renderer)
     tracker.startRefreshTracking()
 
@@ -290,7 +301,7 @@ describe('refresh tracking', () => {
       scheduleRefresh() {
         mocks.refreshHandler?.(update)
       },
-    } as unknown as ReactRenderer
+    } as unknown as RefreshCapableRenderer
     mocks.renderers.set(1, renderer)
     tracker.startRefreshTracking()
 

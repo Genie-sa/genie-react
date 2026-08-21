@@ -1,14 +1,8 @@
-import {
-  _fiberRoots,
-  type Fiber,
-  getFiberId,
-  getLatestFiber,
-  SuspenseComponentTag,
-  traverseFiber,
-} from 'bippy'
+import { _fiberRoots, type Fiber, getFiberId, getLatestFiber, traverseFiber } from 'bippy'
 import { nameOf } from './fiber'
 import { forcedErrorBoundaries, forcedSuspenseBoundaries } from './overrides'
 import { classifyFiber, type ResolvedSource } from './source'
+import { isSuspenseFiber } from './work-tags'
 
 // React's DidCapture flag is set on a boundary only during the catch commit, then cleared — transient, like fallback state, so both are recorded at commit time rather than scanned on demand.
 const DID_CAPTURE = 0b1000_0000
@@ -55,7 +49,7 @@ export function recordErrorState(fiber: Fiber): void {
     const id = getFiberId(fiber)
     if (caught.has(id)) caught.delete(id)
   }
-  if (fiber.tag === SuspenseComponentTag) {
+  if (isSuspenseFiber(fiber)) {
     const id = getFiberId(fiber)
     if (suspenseShowsFallback(fiber)) suspended.set(id, { id, fiber })
     else suspended.delete(id)
@@ -64,7 +58,7 @@ export function recordErrorState(fiber: Fiber): void {
 
 // The fallback shows exactly when React parks a non-null memoizedState; bippy types it non-null, so the one nullable read is isolated here.
 function suspenseShowsFallback(fiber: Fiber): boolean {
-  return fiber.tag === SuspenseComponentTag && fiber.memoizedState != null
+  return isSuspenseFiber(fiber) && fiber.memoizedState != null
 }
 
 /** A recorded fiber may have unmounted since (no commit fires on unmount of a parked subtree). */

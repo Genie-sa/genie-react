@@ -1,4 +1,4 @@
-import { type Fiber, type FiberRoot, HostComponentTag } from 'bippy'
+import type { Fiber, FiberRoot } from 'bippy'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { forgetCommittedRoots, noteCommittedRoot } from './fiber'
 import {
@@ -9,6 +9,10 @@ import {
 } from './instance-identity'
 import { beginObservation, resetObservationStateForTests } from './observation'
 import { getRenderCohort } from './render-cohort'
+
+import { defaultWorkTags } from './work-tags'
+
+const { HostComponent: HostComponentTag } = defaultWorkTags
 
 const asFiber = (value: unknown): Fiber => value as Fiber
 

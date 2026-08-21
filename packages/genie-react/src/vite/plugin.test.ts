@@ -301,7 +301,6 @@ describe('config optimizeDeps (dep optimizer bypasses the peer stubs)', () => {
     expect(cfg?.optimizeDeps?.include).toContain('genie-react > bippy/source')
     expect(cfg?.optimizeDeps?.include).toContain('genie-react > superjson')
     expect(cfg?.optimizeDeps?.include).not.toContain('genie-react > zod')
-    expect(cfg?.optimizeDeps?.include).toContain('genie-react > @jridgewell/sourcemap-codec')
     expect(cfg?.optimizeDeps?.include).toContain('react')
   })
 })

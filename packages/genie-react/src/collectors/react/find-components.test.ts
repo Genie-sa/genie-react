@@ -1,5 +1,9 @@
-import { type Fiber, FunctionComponentTag } from 'bippy'
+import type { Fiber } from 'bippy'
 import { describe, expect, it, vi } from 'vitest'
+
+import { defaultWorkTags } from './work-tags'
+
+const { FunctionComponent: FunctionComponentTag } = defaultWorkTags
 
 // Per-fiber _debugSource so matches classify app vs library, mirroring source.test.ts.
 const getSource = vi.fn(async (fiber: { _debugSource?: unknown }) => fiber._debugSource ?? null)

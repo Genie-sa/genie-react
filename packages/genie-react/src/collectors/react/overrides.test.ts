@@ -1,4 +1,4 @@
-import { ClassComponentTag, type Fiber, FunctionComponentTag, SuspenseComponentTag } from 'bippy'
+import type { Fiber } from 'bippy'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { hookChain, isStatefulHook } from './fiber'
 import {
@@ -17,7 +17,15 @@ import {
   resolveContextProvider,
 } from './overrides'
 
-const CONTEXT_PROVIDER_TAG = 10
+import { defaultWorkTags } from './work-tags'
+
+const {
+  ClassComponent: ClassComponentTag,
+  FunctionComponent: FunctionComponentTag,
+  SuspenseComponent: SuspenseComponentTag,
+} = defaultWorkTags
+
+const { ContextProvider: CONTEXT_PROVIDER_TAG } = defaultWorkTags
 
 const fiber = (over: Record<string, unknown> = {}): Fiber =>
   ({
@@ -33,7 +41,7 @@ const fiber = (over: Record<string, unknown> = {}): Fiber =>
 
 function fakeRenderer() {
   const scheduled: Fiber[] = []
-  const hookCalls: Array<[Fiber, string, string[], unknown]> = []
+  const hookCalls: Array<[Fiber, number, string[], unknown]> = []
   const propsCalls: Array<[Fiber, string[], unknown]> = []
   let suspenseHandler: ((instance: unknown) => boolean) | null = null
   let errorHandler: ((f: Fiber) => boolean) | null = null
@@ -215,7 +223,7 @@ describe('applyHookStateOverride', () => {
       harness.renderer,
     )
     expect(resolved).toEqual({ flatIndex: 1, stateIndex: 1 })
-    expect(harness.hookCalls).toEqual([[target, '1', ['filters', '0'], 'dark']])
+    expect(harness.hookCalls).toEqual([[target, 1, ['filters', '0'], 'dark']])
   })
 
   it('schedules a re-render after overriding, so memo boundaries and stale alternates still commit', () => {
@@ -230,7 +238,7 @@ describe('applyHookStateOverride', () => {
     const target = fiber({ memoizedState: stateHook(0, effectHook(stateHook('x'))) })
     const resolved = applyHookStateOverride(target, { stateIndex: 1 }, [], 'y', harness.renderer)
     expect(resolved).toEqual({ flatIndex: 2, stateIndex: 1 })
-    expect(harness.hookCalls).toEqual([[target, '2', [], 'y']])
+    expect(harness.hookCalls).toEqual([[target, 2, [], 'y']])
   })
 
   it('enumerates the stateful hooks (flat index, stateIndex, kind, value) in every error', () => {

@@ -1,11 +1,4 @@
-import {
-  type Fiber,
-  FunctionComponentTag,
-  HostComponentTag,
-  HostRootTag,
-  isCompositeFiber,
-  isHostFiber,
-} from 'bippy'
+import { type Fiber, isCompositeFiber, isHostFiber } from 'bippy'
 import { describe, expect, it } from 'vitest'
 import {
   buildTree,
@@ -18,6 +11,14 @@ import {
   type TreeNode,
   type TreeResult,
 } from './fiber'
+
+import { defaultWorkTags } from './work-tags'
+
+const {
+  FunctionComponent: FunctionComponentTag,
+  HostComponent: HostComponentTag,
+  HostRoot: HostRootTag,
+} = defaultWorkTags
 
 const asFiber = (shape: unknown): Fiber => shape as Fiber
 

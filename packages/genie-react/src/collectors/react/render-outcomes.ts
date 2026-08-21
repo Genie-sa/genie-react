@@ -1,13 +1,13 @@
 import {
   didFiberCommit,
   type Fiber,
-  HostTextTag,
   isHostFiber,
   type MemoizedState,
   type RenderPhase,
 } from 'bippy'
 import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
 import type { RenderCause } from './render-causes'
+import { isHostTextFiber } from './work-tags'
 
 const HOST_SCAN_LIMIT = 500
 const HOOK_SCAN_LIMIT = 1_000
@@ -99,7 +99,7 @@ export function scanSubtreeHostMutations(
       if (!node) continue
       visited += 1
       if (isHostFiber(node) && commitEvidence.hostMutationFibers.has(node)) count += 1
-      if (node.tag === HostTextTag) {
+      if (isHostTextFiber(node)) {
         try {
           if (didFiberCommit(node)) count += 1
         } catch {

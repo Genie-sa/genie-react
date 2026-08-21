@@ -1,4 +1,4 @@
-import { ClassComponentTag, type Fiber, type MemoizedState, type Props } from 'bippy'
+import type { Fiber, MemoizedState, Props } from 'bippy'
 import { type DeepDiffResult, isDataDescriptor, safeOwnPropertyDescriptor } from './deep-diff'
 import { classifyHook, isStatefulHook } from './fiber'
 import {
@@ -11,6 +11,7 @@ import {
   truncateInputScan,
 } from './render-budget'
 import { diffContextChanges, HOOK_WALK_LIMIT, stateValue } from './render-causes'
+import { isClassComponentFiber } from './work-tags'
 
 export interface PropRenderChange {
   name: string
@@ -93,7 +94,7 @@ export function diffStateChanges(
   fiber: Fiber,
   evidence = createRenderEvidenceBudget(),
 ): StateRenderChange[] {
-  if (fiber.tag === ClassComponentTag) {
+  if (isClassComponentFiber(fiber)) {
     const before = fiber.alternate?.memoizedState ?? null
     const after = fiber.memoizedState
     return Object.is(before, after) || !retainInputEvidence(evidence)
@@ -152,7 +153,7 @@ export function diffStateChanges(
 
 /** Backward-compatible predicate; detailed reports intentionally narrow to stateful hooks. */
 export function stateChanged(fiber: Fiber): boolean {
-  if (fiber.tag === ClassComponentTag) {
+  if (isClassComponentFiber(fiber)) {
     return !Object.is(fiber.memoizedState, fiber.alternate?.memoizedState ?? null)
   }
   let cur: MemoizedState | null = fiber.memoizedState
