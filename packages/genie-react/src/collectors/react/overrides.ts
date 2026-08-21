@@ -19,7 +19,7 @@ import {
   registerFiber,
 } from './fiber'
 import { safeUnmountHandler } from './safe-instrumentation'
-import { isClassComponentFiber, isSuspenseFiber } from './work-tags'
+import { isClassComponentFiber, isContextProviderFiber, isSuspenseFiber } from './work-tags'
 
 // Dev-only live overrides via the dev-renderer contract React DevTools uses; context has no renderer override, so it edits the nearest Provider's `value` prop; forced-fiber membership is always checked against both double-buffer fibers.
 
@@ -594,9 +594,6 @@ export function applyHookStateOverride(
 
 // ── Context (via the nearest Provider's value prop) ──────────────────────────
 
-// react-reconciler WorkTag for ContextProvider — stable since React 16.3, not exported by bippy.
-const CONTEXT_PROVIDER_TAG = 10
-
 export interface ProviderMatch {
   provider: Fiber
   contextName: string
@@ -610,7 +607,7 @@ const contextOfProviderType = (type: unknown): unknown =>
   (type as { _context?: unknown } | null)?._context ?? type
 
 export function resolveContextProvider(fiber: Fiber, contextName?: string): ProviderMatch {
-  if (fiber.tag === CONTEXT_PROVIDER_TAG)
+  if (isContextProviderFiber(fiber))
     return { provider: fiber, contextName: contextNameOf(contextOfProviderType(fiber.type)) }
 
   const consumed = contextDependencies(fiber)
@@ -635,10 +632,7 @@ export function resolveContextProvider(fiber: Fiber, contextName?: string): Prov
 
   let current: Fiber | null = fiber.return
   while (current) {
-    if (
-      current.tag === CONTEXT_PROVIDER_TAG &&
-      contextOfProviderType(current.type) === target.context
-    )
+    if (isContextProviderFiber(current) && contextOfProviderType(current.type) === target.context)
       return { provider: current, contextName: target.name }
     current = current.return
   }

@@ -12,6 +12,9 @@ export const defaultWorkTags = getReactWorkTags()
 export const isClassComponentFiber = (fiber: Fiber): boolean =>
   fiber.tag === getReactWorkTagsForFiber(fiber).ClassComponent
 
+export const isContextProviderFiber = (fiber: Fiber): boolean =>
+  fiber.tag === getReactWorkTagsForFiber(fiber).ContextProvider
+
 export const isSuspenseFiber = (fiber: Fiber): boolean =>
   fiber.tag === getReactWorkTagsForFiber(fiber).SuspenseComponent
 

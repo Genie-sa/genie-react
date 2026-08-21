@@ -25,7 +25,7 @@ const {
   SuspenseComponent: SuspenseComponentTag,
 } = defaultWorkTags
 
-const CONTEXT_PROVIDER_TAG = 10
+const { ContextProvider: CONTEXT_PROVIDER_TAG } = defaultWorkTags
 
 const fiber = (over: Record<string, unknown> = {}): Fiber =>
   ({
