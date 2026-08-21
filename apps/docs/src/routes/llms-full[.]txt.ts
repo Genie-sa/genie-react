@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { markdownResponse } from '@/lib/agent-responses'
 import { getLLMText, source } from '@/lib/source'
 
 export const Route = createFileRoute('/llms-full.txt')({
@@ -6,7 +7,7 @@ export const Route = createFileRoute('/llms-full.txt')({
     handlers: {
       GET: async () => {
         const pages = await Promise.all(source.getPages().map(getLLMText))
-        return new Response(pages.join('\n\n'))
+        return markdownResponse(pages.join('\n\n'))
       },
     },
   },
