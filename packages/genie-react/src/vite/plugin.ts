@@ -71,7 +71,6 @@ const NESTED_OPTIMIZED_DEPS = [
   'genie-react > bippy',
   'genie-react > bippy/source',
   'genie-react > superjson',
-  'genie-react > @jridgewell/sourcemap-codec',
   'react',
 ]
 

@@ -7,7 +7,31 @@ const getFiberHooks = vi.fn<(fiber: unknown) => HooksNode[]>(() => [])
 const formatOwnerStack = vi.fn((stack: string) => stack)
 const parseStack = vi.fn<(stack: string) => unknown[]>(() => [])
 const symbolicateStack = vi.fn<(frames: unknown[]) => Promise<unknown[]>>(async (frames) => frames)
-const getSourceMap = vi.fn<(url: string) => Promise<object | null>>(async () => null)
+// Mirrors bippy's contract: fetch the module through the caller's fetchFn and decode its
+// inline map, so tests drive source-map lookups through the fetch mock as the real one does.
+const decodeInlineSourceMap = async (
+  url: string,
+  _useCache?: boolean,
+  fetchFn?: (input: string, init?: RequestInit) => Promise<Response>,
+): Promise<object | null> => {
+  const response = await (fetchFn ?? fetch)(url)
+  if (!response.ok) return null
+  const encoded =
+    /sourceMappingURL=data:application\/json;(?:[^,]*?;)?base64,([A-Za-z0-9+/=]+)/.exec(
+      await response.text(),
+    )?.[1]
+  if (!encoded) return null
+  return { ...JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')), mappings: [] }
+}
+
+const getSourceMap =
+  vi.fn<
+    (
+      url: string,
+      useCache?: boolean,
+      fetchFn?: (input: string, init?: RequestInit) => Promise<Response>,
+    ) => Promise<object | null>
+  >(decodeInlineSourceMap)
 const getSourceFromSourceMap = vi.fn<
   (
     map: object,
@@ -27,7 +51,8 @@ vi.mock('bippy/source', () => ({
   normalizeFileName: normalize,
   getFiberHooks: (fiber: unknown) => getFiberHooks(fiber),
   symbolicateStack: (frames: unknown[]) => symbolicateStack(frames),
-  getSourceMap: (url: string) => getSourceMap(url),
+  getSourceMap: (url: string, useCache?: boolean, fetchFn?: never) =>
+    getSourceMap(url, useCache, fetchFn),
   getSourceFromSourceMap: (map: object, line: number, column: number) =>
     getSourceFromSourceMap(map, line, column),
 }))
@@ -74,7 +99,7 @@ beforeEach(() => {
   formatOwnerStack.mockReset().mockImplementation((stack) => stack)
   parseStack.mockReset().mockReturnValue([])
   symbolicateStack.mockReset().mockImplementation(async (frames) => frames)
-  getSourceMap.mockReset().mockResolvedValue(null)
+  getSourceMap.mockReset().mockImplementation(decodeInlineSourceMap)
   getSourceFromSourceMap.mockReset().mockReturnValue(null)
   // No network in unit tests: inline-map lookup fails → resolveHookSource keeps served coordinates.
   vi.stubGlobal('fetch', () => Promise.reject(new Error('no network in tests')))

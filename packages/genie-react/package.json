@@ -103,8 +103,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@jridgewell/sourcemap-codec": "^1.5.5",
-    "bippy": "^0.6.1",
+    "bippy": "^0.7.2",
     "superjson": "^2.2.6",
     "ws": "^8.21.0",
     "zod": "^4.4.3"

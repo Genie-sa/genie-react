@@ -38,7 +38,6 @@ export default defineConfig([
         /^genie-react\//,
         'superjson',
         'ws',
-        '@jridgewell/sourcemap-codec',
       ],
     },
   },

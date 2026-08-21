@@ -1,4 +1,3 @@
-import { decode } from '@jridgewell/sourcemap-codec'
 import { type Fiber, getDisplayName, getFiberId, getLatestFiber } from 'bippy'
 import {
   formatOwnerStack,
@@ -9,6 +8,7 @@ import {
   isSourceFile,
   normalizeFileName,
   parseStack,
+  type SourceFetch,
   type SourceMap,
   symbolicateStack,
 } from 'bippy/source'
@@ -110,11 +110,11 @@ const UNCLASSIFIED_FIBER: FiberClassification = {
 
 export function clearSourceCache(): void {
   cacheGeneration += 1
+  generationFetch = boundFetch()
   cache.clear()
   pendingSource.clear()
   metroFrameCache.clear()
   pendingMetroFrame.clear()
-  moduleMapCache.clear()
   warmupQueue = []
   activeWarmup = null
 }
@@ -607,11 +607,6 @@ function withoutComponentRoot(
   return componentName && ancestry[0]?.name === componentName ? ancestry.slice(1) : ancestry
 }
 
-const INLINE_SOURCE_MAP_RE =
-  /\/\/[#@]\s*sourceMappingURL=data:application\/json;(?:[^,]*?;)?base64,([A-Za-z0-9+/=]+)/
-
-const moduleMapCache = new Map<string, SourceMap | null>()
-
 interface MappedPosition {
   file: string
   line: number
@@ -700,27 +695,7 @@ async function symbolicateMetroFrame(
   }
 }
 
-// bippy's symbolicator only fetches external map URLs; Vite inlines the map in dev, so decode it ourselves to recover original (not served/transformed) lines.
-async function inlineSourceMap(url: string, generation: number): Promise<SourceMap | null> {
-  if (moduleMapCache.has(url)) return moduleMapCache.get(url) ?? null
-  let map: SourceMap | null = null
-  try {
-    const response = await fetch(url)
-    const encoded = response.ok ? (await response.text()).match(INLINE_SOURCE_MAP_RE)?.[1] : null
-    if (encoded) {
-      const raw = JSON.parse(atob(encoded)) as { mappings?: unknown; sources?: unknown }
-      if (typeof raw.mappings === 'string' && Array.isArray(raw.sources)) {
-        map = { ...(raw as object), mappings: decode(raw.mappings) } as SourceMap
-      }
-    }
-  } catch {
-    map = null
-  }
-  if (generation === cacheGeneration) moduleMapCache.set(url, map)
-  return map
-}
-
-// Maps a served line/column to the original via the module's inline map; returns the input unchanged when none exists, so callers keep a served-coordinate fallback.
+// Maps a served line/column to the original; returns the input unchanged when no map exists, so callers keep a served-coordinate fallback.
 async function toOriginalPosition(
   servedUrl: string,
   line: number | null,
@@ -733,8 +708,8 @@ async function toOriginalPosition(
     const mapped = await metroOriginalPosition(metroOrigin, servedUrl, line, column, generation)
     return mapped ?? { file: null, line, column }
   }
-  // Vite inlines the map (our decoder); Next/Turbopack serve an external sourceMappingURL (bippy's fetcher).
-  const map = (await inlineSourceMap(servedUrl, generation)) ?? (await externalSourceMap(servedUrl))
+  // Resolves both shapes: Vite's inline data-URI map and Next/Turbopack's external sourceMappingURL.
+  const map = await sourceMapFor(servedUrl)
   const original = map ? getSourceFromSourceMap(map, line, column) : null
   if (original && typeof original.lineNumber === 'number') {
     return {
@@ -746,9 +721,21 @@ async function toOriginalPosition(
   return { file: null, line, column }
 }
 
-async function externalSourceMap(url: string): Promise<SourceMap | null> {
+/**
+ * Bippy keys its source-map cache by the `fetchFn` identity (weakly), so handing it a fresh
+ * function per generation is how `clearSourceCache` drops maps for rebuilt modules; the old
+ * generation's entries become unreachable and are collected with it.
+ */
+function boundFetch(): SourceFetch {
+  return (url, init) => fetch(url, init)
+}
+
+let generationFetch: SourceFetch = boundFetch()
+
+// Guards a synchronous throw as well as a rejection, so a hostile bundle can't break classification.
+async function sourceMapFor(url: string): Promise<SourceMap | null> {
   try {
-    return await getSourceMap(url)
+    return await getSourceMap(url, true, generationFetch)
   } catch {
     return null
   }

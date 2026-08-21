@@ -1,26 +1,22 @@
 import {
-  ClassComponentTag,
   type ContextDependency,
   type Fiber,
   type FiberRoot,
-  ForwardRefTag,
-  FunctionComponentTag,
   getDisplayName,
   getFiberFromHostInstance,
   getFiberId,
   getLatestFiber,
-  getNearestHostFibers,
+  getReactWorkTagsForFiber,
   hasMemoCache,
   isCompositeFiber,
   isHostFiber,
-  MemoComponentTag,
   type MemoizedState,
-  SimpleMemoComponentTag,
   setFiberId,
 } from 'bippy'
 import type { z } from 'zod'
 import { dehydrate } from '../../protocol'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
+import { getNearestHostFibers } from './bippy-compat'
 import { type hookEntrySchema, type hookKindSchema, MAX_HOOKS, type NodeId } from './contracts'
 import {
   classifyFibersWithinBudget,
@@ -339,15 +335,16 @@ export function nameOf(fiber: Fiber): string {
 }
 
 function fiberKind(fiber: Fiber): string {
+  const tags = getReactWorkTagsForFiber(fiber)
   switch (fiber.tag) {
-    case ClassComponentTag:
+    case tags.ClassComponent:
       return 'class'
-    case FunctionComponentTag:
+    case tags.FunctionComponent:
       return 'function'
-    case ForwardRefTag:
+    case tags.ForwardRef:
       return 'forwardRef'
-    case MemoComponentTag:
-    case SimpleMemoComponentTag:
+    case tags.MemoComponent:
+    case tags.SimpleMemoComponent:
       return 'memo'
     default:
       return isHostFiber(fiber) ? 'host' : 'other'

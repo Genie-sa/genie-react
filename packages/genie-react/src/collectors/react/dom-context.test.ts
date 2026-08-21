@@ -1,6 +1,10 @@
-import { type Fiber, FunctionComponentTag, HostComponentTag } from 'bippy'
+import type { Fiber } from 'bippy'
 import { describe, expect, it } from 'vitest'
 import { contextsForFiber, describeHostElement, nearestCompositeFiber } from './fiber'
+
+import { defaultWorkTags } from './work-tags'
+
+const { FunctionComponent: FunctionComponentTag, HostComponent: HostComponentTag } = defaultWorkTags
 
 const fakeElement = (opts: {
   tag: string

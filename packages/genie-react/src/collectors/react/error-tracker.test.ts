@@ -1,4 +1,4 @@
-import { type Fiber, SuspenseComponentTag } from 'bippy'
+import type { Fiber } from 'bippy'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearErrorState,
@@ -7,6 +7,10 @@ import {
   parseBoundaryError,
   recordErrorState,
 } from './error-tracker'
+
+import { defaultWorkTags } from './work-tags'
+
+const { SuspenseComponent: SuspenseComponentTag } = defaultWorkTags
 
 vi.mock('bippy/source', () => ({
   getSource: async () => null,

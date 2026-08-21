@@ -1,11 +1,10 @@
 import {
-  ClassComponentTag,
   type Fiber,
   getLatestFiber,
   getRDTHook,
+  getRenderer,
   instrument,
   type MemoizedState,
-  SuspenseComponentTag,
 } from 'bippy'
 import { previewValue, type ToolOutput } from '../../protocol'
 import type { reactListOverridesContract, reactResetOverridesContract } from './contracts'
@@ -20,6 +19,7 @@ import {
   registerFiber,
 } from './fiber'
 import { safeUnmountHandler } from './safe-instrumentation'
+import { isClassComponentFiber, isSuspenseFiber } from './work-tags'
 
 // Dev-only live overrides via the dev-renderer contract React DevTools uses; context has no renderer override, so it edits the nearest Provider's `value` prop; forced-fiber membership is always checked against both double-buffer fibers.
 
@@ -28,7 +28,7 @@ export interface DevRenderer {
   scheduleUpdate?: (fiber: Fiber) => void
   setSuspenseHandler?: (shouldSuspend: (instance: unknown) => boolean) => void
   setErrorHandler?: (shouldError: (fiber: Fiber) => boolean) => void
-  overrideHookState?: (fiber: Fiber, hookId: string, path: string[], value: unknown) => void
+  overrideHookState?: (fiber: Fiber, hookIndex: number, path: string[], value: unknown) => void
   overrideProps?: (fiber: Fiber, path: string[], value: unknown) => void
 }
 
@@ -39,11 +39,18 @@ type DevCapability =
   | 'overrideHookState'
   | 'overrideProps'
 
-function requireRenderer(capability: DevCapability): DevRenderer {
-  const hook = getRDTHook()
-  for (const renderer of hook?.renderers?.values() ?? []) {
-    if (typeof renderer.scheduleUpdate === 'function' && typeof renderer[capability] === 'function')
-      return renderer
+const canDrive = (renderer: DevRenderer | null, capability: DevCapability): boolean =>
+  typeof renderer?.scheduleUpdate === 'function' && typeof renderer[capability] === 'function'
+
+/**
+ * The renderer that owns `fiber`, so an app with several injected renderers drives the right one.
+ * Falls back to the first capable renderer for fibers no renderer claims (detached or pre-commit).
+ */
+function requireRenderer(capability: DevCapability, fiber?: Fiber): DevRenderer {
+  const owner = fiber ? getRenderer(fiber) : null
+  if (canDrive(owner, capability)) return owner as DevRenderer
+  for (const renderer of getRDTHook()?.renderers?.values() ?? []) {
+    if (canDrive(renderer, capability)) return renderer
   }
   throw new Error(
     `The React renderer does not expose ${capability} — live overrides need a development build of react-dom 18+; a production build cannot be driven.`,
@@ -60,7 +67,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 export function overrideFiberProps(
   fiber: Fiber,
   partial: Record<string, unknown>,
-  renderer: DevRenderer = requireRenderer('overrideProps'),
+  renderer: DevRenderer = requireRenderer('overrideProps', fiber),
 ): void {
   const current = isPlainObject(fiber.memoizedProps) ? fiber.memoizedProps : {}
   renderer.overrideProps?.(fiber, [], { ...current, ...partial })
@@ -181,7 +188,7 @@ function recordHookOverride(
   const restore =
     existing?.restore ??
     ((renderer: DevRenderer) =>
-      renderer.overrideHookState?.(fiber, String(flatIndex), path.map(String), prior))
+      renderer.overrideHookState?.(fiber, flatIndex, path.map(String), prior))
   upsertEntry({
     kind: 'hook',
     fiber,
@@ -288,9 +295,9 @@ function releaseError(boundary: Fiber, renderer: DevRenderer | null): ResetOutco
 }
 
 // Like requireRenderer but returns null instead of throwing — reset is a recovery path that must degrade gracefully when no dev renderer is present.
-function optionalRenderer(capability: DevCapability): DevRenderer | null {
+function optionalRenderer(capability: DevCapability, fiber?: Fiber): DevRenderer | null {
   try {
-    return requireRenderer(capability)
+    return requireRenderer(capability, fiber)
   } catch {
     return null
   }
@@ -355,7 +362,7 @@ const suspenseHandlerInstalled = new WeakSet<DevRenderer>()
 
 export function findSuspenseBoundary(fiber: Fiber): Fiber | null {
   let current: Fiber | null = fiber
-  while (current && current.tag !== SuspenseComponentTag) current = current.return
+  while (current && !isSuspenseFiber(current)) current = current.return
   return current
 }
 
@@ -367,7 +374,7 @@ export interface BoundaryToggle {
 export function applySuspenseOverride(
   target: Fiber,
   showFallback: boolean,
-  renderer: DevRenderer = requireRenderer('setSuspenseHandler'),
+  renderer: DevRenderer = requireRenderer('setSuspenseHandler', target),
 ): BoundaryToggle {
   const boundary = findSuspenseBoundary(target)
   if (!boundary)
@@ -402,7 +409,7 @@ export function applySuspenseOverride(
 const errorHandlerInstalled = new WeakSet<DevRenderer>()
 
 export function isErrorBoundaryFiber(fiber: Fiber): boolean {
-  if (fiber.tag !== ClassComponentTag) return false
+  if (!isClassComponentFiber(fiber)) return false
   const ctor = fiber.type as { getDerivedStateFromError?: unknown } | null
   const instance = fiber.stateNode as { componentDidCatch?: unknown } | null
   return (
@@ -437,7 +444,7 @@ const activeErrorCount = (): number => [...forcedErrors.values()].filter(Boolean
 export function applyErrorOverride(
   target: Fiber,
   forceError: boolean,
-  renderer: DevRenderer = requireRenderer('setErrorHandler'),
+  renderer: DevRenderer = requireRenderer('setErrorHandler', target),
 ): BoundaryToggle {
   const boundary = findErrorBoundary(target)
   if (!boundary)
@@ -529,7 +536,7 @@ export function resolveStatefulTarget(
   fiber: Fiber,
   target: { hookIndex?: number; stateIndex?: number },
 ): ResolvedStatefulTarget {
-  if (fiber.tag === ClassComponentTag)
+  if (isClassComponentFiber(fiber))
     throw new Error(
       `${nameOf(fiber)} is a class component — it has no hooks. Use react_override_props, or target a function component.`,
     )
@@ -573,12 +580,12 @@ export function applyHookStateOverride(
   target: { hookIndex?: number; stateIndex?: number },
   path: Array<string | number>,
   value: unknown,
-  renderer: DevRenderer = requireRenderer('overrideHookState'),
+  renderer: DevRenderer = requireRenderer('overrideHookState', fiber),
 ): ResolvedStatefulTarget {
   const resolved = resolveStatefulTarget(fiber, target)
   const hook = hookChain(fiber)[resolved.flatIndex]
   const prior = hook ? hookValueAtPath(hook, path) : undefined
-  renderer.overrideHookState?.(fiber, String(resolved.flatIndex), path.map(String), value)
+  renderer.overrideHookState?.(fiber, resolved.flatIndex, path.map(String), value)
   // Schedule explicitly on the latest mounted fiber: the renderer's own scheduling can land on a stale alternate or bail through a memo boundary, leaving the value changed but never committed.
   renderer.scheduleUpdate?.(mountedFiber(fiber) ?? fiber)
   recordHookOverride(fiber, resolved.flatIndex, path, value, prior)
@@ -644,7 +651,7 @@ export function applyContextOverride(
   fiber: Fiber,
   contextName: string | undefined,
   value: unknown,
-  renderer: DevRenderer = requireRenderer('overrideProps'),
+  renderer: DevRenderer = requireRenderer('overrideProps', fiber),
 ): ProviderMatch {
   const match = resolveContextProvider(fiber, contextName)
   const currentValue = isPlainObject(match.provider.memoizedProps)

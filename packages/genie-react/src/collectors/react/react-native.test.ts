@@ -1,12 +1,6 @@
 // @vitest-environment jsdom
 
-import {
-  type Fiber,
-  type FiberRoot,
-  FunctionComponentTag,
-  HostComponentTag,
-  HostRootTag,
-} from 'bippy'
+import type { Fiber, FiberRoot } from 'bippy'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   describeNativeHostFiber,
@@ -16,14 +10,26 @@ import {
   noteCommittedRoot,
 } from './fiber'
 
+import { defaultWorkTags } from './work-tags'
+
+const {
+  FunctionComponent: FunctionComponentTag,
+  HostComponent: HostComponentTag,
+  HostRoot: HostRootTag,
+} = defaultWorkTags
+
 afterEach(() => {
   document.body.innerHTML = ''
   forgetCommittedRoots()
 })
 
+// bippy validates host-instance lookups with isFiber, which requires the full structural shape.
+const asFiberShape = (fiber: Record<string, unknown>): Fiber =>
+  ({ stateNode: null, sibling: null, flags: 0, ...fiber }) as unknown as Fiber
+
 // A mounted root: current has a child, the liveness signal noteCommittedRoot keys on.
 const rootFiber = (): Fiber => {
-  const root = { tag: HostRootTag, return: null, alternate: null, child: null } as unknown as Fiber
+  const root = asFiberShape({ tag: HostRootTag, return: null, alternate: null, child: null })
   ;(root as { child: unknown }).child = {
     tag: HostComponentTag,
     return: root,
@@ -35,7 +41,7 @@ const rootFiber = (): Fiber => {
 }
 
 const emptiedRootFiber = (): Fiber =>
-  ({ tag: HostRootTag, return: null, alternate: null, child: null }) as unknown as Fiber
+  asFiberShape({ tag: HostRootTag, return: null, alternate: null, child: null })
 
 const asRoot = (current: Fiber | null): FiberRoot => ({ current }) as unknown as FiberRoot
 

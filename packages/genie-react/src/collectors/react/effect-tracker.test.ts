@@ -1,6 +1,7 @@
-import type { Effect, Fiber, RenderPhase } from 'bippy'
+import type { Fiber, RenderPhase } from 'bippy'
 import type { HooksNode } from 'bippy/source'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Effect } from './bippy-compat'
 import { getEffectScheduleEvents } from './effect-events'
 import {
   clearEffects,
