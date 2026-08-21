@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://genie-react.com/sitemap.xml
+
+# Agent resources:
+# https://genie-react.com/llms.txt
+# https://genie-react.com/llms-full.txt
+# https://genie-react.com/openapi.json

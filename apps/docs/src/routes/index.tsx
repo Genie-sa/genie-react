@@ -1,8 +1,22 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { HomeLayout } from 'fumadocs-ui/layouts/home'
+import { SiteFooter } from '@/components/site-footer'
 import { baseOptions } from '@/lib/layout.shared'
+import { homeStructuredData, pageHead } from '@/lib/seo'
+import { appDescription, appName } from '@/lib/shared'
 
 export const Route = createFileRoute('/')({
+  head: () => {
+    const head = pageHead({
+      title: `${appName} — Live React & TanStack DevTools for coding agents`,
+      description: appDescription,
+      path: '/',
+    })
+    return {
+      ...head,
+      scripts: [{ type: 'application/ld+json', children: homeStructuredData() }],
+    }
+  },
   component: Home,
 })
 
@@ -69,6 +83,7 @@ function Home() {
           </Link>
         </div>
       </main>
+      <SiteFooter />
     </HomeLayout>
   )
 }

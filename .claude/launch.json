@@ -27,6 +27,15 @@
         "export PATH=$HOME/.nvm/versions/node/v22.22.3/bin:$PATH && pnpm --filter @genie-react/docs dev"
       ],
       "port": 3100
+    },
+    {
+      "name": "docs-preview",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=$HOME/.nvm/versions/node/v22.22.3/bin:$PATH && pnpm --filter @genie-react/docs preview"
+      ],
+      "port": 3100
     }
   ]
 }
