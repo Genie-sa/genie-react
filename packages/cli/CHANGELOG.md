@@ -1,5 +1,12 @@
 # @genie-react/cli
 
+## 0.12.6
+
+### Patch Changes
+
+- Updated dependencies [5a13ea8]
+  - genie-react@0.12.6
+
 ## 0.12.5
 
 ### Patch Changes
