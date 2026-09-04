@@ -538,6 +538,30 @@ export const reactGetRendersContract = defineAgentToolContract({
     attribution: reportAttributionSchema,
     summary: renderSummarySchema,
     components: z.array(renderComponentSchema),
+    sourceClassification: z.object({
+      complete: z
+        .boolean()
+        .describe('All matching candidates have app or library ownership evidence.'),
+      totalCandidates: z
+        .number()
+        .int()
+        .nonnegative()
+        .describe('Matching records before appOnly and limit.'),
+      evaluated: z
+        .number()
+        .int()
+        .nonnegative()
+        .describe(
+          'Candidates evaluated within the source budget, including unresolved results and cache hits.',
+        ),
+      app: z.number().int().nonnegative(),
+      library: z.number().int().nonnegative(),
+      unknown: z
+        .number()
+        .int()
+        .nonnegative()
+        .describe('Unresolved or unevaluated ownership; never counted as library.'),
+    }),
     omittedByLimit: z.number().int().nonnegative(),
     comparable: z.boolean(),
     notComparableReasons: z.array(z.string()),

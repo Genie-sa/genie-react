@@ -208,16 +208,25 @@ export default defineConfig({ plugins: [genie()] })
   )
   await writeFile(
     join(temporaryRoot, 'src/main.js'),
-    `import { createElement } from 'react'
+    `import { createElement, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { Genie } from 'genie-react'
 
 const queryClient = new QueryClient()
 
+function Row({ index }) {
+  return createElement('span', null, index)
+}
+
 function App() {
+  const [showRows, setShowRows] = useState(false)
   const query = useQuery({ queryKey: ['greeting'], queryFn: async () => 'hello' })
-  return createElement('main', { id: 'lab' }, query.data ?? query.status)
+  return createElement('main', { id: 'lab' },
+    query.data ?? query.status,
+    createElement('button', { onClick: () => setShowRows(true) }, 'Mount rows'),
+    showRows && Array.from({ length: 241 }, (_, index) => createElement(Row, { key: index, index })),
+  )
 }
 
 createRoot(document.getElementById('root')).render(
@@ -407,6 +416,78 @@ async function main() {
     queryList.queries.some((query) => JSON.stringify(query?.queryKey) === '["greeting"]'),
     'Query list did not include the demo greeting query',
   )
+  const readRows = async () =>
+    parseSuccessfulJson(
+      'genie-react call react_get_renders',
+      await runCli([
+        'call',
+        'react_get_renders',
+        JSON.stringify({ component: 'Row', appOnly: true, limit: 1 }),
+        '--json',
+        '--wait',
+        '5000',
+      ]),
+    )
+  for (const stage of ['cold mount', 'document reload']) {
+    if (stage === 'document reload') {
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.locator('#lab').waitFor({ state: 'visible', timeout: 10_000 })
+      await waitFor(
+        'reconnected CLI session',
+        async () => {
+          const result = parseSuccessfulJson('status', await runCli(['status', '--json']))
+          return result.connected && result.ready
+        },
+        15_000,
+      )
+    }
+    parseSuccessfulJson(
+      'clear render observation',
+      await runCli([
+        'call',
+        'react_clear_renders',
+        JSON.stringify({
+          budget: { fiberLimit: 2000, operationLimit: 2000000, timeLimitMs: 500, adaptive: false },
+        }),
+        '--json',
+      ]),
+    )
+    await page.getByRole('button', { name: 'Mount rows' }).click()
+    const cold = await readRows()
+    const classification = cold.sourceClassification
+    assert(classification?.totalCandidates === 241, `${stage}: missing ownership candidate counts`)
+    assert(
+      classification.app + classification.library + classification.unknown === 241,
+      `${stage}: ownership counts do not account for all rows`,
+    )
+    if (!classification.complete) {
+      assert(
+        cold.comparable === false &&
+          cold.notComparableReasons.includes('app-source-classification-incomplete'),
+        `${stage}: incomplete app sample was comparable`,
+      )
+    }
+    const warm = await waitFor(
+      `${stage} source warmup`,
+      async () => {
+        const report = await readRows()
+        return report.sourceClassification?.complete ? report : undefined
+      },
+      15_000,
+    )
+    assert(warm.sourceClassification.app === 241, `${stage}: app sources did not recover`)
+    assert(
+      warm.sourceClassification.unknown === 0 && warm.summary.trackedComponents === 241,
+      `${stage}: warm report lost rows`,
+    )
+    assert(
+      warm.components.length === 1 && warm.omittedByLimit === 240,
+      `${stage}: output limit was confused with ownership coverage`,
+    )
+    process.stdout.write(
+      `${stage}: ${classification.app}/241 app rows on first read, 241/241 after warmup.\n`,
+    )
+  }
   assert(pageErrors.length === 0, `Browser page errors:\n${pageErrors.join('\n')}`)
 
   process.stdout.write(
