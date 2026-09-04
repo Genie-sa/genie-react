@@ -1,10 +1,13 @@
+import { QueryClient, QueryObserver } from '@tanstack/react-query'
 import type { Fiber } from 'bippy'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  instrumentQueryObserver,
   recordQueryNotification,
   registerQueryObserver,
   resetExternalStoreRegistryForTests,
 } from '../causal/external-store-registry'
+import { createCommitWorkBudget } from './commit-budget'
 import { createRenderEvidenceBudget, inputCoverage } from './render-budget'
 import { countExternalStoreHooks, diffExternalStoreChanges } from './render-causes'
 
@@ -242,5 +245,285 @@ describe('bounded causal inspection', () => {
     ])
     expect(reads).toBe(0)
     expect(inputCoverage(evidence)).toMatchObject({ complete: true, scanTruncated: false })
+  })
+})
+
+it('does not blame Query when a real observer suppressed an unsubscribed change', () => {
+  const client = new QueryClient()
+  const key = ['issue-81']
+  const data = { value: 1 }
+  client.setQueryData(key, data, { updatedAt: 1 })
+  const observer = new QueryObserver(client, {
+    queryKey: key,
+    enabled: false,
+    notifyOnChangeProps: ['data'],
+  })
+  let notifications = 0
+  const unsubscribe = observer.subscribe(() => {
+    notifications += 1
+  })
+  try {
+    const before = observer.getCurrentResult()
+    registerQueryObserver(observer)
+    client.setQueryData(key, data, { updatedAt: 2 })
+    const after = observer.getCurrentResult()
+    expect(after.data).toBe(before.data)
+    expect(after.dataUpdatedAt).not.toBe(before.dataUpdatedAt)
+    expect(notifications).toBe(0)
+    const causes = diffExternalStoreChanges(
+      causalFiber(
+        [{ memoizedState: observer }, externalStoreHook(after)],
+        [{ memoizedState: observer }, externalStoreHook(before)],
+      ),
+    )
+    expect(causes.filter((cause) => cause.kind === 'query')).toEqual([])
+  } finally {
+    unsubscribe()
+    client.clear()
+  }
+})
+
+function policyCauses(
+  options: Record<string, unknown>,
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  evidence = createRenderEvidenceBudget(),
+) {
+  const observer = {
+    options,
+    getCurrentQuery: () => ({ queryHash: 'policy', queryKey: ['policy'] }),
+    getCurrentResult: () => after,
+    subscribe: () => () => {},
+  }
+  registerQueryObserver(observer)
+  return diffExternalStoreChanges(
+    causalFiber(
+      [{ memoizedState: observer }, externalStoreHook(after)],
+      [{ memoizedState: observer }, externalStoreHook(before)],
+    ),
+    evidence,
+  )
+}
+
+describe('current Query notification policy compatibility', () => {
+  it.each([
+    { policy: ['data'], before: 1, after: 2, expected: ['data'] },
+    { policy: ['data'], before: Number.NaN, after: Number.NaN, expected: ['data'] },
+    { policy: ['data'], before: -0, after: 0, expected: [] },
+    { policy: [], before: 1, after: 2, expected: [] },
+    { policy: 'all', before: 1, after: 2, expected: ['data', 'dataUpdatedAt'] },
+    { policy: ['refetch'], before: 1, after: 2, expected: [] },
+  ])('checks $policy against Query field equality ($before → $after)', ({
+    policy,
+    before,
+    after,
+    expected,
+  }) => {
+    const causes = policyCauses(
+      { queryHash: 'policy', notifyOnChangeProps: policy },
+      { ...queryResult(1), data: before },
+      { ...queryResult(2), data: after },
+    )
+    if (expected.length === 0) expect(causes).toEqual([])
+    else
+      expect(causes).toMatchObject([
+        {
+          kind: 'query',
+          evidence: 'inferred',
+          notificationPolicyCheck: {
+            status: 'matched',
+            basis: 'current-effective-policy',
+            changedSubscribedFields: expected,
+          },
+        },
+      ])
+  })
+
+  it.each([
+    true,
+    () => false,
+  ])('includes implicit error subscriptions for throwOnError=%s', (throwOnError) => {
+    const causes = policyCauses(
+      { queryHash: 'policy', notifyOnChangeProps: ['data'], throwOnError },
+      { ...queryResult(1), data: 1, error: null },
+      { ...queryResult(2), data: 1, error: new Error('query failed') },
+    )
+    expect(causes).toMatchObject([
+      {
+        notificationPolicyCheck: { status: 'matched', changedSubscribedFields: ['error'] },
+      },
+    ])
+  })
+
+  it.each([
+    { label: 'auto-tracked', policy: undefined },
+    {
+      label: 'dynamic',
+      policy: () => {
+        throw new Error('must not call app policy')
+      },
+    },
+    { label: 'truncated', policy: [...Array.from({ length: 100 }, () => 'data'), 'dataUpdatedAt'] },
+    {
+      label: 'accessor',
+      policy: Object.defineProperty(['data'], '0', {
+        get: () => {
+          throw new Error('must not read')
+        },
+      }),
+    },
+  ])('keeps $label policies explicitly unavailable', ({ policy }) => {
+    expect(
+      policyCauses(
+        { queryHash: 'policy', notifyOnChangeProps: policy },
+        { ...queryResult(1), data: 1 },
+        { ...queryResult(2), data: 1 },
+      ),
+    ).toMatchObject([
+      {
+        kind: 'query',
+        notificationPolicyCheck: {
+          status: 'unavailable',
+          basis: 'current-effective-policy',
+          reason: 'policy-unavailable',
+        },
+      },
+    ])
+  })
+
+  it('does not assume an unreadable throwOnError option excludes errors', () => {
+    const options = Object.defineProperty(
+      { queryHash: 'policy', notifyOnChangeProps: ['data'] },
+      'throwOnError',
+      {
+        get: () => {
+          throw new Error('must not read app option')
+        },
+      },
+    )
+    expect(
+      policyCauses(options, { ...queryResult(1), data: 1 }, { ...queryResult(2), data: 1 }),
+    ).toMatchObject([
+      {
+        notificationPolicyCheck: { status: 'unavailable', reason: 'policy-unavailable' },
+      },
+    ])
+  })
+
+  it('retains a candidate while the query identity is transitioning', () => {
+    expect(
+      policyCauses(
+        { queryHash: 'previous-query', notifyOnChangeProps: ['data'] },
+        { ...queryResult(1), data: 1 },
+        { ...queryResult(2), data: 1 },
+      ),
+    ).toMatchObject([
+      {
+        notificationPolicyCheck: { status: 'unavailable', reason: 'identity-transitioning' },
+      },
+    ])
+  })
+
+  it('checks subscribed fields outside the bounded changedFields list', () => {
+    expect(
+      policyCauses(
+        { queryHash: 'policy', notifyOnChangeProps: ['refetch'] },
+        { ...queryResult(1), refetch: () => 1 },
+        { ...queryResult(2), refetch: () => 2 },
+      ),
+    ).toMatchObject([
+      {
+        changedFields: ['dataUpdatedAt'],
+        notificationPolicyCheck: { status: 'matched', changedSubscribedFields: ['refetch'] },
+      },
+    ])
+  })
+
+  it('does not rule out an unreadable subscribed field', () => {
+    const after = Object.defineProperty(queryResult(2), 'data', {
+      get: () => {
+        throw new Error('must not invoke')
+      },
+    })
+    expect(
+      policyCauses(
+        { queryHash: 'policy', notifyOnChangeProps: ['data'] },
+        { ...queryResult(1), data: 1 },
+        after,
+      ),
+    ).toMatchObject([
+      {
+        notificationPolicyCheck: { status: 'unavailable', reason: 'snapshot-fields-unavailable' },
+      },
+    ])
+  })
+
+  it('retains uncertainty when the budget expires before subscribed-field comparisons', () => {
+    const budget = createCommitWorkBudget({ operationLimit: 1000, now: () => 0 })
+    const evidence = createRenderEvidenceBudget(budget)
+    const options = new Proxy(
+      { queryHash: 'policy', notifyOnChangeProps: ['data'], throwOnError: false },
+      {
+        getOwnPropertyDescriptor(target, key) {
+          if (key === 'throwOnError') budget.remainingOperations = 0
+          return Reflect.getOwnPropertyDescriptor(target, key)
+        },
+      },
+    )
+    expect(
+      policyCauses(
+        options,
+        { ...queryResult(1), data: 1 },
+        { ...queryResult(2), data: 1 },
+        evidence,
+      ),
+    ).toMatchObject([
+      {
+        notificationPolicyCheck: { status: 'unavailable', reason: 'snapshot-fields-unavailable' },
+      },
+    ])
+    expect(inputCoverage(evidence)).toMatchObject({ complete: false, scanTruncated: true })
+  })
+
+  it('preserves a real delivered notification after the policy changes', () => {
+    const client = new QueryClient()
+    const queryKey = ['policy-change']
+    client.setQueryData(queryKey, 1, { updatedAt: 1 })
+    const observer = new QueryObserver(client, {
+      queryKey,
+      enabled: false,
+      notifyOnChangeProps: ['dataUpdatedAt'],
+    })
+    registerQueryObserver(observer)
+    const restore = instrumentQueryObserver(observer)
+    let delivered = 0
+    const unsubscribe = observer.subscribe(() => {
+      delivered += 1
+    })
+    try {
+      const before = observer.getCurrentResult()
+      client.setQueryData(queryKey, 1, { updatedAt: 2 })
+      const after = observer.getCurrentResult()
+      observer.setOptions({ queryKey, enabled: false, notifyOnChangeProps: ['data'] })
+      expect(delivered).toBe(1)
+      const causes = diffExternalStoreChanges(
+        causalFiber(
+          [{ memoizedState: observer }, externalStoreHook(after)],
+          [{ memoizedState: observer }, externalStoreHook(before)],
+        ),
+      )
+      expect(causes).toMatchObject([
+        {
+          evidence: 'exact',
+          reason: 'query-notification-delivered',
+          notification: { deliveryReason: 'tracked-field-changed:dataUpdatedAt' },
+        },
+      ])
+      expect(causes[0]).not.toHaveProperty('notificationPolicyCheck')
+    } finally {
+      unsubscribe()
+      restore()
+      client.clear()
+    }
   })
 })

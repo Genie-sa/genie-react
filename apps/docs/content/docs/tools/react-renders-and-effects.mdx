@@ -175,6 +175,15 @@ is safe to remove.
 
 Returns joinable render events and their observed causes.
 
+For a single identified Query observer, Genie omits an inferred cause when its complete current
+notification policy excludes every changed subscribed field. `notificationPolicyCheck.status`
+is `matched` with `changedSubscribedFields` when a subscribed field changed, or `unavailable`
+with a reason when the policy, identity, or field comparison cannot be checked. The basis is
+`current-effective-policy`: this checks compatibility with current options, not historical
+notification delivery. Dynamic and private auto-tracked policies remain unavailable. Implicit
+`error` subscriptions from `throwOnError` are included; recorded exact deliveries take precedence
+and are never removed by this check.
+
 **Input:** `commit` and `afterCommit` are optional nonnegative integers and are mutually exclusive.
 `component` is an optional substring. `limit` is an integer from 1 to 500 and defaults to 100.
 `appOnly` defaults to `true`.
