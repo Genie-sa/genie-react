@@ -21,6 +21,53 @@ function session(sessionId: string): InteractionSession {
 }
 
 describe('InteractionManager', () => {
+  it('reserves the document before awaiting its clear response and releases failed starts', async () => {
+    const active = session('one-document')
+    let resolveClear!: (value: { ok: boolean; result?: unknown; error?: string }) => void
+    let clears = 0
+    const manager = new InteractionManager({
+      resolveSession: () => active,
+      unknownSessionError: () => 'unknown',
+      isCurrentSession: () => true,
+      request: async () => {
+        clears += 1
+        return new Promise((resolve) => {
+          resolveClear = resolve
+        })
+      },
+      settle: async () => ({ ok: true, waitedMs: 0, domains: {} }),
+    })
+    const first = manager.invoke('devtools_interaction_begin', { name: 'first' })
+    const second = manager.invoke('devtools_interaction_begin', { name: 'second' })
+    expect(clears).toBe(1)
+    expect(await second).toMatchObject({ ok: false, errorCode: 'invalid-args' })
+    resolveClear({ ok: false, error: 'clear failed' })
+    expect(await first).toMatchObject({ ok: false })
+    const retry = manager.invoke('devtools_interaction_begin', { name: 'retry' })
+    expect(clears).toBe(2)
+    resolveClear({ ok: true, result: { documentCommitId: 4, observation: { id: 'new' } } })
+    expect(await retry).toMatchObject({ ok: true, result: { name: 'retry' } })
+  })
+
+  it('does not revive a pending recording after the bridge is cleared', async () => {
+    const active = session('one-document')
+    let resolveClear!: (value: { ok: boolean; result: unknown }) => void
+    const manager = new InteractionManager({
+      resolveSession: () => active,
+      unknownSessionError: () => 'unknown',
+      isCurrentSession: () => true,
+      request: async () =>
+        new Promise((resolve) => {
+          resolveClear = resolve
+        }),
+      settle: async () => ({ ok: true, waitedMs: 0, domains: {} }),
+    })
+    const pending = manager.invoke('devtools_interaction_begin', { name: 'cancelled' })
+    manager.clear()
+    resolveClear({ ok: true, result: { documentCommitId: 1, observation: { id: 'old' } } })
+    expect(await pending).toMatchObject({ ok: false, errorCode: 'not-connected' })
+  })
+
   it('prunes disconnected recordings before enforcing the active interaction cap', async () => {
     const sessions = new Map<string, InteractionSession>()
     const current = new Set<string>()
