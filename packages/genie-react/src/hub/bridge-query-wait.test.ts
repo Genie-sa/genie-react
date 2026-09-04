@@ -480,7 +480,11 @@ describe('GenieBridge waits', () => {
     const response = await inbox.wait(isResult(id))
     expect(response.result.ok).toBe(true)
     expect(checks).toBeGreaterThanOrEqual(5)
-    const second = await getRendersMeasurement({ cursor: first.nextCursor, limit: 1 })
+    const second = await getRendersMeasurement({
+      cursor: first.nextCursor,
+      limit: 1,
+      sort: 'renders',
+    })
     expect(second.components).toHaveLength(1)
     expect(second.components[0]?.id).not.toBe(first.components[0]?.id)
     expect(second.pagination.snapshotId).toBe(first.pagination.snapshotId)
