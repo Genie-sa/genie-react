@@ -399,8 +399,9 @@ function classifyFiberFromCache(fiber: Fiber): FiberClassification | null {
 export async function classifyFibersWithinBudget(
   fibers: Fiber[],
   options: { limit?: number; budgetMs?: number } = {},
-): Promise<{ classes: FiberClassification[]; partial: boolean }> {
+): Promise<{ classes: FiberClassification[]; evaluated: boolean[]; partial: boolean }> {
   const classes = fibers.map(() => UNCLASSIFIED_FIBER)
+  const evaluated = fibers.map(() => false)
   const startedAt = Date.now()
   const limit = options.limit ?? DEFAULT_CLASSIFY_LIMIT
   // While the off-call warmer is draining, the call keeps only a token budget: return fast and partial instead of re-spending the full budget the warmer will cover anyway.
@@ -417,6 +418,7 @@ export async function classifyFibersWithinBudget(
     const fromCache = classifyFiberFromCache(fiber)
     if (fromCache) {
       classes[index] = fromCache
+      evaluated[index] = true
       continue
     }
     const remaining = budgetMs - (Date.now() - startedAt)
@@ -431,9 +433,10 @@ export async function classifyFibersWithinBudget(
       continue
     }
     classes[index] = result
+    evaluated[index] = true
   }
 
-  return { classes, partial }
+  return { classes, evaluated, partial }
 }
 
 const WARMUP_CHUNK = 24

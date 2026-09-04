@@ -103,6 +103,85 @@ const EXPO_HERMES_BUNDLE =
   'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle//&platform=ios&dev=true'
 
 describe('getRendersReport filteredNote count', () => {
+  it('reports incomplete cold ownership and warms records beyond the lookup budget', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', async () => ({ ok: false }))
+    try {
+      for (let index = 0; index < 241; index += 1) {
+        recordRender(renderFiber(`App${index}`, at(`/src/App${index}.tsx`)), 'mount')
+      }
+      const cold = await getRendersMeasurement({ sort: 'renders', limit: 200, appOnly: true })
+      expect(cold.sourceClassification).toEqual({
+        complete: false,
+        totalCandidates: 241,
+        evaluated: 120,
+        app: 120,
+        library: 0,
+        unknown: 121,
+      })
+      expect(cold.summary.trackedComponents).toBe(120)
+
+      await vi.runAllTimersAsync()
+      const warm = await getRendersMeasurement({ sort: 'renders', limit: 200, appOnly: true })
+      expect(warm.sourceClassification).toEqual({
+        complete: true,
+        totalCandidates: 241,
+        evaluated: 241,
+        app: 241,
+        library: 0,
+        unknown: 0,
+      })
+      expect(warm.summary.trackedComponents).toBe(241)
+      expect(warm.omittedByLimit).toBe(41)
+    } finally {
+      clearSourceCache()
+      vi.useRealTimers()
+    }
+  })
+
+  it('separates unknown from library ownership and retries source evidence after it appears', async () => {
+    vi.stubGlobal('fetch', async () => ({ ok: false }))
+    const unknown = renderFiber('UnknownOwner', null)
+    recordRender(unknown, 'mount')
+    recordRender(renderFiber('LibraryOwner', at(NODE_MODULES)), 'mount')
+    recordRender(renderFiber('AppOwner', at('/src/App.tsx')), 'mount')
+
+    const missing = await getRendersMeasurement({ sort: 'renders', limit: 50, appOnly: true })
+    expect(missing.sourceClassification).toEqual({
+      complete: false,
+      totalCandidates: 3,
+      evaluated: 3,
+      app: 1,
+      library: 1,
+      unknown: 1,
+    })
+    const selected = await getRendersMeasurement({
+      sort: 'renders',
+      limit: 1,
+      appOnly: false,
+      component: 'UnknownOwner',
+    })
+    expect(selected.sourceClassification).toEqual({
+      complete: false,
+      totalCandidates: 1,
+      evaluated: 1,
+      app: 0,
+      library: 0,
+      unknown: 1,
+    })
+    Object.assign(unknown, { _debugSource: at('/src/Recovered.tsx') })
+    const recovered = await getRendersMeasurement({ sort: 'renders', limit: 50, appOnly: true })
+    expect(recovered.sourceClassification).toEqual({
+      complete: true,
+      totalCandidates: 3,
+      evaluated: 3,
+      app: 2,
+      library: 1,
+      unknown: 0,
+    })
+    expect(recovered.components.map((entry) => entry.name)).toContain('UnknownOwner')
+  })
+
   it('does not attribute unresolved ownership to the app', async () => {
     recordRender(renderFiber('UnknownOwner', null), 'mount')
 
@@ -181,6 +260,12 @@ describe('getRendersReport filteredNote count', () => {
 
     const appOnly = await getRendersMeasurement({ sort: 'renders', limit: 50, appOnly: true })
     expect(appOnly.summary.trackedComponents).toBe(0)
+    expect(appOnly.sourceClassification).toMatchObject({
+      app: 0,
+      library: 1,
+      unknown: 0,
+      complete: true,
+    })
     expect(appOnly.libraryHidden).toBe(1)
     expect(appOnly.components).toEqual([])
 
