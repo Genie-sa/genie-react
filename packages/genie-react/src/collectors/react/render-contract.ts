@@ -305,6 +305,25 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
         }),
       })
       .optional(),
+    notificationPolicyCheck: z
+      .discriminatedUnion('status', [
+        z.object({
+          status: z.literal('matched'),
+          basis: z.literal('current-effective-policy'),
+          changedSubscribedFields: z.array(z.string()),
+        }),
+        z.object({
+          status: z.literal('unavailable'),
+          basis: z.literal('current-effective-policy'),
+          reason: z.enum([
+            'policy-unavailable',
+            'identity-transitioning',
+            'snapshot-fields-unavailable',
+          ]),
+        }),
+      ])
+      .describe('Compatibility with the current effective policy, not historical delivery proof.')
+      .optional(),
     competingCandidates: z.array(z.string()).optional(),
     observerId: z.string().optional(),
     queryHash: z.string().optional(),
@@ -506,11 +525,29 @@ export const renderObservationInputSchema = z.object({
     }),
 })
 
+export const renderMeasurementEnvironmentSchema = z.object({
+  bundle: z
+    .enum(['development', 'production', 'mixed', 'unknown'])
+    .describe(
+      'Bundle types reported by registered React renderers in the app document, not the Genie build. Unknown if absent or unrecognized.',
+    ),
+  timingsBundleDependent: z
+    .literal(true)
+    .describe(
+      'All timing fields depend on the measured bundle and instrumentation; development timings are not release estimates.',
+    ),
+  countsScope: z
+    .literal('observed-run')
+    .describe(
+      'Counts describe this observed run, subject to coverage; development and Strict Mode behavior can differ from production.',
+    ),
+})
+
 export const reactGetRendersContract = defineAgentToolContract({
   name: 'react_get_renders',
   title: 'Render report',
   description:
-    'Report bounded component render counts, observed React input changes, stable mount identity, runtime timing, and source. Start a measurement with react_clear_renders, drive one interaction, then read this. Legacy unnecessary/forget fields remain for compatibility; use render causes and explicit evidence before editing code.',
+    'Timing fields are bundle-dependent; counts describe the observed run, not a production estimate. Report bounded component render counts, observed React input changes, stable mount identity, runtime timing, and source. Start a measurement with react_clear_renders, drive one interaction, then read this. Legacy unnecessary/forget fields remain for compatibility; use render causes and explicit evidence before editing code.',
   group: 'react.render',
   input: z
     .object({
@@ -592,6 +629,7 @@ export const reactGetRendersContract = defineAgentToolContract({
           'Cursor expiry as Unix time in milliseconds. Null for one-shot reads. At most three snapshots of up to 5000 name/update-filtered candidates are retained.',
         ),
     }),
+    ...renderMeasurementEnvironmentSchema.shape,
     tracking: z.boolean(),
     renderCollection: z
       .string()

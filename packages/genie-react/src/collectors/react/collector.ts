@@ -49,6 +49,7 @@ import {
   owningComponentFor,
   registerFiber,
 } from './fiber'
+import { getMeasurementEnvironment } from './measurement-environment'
 import { getAnalysisGeneration, getDocumentCommitId } from './observation'
 import {
   applyContextOverride,
@@ -376,6 +377,7 @@ export function reactCollector(): GenieCollector {
           return {
             tracking: report.tracking,
             renderCollection: report.renderCollection,
+            ...getMeasurementEnvironment(),
             commits: report.commits,
             documentCommitId: report.documentCommitId,
             observation: report.observation,
@@ -648,6 +650,7 @@ export function reactCollector(): GenieCollector {
           const byUnnecessary = boards.mostUnnecessary
           const byUnstable = boards.mostUnstable
           return {
+            ...getMeasurementEnvironment(),
             commits: measurement.commits,
             tracking: measurement.tracking,
             documentCommitId: measurement.documentCommitId,

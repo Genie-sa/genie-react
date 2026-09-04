@@ -14,6 +14,9 @@ describe('react_get_renders output contract', () => {
     const result = reactGetRendersContract.output.parse({
       nextCursor: null,
       pagination: { snapshotId: 'report:1', offset: 0, totalComponents: 1, expiresAt: 300_000 },
+      bundle: 'development',
+      timingsBundleDependent: true,
+      countsScope: 'observed-run',
       sourceClassification: {
         complete: false,
         totalCandidates: 1,

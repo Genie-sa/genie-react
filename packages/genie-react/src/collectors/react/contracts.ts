@@ -4,6 +4,7 @@ import { sourceProvenanceSchema, sourceSchema, wrapperFrameSchema } from './cont
 import {
   observationSchema,
   renderCoverageSchema,
+  renderMeasurementEnvironmentSchema,
   renderObservationInputSchema,
 } from './render-contract'
 
@@ -735,10 +736,11 @@ export const reactProfileReportContract = defineAgentToolContract({
   name: 'react_profile_report',
   title: 'Profiling report',
   description:
-    'Summarize peak render cost, render counts, and no-observed-input updates when causal attribution is complete. Check coverage.inputAttributionComplete before using causal leaderboards. The report never calls a render safe to remove.',
+    'Timing fields are bundle-dependent; counts describe the observed run, not a production estimate. Summarize peak render cost, render counts, and no-observed-input updates when causal attribution is complete. Check coverage.inputAttributionComplete before using causal leaderboards. The report never calls a render safe to remove.',
   group: 'react.profile',
   input: z.object({ limit: z.number().int().min(1).max(100).default(20) }),
   output: z.object({
+    ...renderMeasurementEnvironmentSchema.shape,
     commits: z.number(),
     tracking: z.boolean(),
     documentCommitId: z.number().int().nonnegative(),

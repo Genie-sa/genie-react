@@ -76,16 +76,19 @@ export function queryNotificationPolicy(value: unknown): QueryNotificationPolicy
     const fields: string[] = []
     const length = arrayLength(value)
     const limit = Math.min(length ?? 0, 100)
+    let complete = length !== null && length <= 100
     for (let index = 0; index < limit; index += 1) {
       const descriptor = safeOwnPropertyDescriptor(value, String(index))
       if (isDataDescriptor(descriptor) && typeof descriptor.value === 'string') {
         fields.push(descriptor.value)
+      } else {
+        complete = false
       }
     }
     return {
       mode: 'fields',
       fields,
-      trackedFieldsAvailable: length !== null && length <= 100,
+      trackedFieldsAvailable: complete,
     }
   }
   if (typeof value === 'function') return { mode: 'dynamic', trackedFieldsAvailable: false }

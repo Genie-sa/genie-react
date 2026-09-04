@@ -97,6 +97,8 @@ export function summarizeRenders(result: unknown): string | null {
     `${num(summary.commits)} commits · ${num(summary.trackedComponents)} components · ${semanticCount(summary.totalRenders, summary.semantics, 'renders')} · ${semanticCount(summary.totalUpdates, summary.semantics, 'updates')}${referenceOnlyPropComponents > 0 ? ` · ${referenceOnlyPropComponents} reference-only prop candidates` : ''} · ${noObservedInputChangeComponents} no observed input change${omitted > 0 ? ` · ${omitted} ${nextCursor ? 'remaining' : 'omitted'}` : ''}${comparabilitySuffix(result)}${attributionSuffix(result.attribution)}${coverageSuffix(result.coverage)}${trackingOff}${renderCollection}`,
   ]
 
+  lines.push(measurementEnvironmentLine(result))
+
   const topReferenceOnlyProps = Array.isArray(summary.topReferenceOnlyProps)
     ? summary.topReferenceOnlyProps
     : summary.topUnstableProps
@@ -139,6 +141,13 @@ export function summarizeRenders(result: unknown): string | null {
     )
   }
   return lines.join('\n')
+}
+
+function measurementEnvironmentLine(result: Record<string, unknown>): string {
+  const bundle = ['development', 'production', 'mixed'].includes(String(result.bundle))
+    ? String(result.bundle)
+    : 'unknown'
+  return `bundle ${bundle} · timings depend on bundle · counts describe this run`
 }
 
 function semanticCount(value: unknown, semantics: unknown, label: string): string {
@@ -546,6 +555,7 @@ export function summarizeProfile(result: unknown): string | null {
   const lines = [
     `${num(result.commits)} commits${attributionSuffix(result.attribution)}${coverageSuffix(result.coverage)}${inputAttributionSuffix(result.coverage)}${trackingOff}`,
   ]
+  lines.push(measurementEnvironmentLine(result))
   const row = (
     label: string,
     items: unknown,

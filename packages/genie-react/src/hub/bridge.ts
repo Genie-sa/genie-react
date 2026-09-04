@@ -148,6 +148,7 @@ interface WaitCheck {
 }
 
 interface WaitPollState {
+  reactSession: AppSession | null
   reactCommit: number | null
   reactChangedAt: number
   frameCheck: WaitDomainCheck | null
@@ -850,6 +851,7 @@ export class GenieBridge {
   ): Promise<WaitCheck> {
     const deadline = Date.now() + Math.max(0, remainingMs)
     const pollState: WaitPollState = {
+      reactSession: null,
       reactCommit: null,
       reactChangedAt: Date.now(),
       frameCheck: null,
@@ -1021,25 +1023,49 @@ export class GenieBridge {
       if (!session || !toolDescriptor(session, 'react_get_renders')) {
         return unsupported('react_get_renders')
       }
-      const response = await this.appRequest(
+      const response = await this.appRequestForSession(
         'react_get_renders',
         { sort: 'renders', limit: 1, appOnly: false, includeCursor: false },
-        sessionId,
+        session,
       )
       const result = recordOf(response.result)
       const commit = result && numberField(result, 'documentCommitId')
-      if (!response.ok || commit === null) {
+      if (!response.ok || commit === null || !Number.isInteger(commit) || commit < 0) {
+        pollState.reactCommit = null
         return { status: 'pending', reason: response.error, lastObserved: null }
       }
+      const renderCollection = result?.renderCollection
+      // Late installation loses history, but still observes commits throughout this new wait window.
+      if (
+        renderCollection !== 'available' &&
+        !(typeof renderCollection === 'string' && renderCollection.startsWith('degraded ('))
+      ) {
+        return {
+          status: 'unsupported',
+          reason: `React quiet cannot observe commits: ${typeof renderCollection === 'string' ? renderCollection : 'render collection status is missing'}.`,
+          lastObserved: { documentCommitId: commit, renderCollection: renderCollection ?? null },
+        }
+      }
       const now = Date.now()
-      if (pollState.reactCommit !== commit) {
+      if (
+        pollState.reactSession?.socket !== session.socket ||
+        pollState.reactSession.sessionId !== session.sessionId ||
+        pollState.reactSession.documentGeneration !== session.documentGeneration ||
+        pollState.reactCommit !== commit
+      ) {
+        pollState.reactSession = session
         pollState.reactCommit = commit
         pollState.reactChangedAt = now
       }
       const quietForMs = now - pollState.reactChangedAt
       return {
         status: quietForMs >= input.quietMs ? 'met' : 'pending',
-        lastObserved: { documentCommitId: commit, quietForMs, requiredQuietMs: input.quietMs },
+        lastObserved: {
+          documentCommitId: commit,
+          renderCollection,
+          quietForMs,
+          requiredQuietMs: input.quietMs,
+        },
       }
     }
     if (domain === 'query') {
