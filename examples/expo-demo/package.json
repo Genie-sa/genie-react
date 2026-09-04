@@ -26,6 +26,7 @@
   "devDependencies": {
     "@genie-react/cli": "workspace:*",
     "@types/react": "~19.2.2",
+    "babel-preset-expo": "~57.0.3",
     "genie-react": "workspace:*",
     "typescript": "~6.0.3"
   }

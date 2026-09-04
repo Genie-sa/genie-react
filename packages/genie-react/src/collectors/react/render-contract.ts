@@ -586,7 +586,7 @@ export const reactGetRendersContract = defineAgentToolContract({
           'Continue a frozen report using nextCursor. Pass only cursor and optional limit; counts, filters, ordering, and source coverage remain frozen. Cursors expire after five minutes or after three newer paginated reports, and clear/profile start invalidates them.',
         ),
       sort: z
-        .enum(['renders', 'unnecessary', 'referenceOnly', 'unstable', 'selfTime'])
+        .enum(['renders', 'updates', 'unnecessary', 'referenceOnly', 'unstable', 'selfTime'])
         .default('renders'),
       limit: z.number().int().min(1).max(200).default(40),
       appOnly: z
@@ -703,7 +703,7 @@ export const reactRenderCausesContract = defineAgentToolContract({
     .object({
       commit: z.number().int().nonnegative().optional(),
       afterCommit: z.number().int().nonnegative().optional(),
-      component: z.string().optional(),
+      component: z.string().optional().describe('Only components whose name contains this string.'),
       limit: z.number().int().min(1).max(500).default(100),
       appOnly: z
         .boolean()
@@ -743,7 +743,12 @@ export const reactComponentCohortContract = defineAgentToolContract({
     'Distinguish matching component instances that updated, stayed mounted and idle, unmounted, are absent, or were omitted by a limit. Start with react_clear_renders, drive one interaction, then query an exact display name. Each row includes key/position strength and mount generation.',
   group: 'react.render',
   input: z.object({
-    component: z.string().min(1),
+    component: z
+      .string()
+      .min(1)
+      .describe(
+        'Component display name; matched exactly by default, or as a substring with exact:false.',
+      ),
     exact: z.boolean().default(true),
     limit: z.number().int().min(1).max(200).default(50),
   }),

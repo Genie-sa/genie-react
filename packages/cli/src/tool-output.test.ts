@@ -6,6 +6,7 @@ import {
   formatToolsListing,
   relatedActions,
   resolveToolsSelector,
+  slimDescriptor,
 } from './tool-output'
 
 type ToolDescriptor = BridgeStatusMessage['tools'][number]
@@ -67,6 +68,28 @@ describe('tool output', () => {
 
     expect(output).toContain('plugin_get_events — Get plugin events')
     expect(output).toContain('pluginId: string, limit?: integer')
+  })
+
+  it('exposes bounds and defaults before invocation in human and compact JSON catalogs', () => {
+    const descriptor = tool({
+      name: 'react_get_renders',
+      inputJsonSchema: {
+        type: 'object',
+        properties: {
+          component: { type: 'string', minLength: 1 },
+          sort: { enum: ['renders', 'updates'], default: 'renders' },
+          limit: { type: 'integer', minimum: 1, maximum: 200, default: 40 },
+          appOnly: { type: 'boolean', default: false },
+        },
+        required: ['component'],
+      },
+    })
+    for (const output of [listing([descriptor]), slimDescriptor(descriptor).params]) {
+      expect(output).toContain('component: string [length >=1]')
+      expect(output).toContain('sort?: "renders" | "updates" (default "renders")')
+      expect(output).toContain('limit?: integer [1..200] (default 40)')
+      expect(output).toContain('appOnly?: boolean (default false)')
+    }
   })
 
   it('renders enum unions and no-argument tools', () => {

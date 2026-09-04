@@ -427,8 +427,13 @@ Use the React evidence only when its coverage is complete and `budgetExhaustedCo
 
 **Limits:** The interaction ID is bridge-owned and is not a capture ID, observation ID, session
 alias, or marker. Only one interaction can record per physical document, with at most 20 active
-across the bridge. Starting another does not clear an active boundary. A recording cannot cross a
+across the bridge. Starting another is rejected before a clear is sent, including while the first begin is awaiting the app. A failed begin releases its reservation so it can be retried. A recording cannot cross a
 reload or disconnect, so always stop it promptly; disconnected recordings are pruned.
+
+An interaction labels a time window; background commits within that window remain included.
+Use render causes and exact notification evidence to assess causality. If asynchronous work belongs
+in the window, wait for it before stopping: stop freezes the profile before its own settle wait.
+Concurrent time windows cannot by themselves assign disjoint causal commit sets.
 
 ## `devtools_interaction_stop`
 

@@ -58,7 +58,7 @@ does not repair an earlier incomplete commit.
 
 Summarizes component render counts, changed inputs, timing, mount identity, and source.
 
-**Input:** `component` is an optional component-name substring. `sort` is `renders`, `unnecessary`,
+**Input:** `component` is an optional component-name substring. `sort` is `renders`, `updates`, `unnecessary`,
 `referenceOnly`, `unstable`, or `selfTime` and defaults to `renders`. `limit` is an integer from 1 to
 200 and defaults to 40. `appOnly` defaults to `true`. `nameFilter` accepts a case-insensitive
 whole-name glob (1–160 characters): `*` matches any text and `?` matches one character. `excludeNames`
@@ -117,6 +117,49 @@ background; retry the report to check recovery. If `appOnly:true` excludes unkno
 `lower-bound` or `unknown`. `appOnly:false` keeps those records visible without inventing their
 ownership. If unknowns persist after relaunch, inspect this unfiltered report and restore source
 metadata or source-map access before comparing app-only measurements.
+
+For `const FriendListRow = memo(() => ...)`, the wrapper does not retain the variable's name.
+Genie uses an explicit wrapper `displayName`, then the inner function's name, and finally source
+information when available. To preserve anonymous memo binding names automatically, add the
+opt-in `genie-react/babel` plugin to your development Babel pipeline.
+
+For Expo, add it to your existing Babel configuration (keep your other presets and plugins):
+
+```js
+module.exports = function (api) {
+  api.cache(true)
+  return {
+    presets: ['babel-preset-expo'],
+    plugins: ['genie-react/babel'],
+  }
+}
+```
+
+For Vite 8 with `@vitejs/plugin-react` 6, install `@rolldown/plugin-babel` and `@babel/core@^7`
+and add the naming plugin through that Babel adapter:
+
+```js
+import babel from '@rolldown/plugin-babel'
+import react from '@vitejs/plugin-react'
+import genieNames from 'genie-react/babel'
+import { genie } from 'genie-react/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig(({ command }) => ({
+  plugins: [genie(), react(), command === 'serve' && babel({ plugins: [genieNames] })],
+}))
+```
+
+Older `@vitejs/plugin-react` versions that expose `babel.plugins` can register
+`'genie-react/babel'` there instead.
+
+Restart Metro with `--clear` or restart Vite after changing Babel configuration. The plugin
+supports Babel 7 and only annotates inline anonymous arrows or function expressions passed to
+an import-proven React `memo` call, including import aliases and `React.memo`. It preserves
+named inner functions and explicit display names. Nested wrapper calls, assignment expressions,
+and components without a named variable declaration keep the existing runtime fallback.
+Babel production/test environments and Metro release callers receive no added metadata.
+The plugin changes debug names only; it does not enable render collection in release builds.
 
 ```bash
 npx @genie-react/cli call react_get_renders \
