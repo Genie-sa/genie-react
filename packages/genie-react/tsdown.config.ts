@@ -45,6 +45,14 @@ export default defineConfig([
     deps: { neverBundle: ['vite', 'ws', 'zod', 'superjson'] },
   },
   {
+    format: ['esm', 'cjs'],
+    entry: { babel: 'src/babel/index.ts' },
+    platform: 'node',
+    dts: true,
+    fixedExtension: true,
+    clean: false,
+  },
+  {
     format: ['iife'],
     entry: { 'client.global': 'src/client-global.ts' },
     platform: 'browser',
