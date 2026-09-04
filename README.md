@@ -207,6 +207,15 @@ Only one interaction can start or record per physical document. A competing begi
 
 This is a labelled observation window, not proof that the action caused every render inside it: background query updates can still occur in the same window. Inspect the recorded render causes and exact notification evidence. Concurrent time windows alone cannot yield disjoint causal commit sets.
 
+`react_get_renders` and `react_profile_report` include `bundle` (`development`, `production`,
+`mixed`, or `unknown`), `timingsBundleDependent: true`, and `countsScope: "observed-run"`.
+Bundle metadata comes from the app document's registered React renderers. Quote render/update
+counts as observations of that run, subject to collection coverage; development behavior and
+Strict Mode can differ from production. Quote timings with the bundle and measurement conditions;
+development timings are not release estimates. Compare equivalent environments, and do not treat
+`unknown` or `mixed` as a verified production measurement. A production bundle label identifies the
+renderer; it does not establish that profiling or collection is available.
+
 For a quick same-session check:
 
 ```bash
