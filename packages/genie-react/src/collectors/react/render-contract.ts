@@ -525,11 +525,29 @@ export const renderObservationInputSchema = z.object({
     }),
 })
 
+export const renderMeasurementEnvironmentSchema = z.object({
+  bundle: z
+    .enum(['development', 'production', 'mixed', 'unknown'])
+    .describe(
+      'Bundle types reported by registered React renderers in the app document, not the Genie build. Unknown if absent or unrecognized.',
+    ),
+  timingsBundleDependent: z
+    .literal(true)
+    .describe(
+      'All timing fields depend on the measured bundle and instrumentation; development timings are not release estimates.',
+    ),
+  countsScope: z
+    .literal('observed-run')
+    .describe(
+      'Counts describe this observed run, subject to coverage; development and Strict Mode behavior can differ from production.',
+    ),
+})
+
 export const reactGetRendersContract = defineAgentToolContract({
   name: 'react_get_renders',
   title: 'Render report',
   description:
-    'Report bounded component render counts, observed React input changes, stable mount identity, runtime timing, and source. Start a measurement with react_clear_renders, drive one interaction, then read this. Legacy unnecessary/forget fields remain for compatibility; use render causes and explicit evidence before editing code.',
+    'Timing fields are bundle-dependent; counts describe the observed run, not a production estimate. Report bounded component render counts, observed React input changes, stable mount identity, runtime timing, and source. Start a measurement with react_clear_renders, drive one interaction, then read this. Legacy unnecessary/forget fields remain for compatibility; use render causes and explicit evidence before editing code.',
   group: 'react.render',
   input: z.object({
     component: z.string().optional().describe('Only components whose name contains this string.'),
@@ -545,6 +563,7 @@ export const reactGetRendersContract = defineAgentToolContract({
       ),
   }),
   output: z.object({
+    ...renderMeasurementEnvironmentSchema.shape,
     tracking: z.boolean(),
     renderCollection: z
       .string()

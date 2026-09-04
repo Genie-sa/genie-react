@@ -190,6 +190,15 @@ roles, seed fixtures, inject API failures, jump wizard steps. See the
 
 ## Prove a fix
 
+`react_get_renders` and `react_profile_report` include `bundle` (`development`, `production`,
+`mixed`, or `unknown`), `timingsBundleDependent: true`, and `countsScope: "observed-run"`.
+Bundle metadata comes from the app document's registered React renderers. Quote render/update
+counts as observations of that run, subject to collection coverage; development behavior and
+Strict Mode can differ from production. Quote timings with the bundle and measurement conditions;
+development timings are not release estimates. Compare equivalent environments, and do not treat
+`unknown` or `mixed` as a verified production measurement. A production bundle label identifies the
+renderer; it does not establish that profiling or collection is available.
+
 For a quick same-session check:
 
 ```bash
