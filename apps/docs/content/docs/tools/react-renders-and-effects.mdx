@@ -62,6 +62,13 @@ Summarizes component render counts, changed inputs, timing, mount identity, and 
 `referenceOnly`, `unstable`, or `selfTime` and defaults to `renders`. `limit` is an integer from 1 to
 200 and defaults to 40. `appOnly` defaults to `true`.
 
+Both `react_get_renders` and `react_profile_report` expose `bundle` (`development`, `production`,
+`mixed`, or `unknown`), `timingsBundleDependent: true`, and `countsScope: "observed-run"`.
+The bundle describes registered React renderers in the app document. Timing values depend on that
+bundle and instrumentation. Counts describe this measured run, subject to coverage; they are not
+production estimates. Development Strict Mode behavior can differ from production. Compare runs
+with equivalent conditions and check collection availability even when the bundle is `production`.
+
 ```bash
 npx @genie-react/cli call react_get_renders \
   '{"component":"ProductCard","sort":"selfTime","limit":10,"appOnly":true}' --json
