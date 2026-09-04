@@ -328,19 +328,34 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactGetRendersContract,
-        handler: async ({ component, sort, limit, appOnly }) => {
+        handler: async ({
+          component,
+          nameFilter,
+          excludeNames,
+          minUpdates,
+          cursor,
+          includeCursor,
+          sort,
+          limit,
+          appOnly,
+        }) => {
           const report = await getRendersMeasurement({
             component,
+            nameFilter,
+            excludeNames,
+            minUpdates,
+            cursor,
+            includeCursor,
             sort,
             limit,
             appOnly,
           })
           const { summary, components, libraryHidden, omittedByLimit, sourceClassification } =
             report
-          const classificationIncomplete = appOnly && !sourceClassification.complete
+          const classificationIncomplete = report.appOnly && !sourceClassification.complete
           const filteredNote = classificationIncomplete
             ? `WARNING: appOnly excluded ${sourceClassification.unknown} components with unknown ownership and ${sourceClassification.library} library components. Source classification evaluated ${sourceClassification.evaluated}/${sourceClassification.totalCandidates} matching records. Retry after source warmup, or pass appOnly:false to inspect all records.`
-            : appOnly
+            : report.appOnly
               ? appOnlyFilteredNote(components.length, libraryHidden, 'components')
               : undefined
           const coverageInput = {
@@ -362,7 +377,7 @@ export function reactCollector(): GenieCollector {
           return {
             tracking: report.tracking,
             renderCollection: report.renderCollection,
-            ...getMeasurementEnvironment(),
+            ...report.measurementEnvironment,
             commits: report.commits,
             documentCommitId: report.documentCommitId,
             observation: report.observation,
@@ -381,6 +396,8 @@ export function reactCollector(): GenieCollector {
             components,
             sourceClassification,
             omittedByLimit,
+            nextCursor: report.nextCursor,
+            pagination: report.pagination,
             ...comparability,
             coverage,
             filteredNote,

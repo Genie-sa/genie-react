@@ -661,3 +661,30 @@ describe('react output', () => {
     expect(output).not.toContain('99')
   })
 })
+
+describe('render report continuation', () => {
+  const result = {
+    summary: { commits: 1, trackedComponents: 2, totalRenders: 2 },
+    components: [],
+    omittedByLimit: 1,
+  }
+  it('prints a safe exact next-page command after the result', () => {
+    const cursor = '01234567-89ab-4cde-8fab-0123456789ab:1'
+    const output = summarizeRenders({ ...result, nextCursor: cursor })
+    expect(output).toContain('1 remaining')
+    expect(output?.split('\n').at(-1)).toBe(
+      `next: genie-react call react_get_renders '{"cursor":"${cursor}","limit":200}' --json`,
+    )
+    expect(output).not.toContain('1 omitted')
+  })
+  it.each([
+    null,
+    "'$(echo unsafe)'",
+    'x'.repeat(200),
+  ])('omits the next command for unavailable or malformed cursors', (nextCursor) => {
+    const output = summarizeRenders({ ...result, nextCursor })
+    expect(output).toContain('1 omitted')
+    expect(output).not.toContain('next:')
+    expect(output).not.toContain('unsafe')
+  })
+})
