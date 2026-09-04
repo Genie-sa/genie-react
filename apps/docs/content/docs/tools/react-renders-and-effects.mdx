@@ -62,6 +62,25 @@ Summarizes component render counts, changed inputs, timing, mount identity, and 
 `referenceOnly`, `unstable`, or `selfTime` and defaults to `renders`. `limit` is an integer from 1 to
 200 and defaults to 40. `appOnly` defaults to `true`.
 
+Both `react_get_renders` and `react_profile_report` expose `bundle` (`development`, `production`,
+`mixed`, or `unknown`), `timingsBundleDependent: true`, and `countsScope: "observed-run"`.
+The bundle describes registered React renderers in the app document. Timing values depend on that
+bundle and instrumentation. Counts describe this measured run, subject to coverage; they are not
+production estimates. Development Strict Mode behavior can differ from production. Compare runs
+with equivalent conditions and check collection availability even when the bundle is `production`.
+
+`sourceClassification` reports app, library, and unknown ownership counts for matching records
+before `appOnly` and the result limit. `totalCandidates` counts that set; `evaluated` counts
+completed source lookups (including unresolved results and cache hits). `complete` is true only
+when every candidate has app or library evidence. Unknown ownership never counts as library.
+
+Cold documents can exceed the source lookup budget. Genie warms the remaining sources in the
+background; retry the report to check recovery. If `appOnly:true` excludes unknown ownership,
+`comparable` is false with `app-source-classification-incomplete`, and summary semantics are
+`lower-bound` or `unknown`. `appOnly:false` keeps those records visible without inventing their
+ownership. If unknowns persist after relaunch, inspect this unfiltered report and restore source
+metadata or source-map access before comparing app-only measurements.
+
 For `const FriendListRow = memo(() => ...)`, the wrapper does not retain the variable's name.
 Genie uses an explicit wrapper `displayName`, then the inner function's name, and finally source
 information when available. To preserve anonymous memo binding names automatically, add the

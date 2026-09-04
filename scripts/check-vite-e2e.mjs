@@ -238,12 +238,19 @@ const NamedMemoRow = memo(function InnerNamedRow({ value }) { return createEleme
 const ExplicitMemoRow = memo(({ value }) => createElement('span', null, value))
 ExplicitMemoRow.displayName = 'CustomMemoRow'
 
+function OwnershipRow({ index }) {
+  return createElement('span', null, index)
+}
+
 function App() {
   const [value, setValue] = useState(0)
+  const [showRows, setShowRows] = useState(false)
   const query = useQuery({ queryKey: ['greeting'], queryFn: async () => 'hello' })
   const [tick, setTick] = useState(0)
   return createElement('main', { id: 'lab' },
     createElement('div', { id: 'greeting' }, query.data ?? query.status),
+    createElement('button', { onClick: () => setShowRows(true) }, 'Mount rows'),
+    showRows && Array.from({ length: 241 }, (_, index) => createElement(OwnershipRow, { key: index, index })),
     createElement(PolicyConsumer, { tick }),
     createElement('button', { id: 'metadata-update', onClick: () => {
       queryClient.setQueryData(policyKey, stableData, { updatedAt: 2 })
@@ -480,6 +487,78 @@ async function main() {
   process.stdout.write(
     'Memo naming E2E passed: lexical binding, named inner, and explicit wrapper names.\n',
   )
+  const readRows = async () =>
+    parseSuccessfulJson(
+      'genie-react call react_get_renders',
+      await runCli([
+        'call',
+        'react_get_renders',
+        JSON.stringify({ component: 'OwnershipRow', appOnly: true, limit: 1 }),
+        '--json',
+        '--wait',
+        '5000',
+      ]),
+    )
+  for (const stage of ['cold mount', 'document reload']) {
+    if (stage === 'document reload') {
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.locator('#lab').waitFor({ state: 'visible', timeout: 10_000 })
+      await waitFor(
+        'reconnected CLI session',
+        async () => {
+          const result = parseSuccessfulJson('status', await runCli(['status', '--json']))
+          return result.connected && result.ready
+        },
+        15_000,
+      )
+    }
+    parseSuccessfulJson(
+      'clear render observation',
+      await runCli([
+        'call',
+        'react_clear_renders',
+        JSON.stringify({
+          budget: { fiberLimit: 2000, operationLimit: 2000000, timeLimitMs: 500, adaptive: false },
+        }),
+        '--json',
+      ]),
+    )
+    await page.getByRole('button', { name: 'Mount rows' }).click()
+    const cold = await readRows()
+    const classification = cold.sourceClassification
+    assert(classification?.totalCandidates === 241, `${stage}: missing ownership candidate counts`)
+    assert(
+      classification.app + classification.library + classification.unknown === 241,
+      `${stage}: ownership counts do not account for all rows`,
+    )
+    if (!classification.complete) {
+      assert(
+        cold.comparable === false &&
+          cold.notComparableReasons.includes('app-source-classification-incomplete'),
+        `${stage}: incomplete app sample was comparable`,
+      )
+    }
+    const warm = await waitFor(
+      `${stage} source warmup`,
+      async () => {
+        const report = await readRows()
+        return report.sourceClassification?.complete ? report : undefined
+      },
+      15_000,
+    )
+    assert(warm.sourceClassification.app === 241, `${stage}: app sources did not recover`)
+    assert(
+      warm.sourceClassification.unknown === 0 && warm.summary.trackedComponents === 241,
+      `${stage}: warm report lost rows`,
+    )
+    assert(
+      warm.components.length === 1 && warm.omittedByLimit === 240,
+      `${stage}: output limit was confused with ownership coverage`,
+    )
+    process.stdout.write(
+      `${stage}: ${classification.app}/241 app rows on first read, 241/241 after warmup.\n`,
+    )
+  }
   await page.waitForFunction(() => document.querySelector('#greeting')?.textContent === 'hello')
   const callTool = async (name, args = {}) =>
     parseSuccessfulJson(name, await runCli(['call', name, JSON.stringify(args), '--json']))

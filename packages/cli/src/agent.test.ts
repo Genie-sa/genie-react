@@ -79,14 +79,14 @@ describe('summarizeRenders', () => {
     expect(lines?.[0]).toBe(
       '6 commits · 2 components · 9 renders · 7 updates · 1 reference-only prop candidates · 1 no observed input change',
     )
-    expect(lines?.[1]).toBe('reference-only props: onClick×3, style×2')
-    expect(lines?.[2]).toBe(
+    expect(lines?.[2]).toBe('reference-only props: onClick×3, style×2')
+    expect(lines?.[3]).toBe(
       '  Dashboard #1 5× (1m 4u) · 2 no observed input change · 3 reference-only props · peak self 1.2ms · ↻ props: onClick(reference changed), count',
     )
-    expect(lines?.[3]).toContain('Row')
-    expect(lines?.[3]).toContain('4× (4m 0u) · memo cache · peak self 0.4ms')
-    expect(lines?.[3]).not.toContain('no observed input change')
-    expect(lines?.[3]).not.toContain('reference-only')
+    expect(lines?.[4]).toContain('Row')
+    expect(lines?.[4]).toContain('4× (4m 0u) · memo cache · peak self 0.4ms')
+    expect(lines?.[4]).not.toContain('no observed input change')
+    expect(lines?.[4]).not.toContain('reference-only')
   })
 
   it('tolerates components both with and without the optional source field', () => {
@@ -129,7 +129,7 @@ describe('summarizeRenders', () => {
         },
       ],
     }
-    const line = summarizeRenders(payload)?.split('\n')[2]
+    const line = summarizeRenders(payload)?.split('\n')[3]
     expect(line).toContain('↻ props: style(reference changed), onClick · state')
   })
 
@@ -143,7 +143,7 @@ describe('summarizeRenders', () => {
         },
       ],
     }
-    expect(summarizeRenders(payload)?.split('\n')[2]).toContain('↻ state')
+    expect(summarizeRenders(payload)?.split('\n')[3]).toContain('↻ state')
   })
 
   it('shows exact state and reducer slots with compact before/after values', () => {
@@ -174,7 +174,7 @@ describe('summarizeRenders', () => {
       ],
     }
 
-    expect(summarizeRenders(payload)?.split('\n')[2]).toContain(
+    expect(summarizeRenders(payload)?.split('\n')[3]).toContain(
       '↻ state[0] false→true · reducer[1] items=1→items=2',
     )
   })
@@ -627,6 +627,25 @@ describe('new summarizers', () => {
     expect(summarizeErrorState({ caughtErrors: [], suspended: [] })).toBe(
       'no caught errors · nothing suspended',
     )
+  })
+
+  it.each([
+    'development',
+    'production',
+    'mixed',
+    'unknown',
+  ])('qualifies timings and counts for the %s bundle in both human reports', (bundle) => {
+    const result = {
+      bundle,
+      timingsBundleDependent: true,
+      countsScope: 'observed-run',
+      summary: {},
+      components: [],
+      slowest: [],
+    }
+    const metadata = `bundle ${bundle} · timings depend on bundle · counts describe this run`
+    expect(summarizeRenders(result)).toContain(metadata)
+    expect(summarizeProfile(result)).toContain(metadata)
   })
 
   it('summarizeProfile: four leaderboards on one screen', () => {

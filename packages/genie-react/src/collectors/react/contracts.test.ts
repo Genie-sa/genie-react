@@ -12,6 +12,17 @@ import {
 describe('react_get_renders output contract', () => {
   it('preserves detailed hook state changes for typed agent clients', () => {
     const result = reactGetRendersContract.output.parse({
+      bundle: 'development',
+      timingsBundleDependent: true,
+      countsScope: 'observed-run',
+      sourceClassification: {
+        complete: false,
+        totalCandidates: 1,
+        evaluated: 1,
+        app: 0,
+        library: 0,
+        unknown: 1,
+      },
       tracking: true,
       renderCollection: 'available',
       commits: 1,
