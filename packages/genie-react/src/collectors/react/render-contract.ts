@@ -305,6 +305,25 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
         }),
       })
       .optional(),
+    notificationPolicyCheck: z
+      .discriminatedUnion('status', [
+        z.object({
+          status: z.literal('matched'),
+          basis: z.literal('current-effective-policy'),
+          changedSubscribedFields: z.array(z.string()),
+        }),
+        z.object({
+          status: z.literal('unavailable'),
+          basis: z.literal('current-effective-policy'),
+          reason: z.enum([
+            'policy-unavailable',
+            'identity-transitioning',
+            'snapshot-fields-unavailable',
+          ]),
+        }),
+      ])
+      .describe('Compatibility with the current effective policy, not historical delivery proof.')
+      .optional(),
     competingCandidates: z.array(z.string()).optional(),
     observerId: z.string().optional(),
     queryHash: z.string().optional(),
