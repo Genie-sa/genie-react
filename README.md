@@ -415,8 +415,17 @@ React Native has no DOM selectors. `react_dom_for_component` returns native view
 
 ```bash
 npx @genie-react/cli tools
+npx @genie-react/cli tools react.render
 npx @genie-react/cli tools react_render_causes
 ```
+
+Group listings show parameter names, enum values, bounds, and defaults in human output and compact
+JSON. Use `tools <tool>` for nested options and a runnable example. For named render/effect reports,
+use `component`; `react_component_cohort` uses that same key with exact matching by default. Tools
+that inspect or mutate one live instance use its returned `id`, which is distinct from a name filter.
+`react_get_renders` accepts `sort:"updates"` to rank update counts before applying the result limit.
+Pass `appOnly` only where advertised: cohort queries retain mounted and unmounted lifecycle evidence
+and do not currently support ownership filtering.
 
 Tool areas include React, effects, Query, Router, memory, frame rate, plugins, and runtime captures. Read tools inspect the app. Action tools can change live Query, Router, component, Suspense, and error state.
 

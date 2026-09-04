@@ -82,6 +82,21 @@ const render = (fiber: Fiber, phase: RenderPhase) => recordRender(fiber, phase)
 
 beforeEach(() => clearRenders())
 
+it('sorts by updates rather than total renders before applying the result limit', async () => {
+  const mounting = componentFiber({ name: 'MountHeavy' })
+  const updating = componentFiber({ name: 'UpdateHeavy' })
+  render(mounting, 'mount')
+  render(mounting, 'mount')
+  render(mounting, 'mount')
+  render(updating, 'mount')
+  render(updating, 'update')
+
+  const report = await getRendersMeasurement({ sort: 'updates', limit: 1, appOnly: false })
+  expect(report.components).toHaveLength(1)
+  expect(report.components[0]).toMatchObject({ name: 'UpdateHeavy', updates: 1, renders: 2 })
+  expect(report.omittedByLimit).toBe(1)
+})
+
 describe('diffProps', () => {
   it('leaves children to the fixed-key comparison', () => {
     const fiber = asFiber({
