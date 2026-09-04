@@ -214,6 +214,16 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { Genie } from 'genie-react'
 
 const queryClient = new QueryClient()
+const policyKey = ['notification-policy']
+const stableData = { value: 1 }
+queryClient.setQueryData(policyKey, stableData, { updatedAt: 1 })
+
+function PolicyConsumer({ tick }) {
+  const query = useQuery({
+    queryKey: policyKey, enabled: false, notifyOnChangeProps: ['data'],
+  })
+  return createElement('div', { id: 'policy-result' }, query.data.value + ':' + tick)
+}
 
 function Row({ index }) {
   return createElement('span', null, index)
@@ -222,10 +232,19 @@ function Row({ index }) {
 function App() {
   const [showRows, setShowRows] = useState(false)
   const query = useQuery({ queryKey: ['greeting'], queryFn: async () => 'hello' })
+  const [tick, setTick] = useState(0)
   return createElement('main', { id: 'lab' },
-    query.data ?? query.status,
+    createElement('div', { id: 'greeting' }, query.data ?? query.status),
     createElement('button', { onClick: () => setShowRows(true) }, 'Mount rows'),
     showRows && Array.from({ length: 241 }, (_, index) => createElement(Row, { key: index, index })),
+    createElement(PolicyConsumer, { tick }),
+    createElement('button', { id: 'metadata-update', onClick: () => {
+      queryClient.setQueryData(policyKey, stableData, { updatedAt: 2 })
+      setTick(value => value + 1)
+    } }, 'Update timestamp and parent'),
+    createElement('button', { id: 'data-update', onClick: () => {
+      queryClient.setQueryData(policyKey, { value: 2 }, { updatedAt: 3 })
+    } }, 'Update subscribed data'),
   )
 }
 
@@ -488,10 +507,53 @@ async function main() {
       `${stage}: ${classification.app}/241 app rows on first read, 241/241 after warmup.\n`,
     )
   }
+  await page.waitForFunction(() => document.querySelector('#greeting')?.textContent === 'hello')
+  const callTool = async (name, args = {}) =>
+    parseSuccessfulJson(name, await runCli(['call', name, JSON.stringify(args), '--json']))
+  await callTool('react_clear_renders', { components: ['PolicyConsumer'] })
+  const notificationsBefore = await callTool('query_notifications')
+  await page.locator('#metadata-update').click()
+  await page.waitForFunction(() => document.querySelector('#policy-result')?.textContent === '1:1')
+  const excluded = await callTool('react_render_causes', {
+    component: 'PolicyConsumer',
+    appOnly: false,
+  })
+  assert(
+    excluded.events.length > 0,
+    'Policy regression must capture the parent-driven consumer render',
+  )
+  assert(
+    excluded.events.every((event) => event.causes.every((cause) => cause.kind !== 'query')),
+    `Unsubscribed timestamp update was incorrectly blamed on Query: ${JSON.stringify(excluded.events)}`,
+  )
+  const notificationsAfter = await callTool('query_notifications')
+  assert(
+    notificationsAfter.events.length === notificationsBefore.events.length,
+    'Timestamp-only update unexpectedly delivered a Query notification',
+  )
+
+  await callTool('react_clear_renders', { components: ['PolicyConsumer'] })
+  await page.locator('#data-update').click()
+  await page.waitForFunction(() => document.querySelector('#policy-result')?.textContent === '2:1')
+  const delivered = await callTool('react_render_causes', {
+    component: 'PolicyConsumer',
+    appOnly: false,
+  })
+  assert(
+    delivered.events.some((event) =>
+      event.causes.some(
+        (cause) =>
+          cause.kind === 'query' &&
+          cause.evidence === 'exact' &&
+          cause.notification?.changedResultFields.includes('data'),
+      ),
+    ),
+    `Subscribed data update lost its exact Query cause: ${JSON.stringify(delivered.events)}`,
+  )
   assert(pageErrors.length === 0, `Browser page errors:\n${pageErrors.join('\n')}`)
 
   process.stdout.write(
-    `Packed Vite E2E passed on port ${port}: CLI status ready, ${tree.nodes.length} React nodes, and ${queryList.queries.length} Query record(s).\n`,
+    `Packed Vite E2E passed on port ${port}: CLI status ready, ${tree.nodes.length} React nodes, and ${queryList.queries.length} Query record(s); unsubscribed metadata cause excluded and subscribed data delivery retained.\n`,
   )
 }
 
