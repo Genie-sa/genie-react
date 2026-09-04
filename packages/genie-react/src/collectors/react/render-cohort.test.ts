@@ -119,7 +119,7 @@ describe('render lifecycle cohorts', () => {
       reactVisibility: 'not-hidden',
       instance: { mountId },
     })
-    hiddenBoundary.memoizedState = undefined
+    Reflect.deleteProperty(hiddenBoundary, 'memoizedState')
     expect(read().instances[0]?.reactVisibility).toBe('unknown')
     hiddenBoundary.memoizedState = null
     noteInstanceRender(hidden, 'unmount', 1, 1)
