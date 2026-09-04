@@ -40,6 +40,7 @@ describe('GenieBridge interaction capture', () => {
         const documentCommitId = renderCalls === 1 ? 12 : 13
         result = {
           tracking: false,
+          renderCollection: 'available',
           commits: 2,
           documentCommitId,
           observation: { id: 'observation:interaction' },

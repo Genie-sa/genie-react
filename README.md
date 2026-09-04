@@ -212,24 +212,30 @@ For a quick same-session check:
 ```bash
 npx @genie-react/cli call react_profile_start '{}'
 # Run the flow before the code change.
+npx @genie-react/cli call devtools_wait '{"condition":"react-quiet","quietMs":500,"timeoutMs":10000}' --json
 npx @genie-react/cli call react_profile_snapshot '{"label":"before"}'
 
 # Make the change, start a clean window, then run the same flow again.
 npx @genie-react/cli call react_profile_start '{}'
 # Run the same flow again.
+npx @genie-react/cli call devtools_wait '{"condition":"react-quiet","quietMs":500,"timeoutMs":10000}' --json
 npx @genie-react/cli call react_renders_diff '{"baseline":"before","thresholdMs":0.5}'
 ```
+
+`devtools_wait` reports `ok`, `waitedMs`, and the last observed document commit ID. Check `ok: true` before trusting the measurement; a timeout or unavailable commit collection returns `ok: false`. The quiet window restarts after each observed commit, failed sample, or app session change. A degraded late hook can establish quiet during this window, but cannot recover earlier commits. React quiet does not prove pending queries, native animations, or future scheduled work are idle, or guarantee identical counts across runs; use `condition: "settled"` with supported domains for additional checks.
 
 For a stronger result, capture the same flow at least three times before and after the change:
 
 ```bash
 npx @genie-react/cli call react_clear_renders '{}'
 # Run the flow.
+npx @genie-react/cli call devtools_wait '{"condition":"react-quiet","quietMs":500,"timeoutMs":10000}' --json
 npx @genie-react/cli call devtools_capture_create '{"name":"before-1"}' --json
 
 # After the change, clear, run the same flow, and capture again.
 npx @genie-react/cli call react_clear_renders '{}'
 # Run the same flow.
+npx @genie-react/cli call devtools_wait '{"condition":"react-quiet","quietMs":500,"timeoutMs":10000}' --json
 npx @genie-react/cli call devtools_capture_create '{"name":"after-1"}' --json
 ```
 

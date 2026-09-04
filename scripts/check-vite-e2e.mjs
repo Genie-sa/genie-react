@@ -208,16 +208,37 @@ export default defineConfig({ plugins: [genie()] })
   )
   await writeFile(
     join(temporaryRoot, 'src/main.js'),
-    `import { createElement } from 'react'
+    `import { createElement, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { Genie } from 'genie-react'
 
 const queryClient = new QueryClient()
+const policyKey = ['notification-policy']
+const stableData = { value: 1 }
+queryClient.setQueryData(policyKey, stableData, { updatedAt: 1 })
+
+function PolicyConsumer({ tick }) {
+  const query = useQuery({
+    queryKey: policyKey, enabled: false, notifyOnChangeProps: ['data'],
+  })
+  return createElement('div', { id: 'policy-result' }, query.data.value + ':' + tick)
+}
 
 function App() {
   const query = useQuery({ queryKey: ['greeting'], queryFn: async () => 'hello' })
-  return createElement('main', { id: 'lab' }, query.data ?? query.status)
+  const [tick, setTick] = useState(0)
+  return createElement('main', { id: 'lab' },
+    createElement('div', { id: 'greeting' }, query.data ?? query.status),
+    createElement(PolicyConsumer, { tick }),
+    createElement('button', { id: 'metadata-update', onClick: () => {
+      queryClient.setQueryData(policyKey, stableData, { updatedAt: 2 })
+      setTick(value => value + 1)
+    } }, 'Update timestamp and parent'),
+    createElement('button', { id: 'data-update', onClick: () => {
+      queryClient.setQueryData(policyKey, { value: 2 }, { updatedAt: 3 })
+    } }, 'Update subscribed data'),
+  )
 }
 
 createRoot(document.getElementById('root')).render(
@@ -407,10 +428,53 @@ async function main() {
     queryList.queries.some((query) => JSON.stringify(query?.queryKey) === '["greeting"]'),
     'Query list did not include the demo greeting query',
   )
+  await page.waitForFunction(() => document.querySelector('#greeting')?.textContent === 'hello')
+  const callTool = async (name, args = {}) =>
+    parseSuccessfulJson(name, await runCli(['call', name, JSON.stringify(args), '--json']))
+  await callTool('react_clear_renders', { components: ['PolicyConsumer'] })
+  const notificationsBefore = await callTool('query_notifications')
+  await page.locator('#metadata-update').click()
+  await page.waitForFunction(() => document.querySelector('#policy-result')?.textContent === '1:1')
+  const excluded = await callTool('react_render_causes', {
+    component: 'PolicyConsumer',
+    appOnly: false,
+  })
+  assert(
+    excluded.events.length > 0,
+    'Policy regression must capture the parent-driven consumer render',
+  )
+  assert(
+    excluded.events.every((event) => event.causes.every((cause) => cause.kind !== 'query')),
+    `Unsubscribed timestamp update was incorrectly blamed on Query: ${JSON.stringify(excluded.events)}`,
+  )
+  const notificationsAfter = await callTool('query_notifications')
+  assert(
+    notificationsAfter.events.length === notificationsBefore.events.length,
+    'Timestamp-only update unexpectedly delivered a Query notification',
+  )
+
+  await callTool('react_clear_renders', { components: ['PolicyConsumer'] })
+  await page.locator('#data-update').click()
+  await page.waitForFunction(() => document.querySelector('#policy-result')?.textContent === '2:1')
+  const delivered = await callTool('react_render_causes', {
+    component: 'PolicyConsumer',
+    appOnly: false,
+  })
+  assert(
+    delivered.events.some((event) =>
+      event.causes.some(
+        (cause) =>
+          cause.kind === 'query' &&
+          cause.evidence === 'exact' &&
+          cause.notification?.changedResultFields.includes('data'),
+      ),
+    ),
+    `Subscribed data update lost its exact Query cause: ${JSON.stringify(delivered.events)}`,
+  )
   assert(pageErrors.length === 0, `Browser page errors:\n${pageErrors.join('\n')}`)
 
   process.stdout.write(
-    `Packed Vite E2E passed on port ${port}: CLI status ready, ${tree.nodes.length} React nodes, and ${queryList.queries.length} Query record(s).\n`,
+    `Packed Vite E2E passed on port ${port}: CLI status ready, ${tree.nodes.length} React nodes, and ${queryList.queries.length} Query record(s); unsubscribed metadata cause excluded and subscribed data delivery retained.\n`,
   )
 }
 

@@ -18,6 +18,7 @@ import {
   isQueryObserver,
   type QueryObserverIdentity,
   queryObserverIdentity,
+  queryObserverOptions,
 } from '../causal/query-observer'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from './deep-diff'
 import { nameOf } from './fiber'
@@ -420,26 +421,41 @@ export function diffExternalStoreChanges(
             causalIds.renderEventId,
           )
         }
-        causes.push({
-          kind: 'query',
-          evidence: notification ? 'exact' : 'inferred',
-          reason: notification ? 'query-notification-delivered' : 'query-observer-result-identity',
-          ...common,
-          ...query.identity,
-          notificationId: notification?.notificationId ?? null,
-          ...(notification
-            ? {
-                notification: {
-                  trackedFields: notification.trackedFields,
-                  trackedFieldsCoverage: notification.trackedFieldsCoverage,
-                  changedResultFields: notification.changedResultFields,
-                  deliveryReason: notification.deliveryReason,
-                  fanout: notification.fanout,
-                  structuralSharing: notification.structuralSharing,
-                },
-              }
-            : { competingCandidates: ['query-observer-result-identity'] }),
-        })
+        const policyCheck = notification
+          ? undefined
+          : checkQueryNotificationPolicy(
+              query,
+              previous.memoizedState,
+              current.memoizedState,
+              evidence,
+            )
+        if (policyCheck !== null) {
+          causes.push({
+            kind: 'query',
+            evidence: notification ? 'exact' : 'inferred',
+            reason: notification
+              ? 'query-notification-delivered'
+              : 'query-observer-result-identity',
+            ...common,
+            ...query.identity,
+            notificationId: notification?.notificationId ?? null,
+            ...(notification
+              ? {
+                  notification: {
+                    trackedFields: notification.trackedFields,
+                    trackedFieldsCoverage: notification.trackedFieldsCoverage,
+                    changedResultFields: notification.changedResultFields,
+                    deliveryReason: notification.deliveryReason,
+                    fanout: notification.fanout,
+                    structuralSharing: notification.structuralSharing,
+                  },
+                }
+              : {
+                  competingCandidates: ['query-observer-result-identity'],
+                  notificationPolicyCheck: policyCheck,
+                }),
+          })
+        }
       } else if (query?.kind === 'group') {
         for (const child of query.children) {
           if (!scanInputEvidence(evidence, 'query-observers')) break
@@ -517,6 +533,62 @@ export function diffExternalStoreChanges(
   }
   if (current || previous) truncateInputScan(evidence)
   return causes
+}
+
+type QueryPolicyCheck = NonNullable<
+  Extract<RenderCause, { kind: 'query' }>['notificationPolicyCheck']
+>
+
+function checkQueryNotificationPolicy(
+  query: QueryObserverMatch,
+  before: unknown,
+  after: unknown,
+  evidence: RenderEvidenceBudget,
+): QueryPolicyCheck | null {
+  const unavailable = (
+    reason: Extract<QueryPolicyCheck, { status: 'unavailable' }>['reason'],
+  ): QueryPolicyCheck => ({ status: 'unavailable', basis: 'current-effective-policy', reason })
+  if (query.identity.identityStatus !== 'current') return unavailable('identity-transitioning')
+  const policy = query.identity.notificationPolicy
+  if (!policy.trackedFieldsAvailable || (policy.mode !== 'fields' && policy.mode !== 'all')) {
+    return unavailable('policy-unavailable')
+  }
+  if (!isRecord(before) || !isRecord(after)) return unavailable('snapshot-fields-unavailable')
+  if (!scanInputEvidence(evidence, 'query-policy')) return unavailable('policy-unavailable')
+  const options = queryObserverOptions(query.observer)
+  if (!options || !scanInputEvidence(evidence, 'query-policy'))
+    return unavailable('policy-unavailable')
+  const throwOnError = safeOwnPropertyDescriptor(options, 'throwOnError')
+  if (throwOnError !== null && !isDataDescriptor(throwOnError))
+    return unavailable('policy-unavailable')
+  const fields = policy.mode === 'all' ? QUERY_SNAPSHOT_FIELDS : (policy.fields ?? [])
+  // Query adds error to its effective subscription even when throwOnError is a function.
+  const effectiveFields =
+    isDataDescriptor(throwOnError) && throwOnError.value
+      ? [...new Set([...fields, 'error'])]
+      : fields
+  const changedSubscribedFields: string[] = []
+  for (const field of effectiveFields) {
+    if (!scanInputEvidence(evidence, 'query-policy-fields'))
+      return unavailable('snapshot-fields-unavailable')
+    const previous = safeOwnPropertyDescriptor(before, field)
+    if (!scanInputEvidence(evidence, 'query-policy-fields'))
+      return unavailable('snapshot-fields-unavailable')
+    const current = safeOwnPropertyDescriptor(after, field)
+    if (
+      (previous !== null && !isDataDescriptor(previous)) ||
+      (current !== null && !isDataDescriptor(current))
+    ) {
+      return unavailable('snapshot-fields-unavailable')
+    }
+    // Match Query's strict inequality, including NaN and signed zero semantics.
+    if (previous?.value !== current?.value) changedSubscribedFields.push(field)
+  }
+  if (changedSubscribedFields.length > 0) {
+    return { status: 'matched', basis: 'current-effective-policy', changedSubscribedFields }
+  }
+  // An all-fields policy may include result fields outside our bounded known-field list.
+  return policy.mode === 'all' ? unavailable('snapshot-fields-unavailable') : null
 }
 
 function stageQuerySubscriber(

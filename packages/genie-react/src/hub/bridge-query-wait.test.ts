@@ -166,7 +166,7 @@ describe('GenieBridge waits', () => {
       let result: unknown
       if (message.tool === 'react_get_renders') {
         reactChecks += 1
-        result = { documentCommitId: reactChecks === 1 ? 4 : 5 }
+        result = { documentCommitId: reactChecks === 1 ? 4 : 5, renderCollection: 'available' }
       } else if (message.tool === 'query_is_fetching') {
         queryChecks += 1
         result = { fetching: queryChecks === 1 ? 1 : 0, mutating: 0 }
@@ -234,7 +234,7 @@ describe('GenieBridge waits', () => {
         kind: 'app/response',
         id: message.id,
         ok: true,
-        result: { documentCommitId: commit },
+        result: { documentCommitId: commit, renderCollection: 'available' },
       })
     })
     send(app, {
@@ -288,5 +288,134 @@ describe('GenieBridge waits', () => {
     })
     expect(timedOut.result.validConditions).toContain('react-quiet')
     expect(timedOut.result.lastObserved.react.documentCommitId).toBeGreaterThan(0)
+  })
+
+  it.each([
+    'unavailable (render tracking is not installed — import genie-react/hook before React)',
+    undefined,
+    'unknown',
+  ])('cannot establish React quiet with collection status %s', async (renderCollection) => {
+    const { ws: app } = await open(`${url}?role=app`)
+    app.on('message', (data) => {
+      const message = decodeFrame(data.toString()) as Frame
+      if (message.kind !== 'bridge/request') return
+      send(app, {
+        kind: 'app/response',
+        id: message.id,
+        ok: true,
+        result: { documentCommitId: 0, renderCollection },
+      })
+    })
+    send(app, {
+      kind: 'app/hello',
+      protocol: 1,
+      sessionId: 'unobservable',
+      app: { name: 'unobservable' },
+      capabilities: ['react'],
+      tools: [
+        { name: 'react_get_renders', title: 'renders', description: 'renders', group: 'react' },
+      ],
+    })
+    const { ws: agent, inbox } = await open(`${url}?role=agent`)
+    const id = newId()
+    send(agent, {
+      kind: 'agent/invoke',
+      id,
+      tool: 'devtools_wait',
+      args: { condition: 'react-quiet', quietMs: 100, timeoutMs: 500 },
+    })
+    const response = await inbox.wait(isResult(id))
+    expect(response.result).toMatchObject({
+      ok: false,
+      domains: { react: { status: 'unsupported' } },
+    })
+    expect(response.result.reason).toContain('cannot observe commits')
+  })
+
+  it('requires a fresh quiet window after a failed sample with degraded historical collection', async () => {
+    const { ws: app } = await open(`${url}?role=app`)
+    let checks = 0
+    const renderCollection =
+      'degraded (hook installed after React initialised — commits before that point were not observed)'
+    app.on('message', (data) => {
+      const message = decodeFrame(data.toString()) as Frame
+      if (message.kind !== 'bridge/request') return
+      checks += 1
+      send(app, {
+        kind: 'app/response',
+        id: message.id,
+        ok: checks !== 2,
+        ...(checks === 2
+          ? { error: 'temporarily unavailable', errorCode: 'tool-error' }
+          : { result: { documentCommitId: 4, renderCollection, tracking: false } }),
+      })
+    })
+    send(app, {
+      kind: 'app/hello',
+      protocol: 1,
+      sessionId: 'recovering',
+      app: { name: 'recovering' },
+      capabilities: ['react'],
+      tools: [
+        { name: 'react_get_renders', title: 'renders', description: 'renders', group: 'react' },
+      ],
+    })
+    const { ws: agent, inbox } = await open(`${url}?role=agent`)
+    const id = newId()
+    send(agent, {
+      kind: 'agent/invoke',
+      id,
+      tool: 'devtools_wait',
+      args: { condition: 'react-quiet', quietMs: 100, timeoutMs: 2_000 },
+    })
+    const response = await inbox.wait(isResult(id))
+    expect(response.result).toMatchObject({
+      ok: true,
+      domains: {
+        react: { status: 'met', lastObserved: { renderCollection, documentCommitId: 4 } },
+      },
+    })
+    expect(checks).toBeGreaterThanOrEqual(4)
+  })
+
+  it('starts a new quiet window when the document changes with the same commit count', async () => {
+    const { ws: app } = await open(`${url}?role=app`)
+    let checks = 0
+    const hello = (documentGeneration: number) =>
+      send(app, {
+        kind: 'app/hello',
+        protocol: 1,
+        sessionId: 'reloading',
+        documentGeneration,
+        app: { name: 'reloading' },
+        capabilities: ['react'],
+        tools: [
+          { name: 'react_get_renders', title: 'renders', description: 'renders', group: 'react' },
+        ],
+      })
+    app.on('message', (data) => {
+      const message = decodeFrame(data.toString()) as Frame
+      if (message.kind !== 'bridge/request') return
+      checks += 1
+      send(app, {
+        kind: 'app/response',
+        id: message.id,
+        ok: true,
+        result: { documentCommitId: 1, renderCollection: 'available' },
+      })
+      if (checks === 1) hello(2)
+    })
+    hello(1)
+    const { ws: agent, inbox } = await open(`${url}?role=agent`)
+    const id = newId()
+    send(agent, {
+      kind: 'agent/invoke',
+      id,
+      tool: 'devtools_wait',
+      args: { condition: 'react-quiet', quietMs: 100, timeoutMs: 2_000 },
+    })
+    const response = await inbox.wait(isResult(id))
+    expect(response.result.ok).toBe(true)
+    expect(checks).toBeGreaterThanOrEqual(3)
   })
 })
