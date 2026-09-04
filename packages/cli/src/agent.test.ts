@@ -377,6 +377,27 @@ describe('renderResult', () => {
     )
   })
 
+  it('shows React hidden evidence without labelling retained instances frozen or unmounted', () => {
+    const cohort = {
+      query: { component: 'Row', exact: true },
+      status: 'mounted-idle',
+      matched: 1,
+      mountedIdle: 1,
+      instances: [
+        {
+          status: 'mounted-idle',
+          reactVisibility: 'hidden',
+          componentName: 'Row',
+          instance: { mountId: 'mount:1', mountGeneration: 1 },
+        },
+      ],
+    }
+    const human = renderResult('react_component_cohort', cohort)
+    expect(human).toContain('React hidden')
+    expect(human).not.toContain('frozen')
+    expect(renderResult('react_component_cohort', cohort, true)).toBe(JSON.stringify(cohort))
+  })
+
   it('uses new React summaries only for human output', () => {
     const cohort = {
       query: { component: 'Row', exact: true },

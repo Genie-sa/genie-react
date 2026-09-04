@@ -54,6 +54,20 @@ Require complete coverage with zero budget-exhausted commits. If the result is i
 the window and rerun with the smallest larger explicit budget that covers the app; `timeLimitMs`
 bounds synchronous commit analysis and should not be raised farther than needed.
 
+The lifecycle visibility panel uses `react-freeze` and React Activity. Start an observation and
+read its probe after each button press:
+
+```sh
+pnpm --filter @genie-react/expo-demo exec genie-react call react_clear_renders '{}' --json
+pnpm --filter @genie-react/expo-demo exec genie-react call \
+  react_component_cohort '{"component":"VisibilityProbe"}' --json
+```
+
+Increment the probe, then use **Freeze** or **Hide** and **Thaw**. Hidden instances should keep the
+same mount ID and count, with `reactVisibility:"hidden"` while hidden. **Unmount** should produce
+an unmounted cohort entry; **Thaw** then mounts a new probe with count zero. Hidden React evidence
+does not identify the navigation or freeze mechanism that caused it.
+
 List the complete runtime catalog after the tool fixtures have mounted:
 
 ```sh
