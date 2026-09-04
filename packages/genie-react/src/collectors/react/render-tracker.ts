@@ -83,6 +83,7 @@ import {
   buildRendersReport,
   type RenderCauseQuery,
   type RenderQuery,
+  type SourceClassificationCoverage,
 } from './render-reports'
 import {
   buildRenderTrackingCoverage,
@@ -592,6 +593,7 @@ export async function getRendersMeasurement(query: RenderQuery): Promise<{
   observation: ObservationWindow | null
   attribution: ReportAttribution
   summary: RenderSummary
+  sourceClassification: SourceClassificationCoverage
   components: RenderReport[]
   libraryHidden: number
   omittedByLimit: number

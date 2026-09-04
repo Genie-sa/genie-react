@@ -208,16 +208,44 @@ export default defineConfig({ plugins: [genie()] })
   )
   await writeFile(
     join(temporaryRoot, 'src/main.js'),
-    `import { createElement } from 'react'
+    `import { createElement, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { Genie } from 'genie-react'
 
 const queryClient = new QueryClient()
+const policyKey = ['notification-policy']
+const stableData = { value: 1 }
+queryClient.setQueryData(policyKey, stableData, { updatedAt: 1 })
+
+function PolicyConsumer({ tick }) {
+  const query = useQuery({
+    queryKey: policyKey, enabled: false, notifyOnChangeProps: ['data'],
+  })
+  return createElement('div', { id: 'policy-result' }, query.data.value + ':' + tick)
+}
+
+function Row({ index }) {
+  return createElement('span', null, index)
+}
 
 function App() {
+  const [showRows, setShowRows] = useState(false)
   const query = useQuery({ queryKey: ['greeting'], queryFn: async () => 'hello' })
-  return createElement('main', { id: 'lab' }, query.data ?? query.status)
+  const [tick, setTick] = useState(0)
+  return createElement('main', { id: 'lab' },
+    createElement('div', { id: 'greeting' }, query.data ?? query.status),
+    createElement('button', { onClick: () => setShowRows(true) }, 'Mount rows'),
+    showRows && Array.from({ length: 241 }, (_, index) => createElement(Row, { key: index, index })),
+    createElement(PolicyConsumer, { tick }),
+    createElement('button', { id: 'metadata-update', onClick: () => {
+      queryClient.setQueryData(policyKey, stableData, { updatedAt: 2 })
+      setTick(value => value + 1)
+    } }, 'Update timestamp and parent'),
+    createElement('button', { id: 'data-update', onClick: () => {
+      queryClient.setQueryData(policyKey, { value: 2 }, { updatedAt: 3 })
+    } }, 'Update subscribed data'),
+  )
 }
 
 createRoot(document.getElementById('root')).render(
@@ -407,10 +435,125 @@ async function main() {
     queryList.queries.some((query) => JSON.stringify(query?.queryKey) === '["greeting"]'),
     'Query list did not include the demo greeting query',
   )
+  const readRows = async () =>
+    parseSuccessfulJson(
+      'genie-react call react_get_renders',
+      await runCli([
+        'call',
+        'react_get_renders',
+        JSON.stringify({ component: 'Row', appOnly: true, limit: 1 }),
+        '--json',
+        '--wait',
+        '5000',
+      ]),
+    )
+  for (const stage of ['cold mount', 'document reload']) {
+    if (stage === 'document reload') {
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.locator('#lab').waitFor({ state: 'visible', timeout: 10_000 })
+      await waitFor(
+        'reconnected CLI session',
+        async () => {
+          const result = parseSuccessfulJson('status', await runCli(['status', '--json']))
+          return result.connected && result.ready
+        },
+        15_000,
+      )
+    }
+    parseSuccessfulJson(
+      'clear render observation',
+      await runCli([
+        'call',
+        'react_clear_renders',
+        JSON.stringify({
+          budget: { fiberLimit: 2000, operationLimit: 2000000, timeLimitMs: 500, adaptive: false },
+        }),
+        '--json',
+      ]),
+    )
+    await page.getByRole('button', { name: 'Mount rows' }).click()
+    const cold = await readRows()
+    const classification = cold.sourceClassification
+    assert(classification?.totalCandidates === 241, `${stage}: missing ownership candidate counts`)
+    assert(
+      classification.app + classification.library + classification.unknown === 241,
+      `${stage}: ownership counts do not account for all rows`,
+    )
+    if (!classification.complete) {
+      assert(
+        cold.comparable === false &&
+          cold.notComparableReasons.includes('app-source-classification-incomplete'),
+        `${stage}: incomplete app sample was comparable`,
+      )
+    }
+    const warm = await waitFor(
+      `${stage} source warmup`,
+      async () => {
+        const report = await readRows()
+        return report.sourceClassification?.complete ? report : undefined
+      },
+      15_000,
+    )
+    assert(warm.sourceClassification.app === 241, `${stage}: app sources did not recover`)
+    assert(
+      warm.sourceClassification.unknown === 0 && warm.summary.trackedComponents === 241,
+      `${stage}: warm report lost rows`,
+    )
+    assert(
+      warm.components.length === 1 && warm.omittedByLimit === 240,
+      `${stage}: output limit was confused with ownership coverage`,
+    )
+    process.stdout.write(
+      `${stage}: ${classification.app}/241 app rows on first read, 241/241 after warmup.\n`,
+    )
+  }
+  await page.waitForFunction(() => document.querySelector('#greeting')?.textContent === 'hello')
+  const callTool = async (name, args = {}) =>
+    parseSuccessfulJson(name, await runCli(['call', name, JSON.stringify(args), '--json']))
+  await callTool('react_clear_renders', { components: ['PolicyConsumer'] })
+  const notificationsBefore = await callTool('query_notifications')
+  await page.locator('#metadata-update').click()
+  await page.waitForFunction(() => document.querySelector('#policy-result')?.textContent === '1:1')
+  const excluded = await callTool('react_render_causes', {
+    component: 'PolicyConsumer',
+    appOnly: false,
+  })
+  assert(
+    excluded.events.length > 0,
+    'Policy regression must capture the parent-driven consumer render',
+  )
+  assert(
+    excluded.events.every((event) => event.causes.every((cause) => cause.kind !== 'query')),
+    `Unsubscribed timestamp update was incorrectly blamed on Query: ${JSON.stringify(excluded.events)}`,
+  )
+  const notificationsAfter = await callTool('query_notifications')
+  assert(
+    notificationsAfter.events.length === notificationsBefore.events.length,
+    'Timestamp-only update unexpectedly delivered a Query notification',
+  )
+
+  await callTool('react_clear_renders', { components: ['PolicyConsumer'] })
+  await page.locator('#data-update').click()
+  await page.waitForFunction(() => document.querySelector('#policy-result')?.textContent === '2:1')
+  const delivered = await callTool('react_render_causes', {
+    component: 'PolicyConsumer',
+    appOnly: false,
+  })
+  assert(
+    delivered.events.some((event) =>
+      event.causes.some(
+        (cause) =>
+          cause.kind === 'query' &&
+          cause.evidence === 'exact' &&
+          cause.notification?.changedResultFields.includes('data'),
+      ),
+    ),
+    `Subscribed data update lost its exact Query cause: ${JSON.stringify(delivered.events)}`,
+  )
   assert(pageErrors.length === 0, `Browser page errors:\n${pageErrors.join('\n')}`)
 
   process.stdout.write(
-    `Packed Vite E2E passed on port ${port}: CLI status ready, ${tree.nodes.length} React nodes, and ${queryList.queries.length} Query record(s).\n`,
+    `Packed Vite E2E passed on port ${port}: CLI status ready, ${tree.nodes.length} React nodes, and ${queryList.queries.length} Query record(s); unsubscribed metadata cause excluded and subscribed data delivery retained.\n`,
   )
 }
 

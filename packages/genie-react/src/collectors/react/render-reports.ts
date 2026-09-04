@@ -16,6 +16,7 @@ import {
   classifyFibersWithinBudget,
   type ExternalStoreSourceResolution,
   type FiberClassification,
+  scheduleClassificationWarmup,
   sourceAttributionForSource,
   sourceLabel,
   sourceProvenanceForSource,
@@ -48,7 +49,17 @@ export interface ReportAttributionGuard {
   isCurrent: () => boolean
 }
 
+export interface SourceClassificationCoverage {
+  complete: boolean
+  totalCandidates: number
+  evaluated: number
+  app: number
+  library: number
+  unknown: number
+}
+
 type ClassifiedRecord = {
+  evaluated: boolean
   record: RenderRecord
   report: RenderReport
   libraryOnly: boolean
@@ -56,6 +67,7 @@ type ClassifiedRecord = {
 }
 
 interface RecordSourceEvidence extends FiberClassification {
+  evaluated: boolean
   hookSources: ExternalStoreSourceResolution
   externalStoreCount: number
   libraryOnly: boolean
@@ -66,22 +78,47 @@ async function selectRecords(
   records: Map<number, RenderRecord>,
   query: RenderQuery,
   guard?: ReportAttributionGuard,
-): Promise<{ kept: ClassifiedRecord[]; libraryHidden: number }> {
+): Promise<{
+  kept: ClassifiedRecord[]
+  libraryHidden: number
+  sourceClassification: SourceClassificationCoverage
+}> {
   return selectClassifiedRecords(await classifyRecordReports([...records.values()], guard), query)
 }
 
 function selectClassifiedRecords(
   classified: ClassifiedRecord[],
   query: Pick<RenderQuery, 'component' | 'appOnly'>,
-): { kept: ClassifiedRecord[]; libraryHidden: number } {
+): {
+  kept: ClassifiedRecord[]
+  libraryHidden: number
+  sourceClassification: SourceClassificationCoverage
+} {
   let list = classified
   if (query.component) {
     const needle = query.component.toLowerCase()
     list = list.filter((entry) => entry.record.name.toLowerCase().includes(needle))
   }
-  if (query.appOnly !== true) return { kept: list, libraryHidden: 0 }
+  let app = 0
+  let library = 0
+  let evaluated = 0
+  for (const entry of list) {
+    if (entry.appOwned) app += 1
+    if (entry.libraryOnly) library += 1
+    if (entry.evaluated) evaluated += 1
+  }
+  const unknown = list.length - app - library
+  const sourceClassification = {
+    complete: unknown === 0,
+    totalCandidates: list.length,
+    evaluated,
+    app,
+    library,
+    unknown,
+  }
+  if (query.appOnly !== true) return { kept: list, libraryHidden: 0, sourceClassification }
   const kept = list.filter((entry) => entry.appOwned)
-  return { kept, libraryHidden: list.length - kept.length }
+  return { kept, libraryHidden: list.length - kept.length, sourceClassification }
 }
 
 async function classifyRecordReports(
@@ -98,6 +135,7 @@ async function classifyRecordReports(
     const { fiber: _fiber, latestRenderEventId: _latestRenderEventId, ...rest } = record
     return {
       record,
+      evaluated: entry.evaluated,
       libraryOnly,
       appOwned,
       report: {
@@ -124,18 +162,19 @@ async function classifyRecordReports(
 }
 
 async function recordSourceEvidence(records: RenderRecord[]): Promise<RecordSourceEvidence[]> {
-  const [classes, hookSources] = await Promise.all([
+  const [classificationResult, hookSources] = await Promise.all([
     classifyRecordsWithinBudget(records),
     resolveExternalStoreSourcesWithinBudget(records.map((record) => record.fiber)),
   ])
   return records.map((record, index) => {
-    const classification = classes[index] ?? UNCLASSIFIED_FIBER
+    const classification = classificationResult.classes[index] ?? UNCLASSIFIED_FIBER
     const hooks = hookSources[index] ?? { status: 'deadline-exceeded', hooks: null }
     const externalStoreCount = countExternalStoreHooks(record.fiber)
     const exactAppHook = hasExactAppExternalStoreCallsite(hooks, externalStoreCount)
     const appOwned = classification.ownership === 'app' || exactAppHook
     return {
       ...classification,
+      evaluated: classificationResult.evaluated[index] === true,
       hookSources: hooks,
       externalStoreCount,
       libraryOnly: classification.ownership === 'library' && !exactAppHook,
@@ -147,6 +186,7 @@ async function recordSourceEvidence(records: RenderRecord[]): Promise<RecordSour
 function unknownRecordSourceEvidence(): RecordSourceEvidence {
   return {
     ...UNCLASSIFIED_FIBER,
+    evaluated: false,
     hookSources: { status: 'deadline-exceeded', hooks: null },
     externalStoreCount: 0,
     libraryOnly: false,
@@ -157,6 +197,7 @@ function unknownRecordSourceEvidence(): RecordSourceEvidence {
 function staleRecordSourceEvidence(): RecordSourceEvidence {
   return {
     ...UNCLASSIFIED_FIBER,
+    evaluated: false,
     hookSources: { status: 'report-state-advanced', hooks: null },
     externalStoreCount: 0,
     libraryOnly: false,
@@ -164,14 +205,14 @@ function staleRecordSourceEvidence(): RecordSourceEvidence {
   }
 }
 
-async function classifyRecordsWithinBudget(
-  records: RenderRecord[],
-): Promise<FiberClassification[]> {
-  const { classes } = await classifyFibersWithinBudget(
-    records.map((record) => record.fiber),
-    { limit: SOURCE_CLASSIFY_LIMIT, budgetMs: SOURCE_CLASSIFY_BUDGET_MS },
-  )
-  return classes
+async function classifyRecordsWithinBudget(records: RenderRecord[]) {
+  const fibers = records.map((record) => record.fiber)
+  const result = await classifyFibersWithinBudget(fibers, {
+    limit: SOURCE_CLASSIFY_LIMIT,
+    budgetMs: SOURCE_CLASSIFY_BUDGET_MS,
+  })
+  if (result.partial) scheduleClassificationWarmup(fibers)
+  return result
 }
 
 function sortReports(entries: ClassifiedRecord[], sort: RenderQuery['sort']): ClassifiedRecord[] {
@@ -217,13 +258,15 @@ export async function buildRendersMeasurementReport(
   guard?: ReportAttributionGuard,
 ): Promise<{
   summary: RenderSummary
+  sourceClassification: SourceClassificationCoverage
   components: RenderReport[]
   libraryHidden: number
   omittedByLimit: number
 }> {
   const classified = await classifyRecordReports([...records.values()], guard)
-  const { kept, libraryHidden } = selectClassifiedRecords(classified, query)
+  const { kept, libraryHidden, sourceClassification } = selectClassifiedRecords(classified, query)
   return {
+    sourceClassification,
     summary: summarizeRecords(
       kept.map((entry) => entry.record),
       commits,

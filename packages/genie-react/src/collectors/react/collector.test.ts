@@ -1,7 +1,9 @@
+import type { Fiber } from 'bippy'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CollectorContext, GenieCollector } from '../../client'
 import { hasDomLookupRuntime, reactCollector } from './collector'
-import { isTracking, startRenderTracking } from './render-tracker'
+import { reactGetRendersContract } from './render-contract'
+import { clearRenders, isTracking, recordRender, startRenderTracking } from './render-tracker'
 
 const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
 const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
@@ -68,5 +70,53 @@ describe('render measurement lifecycle', () => {
     const result = call<{ tracking: boolean }>(collector, 'react_clear_renders', {})
     expect(result.tracking).toBe(true)
     expect(isTracking()).toBe(true)
+  })
+})
+
+describe('app source classification coverage', () => {
+  afterEach(() => clearRenders())
+
+  it('rejects incomplete app-only comparisons while retaining unfiltered measurement semantics', async () => {
+    clearRenders()
+    recordRender(
+      {
+        tag: 0,
+        type: function Unresolved() {
+          return null
+        },
+        memoizedProps: {},
+        memoizedState: null,
+        actualDuration: 1,
+        selfBaseDuration: 1,
+        child: null,
+        alternate: null,
+      } as unknown as Fiber,
+      'mount',
+    )
+    const collector = reactCollector()
+    const read = async (appOnly: boolean) =>
+      reactGetRendersContract.output.parse(
+        await call(collector, 'react_get_renders', { sort: 'renders', limit: 40, appOnly }),
+      )
+
+    const filtered = await read(true)
+    expect(filtered.sourceClassification).toEqual({
+      complete: false,
+      totalCandidates: 1,
+      evaluated: 1,
+      app: 0,
+      library: 0,
+      unknown: 1,
+    })
+    expect(filtered.comparable).toBe(false)
+    expect(filtered.notComparableReasons).toContain('app-source-classification-incomplete')
+    expect(filtered.summary.semantics).toBe('unknown')
+    expect(filtered.filteredNote).toContain('1 components with unknown ownership and 0 library')
+
+    const unfiltered = await read(false)
+    expect(unfiltered.summary.totalRenders).toBe(1)
+    expect(unfiltered.summary.semantics).toBe('exact')
+    expect(unfiltered.notComparableReasons).not.toContain('app-source-classification-incomplete')
+    expect(unfiltered.components[0]?.sourceOwnership).toBe('unknown')
   })
 })
