@@ -69,6 +69,18 @@ bundle and instrumentation. Counts describe this measured run, subject to covera
 production estimates. Development Strict Mode behavior can differ from production. Compare runs
 with equivalent conditions and check collection availability even when the bundle is `production`.
 
+`sourceClassification` reports app, library, and unknown ownership counts for matching records
+before `appOnly` and the result limit. `totalCandidates` counts that set; `evaluated` counts
+completed source lookups (including unresolved results and cache hits). `complete` is true only
+when every candidate has app or library evidence. Unknown ownership never counts as library.
+
+Cold documents can exceed the source lookup budget. Genie warms the remaining sources in the
+background; retry the report to check recovery. If `appOnly:true` excludes unknown ownership,
+`comparable` is false with `app-source-classification-incomplete`, and summary semantics are
+`lower-bound` or `unknown`. `appOnly:false` keeps those records visible without inventing their
+ownership. If unknowns persist after relaunch, inspect this unfiltered report and restore source
+metadata or source-map access before comparing app-only measurements.
+
 ```bash
 npx @genie-react/cli call react_get_renders \
   '{"component":"ProductCard","sort":"selfTime","limit":10,"appOnly":true}' --json
@@ -138,6 +150,15 @@ is safe to remove.
 ## `react_render_causes`
 
 Returns joinable render events and their observed causes.
+
+For a single identified Query observer, Genie omits an inferred cause when its complete current
+notification policy excludes every changed subscribed field. `notificationPolicyCheck.status`
+is `matched` with `changedSubscribedFields` when a subscribed field changed, or `unavailable`
+with a reason when the policy, identity, or field comparison cannot be checked. The basis is
+`current-effective-policy`: this checks compatibility with current options, not historical
+notification delivery. Dynamic and private auto-tracked policies remain unavailable. Implicit
+`error` subscriptions from `throwOnError` are included; recorded exact deliveries take precedence
+and are never removed by this check.
 
 **Input:** `commit` and `afterCommit` are optional nonnegative integers and are mutually exclusive.
 `component` is an optional substring. `limit` is an integer from 1 to 500 and defaults to 100.

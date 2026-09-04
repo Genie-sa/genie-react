@@ -335,10 +335,14 @@ export function reactCollector(): GenieCollector {
             limit,
             appOnly,
           })
-          const { summary, components, libraryHidden, omittedByLimit } = report
-          const filteredNote = appOnly
-            ? appOnlyFilteredNote(components.length, libraryHidden, 'components')
-            : undefined
+          const { summary, components, libraryHidden, omittedByLimit, sourceClassification } =
+            report
+          const classificationIncomplete = appOnly && !sourceClassification.complete
+          const filteredNote = classificationIncomplete
+            ? `WARNING: appOnly excluded ${sourceClassification.unknown} components with unknown ownership and ${sourceClassification.library} library components. Source classification evaluated ${sourceClassification.evaluated}/${sourceClassification.totalCandidates} matching records. Retry after source warmup, or pass appOnly:false to inspect all records.`
+            : appOnly
+              ? appOnlyFilteredNote(components.length, libraryHidden, 'components')
+              : undefined
           const coverageInput = {
             skippedCommitFibers: report.skippedCommitFibers,
             droppedUnmountFibers: report.droppedUnmountFibers,
@@ -351,6 +355,10 @@ export function reactCollector(): GenieCollector {
           const coverage = buildRenderTrackingCoverage(coverageInput, 'causal')
           const measurementCoverage = buildRenderTrackingCoverage(coverageInput, 'measurement')
           const comparability = renderEvidenceComparability(coverage, report.attribution.status)
+          if (classificationIncomplete) {
+            comparability.comparable = false
+            comparability.notComparableReasons.push('app-source-classification-incomplete')
+          }
           return {
             tracking: report.tracking,
             renderCollection: report.renderCollection,
@@ -361,10 +369,17 @@ export function reactCollector(): GenieCollector {
             attribution: report.attribution,
             summary: {
               ...summary,
-              semantics: renderSummarySemantics(measurementCoverage, summary.totalRenders),
+              semantics: renderSummarySemantics(
+                {
+                  ...measurementCoverage,
+                  complete: measurementCoverage.complete && !classificationIncomplete,
+                },
+                summary.totalRenders,
+              ),
               coverageDomain: 'render-measurement' as const,
             },
             components,
+            sourceClassification,
             omittedByLimit,
             ...comparability,
             coverage,
