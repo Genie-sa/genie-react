@@ -1,4 +1,10 @@
+import type { Fiber } from 'bippy'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+  clearRenders,
+  getRendersMeasurement,
+  recordRender,
+} from '../collectors/react/render-tracker'
 import { decodeFrame, newId } from '../protocol'
 import { type Frame, isResult, open, send } from './bridge-test-harness'
 import { createStandaloneBridge, type StandaloneBridgeHandle } from './standalone'
@@ -14,6 +20,7 @@ describe('GenieBridge waits', () => {
 
   afterEach(async () => {
     await handle.close()
+    clearRenders()
   })
 
   it('waits for exact structured queries and rejects ambiguous legacy selectors', async () => {
@@ -417,5 +424,65 @@ describe('GenieBridge waits', () => {
     const response = await inbox.wait(isResult(id))
     expect(response.result.ok).toBe(true)
     expect(checks).toBeGreaterThanOrEqual(3)
+  })
+  it('keeps a paginated report available while quiet polling reads render counters', async () => {
+    clearRenders()
+    for (const name of ['FirstRow', 'SecondRow']) {
+      const type = Object.assign(() => null, { displayName: name })
+      recordRender(
+        {
+          tag: 0,
+          type,
+          memoizedProps: {},
+          memoizedState: null,
+          child: null,
+          alternate: null,
+        } as unknown as Fiber,
+        'update',
+      )
+    }
+    const first = await getRendersMeasurement({ sort: 'renders', limit: 1, appOnly: false })
+    if (!first.nextCursor) throw new Error('Expected a retained report')
+    const { ws: app } = await open(`${url}?role=app`)
+    let checks = 0
+    app.on('message', async (data) => {
+      const message = decodeFrame(data.toString()) as Frame
+      if (message.kind !== 'bridge/request') return
+      const report = await getRendersMeasurement(
+        message.args as Parameters<typeof getRendersMeasurement>[0],
+      )
+      checks += 1
+      send(app, {
+        kind: 'app/response',
+        id: message.id,
+        ok: true,
+        result: { ...report, renderCollection: 'available', documentCommitId: Math.min(checks, 4) },
+      })
+    })
+    send(app, {
+      kind: 'app/hello',
+      protocol: 1,
+      sessionId: 'paginated-wait',
+      app: { name: 'paginated wait' },
+      capabilities: ['react'],
+      tools: [
+        { name: 'react_get_renders', title: 'renders', description: 'renders', group: 'react' },
+      ],
+    })
+    const { ws: agent, inbox } = await open(`${url}?role=agent`)
+    const id = newId()
+    send(agent, {
+      kind: 'agent/invoke',
+      id,
+      tool: 'devtools_wait',
+      args: { condition: 'react-quiet', quietMs: 100, timeoutMs: 3_000 },
+    })
+    const response = await inbox.wait(isResult(id))
+    expect(response.result.ok).toBe(true)
+    expect(checks).toBeGreaterThanOrEqual(5)
+    const second = await getRendersMeasurement({ cursor: first.nextCursor, limit: 1 })
+    expect(second.components).toHaveLength(1)
+    expect(second.components[0]?.id).not.toBe(first.components[0]?.id)
+    expect(second.pagination.snapshotId).toBe(first.pagination.snapshotId)
   })
 })

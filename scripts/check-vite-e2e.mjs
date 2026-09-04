@@ -535,6 +535,20 @@ async function main() {
     )
     await page.getByRole('button', { name: 'Update rows' }).click()
     await page.waitForFunction(() => document.querySelector('#row-240')?.textContent === '240:2')
+    const quiet = parseSuccessfulJson(
+      'quiet wait between render pages',
+      await runCli([
+        'call',
+        'devtools_wait',
+        JSON.stringify({
+          condition: 'react-quiet',
+          quietMs: 400,
+          timeoutMs: 5_000,
+        }),
+        '--json',
+      ]),
+    )
+    assert(quiet.ok, `${stage}: render quiet wait failed between pages`)
     const second = await readPage({ cursor: first.nextCursor, limit: 200 })
     assert(
       second.components.length === 41 && second.nextCursor === null && second.omittedByLimit === 0,

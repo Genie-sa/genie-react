@@ -524,6 +524,7 @@ describe('render page request contract', () => {
     { cursor: 'opaque', sort: 'selfTime' },
     { cursor: 'opaque', appOnly: false },
     { cursor: 'opaque', minUpdates: 1 },
+    { cursor: 'opaque', includeCursor: false },
   ])('rejects an invalid or ambiguous page selection %j', (input) => {
     expect(reactGetRendersContract.input.safeParse(input).success).toBe(false)
   })

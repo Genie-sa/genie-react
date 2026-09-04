@@ -377,7 +377,7 @@ export function reactCollector(): GenieCollector {
           return {
             tracking: report.tracking,
             renderCollection: report.renderCollection,
-            ...getMeasurementEnvironment(),
+            ...report.measurementEnvironment,
             commits: report.commits,
             documentCommitId: report.documentCommitId,
             observation: report.observation,

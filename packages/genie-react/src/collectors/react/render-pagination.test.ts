@@ -1,8 +1,9 @@
 import type { Fiber } from 'bippy'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const getSource = vi.fn(async (fiber: { _debugSource?: unknown }) => fiber._debugSource ?? null)
 vi.mock('bippy/source', () => ({
-  getSource: async (fiber: { _debugSource?: unknown }) => fiber._debugSource ?? null,
+  getSource: (fiber: { _debugSource?: unknown }) => getSource(fiber),
   isSourceFile: (file: string) => !file.includes('/node_modules/'),
   normalizeFileName: (file: string) => file,
   getFiberHooks: () => [],
@@ -42,6 +43,7 @@ function row(name: string, library = false): Fiber {
 
 beforeEach(() => {
   clearRenders()
+  getSource.mockClear()
   vi.stubGlobal('fetch', async () => ({ ok: false }))
 })
 afterEach(() => {
@@ -139,6 +141,33 @@ describe('render cursor lifecycle and bounded retention', () => {
     expect(replay.appOnly).toBe(false)
   })
 
+  it('keeps an active cursor through repeated one-shot reads with honest summary totals', async () => {
+    const first = await firstPage()
+    for (let index = 0; index < 5; index += 1) {
+      const poll = await getRendersMeasurement({
+        sort: 'renders',
+        limit: 1,
+        appOnly: false,
+        includeCursor: false,
+      })
+      expect(poll.components).toHaveLength(1)
+      expect(poll.omittedByLimit).toBe(1)
+      expect(poll.summary.trackedComponents).toBe(2)
+      expect(poll.nextCursor).toBeNull()
+      expect(poll.pagination).toMatchObject({
+        snapshotId: null,
+        totalComponents: 2,
+        expiresAt: null,
+      })
+    }
+    const next = await getRendersMeasurement({
+      sort: 'renders',
+      limit: 1,
+      cursor: cursorFor(first),
+    })
+    expect(next.components).toMatchObject([{ name: 'Second', updates: 1 }])
+  })
+
   it('expires at the declared deadline without sliding expiry on access', async () => {
     vi.useFakeTimers()
     const first = await firstPage()
@@ -184,16 +213,19 @@ describe('render cursor lifecycle and bounded retention', () => {
     )
   })
 
-  it('allows 5000 selected rows and rejects overflow with a narrowing instruction', async () => {
+  it('allows 5000 candidates and rejects overflow before inspecting sources', async () => {
+    vi.useFakeTimers()
     clearRenders()
     for (let index = 0; index < 5000; index += 1) recordRender(row(`Row${index}`), 'update')
     const atLimit = await getRendersMeasurement({ sort: 'renders', limit: 200, appOnly: false })
     expect(atLimit.pagination.totalComponents).toBe(5000)
     expect(atLimit.omittedByLimit).toBe(4800)
     recordRender(row('Overflow'), 'update')
+    getSource.mockClear()
     await expect(
       getRendersMeasurement({ sort: 'renders', limit: 200, appOnly: false }),
     ).rejects.toThrow('Narrow component, nameFilter, excludeNames, or minUpdates')
+    expect(getSource).not.toHaveBeenCalled()
     const narrowed = await getRendersMeasurement({
       sort: 'renders',
       limit: 200,

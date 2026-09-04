@@ -40,6 +40,7 @@ import {
   noteUnanalyzedInstanceRender,
   prepareInstanceRender,
 } from './instance-identity'
+import { getMeasurementEnvironment } from './measurement-environment'
 import {
   beginObservation,
   getActiveObservation,
@@ -590,6 +591,7 @@ export async function getRendersReport(
 }
 
 interface RenderMeasurement {
+  measurementEnvironment: ReturnType<typeof getMeasurementEnvironment>
   appOnly: boolean
   tracking: boolean
   renderCollection: string
@@ -666,6 +668,7 @@ export async function getRendersMeasurement(
     }
     return renderMeasurementPage(snapshotId, snapshot, offset, query.limit)
   }
+  const measurementEnvironment = getMeasurementEnvironment()
   const pagesAtStart = renderPages
   const includeCursor = query.includeCursor !== false
   const candidates: RenderRecord[] = []
@@ -709,6 +712,7 @@ export async function getRendersMeasurement(
     )
   }
   const measurement: RenderMeasurement = {
+    measurementEnvironment,
     appOnly: query.appOnly === true,
     tracking,
     renderCollection: renderCollectionStatus(),
