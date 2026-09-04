@@ -232,7 +232,17 @@ function describeToolParams(schema: unknown): string {
   if (names.length === 0) return '(no args)'
   const required = new Set(Array.isArray(object?.required) ? object.required : [])
   return names
-    .map((name) => `${name}${required.has(name) ? '' : '?'}: ${jsonSchemaType(properties[name])}`)
+    .map((name) => {
+      const property = properties[name]
+      const parts = [`${name}${required.has(name) ? '' : '?'}: ${jsonSchemaType(property)}`]
+      if (isRecord(property)) {
+        const constraints = jsonSchemaConstraints(property)
+        if (constraints) parts.push(constraints)
+        if (property.default !== undefined)
+          parts.push(`(default ${JSON.stringify(property.default)})`)
+      }
+      return parts.join(' ')
+    })
     .join(', ')
 }
 
