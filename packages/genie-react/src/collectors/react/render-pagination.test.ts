@@ -226,6 +226,17 @@ describe('render cursor lifecycle and bounded retention', () => {
       getRendersMeasurement({ sort: 'renders', limit: 200, appOnly: false }),
     ).rejects.toThrow('Narrow component, nameFilter, excludeNames, or minUpdates')
     expect(getSource).not.toHaveBeenCalled()
+    const oneShot = await getRendersMeasurement({
+      sort: 'renders',
+      limit: 1,
+      appOnly: false,
+      includeCursor: false,
+    })
+    expect(oneShot.components).toHaveLength(1)
+    expect(oneShot.summary.trackedComponents).toBe(5001)
+    expect(oneShot.omittedByLimit).toBe(5000)
+    expect(oneShot.nextCursor).toBeNull()
+    expect(oneShot.pagination.snapshotId).toBeNull()
     const narrowed = await getRendersMeasurement({
       sort: 'renders',
       limit: 200,
