@@ -1,4 +1,4 @@
-import { type Fiber, isCompositeFiber } from 'bippy'
+import { type Fiber, getReactWorkTagsForFiber, isCompositeFiber } from 'bippy'
 import { findAllCommittedRootFibers, nameOf } from './fiber'
 import {
   getInstanceIdentityCoverage,
@@ -21,6 +21,7 @@ export type CohortStatus =
 
 export interface CohortInstance {
   componentName: string
+  reactVisibility: 'hidden' | 'not-hidden' | 'unknown'
   status: 'mounted-idle' | 'mounted-updated' | 'mounted-unknown' | 'unmounted'
   instance: InstanceDescriptor
   profileCommitId?: number
@@ -84,6 +85,7 @@ export function getRenderCohort(
 ): RenderCohort {
   const observation = getActiveObservation()
   const mountedCandidates: Array<{
+    reactVisibility: CohortInstance['reactVisibility']
     componentName: string
     instance: InstanceDescriptor
     observed: boolean
@@ -113,12 +115,29 @@ export function getRenderCohort(
   const visitedFibers = new Set<Fiber>()
   const mountedFiberIds = new Set<number>()
   // Reverse once so the oldest committed root remains first in the LIFO walk.
-  const stack: Fiber[] = [...roots].reverse()
+  const stack: Array<{ fiber: Fiber; reactVisibility: CohortInstance['reactVisibility'] }> = [
+    ...roots,
+  ]
+    .reverse()
+    .map((fiber) => ({ fiber, reactVisibility: 'not-hidden' }))
   let scannedFibers = 0
 
   while (stack.length > 0 && scannedFibers < COHORT_SCAN_LIMIT) {
-    const fiber = stack.pop()
-    if (!fiber || visitedFibers.has(fiber)) continue
+    const entry = stack.pop()
+    if (!entry || visitedFibers.has(entry.fiber)) continue
+    const { fiber } = entry
+    let childVisibility = entry.reactVisibility
+    if (
+      childVisibility !== 'hidden' &&
+      fiber.tag === getReactWorkTagsForFiber(fiber).OffscreenComponent
+    ) {
+      childVisibility =
+        fiber.memoizedState === undefined
+          ? 'unknown'
+          : fiber.memoizedState === null
+            ? entry.reactVisibility
+            : 'hidden'
+    }
     visitedFibers.add(fiber)
     if (rootFibers.has(fiber)) scannedRoots.add(fiber)
     scannedFibers += 1
@@ -129,6 +148,7 @@ export function getRenderCohort(
         if (!mountedFiberIds.has(instance.fiberId)) {
           mountedFiberIds.add(instance.fiberId)
           mountedCandidates.push({
+            reactVisibility: entry.reactVisibility,
             componentName,
             instance,
             observed: wasInstanceObserved(instance.fiberId),
@@ -137,12 +157,12 @@ export function getRenderCohort(
         }
       }
     }
-    if (fiber.sibling) stack.push(fiber.sibling)
-    if (fiber.child) stack.push(fiber.child)
+    if (fiber.sibling) stack.push({ fiber: fiber.sibling, reactVisibility: entry.reactVisibility })
+    if (fiber.child) stack.push({ fiber: fiber.child, reactVisibility: childVisibility })
   }
 
   // Duplicate roots/fibers left on the stack do not represent missing data.
-  const scanTruncated = stack.some((fiber) => !visitedFibers.has(fiber))
+  const scanTruncated = stack.some(({ fiber }) => !visitedFibers.has(fiber))
   const identityCoverage = getInstanceIdentityCoverage()
   const { pendingUnmountFibers = 0, ...reportedCoverageGaps } = coverageGaps
   const effectiveCoverageGaps = {
@@ -179,6 +199,7 @@ export function getRenderCohort(
     effectiveCoverageGaps.truncatedInputFibers === 0 &&
     effectiveCoverageGaps.propsNotEnumeratedFibers === 0
   const mounted: CohortInstance[] = mountedCandidates.map((entry) => ({
+    reactVisibility: entry.reactVisibility,
     componentName: entry.componentName,
     status: entry.observed
       ? 'mounted-updated'
@@ -194,6 +215,7 @@ export function getRenderCohort(
         .map((entry) => ({
           componentName: entry.componentName,
           status: 'unmounted' as const,
+          reactVisibility: 'unknown' as const,
           instance: entry.instance,
           profileCommitId: entry.profileCommitId,
           documentCommitId: entry.documentCommitId,

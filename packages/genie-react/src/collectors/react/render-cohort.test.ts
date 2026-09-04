@@ -86,6 +86,53 @@ function startObservation(): void {
 }
 
 describe('render lifecycle cohorts', () => {
+  it('keeps hidden React ancestry separate from inactivity, sibling visibility, and unmounts', () => {
+    const root = component('Root')
+    const hiddenBoundary = asFiber({ tag: defaultWorkTags.OffscreenComponent, memoizedState: {} })
+    const nestedVisible = asFiber({ tag: defaultWorkTags.OffscreenComponent, memoizedState: null })
+    const hidden = component('Row', 'hidden')
+    const sibling = component('Row', 'sibling')
+    attach(nestedVisible, [hidden])
+    attach(hiddenBoundary, [nestedVisible])
+    attach(root, [hiddenBoundary, sibling])
+    commit(root)
+    startObservation()
+    const read = () =>
+      getRenderCohort(
+        root,
+        { component: 'Row', exact: true, limit: 10 },
+        {
+          skippedCommitFibers: 0,
+          droppedUnmountFibers: 0,
+          analysisFailedFibers: 0,
+          truncatedInputFibers: 0,
+        },
+      )
+    const hiddenReport = read()
+    expect(hiddenReport.instances).toEqual([
+      expect.objectContaining({ status: 'mounted-idle', reactVisibility: 'hidden' }),
+      expect.objectContaining({ status: 'mounted-idle', reactVisibility: 'not-hidden' }),
+    ])
+    const mountId = hiddenReport.instances[0]?.instance.mountId
+    hiddenBoundary.memoizedState = null
+    expect(read().instances[0]).toMatchObject({
+      reactVisibility: 'not-hidden',
+      instance: { mountId },
+    })
+    hiddenBoundary.memoizedState = undefined
+    expect(read().instances[0]?.reactVisibility).toBe('unknown')
+    hiddenBoundary.memoizedState = null
+    noteInstanceRender(hidden, 'unmount', 1, 1)
+    attach(nestedVisible, [])
+    expect(read().instances).toContainEqual(
+      expect.objectContaining({
+        status: 'unmounted',
+        reactVisibility: 'unknown',
+        instance: expect.objectContaining({ mountId }),
+      }),
+    )
+  })
+
   it('distinguishes mounted-idle, updated, unmounted, and absent', () => {
     const root = component('Root')
     const idle = component('Row', 'idle')

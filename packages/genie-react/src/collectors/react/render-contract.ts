@@ -631,7 +631,7 @@ export const reactComponentCohortContract = defineAgentToolContract({
   name: 'react_component_cohort',
   title: 'Component lifecycle cohort',
   description:
-    'Distinguish matching component instances that updated, stayed mounted and idle, unmounted, are absent, or were omitted by a limit. Start with react_clear_renders, drive one interaction, then query an exact display name. Each row includes key/position strength and mount generation.',
+    'Distinguish matching component instances that updated, stayed mounted and idle, unmounted, are absent, or were omitted by a limit. Start with react_clear_renders, drive one interaction, then query an exact display name. Each row includes key/position strength, mount generation, and React Offscreen visibility independently of lifecycle. Hidden does not establish the cause of freezing or whether effects remain subscribed.',
   group: 'react.render',
   input: z.object({
     component: z.string().min(1),
@@ -660,6 +660,11 @@ export const reactComponentCohortContract = defineAgentToolContract({
     instances: z.array(
       z.object({
         componentName: z.string(),
+        reactVisibility: z
+          .enum(['hidden', 'not-hidden', 'unknown'])
+          .describe(
+            'Hidden means a committed React Offscreen ancestor has hidden state; not-hidden means no such boundary was observed, not necessarily visible on screen. Unknown for unmounted instances or incomplete boundary state. This does not establish a react-freeze or navigation freeze cause.',
+          ),
         status: z.enum(['mounted-idle', 'mounted-updated', 'mounted-unknown', 'unmounted']),
         instance: instanceDescriptorSchema,
         profileCommitId: z.number().int().nonnegative().optional(),

@@ -312,6 +312,8 @@ export function summarizeComponentCohort(result: unknown): string | null {
       `mount ${String(instance.mountId)}`,
       `generation ${num(instance.mountGeneration)}${instance.mountGenerationEvidence === 'unknown' ? ' (unknown)' : ''}`,
     ]
+    if (entry.reactVisibility === 'hidden') line.push('React hidden')
+    else if (entry.reactVisibility === 'not-hidden') line.push('no hidden React boundary')
     if (typeof instance.logicalIdentityEvidence === 'string')
       line.push(instance.logicalIdentityEvidence)
     if (typeof instance.logicalPath === 'string') line.push(bounded(instance.logicalPath))

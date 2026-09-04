@@ -220,6 +220,18 @@ Reports lifecycle outcomes for every matching component instance in the current 
 **Input:** `component` is a required non-empty string. `exact` defaults to `true`. `limit` is an
 integer from 1 to 200 and defaults to 50.
 
+Each instance reports `reactVisibility` independently of its lifecycle status:
+
+- `hidden`: a committed React Offscreen ancestor has hidden state, including Activity or suspended content.
+- `not-hidden`: no hidden React Offscreen ancestor was observed; this does not prove CSS or native screen visibility.
+- `unknown`: visibility cannot be established, including unmounted tombstones or incomplete boundary state.
+
+A hidden instance remains in the mounted cohort with its mount identity. Revealing it preserves
+that identity; an observed full unmount produces an `unmounted` entry. React visibility does not
+prove which navigation or freeze mechanism hid the subtree. Activity can clean up effects and
+subscriptions while preserving state, so disappearing observers alone do not establish a full
+unmount. `react-freeze` uses Suspense, and generic hidden evidence cannot establish its origin.
+
 ```bash
 npx @genie-react/cli call react_component_cohort \
   '{"component":"ProductCard","exact":true,"limit":100}' --json

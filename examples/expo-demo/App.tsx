@@ -4,6 +4,7 @@ import { Genie } from 'genie-react/native'
 import { useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ToolTestbed } from './components/tool-testbed'
+import { VisibilityTestbed } from './components/visibility-testbed'
 import { queryClient, router } from './lib/runtime'
 
 const defaultHubHost = process.env.EXPO_OS === 'android' ? '10.0.2.2' : '127.0.0.1'
@@ -28,6 +29,7 @@ export default function App() {
         contentContainerStyle={styles.container}
         contentInsetAdjustmentBehavior="automatic"
       >
+        <VisibilityTestbed />
         <View style={styles.card}>
           <Text selectable style={styles.eyebrow}>
             GENIE REACT / EXPO
