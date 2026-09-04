@@ -32,6 +32,9 @@ const UNCLASSIFIED_FIBER: FiberClassification = {
 
 export interface RenderQuery {
   component?: string
+  nameFilter?: string
+  excludeNames?: string[]
+  minUpdates?: number
   limit: number
   sort: 'renders' | 'unnecessary' | 'referenceOnly' | 'unstable' | 'selfTime'
   appOnly?: boolean
@@ -74,6 +77,45 @@ interface RecordSourceEvidence extends FiberClassification {
   appOwned: boolean
 }
 
+/** Glob matching with bounded backtracking; patterns never become executable regular expressions. */
+function matchesNamePattern(name: string, pattern: string): boolean {
+  let nameIndex = 0
+  let patternIndex = 0
+  let starIndex = -1
+  let retryIndex = 0
+  while (nameIndex < name.length) {
+    if (pattern[patternIndex] === '?' || pattern[patternIndex] === name[nameIndex]) {
+      nameIndex += 1
+      patternIndex += 1
+    } else if (pattern[patternIndex] === '*') {
+      starIndex = patternIndex++
+      retryIndex = nameIndex
+    } else if (starIndex >= 0) {
+      patternIndex = starIndex + 1
+      nameIndex = ++retryIndex
+    } else {
+      return false
+    }
+  }
+  while (pattern[patternIndex] === '*') patternIndex += 1
+  return patternIndex === pattern.length
+}
+
+export function renderRecordFilter(query: RenderQuery): (record: RenderRecord) => boolean {
+  const component = query.component?.toLowerCase()
+  const pattern = query.nameFilter?.toLowerCase()
+  const exclusions = query.excludeNames?.map((name) => name.toLowerCase()) ?? []
+  return (record) => {
+    const name = record.name.toLowerCase()
+    return (
+      (!component || name.includes(component)) &&
+      (!pattern || matchesNamePattern(name, pattern)) &&
+      !exclusions.some((exclusion) => matchesNamePattern(name, exclusion)) &&
+      record.updates >= (query.minUpdates ?? 0)
+    )
+  }
+}
+
 async function selectRecords(
   records: Map<number, RenderRecord>,
   query: RenderQuery,
@@ -83,7 +125,10 @@ async function selectRecords(
   libraryHidden: number
   sourceClassification: SourceClassificationCoverage
 }> {
-  return selectClassifiedRecords(await classifyRecordReports([...records.values()], guard), query)
+  return selectClassifiedRecords(
+    await classifyRecordReports([...records.values()].filter(renderRecordFilter(query)), guard),
+    query,
+  )
 }
 
 function selectClassifiedRecords(
@@ -94,11 +139,7 @@ function selectClassifiedRecords(
   libraryHidden: number
   sourceClassification: SourceClassificationCoverage
 } {
-  let list = classified
-  if (query.component) {
-    const needle = query.component.toLowerCase()
-    list = list.filter((entry) => entry.record.name.toLowerCase().includes(needle))
-  }
+  const list = classified
   let app = 0
   let library = 0
   let evaluated = 0
@@ -262,7 +303,10 @@ export async function buildRendersMeasurementReport(
   libraryHidden: number
   omittedByLimit: number
 }> {
-  const classified = await classifyRecordReports([...records.values()], guard)
+  const classified = await classifyRecordReports(
+    [...records.values()].filter(renderRecordFilter(query)),
+    guard,
+  )
   const { kept, libraryHidden, sourceClassification } = selectClassifiedRecords(classified, query)
   return {
     sourceClassification,

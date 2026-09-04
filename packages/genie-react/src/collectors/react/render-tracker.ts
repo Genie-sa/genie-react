@@ -12,6 +12,7 @@ import {
   traverseRenderedFibers,
   type Unsubscribe,
 } from 'bippy'
+import { newId } from '../../protocol'
 import {
   registerQuerySubscriber,
   setExternalStoreObservation,
@@ -83,6 +84,7 @@ import {
   buildRendersReport,
   type RenderCauseQuery,
   type RenderQuery,
+  renderRecordFilter,
   type SourceClassificationCoverage,
 } from './render-reports'
 import {
@@ -373,6 +375,7 @@ function advanceExcludedCommitBaseline(root: FiberRoot): void {
 
 /** Module/HMR teardown only. Profiling stop must keep the lightweight commit heartbeat installed. */
 export function disposeRenderTracking(): void {
+  renderPages = new Map()
   noteAnalysisInvalidation()
   for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(pending.fiber)
   pendingUnmounts.length = 0
@@ -458,6 +461,7 @@ function getDroppedUnmountEvidenceCount(): number {
 }
 
 export function clearRenders(options: RenderObservationOptions = {}): ObservationWindow {
+  renderPages = new Map()
   configureRenderObservation(options)
   records.clear()
   recentCauseEvents.length = 0
@@ -585,7 +589,8 @@ export async function getRendersReport(
   return buildRendersReport(records, query)
 }
 
-export async function getRendersMeasurement(query: RenderQuery): Promise<{
+interface RenderMeasurement {
+  appOnly: boolean
   tracking: boolean
   renderCollection: string
   commits: number
@@ -604,8 +609,77 @@ export async function getRendersMeasurement(query: RenderQuery): Promise<{
   propsNotEnumeratedFibers: number
   budgetExhaustedCommits: number
   budgetExhaustedSubsystems: { subsystem: string; commits: number }[]
-}> {
-  const recordsAtStart = snapshotRenderRecords()
+}
+
+interface RenderMeasurementPage extends RenderMeasurement {
+  nextCursor: string | null
+  pagination: {
+    snapshotId: string | null
+    offset: number
+    totalComponents: number
+    expiresAt: number | null
+  }
+}
+
+const RENDER_PAGE_SNAPSHOT_LIMIT = 3
+const RENDER_PAGE_COMPONENT_LIMIT = 5000
+const RENDER_PAGE_TTL_MS = 5 * 60_000
+let renderPages = new Map<string, { expiresAt: number; report: RenderMeasurement }>()
+
+function renderMeasurementPage(
+  snapshotId: string,
+  snapshot: { expiresAt: number; report: RenderMeasurement },
+  offset: number,
+  limit: number,
+): RenderMeasurementPage {
+  const totalComponents = snapshot.report.components.length
+  const end = Math.min(totalComponents, offset + limit)
+  return safeStructuredClone({
+    ...snapshot.report,
+    components: snapshot.report.components.slice(offset, end),
+    omittedByLimit: totalComponents - end,
+    nextCursor: end < totalComponents ? `${snapshotId}:${end}` : null,
+    pagination: { snapshotId, offset, totalComponents, expiresAt: snapshot.expiresAt },
+  })
+}
+
+export async function getRendersMeasurement(
+  query: RenderQuery & { cursor?: string; includeCursor?: boolean },
+): Promise<RenderMeasurementPage> {
+  for (const [id, snapshot] of renderPages) {
+    if (snapshot.expiresAt <= Date.now()) renderPages.delete(id)
+  }
+  if (query.cursor) {
+    const match = /^([0-9a-f-]{36}):([1-9][0-9]*)$/.exec(query.cursor)
+    const snapshotId = match?.[1]
+    const snapshot = snapshotId ? renderPages.get(snapshotId) : undefined
+    const offset = Number(match?.[2])
+    if (
+      !snapshotId ||
+      !snapshot ||
+      !Number.isSafeInteger(offset) ||
+      offset >= snapshot.report.components.length
+    ) {
+      throw new Error(
+        'Render cursor is invalid, expired, evicted, or cleared. Run react_get_renders without cursor to start a fresh report.',
+      )
+    }
+    return renderMeasurementPage(snapshotId, snapshot, offset, query.limit)
+  }
+  const pagesAtStart = renderPages
+  const includeCursor = query.includeCursor !== false
+  const candidates: RenderRecord[] = []
+  const matches = renderRecordFilter(query)
+  for (const record of records.values()) {
+    if (!matches(record)) continue
+    if (includeCursor && candidates.length >= RENDER_PAGE_COMPONENT_LIMIT) {
+      throw new Error(
+        'More than 5000 candidates match the name/update filters before appOnly. Narrow component, nameFilter, excludeNames, or minUpdates and retry, or set includeCursor:false for a one-shot report.',
+      )
+    }
+    candidates.push(record)
+  }
+  const recordsAtStart = snapshotRenderRecords(candidates)
   const commitsAtStart = commits
   const epoch = captureReportEpoch()
   const observation = getActiveObservation()
@@ -617,10 +691,25 @@ export async function getRendersMeasurement(query: RenderQuery): Promise<{
   const propsNotEnumeratedAtStart = propsNotEnumeratedFibers
   const budgetCommitsAtStart = budgetExhaustedCommits
   const budgetSubsystemsAtStart = getBudgetExhaustedSubsystems()
-  const report = await buildRendersMeasurementReport(recordsAtStart, commitsAtStart, query, {
-    isCurrent: () => reportStateMatches(epoch),
-  })
-  return {
+  const report = await buildRendersMeasurementReport(
+    recordsAtStart,
+    commitsAtStart,
+    {
+      sort: query.sort,
+      appOnly: query.appOnly,
+      limit: includeCursor ? RENDER_PAGE_COMPONENT_LIMIT : query.limit,
+    },
+    {
+      isCurrent: () => reportStateMatches(epoch),
+    },
+  )
+  if (pagesAtStart !== renderPages && report.components.length > query.limit) {
+    throw new Error(
+      'Render observation was cleared while preparing the report. Run react_get_renders again.',
+    )
+  }
+  const measurement: RenderMeasurement = {
+    appOnly: query.appOnly === true,
     tracking,
     renderCollection: renderCollectionStatus(),
     commits: commitsAtStart,
@@ -636,12 +725,34 @@ export async function getRendersMeasurement(query: RenderQuery): Promise<{
     budgetExhaustedCommits: budgetCommitsAtStart,
     budgetExhaustedSubsystems: budgetSubsystemsAtStart,
   }
+  if (!includeCursor) {
+    return {
+      ...measurement,
+      nextCursor: null,
+      pagination: {
+        snapshotId: null,
+        offset: 0,
+        totalComponents: measurement.summary.trackedComponents,
+        expiresAt: null,
+      },
+    }
+  }
+  const snapshotId = newId()
+  const snapshot = { expiresAt: Date.now() + RENDER_PAGE_TTL_MS, report: measurement }
+  if (measurement.components.length > query.limit) {
+    if (renderPages.size >= RENDER_PAGE_SNAPSHOT_LIMIT) {
+      const oldest = renderPages.keys().next().value
+      if (oldest) renderPages.delete(oldest)
+    }
+    renderPages.set(snapshotId, snapshot)
+  }
+  return renderMeasurementPage(snapshotId, snapshot, 0, query.limit)
 }
 
-function snapshotRenderRecords(): Map<number, RenderRecord> {
+function snapshotRenderRecords(candidates = [...records.values()]): Map<number, RenderRecord> {
   return new Map(
-    [...records].map(([id, record]) => [
-      id,
+    candidates.map((record) => [
+      record.id,
       {
         ...record,
         instance: safeStructuredClone(record.instance),

@@ -512,20 +512,86 @@ export const reactGetRendersContract = defineAgentToolContract({
   description:
     'Report bounded component render counts, observed React input changes, stable mount identity, runtime timing, and source. Start a measurement with react_clear_renders, drive one interaction, then read this. Legacy unnecessary/forget fields remain for compatibility; use render causes and explicit evidence before editing code.',
   group: 'react.render',
-  input: z.object({
-    component: z.string().optional().describe('Only components whose name contains this string.'),
-    sort: z
-      .enum(['renders', 'unnecessary', 'referenceOnly', 'unstable', 'selfTime'])
-      .default('renders'),
-    limit: z.number().int().min(1).max(200).default(40),
-    appOnly: z
-      .boolean()
-      .default(true)
-      .describe(
-        'Show only records with app source evidence. Unknown ownership is excluded instead of being attributed to the app; an exact app hook callsite keeps a framework-wrapped record visible.',
-      ),
-  }),
+  input: z
+    .object({
+      component: z.string().optional().describe('Only components whose name contains this string.'),
+      nameFilter: z
+        .string()
+        .min(1)
+        .max(160)
+        .optional()
+        .describe(
+          'Case-insensitive whole-name glob: * matches any text and ? matches one character. Applied before limit.',
+        ),
+      excludeNames: z
+        .array(z.string().min(1).max(160))
+        .max(50)
+        .default([])
+        .describe('Case-insensitive whole-name globs to exclude before limit.'),
+      minUpdates: z
+        .number()
+        .int()
+        .nonnegative()
+        .default(0)
+        .describe('Minimum observed update count, applied before limit.'),
+      includeCursor: z
+        .boolean()
+        .default(true)
+        .describe(
+          'Retain a frozen cursor for remaining rows. Set false for polling or one-shot reads: no snapshot is retained, the summary still covers the selected records, and omitted rows have no cursor.',
+        ),
+      cursor: z
+        .string()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe(
+          'Continue a frozen report using nextCursor. Pass only cursor and optional limit; counts, filters, ordering, and source coverage remain frozen. Cursors expire after five minutes or after three newer paginated reports, and clear/profile start invalidates them.',
+        ),
+      sort: z
+        .enum(['renders', 'unnecessary', 'referenceOnly', 'unstable', 'selfTime'])
+        .default('renders'),
+      limit: z.number().int().min(1).max(200).default(40),
+      appOnly: z
+        .boolean()
+        .default(true)
+        .describe(
+          'Show only records with app source evidence. Unknown ownership is excluded instead of being attributed to the app; an exact app hook callsite keeps a framework-wrapped record visible.',
+        ),
+    })
+    .refine(
+      (input) =>
+        !input.cursor ||
+        (!input.component &&
+          !input.nameFilter &&
+          input.excludeNames.length === 0 &&
+          input.minUpdates === 0 &&
+          input.sort === 'renders' &&
+          input.appOnly === true &&
+          input.includeCursor === true),
+      {
+        message:
+          'With cursor, pass only cursor and optional limit; omit selection and sort options.',
+      },
+    ),
   output: z.object({
+    nextCursor: z
+      .string()
+      .nullable()
+      .describe(
+        'Cursor for remaining frozen rows, or null when exhausted or includeCursor:false. Unknown ownership is reported separately.',
+      ),
+    pagination: z.object({
+      snapshotId: z.string().nullable(),
+      offset: z.number().int().nonnegative(),
+      totalComponents: z.number().int().nonnegative(),
+      expiresAt: z
+        .number()
+        .nullable()
+        .describe(
+          'Cursor expiry as Unix time in milliseconds. Null for one-shot reads. At most three snapshots of up to 5000 name/update-filtered candidates are retained.',
+        ),
+    }),
     tracking: z.boolean(),
     renderCollection: z
       .string()

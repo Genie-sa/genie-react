@@ -60,7 +60,32 @@ Summarizes component render counts, changed inputs, timing, mount identity, and 
 
 **Input:** `component` is an optional component-name substring. `sort` is `renders`, `unnecessary`,
 `referenceOnly`, `unstable`, or `selfTime` and defaults to `renders`. `limit` is an integer from 1 to
-200 and defaults to 40. `appOnly` defaults to `true`.
+200 and defaults to 40. `appOnly` defaults to `true`. `nameFilter` accepts a case-insensitive
+whole-name glob (1–160 characters): `*` matches any text and `?` matches one character. `excludeNames`
+accepts up to 50 such globs. `minUpdates` is a nonnegative integer and defaults to 0. These selectors
+combine with the existing `component` substring and run before source classification and the cap.
+
+Use `nextCursor` with `cursor` to read the remainder; pass only `cursor` and optional `limit` on
+continuation calls. Pages retain the first report's ordering, counts, summary, source coverage, and
+observation metadata while new commits arrive. `pagination` reports the snapshot ID, row offset,
+total selected rows, and `expiresAt` in Unix milliseconds. `omittedByLimit` counts rows remaining
+after the current page, and `nextCursor:null` means that selected snapshot is exhausted.
+
+Cursors expire after five minutes or eviction by newer reports (at most three paginated snapshots
+are retained). Clearing/restarting profiling or disposing tracking invalidates them. Reports with
+more than 5000 candidates matching the name/update filters (before `appOnly`) fail before snapshot
+construction, with a narrowing instruction. Invalid or expired cursors require a fresh call without
+`cursor`.
+
+`includeCursor` defaults to `true`. Set it to `false` for a one-shot report: the requested row limit
+still applies, the summary covers all selected records, and omitted rows are not recoverable by
+cursor. No snapshot is retained, `pagination.snapshotId` and `expiresAt` are null, and the 5000-candidate
+snapshot limit does not apply. Background React quiet waits use this mode so polling cannot evict
+an active paginated report.
+
+Source ownership is separate from pagination. If `sourceClassification.complete` is false,
+`appOnly:true` excludes unknown ownership and the result remains a lower bound even after its last
+page. Retry without `cursor` after source warmup to include newly classified rows.
 
 `sourceClassification` reports app, library, and unknown ownership counts for matching records
 before `appOnly` and the result limit. `totalCandidates` counts that set; `evaluated` counts
@@ -77,6 +102,20 @@ metadata or source-map access before comparing app-only measurements.
 ```bash
 npx @genie-react/cli call react_get_renders \
   '{"component":"ProductCard","sort":"selfTime","limit":10,"appOnly":true}' --json
+```
+
+To select updated rows and exclude an internal wrapper before paging:
+
+```bash
+npx @genie-react/cli call react_get_renders \
+  '{"nameFilter":"*Row*","excludeNames":["*Internal*"],"minUpdates":1,"limit":200}' --json
+```
+
+Pass the returned cursor to continue:
+
+```bash
+npx @genie-react/cli call react_get_renders \
+  '{"cursor":"01234567-89ab-4cde-8fab-0123456789ab:200","limit":200}' --json
 ```
 
 **Output (selected fields):**

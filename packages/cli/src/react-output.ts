@@ -87,8 +87,14 @@ export function summarizeRenders(result: unknown): string | null {
     typeof result.omittedByLimit === 'number'
       ? result.omittedByLimit
       : Math.max(0, num(summary.trackedComponents) - components.length)
+  const nextCursor =
+    typeof result.nextCursor === 'string' &&
+    result.nextCursor.length <= 100 &&
+    /^[0-9a-f-]{36}:[1-9][0-9]*$/.test(result.nextCursor)
+      ? result.nextCursor
+      : null
   const lines = [
-    `${num(summary.commits)} commits · ${num(summary.trackedComponents)} components · ${semanticCount(summary.totalRenders, summary.semantics, 'renders')} · ${semanticCount(summary.totalUpdates, summary.semantics, 'updates')}${referenceOnlyPropComponents > 0 ? ` · ${referenceOnlyPropComponents} reference-only prop candidates` : ''} · ${noObservedInputChangeComponents} no observed input change${omitted > 0 ? ` · ${omitted} omitted` : ''}${comparabilitySuffix(result)}${attributionSuffix(result.attribution)}${coverageSuffix(result.coverage)}${trackingOff}${renderCollection}`,
+    `${num(summary.commits)} commits · ${num(summary.trackedComponents)} components · ${semanticCount(summary.totalRenders, summary.semantics, 'renders')} · ${semanticCount(summary.totalUpdates, summary.semantics, 'updates')}${referenceOnlyPropComponents > 0 ? ` · ${referenceOnlyPropComponents} reference-only prop candidates` : ''} · ${noObservedInputChangeComponents} no observed input change${omitted > 0 ? ` · ${omitted} ${nextCursor ? 'remaining' : 'omitted'}` : ''}${comparabilitySuffix(result)}${attributionSuffix(result.attribution)}${coverageSuffix(result.coverage)}${trackingOff}${renderCollection}`,
   ]
 
   const topReferenceOnlyProps = Array.isArray(summary.topReferenceOnlyProps)
@@ -126,6 +132,11 @@ export function summarizeRenders(result: unknown): string | null {
     const cause = renderCausalEvidence(component.causes) ?? renderCause(component.changes)
     if (cause) parts.push(`· ↻ ${cause}`)
     lines.push(parts.join(' ') + sourceSuffix(component))
+  }
+  if (nextCursor) {
+    lines.push(
+      `next: genie-react call react_get_renders '${JSON.stringify({ cursor: nextCursor, limit: 200 })}' --json`,
+    )
   }
   return lines.join('\n')
 }

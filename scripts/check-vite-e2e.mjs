@@ -11,7 +11,7 @@ import { chromium } from 'playwright'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const RUNTIME_PACKAGE_ROOT = join(ROOT, 'packages/genie-react')
 const CLI_PACKAGE_ROOT = join(ROOT, 'packages/cli')
-const MAX_PROCESS_OUTPUT = 20_000
+const MAX_PROCESS_OUTPUT = 1_000_000
 const CONSUMER_DEPENDENCIES = [
   'react@19.2.7',
   'react-dom@19.2.7',
@@ -215,17 +215,19 @@ import { Genie } from 'genie-react'
 
 const queryClient = new QueryClient()
 
-function Row({ index }) {
-  return createElement('span', null, index)
+function Row({ index, revision }) {
+  return createElement('span', { id: 'row-' + index }, index + ':' + revision)
 }
 
 function App() {
   const [showRows, setShowRows] = useState(false)
+  const [revision, setRevision] = useState(0)
   const query = useQuery({ queryKey: ['greeting'], queryFn: async () => 'hello' })
   return createElement('main', { id: 'lab' },
     query.data ?? query.status,
     createElement('button', { onClick: () => setShowRows(true) }, 'Mount rows'),
-    showRows && Array.from({ length: 241 }, (_, index) => createElement(Row, { key: index, index })),
+    createElement('button', { onClick: () => setRevision(value => value + 1) }, 'Update rows'),
+    showRows && Array.from({ length: 241 }, (_, index) => createElement(Row, { key: index, index, revision })),
   )
 }
 
@@ -486,6 +488,76 @@ async function main() {
     )
     process.stdout.write(
       `${stage}: ${classification.app}/241 app rows on first read, 241/241 after warmup.\n`,
+    )
+    const readPage = async (args) =>
+      parseSuccessfulJson(
+        'render page',
+        await runCli(['call', 'react_get_renders', JSON.stringify(args), '--json']),
+      )
+    const selection = {
+      nameFilter: 'R?w',
+      excludeNames: ['*Internal*'],
+      minUpdates: 1,
+      appOnly: true,
+      limit: 200,
+    }
+    const mountsOnly = await readPage(selection)
+    assert(mountsOnly.components.length === 0, `${stage}: minUpdates retained mount-only rows`)
+    await page.getByRole('button', { name: 'Update rows' }).click()
+    await page.waitForFunction(() => document.querySelector('#row-240')?.textContent === '240:1')
+    const first = await readPage(selection)
+    assert(
+      first.sourceClassification.complete && first.pagination.totalComponents === 241,
+      `${stage}: updated app rows were not fully classified`,
+    )
+    assert(
+      first.components.length === 200 && first.omittedByLimit === 41 && first.nextCursor,
+      `${stage}: first page did not retain a recoverable remainder`,
+    )
+    await page.getByRole('button', { name: 'Update rows' }).click()
+    await page.waitForFunction(() => document.querySelector('#row-240')?.textContent === '240:2')
+    const second = await readPage({ cursor: first.nextCursor, limit: 200 })
+    assert(
+      second.components.length === 41 && second.nextCursor === null && second.omittedByLimit === 0,
+      `${stage}: continuation did not exhaust the selected snapshot`,
+    )
+    const rows = [...first.components, ...second.components]
+    assert(
+      new Set(rows.map((row) => row.id)).size === 241,
+      `${stage}: cursor introduced duplicated or missing rows`,
+    )
+    assert(
+      rows.every((row) => row.updates === 1),
+      `${stage}: a later commit changed frozen row counts`,
+    )
+    assert(
+      second.documentCommitId === first.documentCommitId &&
+        second.summary.totalUpdates === first.summary.totalUpdates,
+      `${stage}: continuation changed measurement metadata`,
+    )
+    const human = await runCli([
+      'call',
+      'react_get_renders',
+      JSON.stringify({ ...selection, limit: 1 }),
+    ])
+    assert(
+      human.code === 0 && human.stdout.includes('next: genie-react call react_get_renders'),
+      `${stage}: human CLI omitted continuation guidance`,
+    )
+    const invalid = await runCli([
+      'call',
+      'react_get_renders',
+      JSON.stringify({ cursor: first.nextCursor, nameFilter: 'Row' }),
+      '--json',
+    ])
+    assert(invalid.code !== 0, `${stage}: cursor accepted conflicting selectors`)
+    const failure = JSON.parse(invalid.stdout)
+    assert(
+      failure.reason === 'invalid-args' && !invalid.stdout.includes('next:'),
+      `${stage}: invalid page request did not preserve clean machine errors`,
+    )
+    process.stdout.write(
+      `${stage}: paged 241 updated app rows as 200 + 41 across another live commit.\n`,
     )
   }
   assert(pageErrors.length === 0, `Browser page errors:\n${pageErrors.join('\n')}`)

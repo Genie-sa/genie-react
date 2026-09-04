@@ -1023,7 +1023,7 @@ export class GenieBridge {
       }
       const response = await this.appRequest(
         'react_get_renders',
-        { sort: 'renders', limit: 1, appOnly: false },
+        { sort: 'renders', limit: 1, appOnly: false, includeCursor: false },
         sessionId,
       )
       const result = recordOf(response.result)

@@ -12,6 +12,8 @@ import {
 describe('react_get_renders output contract', () => {
   it('preserves detailed hook state changes for typed agent clients', () => {
     const result = reactGetRendersContract.output.parse({
+      nextCursor: null,
+      pagination: { snapshotId: 'report:1', offset: 0, totalComponents: 1, expiresAt: 300_000 },
       sourceClassification: {
         complete: false,
         totalCandidates: 1,
@@ -492,5 +494,34 @@ describe('observation budget schemas', () => {
     expect(interaction.success).toBe(accepted)
     if (!clear.success || !interaction.success) return
     expect(interaction.data.budget).toEqual(clear.data.budget)
+  })
+})
+
+describe('render page request contract', () => {
+  it('accepts bounded selectors and continuation requests', () => {
+    expect(
+      reactGetRendersContract.input.parse({
+        nameFilter: 'Row*',
+        excludeNames: ['*Internal'],
+        minUpdates: 2,
+      }),
+    ).toMatchObject({ nameFilter: 'Row*', excludeNames: ['*Internal'], minUpdates: 2 })
+    expect(reactGetRendersContract.input.parse({ cursor: 'opaque', limit: 200 })).toMatchObject({
+      cursor: 'opaque',
+      limit: 200,
+    })
+  })
+
+  it.each([
+    { minUpdates: -1 },
+    { nameFilter: '' },
+    { nameFilter: 'x'.repeat(161) },
+    { excludeNames: Array.from({ length: 51 }, () => 'x') },
+    { cursor: 'opaque', nameFilter: 'Row*' },
+    { cursor: 'opaque', sort: 'selfTime' },
+    { cursor: 'opaque', appOnly: false },
+    { cursor: 'opaque', minUpdates: 1 },
+  ])('rejects an invalid or ambiguous page selection %j', (input) => {
+    expect(reactGetRendersContract.input.safeParse(input).success).toBe(false)
   })
 })
