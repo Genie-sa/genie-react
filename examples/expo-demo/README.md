@@ -71,3 +71,8 @@ Run the automated TypeScript and Metro bundle checks for iOS and Android:
 ```sh
 pnpm --filter @genie-react/expo-demo check
 ```
+
+The development Babel configuration enables `genie-react/babel`. After pressing Increment,
+`react_get_renders` and `react_component_cohort` should identify `MemoNameRow`, `InnerNamedRow`,
+and `CustomMemoRow`. This verifies binding names, named inner functions, and explicit wrapper
+names respectively. Production exports omit the generated binding-name metadata.

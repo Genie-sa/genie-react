@@ -95,7 +95,17 @@
       "import": "./dist/protocol.js",
       "default": "./dist/protocol.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./babel": {
+      "import": {
+        "types": "./dist/babel.d.mts",
+        "default": "./dist/babel.mjs"
+      },
+      "require": {
+        "types": "./dist/babel.d.cts",
+        "default": "./dist/babel.cjs"
+      }
+    }
   },
   "scripts": {
     "build": "tsdown",
@@ -112,7 +122,8 @@
     "@tanstack/react-query": ">=5",
     "@tanstack/react-router": ">=1",
     "react": ">=18",
-    "vite": ">=5"
+    "vite": ">=5",
+    "@babel/core": "^7.0.0"
   },
   "peerDependenciesMeta": {
     "@tanstack/react-query": {
@@ -126,12 +137,17 @@
     },
     "vite": {
       "optional": true
+    },
+    "@babel/core": {
+      "optional": true
     }
   },
   "devDependencies": {
+    "@babel/core": "^7.29.7",
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-router": "^1.170.0",
     "@testing-library/react": "^16.3.2",
+    "@types/babel__core": "^7.20.5",
     "@types/react": "^19.2.17",
     "@types/ws": "^8.18.1",
     "jsdom": "^28.1.0",

@@ -16,6 +16,9 @@ const CONSUMER_DEPENDENCIES = [
   'react@19.2.7',
   'react-dom@19.2.7',
   'vite@8.1.0',
+  '@vitejs/plugin-react@6.0.3',
+  '@rolldown/plugin-babel@0.2.3',
+  '@babel/core@7.29.7',
   '@tanstack/react-query@5.101.2',
 ]
 
@@ -202,22 +205,36 @@ async function preparePackagedConsumer() {
     join(temporaryRoot, 'vite.config.mjs'),
     `import { defineConfig } from 'vite'
 import { genie } from 'genie-react/vite'
+import genieNames from 'genie-react/babel'
+import react from '@vitejs/plugin-react'
+import babel from '@rolldown/plugin-babel'
 
-export default defineConfig({ plugins: [genie()] })
+export default defineConfig(({ command }) => ({
+  plugins: [genie(), react(), command === 'serve' && babel({ plugins: [genieNames] })],
+}))
 `,
   )
   await writeFile(
     join(temporaryRoot, 'src/main.js'),
-    `import { createElement } from 'react'
+    `import { createElement, memo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { Genie } from 'genie-react'
 
 const queryClient = new QueryClient()
 
+const MemoNameRow = memo(({ value }) => createElement('span', null, value))
+const NamedMemoRow = memo(function InnerNamedRow({ value }) { return createElement('span', null, value) })
+const ExplicitMemoRow = memo(({ value }) => createElement('span', null, value))
+ExplicitMemoRow.displayName = 'CustomMemoRow'
+
 function App() {
+  const [value, setValue] = useState(0)
   const query = useQuery({ queryKey: ['greeting'], queryFn: async () => 'hello' })
-  return createElement('main', { id: 'lab' }, query.data ?? query.status)
+  return createElement('main', { id: 'lab' }, query.data ?? query.status,
+    createElement('button', { onClick: () => setValue((value) => value + 1) }, 'Update memo rows'),
+    createElement(MemoNameRow, { value }), createElement(NamedMemoRow, { value }), createElement(ExplicitMemoRow, { value }),
+  )
 }
 
 createRoot(document.getElementById('root')).render(
@@ -406,6 +423,42 @@ async function main() {
   assert(
     queryList.queries.some((query) => JSON.stringify(query?.queryKey) === '["greeting"]'),
     'Query list did not include the demo greeting query',
+  )
+  parseSuccessfulJson(
+    'clear memo observation',
+    await runCli(['call', 'react_clear_renders', '{}', '--json']),
+  )
+  await page.getByRole('button', { name: 'Update memo rows' }).click()
+  for (const component of ['MemoNameRow', 'InnerNamedRow', 'CustomMemoRow']) {
+    const report = parseSuccessfulJson(
+      'read memo renders',
+      await runCli([
+        'call',
+        'react_get_renders',
+        JSON.stringify({ component, appOnly: false, limit: 1 }),
+        '--json',
+      ]),
+    )
+    assert(
+      report.components?.[0]?.name === component && report.components[0].updates === 1,
+      `Memo render report did not preserve ${component}`,
+    )
+    const cohort = parseSuccessfulJson(
+      'read memo cohort',
+      await runCli([
+        'call',
+        'react_component_cohort',
+        JSON.stringify({ component, exact: true, limit: 1 }),
+        '--json',
+      ]),
+    )
+    assert(
+      cohort.instances?.[0]?.componentName === component,
+      `Memo cohort did not preserve ${component}`,
+    )
+  }
+  process.stdout.write(
+    'Memo naming E2E passed: lexical binding, named inner, and explicit wrapper names.\n',
   )
   assert(pageErrors.length === 0, `Browser page errors:\n${pageErrors.join('\n')}`)
 
