@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar'
 import { Genie } from 'genie-react/native'
 import { useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ExplicitMemoRow, MemoNameRow, NamedMemoRow } from './components/memo-name-fixture'
 import { ToolTestbed } from './components/tool-testbed'
 import { queryClient, router } from './lib/runtime'
 
@@ -66,6 +67,9 @@ export default function App() {
             </Pressable>
           </View>
         </View>
+        <MemoNameRow value={count} />
+        <NamedMemoRow value={count} />
+        <ExplicitMemoRow value={count} />
         <ToolTestbed />
       </ScrollView>
       <StatusBar style="dark" />
