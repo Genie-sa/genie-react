@@ -103,12 +103,14 @@ export function isInteractionTool(tool: string): boolean {
 export class InteractionManager<TSession extends InteractionSession> {
   private readonly active = new Map<string, ActiveInteraction<TSession>>()
   private readonly completed = new Map<string, unknown>()
+  private readonly starting = new Map<string, symbol>()
 
   constructor(private readonly options: InteractionManagerOptions<TSession>) {}
 
   clear(): void {
     this.active.clear()
     this.completed.clear()
+    this.starting.clear()
   }
 
   async invoke(
@@ -139,17 +141,18 @@ export class InteractionManager<TSession extends InteractionSession> {
     const session = this.options.resolveSession(sessionTarget)
     if (!session) return this.noSession(sessionTarget)
     if (
+      this.starting.has(session.sessionId) ||
       [...this.active.values()].some(
         (interaction) => interaction.session.sessionId === session.sessionId,
       )
     ) {
       return {
         ok: false,
-        error: `Session ${JSON.stringify(session.sessionId)} already has a recording interaction. Stop it before beginning another; clearing now would invalidate its boundary.`,
+        error: `Session ${JSON.stringify(session.sessionId)} already has a starting or recording interaction. Stop it before beginning another; clearing now would invalidate its boundary.`,
         errorCode: 'invalid-args',
       }
     }
-    if (this.active.size >= MAX_ACTIVE_INTERACTIONS) {
+    if (this.active.size + this.starting.size >= MAX_ACTIVE_INTERACTIONS) {
       return {
         ok: false,
         error: `The bridge already has ${MAX_ACTIVE_INTERACTIONS} active interactions. Stop an existing interaction before starting another.`,
@@ -165,6 +168,22 @@ export class InteractionManager<TSession extends InteractionSession> {
       }
     }
 
+    const reservation = Symbol(session.sessionId)
+    this.starting.set(session.sessionId, reservation)
+    try {
+      return await this.beginReserved(input, session, reservation)
+    } finally {
+      if (this.starting.get(session.sessionId) === reservation) {
+        this.starting.delete(session.sessionId)
+      }
+    }
+  }
+
+  private async beginReserved(
+    input: ReturnType<typeof devtoolsInteractionBeginContract.input.parse>,
+    session: TSession,
+    reservation: symbol,
+  ): Promise<InteractionInvocation> {
     const observationArgs = {
       components: input.components,
       roots: input.roots,
@@ -177,6 +196,17 @@ export class InteractionManager<TSession extends InteractionSession> {
         ok: false,
         error: response.error ?? 'react_clear_renders failed while beginning the interaction.',
         errorCode: response.errorCode === 'invalid-args' ? 'invalid-args' : 'tool-error',
+      }
+    }
+    if (
+      this.starting.get(session.sessionId) !== reservation ||
+      !this.options.isCurrentSession(session)
+    ) {
+      return {
+        ok: false,
+        error:
+          'The app document or bridge changed while beginning the interaction. Begin a new recording on the current document.',
+        errorCode: 'not-connected',
       }
     }
     const result = recordOf(response.result)
