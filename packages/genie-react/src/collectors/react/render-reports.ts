@@ -33,7 +33,7 @@ const UNCLASSIFIED_FIBER: FiberClassification = {
 export interface RenderQuery {
   component?: string
   limit: number
-  sort: 'renders' | 'unnecessary' | 'referenceOnly' | 'unstable' | 'selfTime'
+  sort: 'renders' | 'updates' | 'unnecessary' | 'referenceOnly' | 'unstable' | 'selfTime'
   appOnly?: boolean
 }
 
@@ -219,6 +219,7 @@ function sortReports(entries: ClassifiedRecord[], sort: RenderQuery['sort']): Cl
   return [...entries].sort((left, right) => {
     const before = left.report
     const after = right.report
+    if (sort === 'updates') return after.updates - before.updates
     if (sort === 'selfTime') return after.selfTime - before.selfTime
     if (sort === 'unnecessary') return after.unnecessary - before.unnecessary
     if (sort === 'referenceOnly' || sort === 'unstable') {

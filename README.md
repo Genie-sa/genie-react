@@ -190,6 +190,23 @@ roles, seed fixtures, inject API failures, jump wizard steps. See the
 
 ## Prove a fix
 
+For a labelled interaction, use the existing bridge-owned handle:
+
+```bash
+npx @genie-react/cli call devtools_interaction_begin '{"name":"open checkout","components":["CheckoutRow"]}' --json
+# Save interactionId from the result, then perform the UI action.
+# If its asynchronous work belongs in the measurement, wait for it before stopping:
+npx @genie-react/cli call devtools_wait '{"condition":"react-quiet","quietMs":500,"timeoutMs":10000}' --json
+# Check ok:true, then replace the example ID with the returned interactionId.
+npx @genie-react/cli call devtools_interaction_stop '{"interactionId":"int_RETURNED_ID"}' --json
+```
+
+The result retains the name, physical session, observation ID, and start/stop document commit boundaries. Inspect `coverage.comparable`, `notComparableReasons`, and warnings before comparing runs. Stop freezes the profile **before** its own settle wait; later commits are counted as `postInteractionCommits` and excluded. A timeout means the requested settle condition was not observed; do not treat the result as a completed measurement.
+
+Only one interaction can start or record per physical document. A competing begin is rejected before it can clear the first window; stop the existing handle before opening the next one. Avoid `react_clear_renders` or another profile start during a recording, and start a new handle after relaunch. Handles are retained in the hub's bounded memory, so export results for a durable audit.
+
+This is a labelled observation window, not proof that the action caused every render inside it: background query updates can still occur in the same window. Inspect the recorded render causes and exact notification evidence. Concurrent time windows alone cannot yield disjoint causal commit sets.
+
 `react_get_renders` and `react_profile_report` include `bundle` (`development`, `production`,
 `mixed`, or `unknown`), `timingsBundleDependent: true`, and `countsScope: "observed-run"`.
 Bundle metadata comes from the app document's registered React renderers. Quote render/update
@@ -398,8 +415,17 @@ React Native has no DOM selectors. `react_dom_for_component` returns native view
 
 ```bash
 npx @genie-react/cli tools
+npx @genie-react/cli tools react.render
 npx @genie-react/cli tools react_render_causes
 ```
+
+Group listings show parameter names, enum values, bounds, and defaults in human output and compact
+JSON. Use `tools <tool>` for nested options and a runnable example. For named render/effect reports,
+use `component`; `react_component_cohort` uses that same key with exact matching by default. Tools
+that inspect or mutate one live instance use its returned `id`, which is distinct from a name filter.
+`react_get_renders` accepts `sort:"updates"` to rank update counts before applying the result limit.
+Pass `appOnly` only where advertised: cohort queries retain mounted and unmounted lifecycle evidence
+and do not currently support ownership filtering.
 
 Tool areas include React, effects, Query, Router, memory, frame rate, plugins, and runtime captures. Read tools inspect the app. Action tools can change live Query, Router, component, Suspense, and error state.
 
