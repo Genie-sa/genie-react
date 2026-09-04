@@ -190,6 +190,23 @@ roles, seed fixtures, inject API failures, jump wizard steps. See the
 
 ## Prove a fix
 
+For a labelled interaction, use the existing bridge-owned handle:
+
+```bash
+npx @genie-react/cli call devtools_interaction_begin '{"name":"open checkout","components":["CheckoutRow"]}' --json
+# Save interactionId from the result, then perform the UI action.
+# If its asynchronous work belongs in the measurement, wait for it before stopping:
+npx @genie-react/cli call devtools_wait '{"condition":"react-quiet","quietMs":500,"timeoutMs":10000}' --json
+# Check ok:true, then replace the example ID with the returned interactionId.
+npx @genie-react/cli call devtools_interaction_stop '{"interactionId":"int_RETURNED_ID"}' --json
+```
+
+The result retains the name, physical session, observation ID, and start/stop document commit boundaries. Inspect `coverage.comparable`, `notComparableReasons`, and warnings before comparing runs. Stop freezes the profile **before** its own settle wait; later commits are counted as `postInteractionCommits` and excluded. A timeout means the requested settle condition was not observed; do not treat the result as a completed measurement.
+
+Only one interaction can start or record per physical document. A competing begin is rejected before it can clear the first window; stop the existing handle before opening the next one. Avoid `react_clear_renders` or another profile start during a recording, and start a new handle after relaunch. Handles are retained in the hub's bounded memory, so export results for a durable audit.
+
+This is a labelled observation window, not proof that the action caused every render inside it: background query updates can still occur in the same window. Inspect the recorded render causes and exact notification evidence. Concurrent time windows alone cannot yield disjoint causal commit sets.
+
 `react_get_renders` and `react_profile_report` include `bundle` (`development`, `production`,
 `mixed`, or `unknown`), `timingsBundleDependent: true`, and `countsScope: "observed-run"`.
 Bundle metadata comes from the app document's registered React renderers. Quote render/update
