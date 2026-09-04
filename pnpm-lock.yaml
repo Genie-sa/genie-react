@@ -455,7 +455,7 @@ importers:
   packages/genie-react:
     dependencies:
       bippy:
-        specifier: ^0.7.2
+        specifier: 0.7.2
         version: 0.7.2(@types/react@19.2.17)(react@19.2.7)
       superjson:
         specifier: ^2.2.6
