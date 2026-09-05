@@ -17,6 +17,91 @@ defines its own. The contract command is always the source of truth:
 npx @genie-react/cli tools app
 ```
 
+## Settled native navigation
+
+`createNavigationTools` from `genie-react/navigation` provides an opt-in adapter for Expo Router
+and React Navigation native stacks. Register its three tools and forward navigator events to it:
+
+```tsx
+import { registerGenieTools } from 'genie-react/client'
+import { createNavigationTools } from 'genie-react/navigation'
+
+// Create once for this navigator's lifetime, for example inside the layout component's effect.
+const integration = createNavigationTools({
+  getState: () => navigation.getRootState(),
+  isCurrentHref: (href) => matchesCurrentHrefIncludingParams(href),
+  router: {
+    push: (href) => router.push(href),
+    replace: (href) => router.replace(href),
+    navigate: (href) => router.navigate(href),
+    dismissTo: (href) => router.dismissTo(href),
+    back: () => router.back(),
+    canGoBack: () => router.canGoBack(),
+  },
+})
+const unregister = registerGenieTools(...integration.tools)
+
+// Forward state, transitionStart and transitionEnd through each relevant native stack's
+// screenListeners. Retain the controller in a ref when creating it inside an effect.
+// <Stack screenListeners={integration.screenListeners} />
+
+// On layout cleanup:
+// unregister()
+// integration.dispose()
+```
+
+The app supplies `matchesCurrentHrefIncludingParams`: compare the complete destination using your
+routing rules, including parameters. Comparing only a route name can incorrectly skip a requested
+parameter change. With Expo Router's typed routes, validate or cast hrefs to your app's `Href`
+type at this adapter boundary. The repository's
+[complete Expo Router layout](https://github.com/Genie-sa/genie-react/blob/main/examples/expo-demo/app/_layout.tsx)
+shows effect cleanup, refs, registration and event forwarding for its two known routes.
+
+These tools appear only after registration. Replace your existing handlers with the integration;
+installing Genie alone does not change app-owned navigation tools.
+
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `app_navigate` | `href`: nonempty string; `mode`: `navigate` (default), `push`, `replace`, `dismiss_to`; `timeoutMs`: integer 1–15000, default 5000 | Resulting route, active route path, stack depth and settlement |
+| `app_navigate_back` | `timeoutMs`: integer 1–15000, default 5000 | Resulting route, stack depth and settlement; no-op when back is unavailable |
+| `app_navigation_state` | None | Current route and stack snapshot, `transitioning` and `unsettledNavigation`; does not wait |
+
+```bash
+npx @genie-react/cli call app_navigate \
+  '{"href":"/details","mode":"push","timeoutMs":5000}' --json
+```
+
+```json
+{
+  "currentRoute": { "key": "details-instance-2", "name": "details" },
+  "stackDepth": 3,
+  "stackScope": "deepest-active-stack",
+  "settled": true,
+  "reason": "transition-end"
+}
+```
+
+Read the destination from this response; no sleep or follow-up state call is needed when
+`settled:true`. Explicit `push` can add another instance of an existing screen. `stackDepth` and
+`stackRoutes` expose that duplication immediately. In nested navigators, depth describes the
+deepest stack on the active route path, not the sum of every navigator's routes.
+
+Success follows a matching native `transitionEnd` and the resulting navigation state. An already
+current `navigate` or `dismiss_to`, or a back action with no history, returns `reason:"no-op"`.
+React render quiescence is independent of native transition completion.
+
+Concurrent calls serialize, with at most 32 waiting calls. The timeout includes time waiting in
+the queue; an expired queued action is never dispatched. Read `settled` on every response:
+`timeout`, `transition-in-progress`, `previous-navigation-unsettled`, `queue-full`, `unavailable`,
+`dispatch-error` and `disposed` all report `settled:false` with the state observed at return time.
+A timeout does not undo navigation. Do not blindly retry a push.
+
+After a dispatched action times out, further actions remain blocked until its matching transition
+finishes. If the navigator never emits that event, inspect the actual app state and correct the
+listener wiring before disposing and recreating the integration. Forward events from every stack
+that can perform the action. State changes alone, parameter-only updates without a transition,
+and non-native navigators do not establish native transition completion.
+
 ## Register a tool
 
 One declaration in a component. The zod schema drives validation, TypeScript types, and the
