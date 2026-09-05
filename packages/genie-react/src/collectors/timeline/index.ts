@@ -289,18 +289,17 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
       if (
         typeof window !== 'undefined' &&
         typeof PerformanceObserver !== 'undefined' &&
-        !(typeof navigator !== 'undefined' && navigator.product === 'ReactNative')
+        !(typeof navigator !== 'undefined' && navigator.product === 'ReactNative') &&
+        PerformanceObserver.supportedEntryTypes?.includes('resource')
       ) {
-        if (PerformanceObserver.supportedEntryTypes?.includes('resource')) {
-          const observer = new PerformanceObserver((list) => resources(target, list.getEntries()))
-          target.dispose.push(() => observer.disconnect())
-          observer.observe({ type: 'resource', buffered: false })
-          target.observer = observer
-          target.report.coverage.request = {
-            status: 'available',
-            detail:
-              'Completed fetch/XHR Resource Timing only; observation time includes delivery delay. Requests started before recording may appear. Failed, unfinished, worker and non-fetch/XHR requests may be absent. Cross-origin detailed timing requires Timing-Allow-Origin. URLs omit credentials, queries and fragments; paths remain.',
-          }
+        const observer = new PerformanceObserver((list) => resources(target, list.getEntries()))
+        target.dispose.push(() => observer.disconnect())
+        observer.observe({ type: 'resource', buffered: false })
+        target.observer = observer
+        target.report.coverage.request = {
+          status: 'available',
+          detail:
+            'Completed fetch/XHR Resource Timing only; observation time includes delivery delay. Requests started before recording may appear. Failed, unfinished, worker and non-fetch/XHR requests may be absent. Cross-origin detailed timing requires Timing-Allow-Origin. URLs omit credentials, queries and fragments; paths remain.',
         }
       }
       if (options.queryClient) {
