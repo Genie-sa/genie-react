@@ -420,6 +420,7 @@ export async function buildTree(
     return treeCache.result
   }
 
+  const candidateLimit = options.appOnly ? 5000 : options.maxNodes
   const entries: { node: TreeNode; fiber: Fiber }[] = []
   let total = 0
   let depthClipped = false
@@ -447,7 +448,7 @@ export async function buildTree(
       const keep = composite || (options.includeHost && isHostFiber(child))
       if (keep) {
         total += 1
-        if (entries.length >= options.maxNodes) {
+        if (entries.length >= candidateLimit) {
           nodeCapped = true
           countOnly(child)
         } else {
@@ -506,7 +507,8 @@ export async function buildTree(
 
   if (options.appOnly) {
     const folded = await foldLibrarySubtrees(entries)
-    nodes = folded.nodes
+    nodeCapped ||= folded.nodes.length > options.maxNodes
+    nodes = folded.nodes.slice(0, options.maxNodes)
     ownership = folded.ownershipCoverage
     classificationPartial = folded.partial
     filteredNote = appOnlyFilteredNote(
@@ -614,7 +616,7 @@ export async function buildProvenanceReport(
   }
 }
 
-// Classifies each node, labels anonymous nodes by source (`cmdk.js:1998`), and folds each library subtree into its top node instead of a wall of "Anonymous"; hidden counts the folded-away library nodes.
+// Classify bounded candidates before the output cap and reconnect app nodes through hidden ancestors.
 async function foldLibrarySubtrees(entries: { node: TreeNode; fiber: Fiber }[]): Promise<{
   nodes: TreeNode[]
   hidden: number
@@ -635,7 +637,7 @@ async function foldLibrarySubtrees(entries: { node: TreeNode; fiber: Fiber }[]):
     }
   })
 
-  // Drop a library node whose nearest kept parent is also library: subtrees collapse to their top node while app components composed under library providers are kept.
+  // Preserve hierarchy through excluded library and unknown ancestors.
   const nearestRetainedById = new Map<NodeId, NodeId | null>()
   const nodes: TreeNode[] = []
   let appOwnedShown = 0

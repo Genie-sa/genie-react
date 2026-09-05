@@ -1058,3 +1058,14 @@ interval. Failed samples restart the quiet interval; silent requests respect the
 Tool-catalog refreshes in the same document preserve the wait. Add `--fail-on-result-error` for a
 nonzero exit on a result with `ok:false`. This observes React commits, not continuous canvas/native
 frames, query freshness, or future scheduled work.
+
+
+### Shared selectors and ownership
+
+Use `component` for display-name selection. Every component-population read accepts `appOnly`; the added cohort, profile-report, and effect-event/timeline options default to `false` to preserve existing callers. Cohort ownership includes mounted instances and cached unmount provenance. Missing ownership stays unknown; `appOnly:true` excludes it and lowers coverage. Cohorts carry the starting `documentCommitId` and report `attribution.status:"stale"` if commits or a clear race source lookup. Rendering/freeze state describes the captured traversal.
+
+`react_profile_report` accepts `component` and filters before leaderboard limits. `react_profile_snapshot` and `react_renders_diff` accept `appOnly` (default `true`); it must match on both calls. Their coverage retains `sourceClassification`, and an app-only baseline or candidate that excludes unknown ownership remains a lower bound. A warm source cache does not retroactively make an incomplete baseline complete.
+
+Effect-event ownership describes the component whose effect was scheduled; effect-audit provenance separately describes the effect/hook source. Timeline reads report ownership coverage even when nothing survives the filter.
+
+Tool descriptions include enum choices and bounds generated from their input schema. Tool-detail examples use the canonical selector and include required combinations such as the hook override's `stateIndex`. Replace example instance IDs with IDs returned by the live tree before invoking instance actions.

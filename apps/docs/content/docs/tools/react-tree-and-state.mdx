@@ -12,7 +12,7 @@ Returns a bounded flat view of the mounted React tree.
 
 **Input:** `rootId` is an optional integer. `depth` is an integer from 1 to 80 and defaults to 30.
 `includeHost` defaults to `false`. `maxNodes` is an integer from 1 to 2000 and defaults to 400.
-`appOnly` defaults to `true`.
+`appOnly` defaults to `true`: keep proven app-owned nodes and reconnect their parent links through excluded library/unknown ancestors. Ownership is resolved on at most 5000 candidates before `maxNodes` caps the output; depth still bounds traversal. `ownershipCoverage` describes that candidate set, and `truncated` discloses omitted tree structure. Use `appOnly:false` for the raw tree.
 
 ```bash
 npx @genie-react/cli call react_get_tree \
@@ -119,12 +119,11 @@ fallback is ambiguous, so first fix or inspect source maps instead of treating i
 
 Finds mounted components by display name.
 
-**Input:** `query` is a required non-empty string. `exact` defaults to `false`. `limit` is an integer
-from 1 to 200 and defaults to 50.
+**Input:** `component` is the canonical non-empty display-name selector. Legacy `query` remains an alias; provide at least one and make them agree if both are supplied. `exact` defaults to `false`. `limit` is an integer from 1 to 200 and defaults to 50. `appOnly` defaults to `false`; `true` excludes library and unknown ownership before the output limit. `ownershipCoverage`, `scanTruncated`, and `omittedByLimit` disclose the bounded candidate scan (up to 5000 matching components).
 
 ```bash
 npx @genie-react/cli call react_find_components \
-  '{"query":"CheckoutForm","exact":true,"limit":20}' --json
+  '{"component":"CheckoutForm","exact":true,"limit":20}' --json
 ```
 
 **Output (selected fields):**
@@ -293,3 +292,8 @@ npx @genie-react/cli call react_inspect_context \
 
 **Agent use:** Compare the consumed value with the expected provider value, then inspect or override
 the named Context if the wrong provider or stale value explains the UI.
+
+
+Name selectors use `component`; numeric `id` and `rootId` select a specific mounted instance or subtree, and `selector` is a CSS selector. Those distinct identity domains are preserved. Inspection and override actions operate on that explicit target; their receipts are not component-population filters.
+
+`react_component_for_dom` also accepts `appOnly` (default `false`), classifies up to 5000 matching elements before limiting unique owners, and returns ownership/scan coverage. Error-state and refresh-event reads accept `appOnly` with default `false`; ownership filtering still resolves ownership when `includeSource:false`, while omitting source payloads. Refresh counters remain raw event totals, and filtered component names include only names backed by retained app-owned fibers.

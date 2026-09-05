@@ -709,7 +709,7 @@ describe('buildTree filteredNote', () => {
     expect(result.nodes.map((n) => n.name)).not.toContain('LibChild')
   })
 
-  it('reparents an app component through folded library internals to the retained boundary', async () => {
+  it('reparents an app component through excluded library internals to its retained app ancestor', async () => {
     const nestedApp = treeFiber('NestedApp', '/src/NestedApp.tsx')
     const libChild = treeFiber('LibChild', NODE_MODULES, { child: nestedApp })
     const libRoot = treeFiber('LibRoot', NODE_MODULES, { child: libChild })
@@ -723,9 +723,9 @@ describe('buildTree filteredNote', () => {
       appOnly: true,
     })
 
-    const retainedBoundary = result.nodes.find((node) => node.name === 'LibRoot')
+    const retainedBoundary = result.nodes.find((node) => node.name === 'App')
     const retainedApp = result.nodes.find((node) => node.name === 'NestedApp')
-    expect(result.nodes.map((node) => node.name)).toEqual(['App', 'LibRoot', 'NestedApp'])
+    expect(result.nodes.map((node) => node.name)).toEqual(['App', 'NestedApp'])
     expect(retainedApp?.parentId).toBe(retainedBoundary?.id)
     expect(
       result.nodes.every(
@@ -735,7 +735,7 @@ describe('buildTree filteredNote', () => {
     ).toBe(true)
   })
 
-  it('warns when only a folded library boundary survives appOnly', async () => {
+  it('warns when appOnly excludes every library boundary', async () => {
     const libChild = treeFiber('LibChild', NODE_MODULES)
     const libRoot = treeFiber('LibRoot', NODE_MODULES, { child: libChild })
     const root = asFiber({ tag: 3, type: null, child: libRoot, _debugSource: null })
@@ -747,11 +747,11 @@ describe('buildTree filteredNote', () => {
       appOnly: true,
     })
 
-    expect(result.nodes.map((node) => node.name)).toEqual(['LibRoot'])
+    expect(result.nodes.map((node) => node.name)).toEqual([])
     expect(result.filteredNote).toMatch(/^WARNING: appOnly returned no app-owned result/)
   })
 
-  it('keeps an opaque Metro node structurally visible without counting it as app-owned', async () => {
+  it('excludes opaque Metro ownership and reports it as unknown', async () => {
     vi.stubGlobal('fetch', async () => {
       throw new Error('metro unreachable')
     })
@@ -767,11 +767,8 @@ describe('buildTree filteredNote', () => {
       appOnly: true,
     })
 
-    expect(result.nodes.map((node) => node.name)).toEqual(['OpaqueMetroBoundary', 'LibRoot'])
-    expect(result.nodes[0]).toMatchObject({
-      source: { file: 'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle' },
-      isLibrary: false,
-    })
+    expect(result.nodes).toEqual([])
+    expect(result.ownershipCoverage).toMatchObject({ complete: false, unknown: 1 })
     expect(result.filteredNote).toMatch(/^WARNING: appOnly returned no app-owned result/)
     expect(
       result.nodes.every(
@@ -813,7 +810,7 @@ describe('buildTree filteredNote', () => {
     })
 
     // The partial note proves the call itself stopped at the 120 budget; the off-call warmup then finishes the remaining fibers.
-    expect(result.filteredNote).toContain('source classification budget reached')
+    expect(result.filteredNote).toContain('source ownership is incomplete')
     expect(result.nodes.length).toBeGreaterThan(0)
     await vi.waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(131)

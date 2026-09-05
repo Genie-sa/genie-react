@@ -311,6 +311,7 @@ describe('react_component_cohort contract', () => {
   it('defaults to an exact, bounded component query', () => {
     expect(reactComponentCohortContract.input.parse({ component: 'Row' })).toEqual({
       component: 'Row',
+      appOnly: false,
       exact: true,
       limit: 50,
     })

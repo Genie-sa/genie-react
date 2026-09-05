@@ -1582,12 +1582,12 @@ describe('snapshot + rendersDiff', () => {
     const report = await getRendersLeaderboardsMeasurement(10)
     expect(report.coverage).toMatchObject({ complete: false, skippedCommitFibers: 1 })
 
-    const baseline = await takeSnapshot('partial')
+    const baseline = await takeSnapshot('partial', false)
     expect(baseline.coverage).toMatchObject({ complete: false, skippedCommitFibers: 1 })
 
     clearRenders()
     render(componentFiber({ name: 'Current', props: {} }), 'mount')
-    const diff = await rendersDiff('partial', 0.5)
+    const diff = await rendersDiff('partial', 0.5, false)
     expect(diff.coverage.baseline).toMatchObject({ complete: false, skippedCommitFibers: 1 })
     expect(diff.coverage.current).toMatchObject({ complete: true, skippedCommitFibers: 0 })
   })
@@ -1595,7 +1595,7 @@ describe('snapshot + rendersDiff', () => {
   it('keeps exact timing coverage complete when only prop attribution is opaque', async () => {
     render(componentFiber({ name: 'Row', props: { value: 2 }, prevProps: { value: 1 } }), 'update')
 
-    const snapshot = await takeSnapshot('opaque-props')
+    const snapshot = await takeSnapshot('opaque-props', false)
     expect(snapshot.coverage).toMatchObject({
       complete: true,
       inputAttributionComplete: false,
@@ -1603,7 +1603,7 @@ describe('snapshot + rendersDiff', () => {
       propsNotEnumeratedFibers: 1,
     })
 
-    const diff = await rendersDiff('opaque-props', 0.5)
+    const diff = await rendersDiff('opaque-props', 0.5, false)
     expect(diff.coverage.current).toMatchObject({
       complete: true,
       inputAttributionComplete: false,

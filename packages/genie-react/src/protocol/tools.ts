@@ -7,6 +7,7 @@ import {
   toolDescriptorSchema,
 } from './protocol'
 import { renderObservationBudgetInputSchema } from './react-observation-schema'
+import { schemaConstraints } from './schema-description'
 
 export const CAPTURE_SCHEMA_VERSION = '1.0' as const
 export const CAPTURE_DOMAINS = [
@@ -706,10 +707,16 @@ export const metaTools = [
 ]
 
 /** Catalog entries for the meta tools, so `tools` listings and toolCount agree on the same set. */
-export const metaToolDescriptors: ToolDescriptor[] = metaTools.map((contract) => ({
-  name: contract.name,
-  title: contract.title,
-  description: contract.description,
-  group: contract.group,
-  inputJsonSchema: z.toJSONSchema(contract.input, { io: 'input' }),
-}))
+export const metaToolDescriptors: ToolDescriptor[] = metaTools.map((contract) => {
+  const inputJsonSchema = z.toJSONSchema(contract.input, { io: 'input' })
+  const constraints = contract.name.startsWith('react_') ? schemaConstraints(inputJsonSchema) : ''
+  return {
+    name: contract.name,
+    title: contract.title,
+    description: constraints
+      ? `${contract.description} Arguments: ${constraints}.`
+      : contract.description,
+    group: contract.group,
+    inputJsonSchema,
+  }
+})

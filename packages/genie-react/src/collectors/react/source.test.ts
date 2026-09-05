@@ -226,11 +226,48 @@ describe('classifyFiber', () => {
     expect(isLibrary).toBe(false)
   })
 
-  it('inherits the nearest composite ancestor when a fiber has no source of its own', async () => {
-    const parent = asFiber({ _debugSource: at('/node_modules/.vite/deps/cmdk.js', 200) })
+  it.each([
+    '/node_modules/provider/index.tsx',
+    '/src/Parent.tsx',
+  ])('does not borrow ancestor ownership from %s when the target has no evidence', async (file) => {
+    const parent = asFiber({ _debugSource: at(file, 200) })
     const child = asFiber({ return: parent })
-    const { isLibrary } = await classifyFiber(child)
-    expect(isLibrary).toBe(true)
+    await expect(classifyFiber(child)).resolves.toEqual({
+      source: null,
+      ownership: 'unknown',
+      isLibrary: false,
+    })
+  })
+
+  it('recovers the target app body from an owned child when its own source is absent', async () => {
+    const provider = asFiber({ _debugSource: at('/node_modules/provider/index.tsx', 200) })
+    const App = () => null
+    const app = asFiber({ tag: 0, type: App, return: provider, alternate: null })
+    const debugStack = new Error('owned-body')
+    debugStack.stack = 'owned-body'
+    const child = asFiber({
+      tag: 5,
+      _debugOwner: app,
+      _debugStack: debugStack,
+      child: null,
+      sibling: null,
+    })
+    Object.assign(app, { child })
+    parseStack.mockReturnValue([
+      { fileName: '/src/App.tsx', lineNumber: 12, columnNumber: 4, functionName: 'App' },
+    ])
+    await expect(classifyFiber(app)).resolves.toMatchObject({
+      source: { file: '/src/App.tsx', functionName: 'App' },
+      ownership: 'app',
+      isLibrary: false,
+    })
+    Object.assign(child, { _debugOwner: provider })
+    clearSourceCache()
+    await expect(classifyFiber(app)).resolves.toEqual({
+      source: null,
+      ownership: 'unknown',
+      isLibrary: false,
+    })
   })
 
   it('keeps unresolved ownership unknown', async () => {
