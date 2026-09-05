@@ -105,6 +105,11 @@
         "types": "./dist/babel.d.cts",
         "default": "./dist/babel.cjs"
       }
+    },
+    "./navigation": {
+      "types": "./dist/navigation.d.ts",
+      "import": "./dist/navigation.js",
+      "default": "./dist/navigation.js"
     }
   },
   "scripts": {

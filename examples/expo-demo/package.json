@@ -18,11 +18,16 @@
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-router": "^1.170.0",
     "expo": "~57.0.7",
+    "expo-constants": "~57.0.6",
+    "expo-linking": "~57.0.9",
+    "expo-router": "~57.0.19",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-freeze": "1.0.4",
-    "react-native": "0.86.0"
+    "react-native": "0.86.0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "4.25.2"
   },
   "devDependencies": {
     "@genie-react/cli": "workspace:*",

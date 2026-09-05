@@ -90,3 +90,38 @@ The development Babel configuration enables `genie-react/babel`. After pressing 
 `react_get_renders` and `react_component_cohort` should identify `MemoNameRow`, `InnerNamedRow`,
 and `CustomMemoRow`. This verifies binding names, named inner functions, and explicit wrapper
 names respectively. Production exports omit the generated binding-name metadata.
+
+## Expo Router navigation fixture
+
+Temporarily set this example's `package.json` main to `router-entry.ts`, then restart Expo with a
+cleared Metro cache. Keep the hub running in the other terminal:
+
+```sh
+pnpm --filter genie-react build
+pnpm --filter @genie-react/expo-demo exec expo start --clear
+```
+
+`router-entry.ts` installs the early hook and starts Expo Router. `app/_layout.tsx` registers
+`createNavigationTools` and forwards native-stack state and transition events. The root and
+`/details` routes expose visible controls so a device driver can independently verify the landing
+screen.
+
+```sh
+pnpm --filter @genie-react/expo-demo exec genie-react call app_navigate \
+  '{"href":"/details","mode":"push"}' --json
+pnpm --filter @genie-react/expo-demo exec genie-react call app_navigate \
+  '{"href":"/details","mode":"push"}' --json
+pnpm --filter @genie-react/expo-demo exec genie-react call app_navigate_back '{}' --json
+pnpm --filter @genie-react/expo-demo exec genie-react call app_navigate \
+  '{"href":"/","mode":"dismiss_to"}' --json
+```
+
+Each successful move returns `settled:true`, `reason:"transition-end"`, the actual route and stack
+depth. Starting at home, these calls report depths 2, 3, 2 and 1. The two pushes have distinct route
+keys. No sleep is required to read the resulting route. An already-current `navigate` returns a
+no-op; `replace` changes the current screen without growing the stack. A timeout is explicitly
+unsettled and must not trigger a blind retry. The adapter is opt-in and does not replace existing
+app-owned handlers automatically.
+
+Restore `package.json` main to `index.ts` after this fixture run. The fixture's href matcher covers
+its two parameterless routes; an app with parameters must compare the full destination.
