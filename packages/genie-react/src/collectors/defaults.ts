@@ -5,6 +5,7 @@ import { pluginPassthroughCollector } from './devtools-passthrough'
 import { memoryCollector } from './memory'
 import { perfCollector } from './perf'
 import { queryCollector, routerCollector } from './tanstack'
+import { timelineCollector } from './timeline'
 
 export interface DefaultCollectorOptions {
   plugins?: readonly string[]
@@ -18,6 +19,7 @@ export function defaultAppCollectors(options: DefaultCollectorOptions): GenieCol
     memoryCollector(),
     perfCollector(),
     pluginPassthroughCollector({ plugins: options.plugins }),
+    timelineCollector(options),
   ]
   if (options.router) collectors.push(routerCollector(options.router))
   if (options.queryClient) collectors.push(queryCollector(options.queryClient))

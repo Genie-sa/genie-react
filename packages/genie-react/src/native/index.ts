@@ -6,7 +6,7 @@ import {
   type GenieCollector,
   sessionCollector,
 } from '../client'
-import { defaultAppCollectors } from '../collectors/defaults'
+import { type DefaultCollectorOptions, defaultAppCollectors } from '../collectors/defaults'
 import { reactCollector } from '../collectors/react'
 import '../collectors/react/hook'
 import { queryCollector, routerCollector } from '../collectors/tanstack'
@@ -27,6 +27,7 @@ let client: GenieClient | null = null
 let startedUrl: string | null = null
 let routerWired = false
 let queryWired = false
+const collectorOptions: DefaultCollectorOptions = {}
 
 // Typed `unknown` so the public surface never references @tanstack types; duck-checked here instead, with a loud skip on mismatch.
 function tanstackCollectors(options: StartGenieOptions): GenieCollector[] {
@@ -34,6 +35,7 @@ function tanstackCollectors(options: StartGenieOptions): GenieCollector[] {
   if (options.router !== undefined && !routerWired) {
     if (isRouter(options.router)) {
       collectors.push(routerCollector(options.router))
+      collectorOptions.router = options.router
       routerWired = true
     } else {
       console.warn(
@@ -44,6 +46,7 @@ function tanstackCollectors(options: StartGenieOptions): GenieCollector[] {
   if (options.queryClient !== undefined && !queryWired) {
     if (isQueryClient(options.queryClient)) {
       collectors.push(queryCollector(options.queryClient))
+      collectorOptions.queryClient = options.queryClient
       queryWired = true
     } else {
       console.warn(
@@ -63,10 +66,11 @@ export function startGenie(options: StartGenieOptions): GenieClient {
     for (const collector of tanstackCollectors(options)) client.registerCollector(collector)
     return client
   }
+  collectorOptions.plugins = options.plugins
   const collectors: GenieCollector[] = [
     sessionCollector(),
     reactCollector(),
-    ...defaultAppCollectors({ plugins: options.plugins }),
+    ...defaultAppCollectors(collectorOptions),
     ...tanstackCollectors(options),
   ]
   client = createGenieClient({ url: options.url, appName: options.appName, collectors })

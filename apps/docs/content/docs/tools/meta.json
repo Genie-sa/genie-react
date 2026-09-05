@@ -10,6 +10,7 @@
     "query-reads",
     "query-actions",
     "router",
+    "timeline",
     "browser",
     "plugins",
     "app-tools"

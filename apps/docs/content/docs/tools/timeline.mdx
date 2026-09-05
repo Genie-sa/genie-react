@@ -1,0 +1,122 @@
+---
+title: Interaction timeline tools
+description: Record and inspect request, Query, React commit, and navigation evidence together.
+icon: Activity
+---
+
+The JSON examples below show selected fields from the full response.
+
+These tools belong to the `timeline` group and are available through `<Genie />`, the hub-served
+script entry, or the manual `timelineCollector`. They record only after an explicit start. See the
+[interaction workflow](/docs/workflows/interaction-timeline) for lane semantics and live validation.
+
+## `timeline_start`
+
+Starts one bounded recording on a monotonic clock. It replaces the previous stopped recording.
+
+**Input:** Required `name` is trimmed and accepts 1–120 characters. Optional `maxEvents` is an integer
+from 1–10,000, default 1,000. Optional `maxDurationMs` is an integer from 1–120,000, default 30,000.
+
+```bash
+npx @genie-react/cli call timeline_start \
+  '{"name":"open checkout","maxEvents":1000,"maxDurationMs":30000}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "id": "timeline-EXAMPLE",
+  "name": "open checkout",
+  "state": "recording",
+  "eventCount": 0,
+  "correlation": "temporal-only",
+  "clock": "performance.now"
+}
+```
+
+**Agent use:** Save the returned ID, inspect each domain's `coverage`, drive the interaction, and
+wait for its actual success condition before stopping.
+
+**Limits:** One recording at a time. A concurrent start errors. Event and duration limits stop the
+recording automatically. Missing browser, Query, Router, or supported development React capabilities
+are explicit gaps. This records timing associations and does not prove causation. Starting replaces
+retained evidence only after setup succeeds. A monotonic clock is required.
+
+## `timeline_read`
+
+Reads a bounded page without stopping the recording.
+
+**Input:** Required `id` is the returned recording ID. Optional `domains` is a non-empty array of
+up to four values from `request`, `query`, `react`, and `navigation`. Optional `offset` is a
+nonnegative integer, default 0. Optional `limit` is an integer from 1–1,000, default 200.
+
+```bash
+npx @genie-react/cli call timeline_read \
+  '{"id":"timeline-EXAMPLE","domains":["request","react"],"offset":0,"limit":200}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "id": "timeline-EXAMPLE",
+  "state": "stopped",
+  "correlation": "temporal-only",
+  "events": [
+    {
+      "sequence": 13,
+      "domain": "react",
+      "type": "commit",
+      "atMs": 125.1,
+      "details": {
+        "rendererId": 1,
+        "renderDurationMs": 100.2
+      }
+    }
+  ],
+  "matchedEventCount": 1,
+  "nextOffset": null
+}
+```
+
+**Agent use:** Compare completed request durations with React render durations and the surrounding
+Query/navigation events. Use `nextOffset` with the same filter for subsequent pages.
+
+**Limits:** Events are ordered by observation time and sequence. Resource `startMs`, `endMs`, and
+`durationMs` are separate from asynchronous observation time. React `renderDurationMs` is root
+render work when known, not commit wall time or native UI time. An active report can append events;
+`nextOffset: null` means caught up now. A replaced recording or a previous document's ID errors.
+Each report includes coverage and truncation; absent events do not prove absent work.
+
+## `timeline_stop`
+
+Freezes metadata, flushes pending resource timings within the recording boundary, and releases
+listeners. Use `timeline_read` afterward for events.
+
+**Input:** Required `id` is the returned recording ID.
+
+```bash
+npx @genie-react/cli call timeline_stop '{"id":"timeline-EXAMPLE"}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "id": "timeline-EXAMPLE",
+  "state": "stopped",
+  "stopReason": "manual",
+  "durationMs": 280,
+  "eventCount": 13,
+  "truncated": false
+}
+```
+
+**Agent use:** Read the stop reason and coverage, then inspect or save the frozen events as JSON.
+Repeated stops return the same metadata.
+
+**Limits:** This does not wait for pending app work. `stopReason` can also be `max-events`,
+`max-duration`, or `collector-cleanup`. Hitting the event cap sets `truncated`; resource observation
+still has its documented coverage limits even when that flag is false. Only one stopped recording
+is retained in app memory, so save it before starting another or reloading.
