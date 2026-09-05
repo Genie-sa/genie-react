@@ -1,5 +1,36 @@
 # @genie-react/cli
 
+## 0.13.0
+
+### Minor Changes
+
+- 9335523: Add react_quiesce to wait for an observed React commit idle interval with elapsed time, commit count and explicit timeout/unavailable outcomes. Honor deadlines across transport and preserve same-document catalog refreshes.
+
+### Patch Changes
+
+- d2d401d: Report React Offscreen visibility separately from component lifecycle in cohorts, preserving hidden mounted instances and distinguishing unmounted tombstones. Add native freeze/hide/thaw controls for live verification.
+- b4c90ee: Filter render reports by name globs, exclusions, and minimum updates before source classification and limits. Add bounded, expiring cursors over frozen reports so subsequent pages retain the same counters and ownership coverage while new commits arrive, and show a safe CLI continuation command.
+- 81c60b9: Complete React selector and ownership-filter coverage, retain unmounted cohort source evidence, disclose incomplete profile populations, and advertise valid schema-derived calls and argument bounds.
+- aa3741c: Report renderer bundle metadata and timing/count interpretation in render and profiling reports, including human CLI output.
+- 31bca4a: Support sorting render reports by updates and expose parameter bounds and defaults in compact tool catalogs. Clarify name filters versus instance IDs.
+- Updated dependencies [e33e61a]
+- Updated dependencies [d2d401d]
+- Updated dependencies [0234ee1]
+- Updated dependencies [085fd76]
+- Updated dependencies [1026cf1]
+- Updated dependencies [125f9c7]
+- Updated dependencies [b4c90ee]
+- Updated dependencies [b2338b8]
+- Updated dependencies [0c9a05b]
+- Updated dependencies [9335523]
+- Updated dependencies [81c60b9]
+- Updated dependencies [aa3741c]
+- Updated dependencies [31bca4a]
+- Updated dependencies [ee4172d]
+- Updated dependencies [c998f34]
+- Updated dependencies [632c1ec]
+  - genie-react@0.13.0
+
 ## 0.12.6
 
 ### Patch Changes
