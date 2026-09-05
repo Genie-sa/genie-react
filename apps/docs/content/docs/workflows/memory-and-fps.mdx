@@ -67,9 +67,6 @@ agent-browser --session fps-check close
 unset GENIE_BRIDGE_URL GENIE_SESSION action_pid fps_json fps_status action_status
 ```
 
-## Agent outcome
-
-The agent can test whether a render optimization also improves the visible frame window and can read
-a current heap signal separately. Proving heap growth needs repeated equivalent flows and memory
-samples; one heap read is not a trend. React render counts are not a proxy for every performance
-problem.
+Report frame comparability and memory support separately. Proving heap growth needs repeated
+equivalent flows and memory samples; one heap read is not a trend. React render counts alone
+cannot establish frame pacing or memory growth.

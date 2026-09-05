@@ -14,7 +14,8 @@ An explicit port is strict: if `4390` is occupied, the hub exits instead of walk
 Stop the process using that port or choose another fixed port and update every HTTP and WebSocket
 URL below to match.
 
-Choose exactly one client recipe.
+Choose one client recipe and include it only in development. Your bundler or server template must
+omit the manual client from production.
 
 ## Recipe A: hub-served global client
 
@@ -24,8 +25,8 @@ Load the hub client first in the document head:
 <script src="http://localhost:4390/__genie/client.js"></script>
 ```
 
-This global client adds the React and memory tools. Do not also import `createGenieClient`; two
-clients would create duplicate sessions and measurements.
+This global client adds session, React, memory, performance, and timeline tools. Use it as the sole
+client. Register any additional collectors on that client instead of starting another connection.
 
 ## Recipe B: bundled client with explicit collectors
 
@@ -39,7 +40,8 @@ import {
   reactCollector,
   sessionCollector,
 } from 'genie-react/client'
-import { memoryCollector, queryCollector } from 'genie-react/collectors'
+import { memoryCollector, perfCollector, timelineCollector } from 'genie-react/collectors'
+import { queryCollector } from 'genie-react/collectors/query'
 import { queryClient } from './query-client'
 
 createGenieClient({
@@ -48,9 +50,28 @@ createGenieClient({
     sessionCollector(),
     reactCollector(),
     memoryCollector(),
+    perfCollector(),
+    timelineCollector({ queryClient }),
     queryCollector(queryClient),
   ],
 }).start()
 ```
 
 `genie-react/hook` must run before React. If it runs later, React render tools cannot attach safely.
+
+The bundled example assumes the app uses TanStack Query. Use the existing provider's `queryClient`;
+omit its import and collector, and call `timelineCollector()` without options, when Query is absent.
+
+## Check the connection
+
+Open the app with `?_genie=manual-check`, then use a second terminal:
+
+```bash
+export GENIE_BRIDGE_URL='ws://localhost:4390/__genie/ws'
+export GENIE_SESSION=manual-check
+npx @genie-react/cli status
+npx @genie-react/cli tools
+```
+
+Continue when the selected session is ready and the inventory includes the collectors you supplied.
+Use [Sessions and tabs](/docs/getting-started/sessions) when more than one app or tab is connected.

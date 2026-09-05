@@ -1,33 +1,50 @@
 ---
 title: CLI output
-description: Pick compact text, JSON, JSONL, or selected fields.
+description: Read JSON results, select fields, and handle failures without parsing prose.
 icon: SquareTerminal
 ---
 
-## Human-readable output
+## Check which CLI you are running
 
-The default output is short and designed for a terminal:
-
-```bash
-npx @genie-react/cli call react_get_renders '{"limit":5}'
-```
-
-## One JSON value
-
-Use `--json` when the next step needs the full result:
+The CLI emits JSON by default starting with `0.14.0`. Check the installed version:
 
 ```bash
-npx @genie-react/cli call react_get_renders '{}' --json | jq '.coverage'
+npx @genie-react/cli --version
 ```
 
-## Selected fields as JSONL
+Version `0.14.0` and newer return a JSON object containing `version`. The older `0.13.0` CLI returns
+a version string and uses text by default. When maintaining a script on that release, add `--json`
+to read commands such as `call`, `tools`, and `status`. Upgrade to use the contract below across
+all commands.
 
-Use `--fields` to keep only the records the agent needs:
+## Read one JSON result
+
+Finite commands return one compact JSON value on stdout. `call` returns the tool's own result shape,
+so fields such as `coverage` remain at their documented paths:
+
+```bash
+npx @genie-react/cli call react_get_renders '{"limit":5}' | jq '.coverage'
+```
+
+`--json` remains accepted. Help and version are JSON too:
+
+```bash
+npx @genie-react/cli call --help | jq '{arguments, options, output}'
+npx @genie-react/cli tools react_get_renders
+```
+
+Use the exact tool's live contract to check arguments and output fields before a call.
+
+## Keep only what you need
+
+`--fields` projects a collection into one JSON object per line:
 
 ```bash
 npx @genie-react/cli call query_list '{}' \
   --fields queryHash,status,fetchStatus
 ```
+
+A row contains these fields, shown here with indentation for readability:
 
 ```json
 {
@@ -37,30 +54,44 @@ npx @genie-react/cli call query_list '{}' \
 }
 ```
 
-## Batch calls
+An empty collection produces no rows. To select a nested branch instead, use `--select`:
+
+```bash
+npx @genie-react/cli call react_get_renders '{}' --select /coverage
+```
+
+Selection returns an envelope containing the selected value. It does not change what the app
+collects. Use tool arguments such as `component`, `limit`, and cursors to reduce collection or paging.
+
+## Run several calls
 
 Batch calls share one connection and run in order:
 
 ```bash
 npx @genie-react/cli batch \
-  '[{"tool":"react_get_tree","args":{"depth":2}},{"tool":"react_get_renders","args":{"limit":5}}]' \
-  --ndjson
+  '[{"tool":"react_get_tree","args":{"depth":2}},{"tool":"react_get_renders","args":{"limit":5}}]'
 ```
 
-- `batch` and `batch --ndjson` write one JSON object per line.
-- `batch --json` writes one JSON array.
-- Batch continues after an item fails and exits non-zero if any item failed.
-- CLI status, batch, and error envelopes include `schemaVersion`.
+- `batch` and `batch --ndjson` write one result per line. An empty batch produces no rows.
+- `batch --json` writes one JSON array, including `[]` for an empty batch.
+- A failed item does not stop later calls. The batch exits non-zero if any item fails.
 
-## Diagnose startup
+## Handle errors and large results
+
+Check the process exit code and the result. CLI failures include a stable `reason`,
+`userActionRequired`, and `next.argv` when a recovery command is known. Tool results keep their own
+schemas. Wait tools can return `ok:false` without a CLI failure; use `--fail-on-result-error` when a
+failed wait must stop a script.
+
+An oversized result becomes a `status:"truncated"` envelope. Page through fewer records or raise
+`--max-bytes`, then verify the tool's coverage fields before making a claim. See
+[CLI limits and framing](/docs/reference/cli) for the byte limits and exit behavior.
+
+Verbose connection diagnostics go to stderr as JSONL, leaving stdout parseable:
 
 ```bash
-npx @genie-react/cli status --verbose
+npx @genie-react/cli status --verbose >status.json 2>diagnostics.jsonl
 ```
 
-Verbose startup details go to stderr. JSON stdout stays valid.
-
-## How this helps the agent
-
-The agent can request only the data it needs, pipe it through normal shell tools, and recover from a
-stable machine-readable error without parsing prose.
+The long-running `hub` command also uses JSONL for lifecycle events. Treat its `ready` record as the
+startup signal.

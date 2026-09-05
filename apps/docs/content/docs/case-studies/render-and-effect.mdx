@@ -6,8 +6,9 @@ icon: Repeat2
 
 **Demo:** `apps/vite-demo`
 
-This flow avoids timestamp guessing. Genie starts one observation, agent-browser performs one action,
-and Genie freezes one evidence bundle.
+Genie starts one observation, agent-browser performs one action, and Genie freezes one evidence
+bundle. The bundle joins evidence recorded during the flow; its confidence and coverage determine
+which causes you can claim.
 
 ## Setup
 
@@ -152,12 +153,9 @@ agent-browser --session docs-case-vite get text 'button.counter' \
   | rg -Fx 'Count is 5'
 ```
 
-Selected live lines:
-
-```text
-HotEffectProbe #28 [0] effect deps=list(1) scheduled 4/4 HOT
-scheduled on 4/4 updates — dependency [0] changes reference
-```
+The recorded audit observed four schedules across four updates, with dependency slot `0` changing
+reference. In the JSON response, inspect `components[].effects[]`, including `scheduled`, `updates`,
+`lastChangedDep`, and `hotness`. IDs and hook indexes belong to the current mounted app.
 
 The edit lead is now narrow: inspect the value created for dependency slot `0`. Do not remove the
 effect until the UI driver and the interaction capture prove the behavior still works.
@@ -169,6 +167,5 @@ unset GENIE_BRIDGE_URL GENIE_SESSION interaction_id begin
 
 ## Outcome
 
-Before, the agent had separate reports and had to line them up by time. Now one interaction ID joins
-the browser action, commit boundary, render cause, effect execution, cohort, and coverage. The agent
-can make a smaller fix and knows exactly what it still has to verify.
+Report the interaction ID, observed state cause, effect execution status, and remaining coverage
+gaps. Reproduce the same visible action after a change before claiming the behavior is preserved.

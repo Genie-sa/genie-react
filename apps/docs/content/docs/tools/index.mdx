@@ -15,18 +15,17 @@ npx @genie-react/cli tools react_render_causes
 All calls use this shape:
 
 ```bash
-npx @genie-react/cli call <tool> '<JSON input>' --json
+npx @genie-react/cli call <tool> '<JSON input>'
 ```
 
 Every entry includes the exact input, a call, selected output fields, and the decision that output
 enables. The examples come from live demo runs, source tests, or the validated contract. IDs, counts,
 paths, and times change with the app.
 
-Use the contract command before automation. It is the final source for the installed version:
-
-```bash
-npx @genie-react/cli tools react_render_causes --json
-```
+Commands return JSON by default. Existing `--json` examples remain valid. Use the live contract
+above as the source for your installed version, and read [CLI output](/docs/getting-started/cli-output)
+when parsing, projecting, or saving results. A successful process exit alone does not prove a wait
+condition was met; use `--fail-on-result-error` with `devtools_wait` and `react_quiesce` in scripts.
 
 <Cards>
   <Card
@@ -51,8 +50,9 @@ npx @genie-react/cli tools react_render_causes --json
 ## Rules for safe use
 
 - Target one named session before changing live state.
-- Prefer one `devtools_interaction_begin` and `devtools_interaction_stop` pair around each measured
-  flow. It joins renders, causes, effects, and coverage under one interaction ID.
+- Use `devtools_interaction_begin` and `devtools_interaction_stop` to join renders, causes, effects,
+  and coverage under one interaction ID. Use the [timeline](/docs/workflows/interaction-timeline)
+  when the question spans requests, Query updates, React commits, and navigation.
 - Read coverage, omissions, truncation, and evictions.
 - Treat `inferred` and `unknown` as leads, not proof.
 - Distinguish effect scheduling, execution, cleanup, and observed consequences.

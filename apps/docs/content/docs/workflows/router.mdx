@@ -57,7 +57,5 @@ agent-browser --session router-check \
   | rg -x 'true'
 ```
 
-## Agent outcome
-
-The agent can verify generated params and search, active matches, history state, and the final browser
-URL. It does not have to trust a click or pathname alone.
+Finish when the exact pathname and search match in both Router and browser history, the expected
+content is visible, and focus is correct. Return to the original route if this was a temporary check.

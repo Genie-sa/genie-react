@@ -7,6 +7,17 @@ icon: ChartNoAxesCombined
 Use the browser setup in [Check optimization evidence](/docs/case-studies/prove-an-optimization) before
 running these commands.
 
+## Account for instrumentation
+
+Genie's active render analysis adds synchronous work to development commits. `react_profile_stop`
+pauses detailed collection while the hook remains installed. Keep collector settings and coverage
+equivalent across both cohorts. For an overhead report, also measure the same flow with Genie
+disabled; a faster instrumented run alone does not measure the cost seen by an uninstrumented app.
+
+The repository's [runtime overhead report](https://github.com/Genie-sa/genie-react/blob/main/docs/runtime-overhead.md)
+documents a 500-row development fixture and its limits. Its timings do not establish overhead in
+your application or in production.
+
 ## Quick same-session diff
 
 Start and run the before flow:
@@ -117,8 +128,8 @@ npx @genie-react/cli call devtools_capture_compare \
   "$comparison_args" --json
 ```
 
-The linked Router demo currently makes the honest decision below. These are the decisive fields from
-the full result:
+A recorded Router demo run produced the rejection below. These selected fields show how to read
+an incomplete comparison; your current run may have different coverage:
 
 ```json
 {
@@ -145,8 +156,8 @@ the full result:
 }
 ```
 
-Do not call this a win. Fix the coverage gap or narrow the claim, then repeat both cohorts. A future
-`pass` only means Genie found no budget violation. To claim an improvement, also require
+Fix the coverage gap or narrow the claim, then repeat both cohorts.
+`pass` means Genie found no budget violation. To claim an improvement, also require
 `comparable:true`, the expected direction, `confidence.significant:true`, and an effect large enough
 to matter. `not-comparable`, `insufficient-data`, and `inconclusive` are not passes.
 
@@ -161,7 +172,6 @@ unset capture capture_args capture_id comparison_args retention
 unset -f cleanup_captures
 ```
 
-## Agent outcome
-
-The agent gets a typed evidence decision instead of treating a smaller number as proof. It accepts a
-change only when the repeated comparison is comparable and the same live UI flow still works.
+Return the comparison verdict, usable sample counts, rejected evidence, budget results, and the
+visible behavior check. Claim a performance improvement only for metrics that meet the comparison
+criteria above.

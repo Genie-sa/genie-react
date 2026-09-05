@@ -1,11 +1,36 @@
 ---
 title: React Native and Expo
-description: Connect the repository Expo demo to the local hub.
+description: Wire a native app or run the Expo demo against the local hub.
 icon: Smartphone
 ---
 
 The repository includes a real Expo and Metro integration at `examples/expo-demo`. It mounts Genie
 with the same `QueryClient` used by `QueryClientProvider` and also passes its TanStack Router.
+
+## Add Genie to an existing app
+
+Import `genie-react/hook` first in the entry file, before any import that loads React. Mount the
+native component once in development:
+
+```tsx
+import { Genie } from 'genie-react/native'
+
+// Inside the app root, using the same QueryClient as QueryClientProvider:
+{__DEV__ && (
+  <Genie
+    appName="My native app"
+    url="ws://127.0.0.1:4390/__genie/ws"
+    queryClient={queryClient}
+  />
+)}
+```
+
+Omit `queryClient` if the app does not use TanStack Query. The optional `router` prop accepts a
+TanStack Router. React Navigation and Expo Router need their own
+[app tools](/docs/tools/app-tools) for navigation actions.
+
+Start `npx @genie-react/cli hub --port 4390` on the development machine. Choose the hub address below
+for the target. The `init` command does not wire Metro or native entry files.
 
 ## Run the Expo demo
 
@@ -44,9 +69,8 @@ The bundled defaults cover local virtual devices only:
 | iOS Simulator    | `ws://127.0.0.1:4390/__genie/ws` |
 | Android Emulator | `ws://10.0.2.2:4390/__genie/ws`  |
 
-Desktop React Native targets (react-native-macos, react-native-windows) are the easy case: the app
-and the hub run on the same machine, so `ws://127.0.0.1:4390/__genie/ws` works with no port
-forwarding.
+For a desktop React Native app running on the development machine, use
+`ws://127.0.0.1:4390/__genie/ws`.
 
 The hub listens on the development machine's loopback interface. A physical device cannot use
 these loopback examples directly; it requires an external, tested port forward. This repository
@@ -66,7 +90,7 @@ pin subsequent calls to the one ready `Expo demo` session:
 export GENIE_BRIDGE_URL='ws://localhost:4390/__genie/ws'
 
 status_json="$(
-  pnpm --filter @genie-react/expo-demo exec genie-react status --json
+  pnpm --filter @genie-react/expo-demo exec genie-react status
 )"
 jq '{
   connected,
@@ -96,10 +120,10 @@ export GENIE_SESSION="$(
 )"
 
 pnpm --filter @genie-react/expo-demo exec genie-react call \
-  react_find_components '{"query":"App","exact":true}' --json \
+  react_find_components '{"query":"App","exact":true}' \
   | jq '{matches}'
 
-pnpm --filter @genie-react/expo-demo exec genie-react tools --json
+pnpm --filter @genie-react/expo-demo exec genie-react tools
 ```
 
 If session selection fails, keep both long-running terminals open, make sure Expo has mounted the
@@ -120,3 +144,7 @@ Run the repository's TypeScript and Metro export checks with:
 ```bash
 pnpm --filter @genie-react/expo-demo check
 ```
+
+The [interaction timeline](/docs/tools/timeline) reports native request timing as unavailable.
+React events and the supplied Query and TanStack Router integrations can still provide evidence.
+It does not measure native UI-thread performance or observe every native navigation library.

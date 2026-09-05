@@ -34,11 +34,11 @@ export function buildLlmsText(pages: readonly LlmsPageEntry[]): string {
 
 > ${appDescription}
 
-Genie React is a local-first developer tool: the genie-react npm package adds collectors and a hub to a running React or React Native app, and the @genie-react/cli package (\`npx genie-react\`) gives an AI coding agent DevTools access to that app from the terminal. Every link below points at markdown; the same pages are served as HTML without the .md suffix.
+The genie-react package connects a running React or React Native app to a local hub. The @genie-react/cli package sends tool calls to it. Every page link below points at markdown; remove the .md suffix to read it as HTML.
 
 ## When to use Genie React
 
-Use Genie React when an AI coding agent works on a live React or TanStack app and needs runtime evidence instead of guesses:
+Use Genie React to inspect a running app:
 
 - Debug why a component rendered: join one UI action to its hook changes, renders, effects, and source locations.
 - Optimize render performance: find expensive components, prove a fix with before/after runs, and check memory and frame rate.
@@ -46,9 +46,9 @@ Use Genie React when an AI coding agent works on a live React or TanStack app an
 - Test hard-to-reach UI states: force loading and error branches, verify the UI, then restore the app.
 - Verify a fix end to end: pair Genie with a UI driver (agent-browser or agent-device) so the agent drives the UI and checks the result against live evidence.
 
-Do not reach for Genie React for static code analysis, non-React apps, or production monitoring — it attaches to a locally running development app.
+Use a local development build. Inspect source separately when runtime evidence leaves a question open.
 
-How to call it: run \`npx genie-react\` in the app repository, then follow [Getting started](${siteUrl}/docs/getting-started/index.md). The full tool list an agent can call is under [Tools](${siteUrl}/docs/tools/index.md).
+Run \`npx @genie-react/cli\` in the app folder. Follow [Getting started](${siteUrl}/docs/getting-started/index.md). Check [CLI output](${siteUrl}/docs/getting-started/cli-output.md) for JSON framing and release differences. Discover the running app with \`npx @genie-react/cli tools\`; use [Tools](${siteUrl}/docs/tools/index.md).
 
 ## Machine-readable resources
 

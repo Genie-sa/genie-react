@@ -34,7 +34,7 @@ agent-browser --session docs-session get text body \
   | rg -F 'Genie Plain Demo Lab'
 ```
 
-Live result across reload:
+Identity summary from the recorded run, shown here as a comparison rather than CLI output:
 
 ```text
 before reload: physical be045bce… · logical afd9a346… · generation 1
@@ -54,17 +54,21 @@ agent-browser --session docs-session-copy open \
 npx @genie-react/cli status --session live-plain-final
 ```
 
-The live command returned:
+The status command must fail with a JSON error instead of choosing a tab. Recover by listing all
+sessions without the ambiguous selector, then use a returned physical or logical ID:
 
-```text
-Status check failed: Session name "live-plain-final" is ambiguous (2 tabs).
-Use a physical or logical id from devtools_status.
+```bash
+( unset GENIE_SESSION; npx @genie-react/cli status --sessions-only )
 ```
+
+Read the error's `reason`, `message`, and `userActionRequired`. Its `next.argv`, when present,
+contains a recovery command as arguments. See [CLI output](/docs/getting-started/cli-output) for the
+error contract. A physical ID selects one current connection; the logical ID survives reloads.
 
 ## Outcome
 
-A long-running agent stays on one logical document through reload. It cannot
-silently clear measurements or change state in another agent's tab.
+A unique alias follows one logical document through reload. Reused aliases fail selection so the
+agent can resolve the duplicate before clearing measurements or changing state.
 
 Close the duplicate tab. Keep only the owned tab while the job runs:
 

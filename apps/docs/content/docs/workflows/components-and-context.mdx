@@ -63,7 +63,12 @@ npx @genie-react/cli call react_override_context \
   '{"id":42,"context":"ThemeContext","value":{"mode":"dark"}}' --json
 ```
 
+After each override, check the returned result and verify the intended value in the visible UI.
+Component IDs can become stale after reload or remount; discover the current instance again.
+
 ## Map React to the UI
+
+These mappings require a browser DOM. Use agent-device for native UI checks.
 
 From a component to its elements:
 
@@ -78,13 +83,15 @@ npx @genie-react/cli call react_component_for_dom \
   '{"selector":"[data-testid=checkout]"}' --json
 ```
 
+For StyleX apps, inspect the same DOM target with `stylex_inspect` to locate its applied style
+definitions and CSS declarations. See [StyleX inspection](/docs/tools/react-tree-and-state#stylex_inspect)
+for configuration and coverage limits.
+
 ## Clean up
 
 ```bash
 npx @genie-react/cli call react_reset_overrides '{}'
 ```
 
-## Agent outcome
-
-The agent can test selected props, stateful hooks, Context values, Suspense, and error states. It can
-also locate the browser element and source file without guessing from a component name alone.
+Require `remaining: 0` in the reset result, then verify the original visible value has returned.
+Report the source location, tested override, visible result, and cleanup result.

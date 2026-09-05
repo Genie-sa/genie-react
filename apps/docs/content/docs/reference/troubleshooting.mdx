@@ -9,7 +9,7 @@ icon: CircleQuestionMark
 Run the command from the app folder:
 
 ```bash
-npx @genie-react/cli doctor --json \
+npx @genie-react/cli doctor \
   | jq '{ok, bridgeCandidates, remediation}'
 ```
 
@@ -20,7 +20,7 @@ status connection phases separately:
 npx @genie-react/cli status --verbose
 ```
 
-`doctor --verbose` is not a supported command.
+Use `status --verbose` for connection diagnostics; `doctor` accepts `--live` for stack probes.
 
 ## More than one bridge matches
 
@@ -48,6 +48,12 @@ discovery cannot see it.
 
 The hook must load before React. Check the Vite plugin or make the manual client script the first
 script in the document head.
+
+## JSON parsing fails
+
+Check [CLI release compatibility](/docs/getting-started/cli-output) for older versions that emit text.
+On the current CLI, parse `batch` and `call --fields` as JSONL, and read verbose diagnostics from
+stderr separately.
 
 ## A result is incomplete
 

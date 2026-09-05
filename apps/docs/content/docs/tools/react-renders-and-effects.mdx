@@ -87,18 +87,6 @@ Source ownership is separate from pagination. If `sourceClassification.complete`
 `appOnly:true` excludes unknown ownership and the result remains a lower bound even after its last
 page. Retry without `cursor` after source warmup to include newly classified rows.
 
-`sourceClassification` reports app, library, and unknown ownership counts for matching records
-before `appOnly` and the result limit. `totalCandidates` counts that set; `evaluated` counts
-completed source lookups (including unresolved results and cache hits). `complete` is true only
-when every candidate has app or library evidence. Unknown ownership never counts as library.
-
-Cold documents can exceed the source lookup budget. Genie warms the remaining sources in the
-background; retry the report to check recovery. If `appOnly:true` excludes unknown ownership,
-`comparable` is false with `app-source-classification-incomplete`, and summary semantics are
-`lower-bound` or `unknown`. `appOnly:false` keeps those records visible without inventing their
-ownership. If unknowns persist after relaunch, inspect this unfiltered report and restore source
-metadata or source-map access before comparing app-only measurements.
-
 Both `react_get_renders` and `react_profile_report` expose `bundle` (`development`, `production`,
 `mixed`, or `unknown`), `timingsBundleDependent: true`, and `countsScope: "observed-run"`.
 The bundle describes registered React renderers in the app document. Timing values depend on that
@@ -332,6 +320,10 @@ Reports lifecycle outcomes for every matching component instance in the current 
 
 **Input:** `component` is a required non-empty string. `exact` defaults to `true`. `limit` is an
 integer from 1 to 200 and defaults to 50.
+`appOnly` defaults to `false`; set it to `true` to include only proven app-owned instances.
+Ownership includes mounted instances and cached unmount provenance. Unknown ownership is excluded
+by the app filter and lowers coverage. `documentCommitId` marks the captured traversal;
+`attribution.status: "stale"` means commits or a clear raced source lookup.
 
 Each instance also reports its current `renderingState`, independently of recorded updates:
 
@@ -528,6 +520,9 @@ Returns the preferred causal timeline for effect scheduling, execution, cleanup,
 
 **Input:** `component` is an optional substring. `afterDocumentCommitId` is an optional nonnegative
 integer. `limit` is an integer from 1 to 500 and defaults to 100.
+`appOnly` defaults to `false`. Set it to `true` to filter by the component that owns the scheduled
+effect. This ownership differs from the hook source reported by `react_effect_audit`.
+Read `ownershipCoverage` even when filtering leaves no events.
 
 ```bash
 npx @genie-react/cli call react_effect_timeline \
@@ -650,6 +645,8 @@ Returns the same bounded effect causal timeline under the legacy event-oriented 
 
 **Input:** `component` is an optional substring. `afterDocumentCommitId` is an optional nonnegative
 integer. `limit` is an integer from 1 to 500 and defaults to 100.
+`appOnly` defaults to `false` and filters by the component that owns the scheduled effect.
+Read `ownershipCoverage` when interpreting an empty or partial result.
 
 ```bash
 npx @genie-react/cli call react_effect_events \
@@ -725,6 +722,8 @@ effect ran from its schedule. Prefer `react_effect_timeline` in new workflows.
 Reads caught errors, active Suspense boundaries, and a blank-tree hint.
 
 **Input:** `includeSource` defaults to `true`. `limit` is an integer from 1 to 100 and defaults to 20.
+`appOnly` defaults to `false`. With `true`, ownership is resolved even when `includeSource` is
+`false`; that option omits source payloads while preserving ownership filtering.
 
 ```bash
 npx @genie-react/cli call react_error_state \
@@ -765,6 +764,8 @@ Reports Fast Refresh files, preserved instances, remounts, and excluded profile 
 
 **Input:** `afterSequence` is an optional nonnegative integer. `limit` is an integer from 1 to 50
 and defaults to 10. `includeSource` defaults to `true`.
+`appOnly` defaults to `false`. With `true`, ownership is resolved even when `includeSource` is
+`false`. Counters remain raw event totals; filtered component names require retained app ownership.
 
 ```bash
 npx @genie-react/cli call react_refresh_events \
@@ -883,6 +884,9 @@ the counters. Stopping does not uninstall instrumentation or delete retained sna
 Stores current app-component aggregates as a named diff baseline.
 
 **Input:** `label` is a string and defaults to `baseline`; reusing a label replaces its snapshot.
+`appOnly` defaults to `true`. Use the same value for the later `react_renders_diff` call.
+If app filtering excludes unknown ownership, the baseline remains a lower bound; warming source
+metadata later cannot repair this stored baseline.
 
 ```bash
 npx @genie-react/cli call react_profile_snapshot \
@@ -910,6 +914,8 @@ Compares current render aggregates with a named profile snapshot.
 
 **Input:** `baseline` is a string and defaults to `baseline`. `thresholdMs` is a number with no
 contract range and defaults to 0.5.
+`appOnly` defaults to `true` and must match the stored baseline. Read both sides' coverage,
+including `sourceClassification`, before comparing totals.
 
 ```bash
 npx @genie-react/cli call react_renders_diff \
@@ -952,6 +958,9 @@ the current window, not deleted from source.
 Returns bounded render-cost and render-count leaderboards for the current profile.
 
 **Input:** `limit` is an integer from 1 to 100 and defaults to 20.
+`component` is an optional display-name substring and filters before the leaderboard limit.
+`appOnly` defaults to `false`; set it to `true` for proven app-owned components. Unknown ownership
+excluded by that filter lowers coverage.
 
 ```bash
 npx @genie-react/cli call react_profile_report \
@@ -1058,14 +1067,3 @@ interval. Failed samples restart the quiet interval; silent requests respect the
 Tool-catalog refreshes in the same document preserve the wait. Add `--fail-on-result-error` for a
 nonzero exit on a result with `ok:false`. This observes React commits, not continuous canvas/native
 frames, query freshness, or future scheduled work.
-
-
-### Shared selectors and ownership
-
-Use `component` for display-name selection. Every component-population read accepts `appOnly`; the added cohort, profile-report, and effect-event/timeline options default to `false` to preserve existing callers. Cohort ownership includes mounted instances and cached unmount provenance. Missing ownership stays unknown; `appOnly:true` excludes it and lowers coverage. Cohorts carry the starting `documentCommitId` and report `attribution.status:"stale"` if commits or a clear race source lookup. Rendering/freeze state describes the captured traversal.
-
-`react_profile_report` accepts `component` and filters before leaderboard limits. `react_profile_snapshot` and `react_renders_diff` accept `appOnly` (default `true`); it must match on both calls. Their coverage retains `sourceClassification`, and an app-only baseline or candidate that excludes unknown ownership remains a lower bound. A warm source cache does not retroactively make an incomplete baseline complete.
-
-Effect-event ownership describes the component whose effect was scheduled; effect-audit provenance separately describes the effect/hook source. Timeline reads report ownership coverage even when nothing survives the filter.
-
-Tool descriptions include enum choices and bounds generated from their input schema. Tool-detail examples use the canonical selector and include required combinations such as the hook override's `stateIndex`. Replace example instance IDs with IDs returned by the live tree before invoking instance actions.

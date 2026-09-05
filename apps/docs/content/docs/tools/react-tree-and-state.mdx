@@ -232,6 +232,9 @@ Finds the React components that own DOM elements matched by a CSS selector.
 
 **Input:** `selector` is a required string. `limit` is an integer from 1 to 20 and defaults to 5.
 `propsDepth` is an integer from 0 to 4 and defaults to 1.
+`appOnly` defaults to `false`. With `true`, classify up to 5000 DOM matches before limiting unique
+app-owned components. Read `ownershipCoverage`, `omittedByLimit`, and `scanTruncated` before treating
+the returned owners as complete.
 
 ```bash
 npx @genie-react/cli call react_component_for_dom \
@@ -273,21 +276,13 @@ running page: the applied `stylex.create()` objects (name and source file:line, 
 the CSS declarations they resolve to, `defineVars` tokens they read, and runtime values from dynamic
 style functions.
 
-**Input:** `selector` (CSS selector) or `id` (component; describes every styled element it renders,
-nested ones included). `limit` is an integer from 1 to 20 and defaults to 5.
+**Input:** Supply `selector`, a CSS selector, or `id`, a current component ID. At least one is
+required at runtime. The component form describes styled host elements in its rendered subtree,
+including nested elements. `limit` is an integer from 1 to 20 and defaults to 5.
 
 ```bash
 npx @genie-react/cli call stylex_inspect \
   '{"selector":"#pricing article"}'
-```
-
-```text
-#pricing article → 1 element · stylex
-  <article> PricingCard #82 · article
-    applied: styles.card (src/PricingCard.tsx:5) → emphasis.featured (src/PricingCard.tsx:29)
-    background-color: rgb(26, 26, 46)
-    border-color: rgb(228, 81, 30)
-    padding: 28px
 ```
 
 **Output (selected fields):**
@@ -325,8 +320,14 @@ npx @genie-react/cli call stylex_inspect \
 (`@stylexjs/unplugin` or the Babel plugin). `dev` alone yields style-object names; `debug` adds
 file:line.
 
-**Agent use:** The last entry in `applied` owns each property it declares, so edit that definition.
-Values are declared CSS; measure rendered geometry with a browser tool.
+**Agent use:** Read `styleObjects` in application order to locate the definition that overrides a
+conflicting style. Check each declaration's `condition` before treating it as active. Values are
+declared CSS; verify computed styles and rendered geometry with a browser tool.
+
+**Limits:** Browser DOM only. Cross-origin or disabled stylesheets are skipped, and rule scanning
+is bounded. `unresolvedClasses` identifies classes that readable rules did not explain. Compare
+`matched` with `elements.length` to detect the element limit; a partial result is not a full CSS
+cascade analysis.
 
 ## `react_inspect_context`
 
@@ -357,5 +358,3 @@ the named Context if the wrong provider or stale value explains the UI.
 
 
 Name selectors use `component`; numeric `id` and `rootId` select a specific mounted instance or subtree, and `selector` is a CSS selector. Those distinct identity domains are preserved. Inspection and override actions operate on that explicit target; their receipts are not component-population filters.
-
-`react_component_for_dom` also accepts `appOnly` (default `false`), classifies up to 5000 matching elements before limiting unique owners, and returns ownership/scan coverage. Error-state and refresh-event reads accept `appOnly` with default `false`; ownership filtering still resolves ownership when `includeSource:false`, while omitting source payloads. Refresh counters remain raw event totals, and filtered component names include only names backed by retained app-owned fibers.

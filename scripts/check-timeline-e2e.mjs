@@ -130,6 +130,11 @@ createRoot(document.getElementById('root')).render(h(App))
   await page.goto(`${url}/?_genie=timeline-e2e`)
   await page.getByRole('button', { name: 'Slow network' }).waitFor()
   assert.equal((await call('devtools_wait', { condition: 'ready', timeoutMs: 10000 })).ok, true)
+  const docsCheck = await run(
+    process.execPath,
+    [join(root, 'apps/docs/scripts/check-live-contracts.mjs')],
+    { cwd: root, env, timeout: 120000, maxBuffer: 2_000_000 },
+  )
   const reports = {}
   for (const mode of ['network', 'render']) {
     const started = await call('timeline_start', { name: `slow-${mode}` })
@@ -214,6 +219,7 @@ createRoot(document.getElementById('root')).render(h(App))
     assert.equal(reports.script.coverage[domain].status, 'unavailable')
   }
   assert.deepEqual(errors, [], 'the fixture must remain functional')
+  console.error(docsCheck.stdout.trim())
   console.log(JSON.stringify({ status: 'passed', reports }, null, 2))
 } finally {
   await browser?.close()

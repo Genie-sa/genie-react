@@ -35,8 +35,9 @@ describe('buildLlmsText', () => {
 
   it('tells agents when to use the product', () => {
     expect(text).toContain('## When to use Genie React')
-    expect(text).toContain('Do not reach for Genie React')
-    expect(text).toContain('npx genie-react')
+    expect(text).toContain('Use a local development build.')
+    expect(text).toContain('npx @genie-react/cli')
+    expect(text).not.toContain('npx genie-react')
   })
 
   it('links machine-readable resources', () => {

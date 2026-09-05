@@ -4,7 +4,7 @@ description: Run the hub through the Vite plugin and add app collectors.
 icon: Zap
 ---
 
-`init` adds the Vite plugin:
+`init` adds the Vite plugin to the existing configuration. Keep the app's other plugins:
 
 ```ts title="vite.config.ts"
 import { defineConfig } from 'vite'
@@ -15,7 +15,8 @@ export default defineConfig({
 })
 ```
 
-Render `Genie` near the app root for Query and Router tools:
+Render `Genie` once near the app root to add memory, performance, plugin, and timeline tools.
+Place it inside the Query and Router providers when using automatic discovery:
 
 ```tsx
 import { Genie } from 'genie-react'
@@ -25,8 +26,8 @@ import { Genie } from 'genie-react'
 }
 ```
 
-Genie normally finds clients from providers and Router context. Pass them directly when the app keeps
-them elsewhere:
+Genie reads the Query client from `QueryClientProvider` or the TanStack Router context. Pass clients
+directly when the component is outside those providers:
 
 ```tsx
 {
@@ -45,5 +46,10 @@ npx @genie-react/cli doctor --live
 npx @genie-react/cli status
 ```
 
-The status result lists every available data domain. Missing Query or Router domains usually means
-the matching client was not discovered.
+Keep the development server running and open the app before these calls. Continue when `doctor`
+reports `ok:true` and `status` shows the intended ready session. Inspect `domains` to confirm the
+collectors you need. Missing Query or Router domains usually mean the matching client was not
+discovered. A ready React session alone does not establish that those integrations are wired.
+
+Next, [name the tab](/docs/getting-started/sessions) and run a
+[focused workflow](/docs/workflows).

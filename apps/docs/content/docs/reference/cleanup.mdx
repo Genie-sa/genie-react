@@ -1,49 +1,56 @@
 ---
 title: Leave the app clean
-description: Restore temporary Query and React state after a test.
+description: Restore temporary Query and React state and check the result.
 icon: Eraser
 ---
 
-Action tools can change the live app. Restore every temporary change before finishing.
+Keep the same [session target](/docs/getting-started/sessions) throughout cleanup. Save any evidence
+you need before resetting measurements or closing the app.
 
-## Query state
+## Restore simulated Query state
 
-Restore one query:
+Restore the query you changed, using the exact key or hash from `query_list`:
 
 ```bash
-npx @genie-react/cli call query_restore_state \
-  '{"queryKey":["cart"]}'
+npx @genie-react/cli call query_restore_state '{"queryKey":["cart"]}'
 ```
 
-Restore every simulated query:
+If this session belongs to your test and all simulations should be removed:
 
 ```bash
 npx @genie-react/cli call query_restore_state '{"all":true}'
 ```
 
-## Component overrides
+Check `ok:true` and the `restored` count. This restores the state captured before simulation. It does
+not undo server writes, navigation, or unrelated cache edits. Recheck the query and its visible UI
+before calling the test complete.
 
-List active overrides:
+## Release component overrides
+
+Inspect and reset the session's tracked overrides:
 
 ```bash
 npx @genie-react/cli call react_list_overrides '{}'
+npx @genie-react/cli call react_reset_overrides '{}'
+npx @genie-react/cli call react_list_overrides '{}'
 ```
 
-Remove them:
+The final list must report `total:0`. Inspect each reset outcome too. `restored` means Genie reapplied
+the captured value. `released` and `skipped-unmounted` mean the override is no longer tracked but
+its original state was not necessarily restored. Reload or reproduce the app's normal reset flow
+when needed, then verify the visible state.
+
+## Finish the live check
 
 ```bash
-npx @genie-react/cli call react_reset_overrides '{}'
+npx @genie-react/cli call react_error_state '{}'
 ```
 
-## Final check
+Confirm the expected UI is visible and inspect `caughtErrors`, `suspended`, and `scanTruncated`.
+An empty result from an incomplete scan cannot prove the whole app is error-free.
 
-1. Confirm no override remains.
-2. Confirm no query simulation remains.
-3. Check the visible page for errors.
-4. Read `react_error_state`.
-5. Save important capture JSON. The hub keeps only the latest 20 captures.
-
-## How this helps the agent
-
-The agent can test loading, error, Suspense, state, and route branches without leaving the developer's
-tab in a fake state.
+Stop an active timeline recording with `timeline_stop` and its returned `id`. If you enabled React
+profiling for this test, `react_profile_stop` pauses collection and retains its report. Restore other
+measurement settings you changed. Export important captures using
+[the capture commands](/docs/tools/sessions-and-captures) before stopping the hub; it retains only
+the latest 20 captures in memory.
