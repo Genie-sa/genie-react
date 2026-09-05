@@ -54,12 +54,11 @@ npx @genie-react/cli call react_effect_audit \
 
 ## Read the limits
 
-- Scheduled does not mean executed.
-- Cleanup present does not mean cleanup executed.
-- Genie does not claim a later request or state write came from the effect.
-- `insufficient-data` is not hot and not safe.
+- Read `execution.status` to distinguish a schedule from observed execution.
+- Read cleanup execution evidence separately from the presence of a cleanup function.
+- Attribute later requests or state writes only when the report explicitly observes that link.
+- Collect more equivalent updates when the audit says `insufficient-data`.
 
-## Agent outcome
-
-The agent can edit the real hook owner and changed dependency instead of deleting an effect from the
-component that merely hosts a library wrapper.
+Finish with the hook callsite, changed dependency slot, schedule sample count, execution evidence,
+and ownership confidence. After editing, repeat the interaction and verify both the visible result
+and the new audit. A hot schedule is a lead; it does not by itself establish a bug.

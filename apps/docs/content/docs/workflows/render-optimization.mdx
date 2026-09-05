@@ -10,7 +10,8 @@ icon: Gauge
 npx @genie-react/cli call react_clear_renders '{}'
 ```
 
-Drive one exact interaction in the browser.
+Drive one exact interaction in the browser and wait for its visible success condition. Use a
+[named session](/docs/getting-started/sessions) so the read and the action target the same app.
 
 ## 2. Rank the work
 
@@ -19,16 +20,27 @@ npx @genie-react/cli call react_get_renders \
   '{"sort":"selfTime","limit":10}'
 ```
 
-Example output:
+Selected response fields, with illustrative IDs and timings:
 
-```text
-4 commits · 6 components · 24 renders · 24 updates · 4 reference-only prop candidates · 2 no observed input change
-reference-only props: onClick×4
-  Button #81 4× (0m 4u) · 4 reference-only props · peak self 0.2ms · ↻ props: onClick(reference-only) (button.tsx:50)
+```json
+{
+  "commits": 4,
+  "summary": { "totalRenders": 24, "totalUpdates": 24 },
+  "components": [
+    {
+      "id": 81,
+      "name": "Button",
+      "renders": 4,
+      "updates": 4,
+      "selfTime": 0.2,
+      "cumulativeSelfTime": 0.6
+    }
+  ]
+}
 ```
 
-Use `selfTime` for the slowest single render. Use cumulative time in JSON when repeated small renders
-are the larger cost.
+`selfTime` ranks the slowest single render. Compare `cumulativeSelfTime` when repeated small renders
+are the larger cost. Read `coverage` and `omittedByLimit` before drawing conclusions from the list.
 
 ## 3. Read the cause
 
@@ -61,14 +73,12 @@ Examples:
 - Narrow a Query or Router subscription.
 - Remove a state write that repeats the same value.
 
-Do not add blanket memoization from a render count alone.
+Choose a fix only after the observed changed input explains the cost.
 
 ## 6. Verify behavior and cost
 
 Run the same browser flow. Check visible output, DOM, ARIA, focus, URL, requests, and transitions. Then
 use [repeated captures](/docs/workflows/performance-proof) to prove the runtime change.
 
-## Agent outcome
-
-The agent moves from “this component looks expensive” to “this exact mounted instance rendered four
-times because this input changed, and the same flow is cheaper after the fix.”
+Finish with the component and source location, observed cause and confidence, before/after evidence,
+and the visible behavior check. If coverage is incomplete, state which claim it prevents.

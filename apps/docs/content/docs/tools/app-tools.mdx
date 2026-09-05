@@ -1,6 +1,6 @@
 ---
 title: App tools
-description: Tools the app registers itself — domain actions and queries agents call like built-ins.
+description: Register app actions and queries that agents discover and call through Genie.
 icon: Wrench
 ---
 
@@ -181,17 +181,18 @@ const unregister = registerGenieTools(
 )
 ```
 
-Store handlers read state at call time (`getState()`), so nothing goes stale. Calling
+Store handlers read current store state at call time with `getState()`. Calling
 `unregister()` tombstones the tools instead of deleting them. For tools that should live as long
 as the app, pass them to the provider instead: `<Genie tools={[...]} />`.
 
 Options:
 
-- `kind: 'query'` marks the tool read-only and safe to retry. `kind: 'action'` marks a mutation;
+- `kind: 'query'` advertises read-only and idempotent annotations. Its handler must honor them.
+  `kind: 'action'` marks a mutation;
   actions also accept `destructive: true` and `idempotent: true`.
 - `group: 'checkout'` lists the tool under `app.checkout` for progressive discovery on large
-  surfaces. `tools app` still covers every subgroup; `tools app.checkout` narrows to one. Omit it
-  when the app exposes a handful of tools — flat `app` reads fine.
+  apps. `tools app` still covers every subgroup; `tools app.checkout` narrows to one. Omit it
+  when the app exposes only a few tools.
 - `output` is an optional zod schema, advertised and drift-checked in dev builds.
 - `maxResultBytes` raises the 128KB result cap when a large result is intentional.
 - `enabled: false` gates registration, e.g. behind a feature flag.
@@ -202,8 +203,10 @@ Throw `GenieToolError` for failures the agent should act on:
 throw new GenieToolError('cart is empty', { code: 'CART_EMPTY', hint: 'seed with app_seed_tasks' })
 ```
 
-The agent sees `[CART_EMPTY] cart is empty — hint: seed with app_seed_tasks`. Plain throws are
-wrapped with the tool name so an app bug is not blamed on Genie.
+The runtime retains the error code and hint in its handler error message. The executable CLI
+returns a sanitized JSON error with `reason: "tool-error"`; it does not expose that raw message.
+If an agent must branch on an expected domain outcome such as `CART_EMPTY`, return a typed result
+with that code in your tool's output schema.
 
 ## Discover and call
 
@@ -221,23 +224,23 @@ npx @genie-react/cli call app_login_as '{"role":"admin"}' --json
 Arguments are validated in the app by the tool's own schema: per-field errors, defaults applied,
 unknown keys rejected with the valid keys listed.
 
-Badges in listings state intent before a call: `(read-only)` is free, `(action)` mutates,
-`(destructive)` has no undo.
+Inspect a tool's JSON descriptor with `tools app_login_as` before calling it. `annotations` reports
+`readOnlyHint`, `idempotentHint`, and `destructiveHint` when declared. These are handler contracts,
+not enforcement or a promise that a read has no runtime cost.
 
 ## Unavailable tools
 
 A tool registered by an unmounted component stays listed instead of vanishing:
 
 ```bash
+npx @genie-react/cli tools app_checkout_state
 npx @genie-react/cli call app_checkout_state '{}'
-# Call to app_checkout_state failed [tool-unavailable]: Tool "app_checkout_state" is currently
-# unavailable — the code that registers it is not mounted (it was registered at URL path /checkout).
-# Drive the app back to that UI, then retry.
 ```
 
-The failure carries `errorCode: "tool-unavailable"` (distinct from a handler throwing), so scripts
-can branch on it. Recovery is usually one call — `router_navigate` to the named route, then retry.
-The listing marks these tools with `✗ unavailable`; the detail view carries the reason.
+The descriptor exposes `available: false` and `unavailableReason`. The call returns a JSON error
+with `reason: "tool-unavailable"` and a nonzero exit code. This differs from `reason: "tool-error"`
+when a mounted handler throws. Read the descriptor's recovery reason, navigate to the UI that
+registers the tool, and discover it again before retrying.
 
 ## Patterns
 
@@ -253,8 +256,8 @@ implementations.
 
 ## Limits
 
-- Results are capped at 128KB per tool (override with `maxResultBytes`). Over the cap, the call
-  fails with the size and the top-level keys.
+- App tool results have a 128 KiB runtime cap, configurable with `maxResultBytes`. Oversize results
+  fail the tool call. The CLI output budget is separate; raising one cap does not raise the other.
 - Keep synchronous handler work well under a second; a blocked main thread reads as busy.
 - Tools exist only while the registering code runs. In production builds without a Genie client,
   registration is inert.

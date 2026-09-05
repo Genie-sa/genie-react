@@ -4,6 +4,9 @@ description: Read cache state, wait for one exact key, and test loading or error
 icon: Database
 ---
 
+Use a connected app with the Query collector. The example key belongs to the Vite demo; choose an
+exact key from your own `query_list` result.
+
 ## List and select
 
 ```bash
@@ -55,8 +58,13 @@ npx @genie-react/cli call query_simulate_state \
   '{"queryKey":["demo","greeting"],"state":"pending"}'
 ```
 
-```text
-ok=true · queryHash="[\"demo\",\"greeting\"]" · simulatedState="pending" · originalStatus="success"
+```json
+{
+  "ok": true,
+  "queryHash": "[\"demo\",\"greeting\"]",
+  "simulatedState": "pending",
+  "originalStatus": "success"
+}
 ```
 
 Drive the page and verify the skeleton, layout, and accessible status. Then restore it:
@@ -66,11 +74,10 @@ npx @genie-react/cli call query_restore_state \
   '{"queryKey":["demo","greeting"]}'
 ```
 
-```text
-ok=true · restored=1
+```json
+{ "ok": true, "restored": 1 }
 ```
 
-## Agent outcome
-
-The agent can verify the cache and the rendered UI in one flow. It can hold brief loading or error
-states long enough to inspect them, then return the cache to its real state.
+Read `query_get` again and verify `simulatedState` is absent. Finish by checking that real content
+returns in the browser. `restored: 0` means this call restored no simulation; investigate the target
+key or session before claiming cleanup succeeded.

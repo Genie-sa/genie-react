@@ -106,7 +106,7 @@ npx @genie-react/cli call devtools_capture_compare \
 
 ## A useful failed proof
 
-The latest live Router demo comparison collected all 12 captures. Genie removed one warm-up from
+The recorded Router demo comparison collected all 12 captures. Genie removed one warm-up from
 each cohort, then refused the React comparison:
 
 The decisive fields from that result were:
@@ -147,8 +147,8 @@ The decisive fields from that result were:
 }
 ```
 
-This is a good result. The tool stopped the agent from presenting an attractive timing number as a
-proven optimization. Complete capture count is not the same as comparable evidence.
+The captures existed, but their render coverage could not support an optimization claim.
+Fix the coverage gap or report only the metrics whose evidence is comparable.
 
 ## Accept a change only when
 

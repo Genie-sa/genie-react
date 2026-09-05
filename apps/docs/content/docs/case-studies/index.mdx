@@ -9,8 +9,15 @@ Every case uses both kinds of tool:
 - agent-browser or agent-device performs the action and checks visible UI.
 - Genie reads the live React and TanStack evidence.
 
-The commands and outputs below came from live demo runs. Component IDs and timings change between
-sessions, so always discover the current ID first.
+These case studies retain observations from recorded demo runs. They are examples to reproduce,
+not expected timings or evidence for your app. Discover current IDs, use the installed tool schema,
+and require the same visible checks before accepting a result. CLI examples use JSON output;
+external browser/device tools keep their own output formats.
+
+Run repository examples from a checkout with dependencies installed and packages built. The
+commands use `jq`, `rg`, and Bash; loops and cleanup traps should run in a dedicated Bash shell.
+Install your browser or device driver before starting the demo. For a first connection, use
+[First live check](/docs/getting-started/first-check).
 
 These live cases cover the Vite, TanStack Start, Router, plain web, and Expo demos. The Next.js page
 is a setup guide and does not claim a live case.

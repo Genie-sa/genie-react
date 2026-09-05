@@ -4,10 +4,12 @@ description: Drive one browser action, read its renders, verify the UI, and clea
 icon: Play
 ---
 
-This runnable example uses `apps/plain-demo`. Start each long-running process in its own terminal.
+This example uses `apps/plain-demo` from a local checkout of this repository. Run `pnpm install`
+from the repository root first. You also need Bash, `jq`, and a working `agent-browser` installation.
+Run every block from the repository root, and keep each long-running process in its own terminal.
 
 ```bash title="Terminal 1 — hub"
-pnpm --filter @genie-react/cli build
+pnpm --filter @genie-react/cli... build
 pnpm --filter @genie-react/plain-demo exec genie-react hub --port 4390
 ```
 
@@ -33,10 +35,10 @@ genie() {
 agent-browser --session "$GENIE_SESSION" open "$APP_URL"
 wait_json="$(genie call devtools_wait \
   '{"condition":"ready","timeoutMs":15000}' \
-  --json --fail-on-result-error)"
+  --fail-on-result-error)"
 jq -e '.ok == true' <<<"$wait_json" >/dev/null
 
-status_json="$(genie status --sessions-only --json)"
+status_json="$(genie status --sessions-only)"
 jq '{connected, ready, sessionId, sessions}' <<<"$status_json"
 jq -e '
   .connected and .ready and
@@ -55,17 +57,17 @@ clear_json="$(genie call react_clear_renders \
       "targetTimeReserveMs":25,
       "adaptive":false
     }
-  }' --json)"
+  }')"
 jq -e '.ok == true' <<<"$clear_json" >/dev/null
 agent-browser --session "$GENIE_SESSION" find testid increment click
 
 quiet_json="$(genie call devtools_wait \
   '{"condition":"react-quiet","quietMs":300,"timeoutMs":5000}' \
-  --json --fail-on-result-error)"
+  --fail-on-result-error)"
 jq -e '.ok == true' <<<"$quiet_json" >/dev/null
 
 renders_json="$(genie call react_get_renders \
-  '{"component":"EffectCounter","sort":"selfTime","limit":3}' --json)"
+  '{"component":"EffectCounter","sort":"selfTime","limit":3}')"
 jq '{
   component: .components[0].name,
   causes: .components[0].causes,
@@ -80,7 +82,7 @@ jq -e '
 ' <<<"$renders_json" >/dev/null
 
 causes_json="$(genie call react_render_causes \
-  '{"component":"EffectCounter","limit":3}' --json)"
+  '{"component":"EffectCounter","limit":3}')"
 jq '{events, coverage}' <<<"$causes_json"
 jq -e '
   (.events | length) > 0 and
@@ -97,7 +99,7 @@ agent-browser --session "$GENIE_SESSION" get text '[data-testid="increment"]'
 agent-browser --session "$GENIE_SESSION" reload
 agent-browser --session "$GENIE_SESSION" wait '[data-testid="increment"]'
 agent-browser --session "$GENIE_SESSION" get text '[data-testid="increment"]'
-genie call react_clear_renders '{}' --json >/dev/null
+genie call react_clear_renders '{}' >/dev/null
 agent-browser --session "$GENIE_SESSION" close
 unset APP_URL GENIE_BRIDGE_URL GENIE_SESSION
 unset causes_json clear_json quiet_json renders_json status_json wait_json

@@ -4,8 +4,8 @@ Load this reference only when creating or changing the app-owned tools that Geni
 
 ## 1. Choose the registration lifetime
 
-- Use `useGenieTool` for one component- or route-scoped tool.
-- Use `useGenieTools` for several tools owned by one component. Inline handlers see the latest render's state; do not add dependency arrays.
+- Use `useGenieTool` for one tool owned by a component or route.
+- Use `useGenieTools` for several tools owned by one component. Inline handlers see the latest render's state.
 - Pass definitions to `<Genie tools={tools} />` for app-lifetime tools.
 - Use `registerGenieTools` outside React, such as in a store or API client. Keep and call its unregister function when that lifetime ends.
 
@@ -16,7 +16,7 @@ This step is complete when every tool has one deliberate owner and lifetime.
 Apps import Zod directly; add it as a direct dependency rather than importing Genie's private copy.
 
 ```tsx
-import { defineGenieTool, GenieToolError, useGenieTools } from 'genie-react'
+import { defineGenieTool, useGenieTools } from 'genie-react'
 import { z } from 'zod'
 
 function AuthDevtools() {
@@ -38,10 +38,7 @@ function AuthDevtools() {
       input: z.object({ role: z.enum(['guest', 'member', 'admin']) }),
       handler: ({ role: nextRole }) => {
         if (nextRole === role) {
-          throw new GenieToolError('role is already active', {
-            code: 'NO_OP',
-            hint: 'query app_session for the current permissions',
-          })
+          return { changed: false, role }
         }
         return switchRole(nextRole)
       },
@@ -65,20 +62,24 @@ This step is complete when discovery describes every argument, mutation property
 
 ## 3. Keep the handler bounded and actionable
 
-Read current state at call time. Return plain serializable data, never DOM nodes, fibers, class instances, functions, symbols, or secrets. Results default to a 128KB cap; prefer summary/filter/limit arguments before raising `maxResultBytes`. Keep synchronous work well under one second so the app's main thread remains responsive.
+Read current state at call time. Return plain serializable data, never DOM nodes, fibers, class instances, functions, symbols, or secrets. App tool results default to a 131,072-byte cap, separate from the CLI output limit; prefer summary/filter/limit arguments before raising `maxResultBytes`. Keep synchronous work well under one second so the app's main thread remains responsive.
 
-Throw `GenieToolError` for an expected failure the agent can act on:
+Use `GenieToolError` to identify expected failures in the runtime:
 
 ```ts
+import { GenieToolError } from 'genie-react'
+
 throw new GenieToolError('cart is empty', {
   code: 'CART_EMPTY',
   hint: 'seed it with app_seed_cart',
 })
 ```
 
-Plain exceptions are treated as bugs in the app's handler. Do not hide them behind a success result.
+The CLI sanitizes thrown handler messages and returns `reason:"tool-error"`; the runtime error code and hint are not exposed there. If an agent needs a domain-specific recovery step, return it as typed data such as `{ok:false, code:"CART_EMPTY", recovery:"seed_cart"}` and advertise that output schema. The agent must inspect this result because a returned value alone does not make the CLI exit nonzero.
 
-This step is complete when success is bounded plain data and every expected failure names a recovery action.
+Reserve exceptions for failures that stop the operation. Keep runtime error messages free of secrets.
+
+This step is complete when success is bounded plain data and every recoverable domain outcome has a documented result the agent can inspect.
 
 ## 4. Register outside React when needed
 
@@ -104,18 +105,18 @@ Registration waits for a late Genie client. Unregistering leaves a bounded unava
 With the app running, use the exact installed CLI:
 
 ```bash
-genie-react doctor --json
-genie-react tools app
-genie-react tools app.auth
-genie-react tools app_login_as
-genie-react call app_login_as '{"role":"admin"}' --json
+pnpm exec genie-react doctor
+pnpm exec genie-react tools app
+pnpm exec genie-react tools app.auth
+pnpm exec genie-react tools app_login_as
+pnpm exec genie-react call app_login_as '{"role":"admin"}'
 ```
 
 Check all of the following:
 
-- The listing has the intended `read-only`, `action`, `destructive`, and availability badges.
+- Tool details have the intended `annotations.readOnlyHint`, `destructiveHint`, `idempotentHint`, `available`, and `unavailableReason` fields. The group index lists names.
 - Valid calls return the bounded documented shape; invalid and unknown arguments fail with field-level guidance.
-- Expected failures preserve the `GenieToolError` code and hint.
+- Thrown failures produce a nonzero CLI exit with `reason:"tool-error"`. Domain outcomes returned as data preserve their documented code and recovery fields.
 - An action's result is confirmed by a follow-up query and the visible UI.
 - Unmounting a route-scoped owner marks the tool unavailable and remounting revives it.
 - Temporary roles, fixtures, injected failures, and overrides are restored after verification.

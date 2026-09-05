@@ -11,30 +11,42 @@ navigation lanes use the QueryClient and TanStack Router supplied to, or discove
 The hub-served script entry also exposes the timeline, with unavailable Query/Router lanes unless
 configured through a collector. Recording is off until you call `timeline_start`.
 
+Use the same [named session](/docs/getting-started/sessions) for the browser action and CLI calls.
+Discover the tools, start a recording, and save its ID:
+
 ```bash
-npx @genie-react/cli tools timeline --json
-npx @genie-react/cli call timeline_start \
-  '{"name":"open checkout","maxEvents":1000,"maxDurationMs":30000}' --json
+npx @genie-react/cli tools timeline
+recording="$(npx @genie-react/cli call timeline_start \
+  '{"name":"open checkout","maxEvents":1000,"maxDurationMs":30000}')"
+timeline_id="$(jq -er '.id' <<<"$recording")"
+printf '%s\n' "$recording" | jq '{id,state,coverage}'
 ```
 
-Save the returned `id`, then perform the interaction. Wait for its actual success condition: for
-example, the expected result appears and the relevant query finishes. React quiet alone does not
-mean a pending request or a native animation has finished.
+Perform the interaction now. Wait for its actual success condition, such as the expected result
+appearing and its query finishing. React quiet alone does not mean a pending request or native
+animation has finished. Then stop and save the first page:
 
 ```bash
-# Replace the example ID with the returned recording id.
-npx @genie-react/cli call timeline_stop '{"id":"RETURNED_ID"}' --json
+timeline_args="$(jq -cn --arg id "$timeline_id" '{id:$id}')"
+npx @genie-react/cli call timeline_stop "$timeline_args"
+npx @genie-react/cli call timeline_read "$timeline_args" > timeline-page-1.json
+jq '{state,stopReason,truncated,coverage,nextOffset}' timeline-page-1.json
+```
+
+`timeline_stop` freezes metadata. `timeline_read` returns events. Follow `nextOffset` while it is a
+number, keeping the same `domains` filter. Saving the first page does not save the whole recording
+when `nextOffset` is non-null. The default page has up to 200 events.
+
+To read only requests and React commits:
+
+```bash
 npx @genie-react/cli call timeline_read \
-  '{"id":"RETURNED_ID","limit":200}' --json
+  "$(jq -cn --arg id "$timeline_id" \
+    '{id:$id,domains:["request","react"],offset:0,limit:200}')"
 ```
 
-`timeline_stop` returns frozen metadata. `timeline_read` returns the events. Follow `nextOffset` for
-additional pages, keeping the same domain filter. To read only requests and React commits:
-
-```bash
-npx @genie-react/cli call timeline_read \
-  '{"id":"RETURNED_ID","domains":["request","react"],"offset":0,"limit":200}' --json
-```
+If the CLI returns `status: "truncated"`, reduce `limit` or choose an explicit `--max-bytes` budget
+and retry that page. This output limit is separate from the recording's event limit.
 
 Each event has a `domain`, `type`, `sequence`, `atMs`, and domain-specific `details`. `atMs` is the
 observation time relative to the start on the same monotonic clock; `sequence` resolves equal times.
@@ -78,7 +90,9 @@ React Native can provide the React and supplied Query lanes when supported. Brow
 and non-TanStack native navigation remain explicitly unavailable. Query/Router instances registered
 later through `startGenie` are used by the next recording.
 
-For manual collector composition:
+## Manual collector composition
+
+Use this only when building a client with `createGenieClient`:
 
 ```ts
 import { timelineCollector } from 'genie-react/collectors'
@@ -86,6 +100,9 @@ import { timelineCollector } from 'genie-react/collectors'
 const collector = timelineCollector({ queryClient, router })
 // Add collector to createGenieClient({ collectors: [...] }).
 ```
+
+Finish by saving every required page and reporting lane coverage, `stopReason`, and any truncation.
+A useful diagnosis names the observed slow lane and the next check needed to confirm its cause.
 
 ## Live verification
 

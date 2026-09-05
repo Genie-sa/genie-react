@@ -4,10 +4,14 @@ description: Small command sequences that answer one runtime question.
 icon: Workflow
 ---
 
-Genie works best when the agent measures one exact flow and asks the smallest useful question.
+Start with a [connected, named session](/docs/getting-started/first-check). Choose one interaction
+and a visible success condition, such as loaded results or the expected route.
 
 For every workflow, use agent-browser or agent-device to perform the action and verify the visible
-result. Use Genie to read the causal and performance evidence.
+result. Use Genie to inspect runtime evidence. Examples with component IDs, routes, or query keys
+require values from your app; the [case studies](/docs/case-studies) include runnable demo setup.
+Commands return JSON by default. Scripts that depend on a successful wait should add
+`--fail-on-result-error` and check the process exit code.
 
 | Goal                     | Start with                                              |
 | ------------------------ | ------------------------------------------------------- |
@@ -18,11 +22,14 @@ result. Use Genie to read the causal and performance evidence.
 | Test loading or error UI | Query simulation, Suspense, or error actions            |
 | Check Query work         | `query_list`, `query_get`, and an exact `devtools_wait` |
 | Check a route            | `router_get_state` and `router_list_matches`            |
-| Find a slow flow         | `react_profile_start`, then `react_profile_report`      |
+| Separate data latency from rendering | `timeline_start`, `timeline_stop`, then `timeline_read` |
+| Rank expensive React work | `react_profile_start`, then `react_profile_report` |
+| Locate a StyleX definition | `stylex_inspect`, then verify the CSS condition in the browser |
 | Check an optimization    | Repeated captures and `devtools_capture_compare`        |
 | Check memory or frames   | `browser_get_memory` or `browser_fps`                   |
 
 <Cards>
+  <Card title="Trace a slow interaction" href="/docs/workflows/interaction-timeline" />
   <Card title="Optimize renders" href="/docs/workflows/render-optimization" />
   <Card title="Inspect Query" href="/docs/workflows/query" />
   <Card

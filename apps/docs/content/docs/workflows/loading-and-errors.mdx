@@ -4,6 +4,9 @@ description: Hold brief branches still, verify them, and restore the app.
 icon: LoaderCircle
 ---
 
+These examples use two demo apps with different bridge ports. Run the setup linked in each
+section first. Keep each Genie binding aligned with its browser session.
+
 ## Query loading
 
 Use the bound TanStack Start session from
@@ -11,6 +14,8 @@ Use the bound TanStack Start session from
 then prove the cache and visible branch agree:
 
 ```bash
+export GENIE_BRIDGE_URL=ws://localhost:3000/__genie/ws
+export GENIE_SESSION=docs-case-start
 npx @genie-react/cli call query_simulate_state \
   '{"queryKey":["dashboard","metrics"],"state":"pending"}'
 query_state="$(npx @genie-react/cli call query_get \
@@ -27,6 +32,8 @@ Use the bound Router session from
 current component ID, force the fallback, then join React evidence to visible text:
 
 ```bash
+export GENIE_BRIDGE_URL=ws://localhost:3030/__genie/ws
+export GENIE_SESSION=docs-case-router
 npx @genie-react/cli call router_navigate '{"to":"/suspense"}'
 npx @genie-react/cli call devtools_wait \
   '{"condition":"navigation","name":"/suspense","timeoutMs":5000}'
@@ -47,6 +54,8 @@ agent-browser --session docs-case-router get text body | rg -F 'Loading lazy pan
 Navigate to the error fixture and discover its current child ID before forcing the boundary:
 
 ```bash
+export GENIE_BRIDGE_URL=ws://localhost:3030/__genie/ws
+export GENIE_SESSION=docs-case-router
 npx @genie-react/cli call react_reset_overrides '{}'
 npx @genie-react/cli call router_navigate '{"to":"/error"}'
 npx @genie-react/cli call devtools_wait \
@@ -81,6 +90,8 @@ Use the browser driver to check:
 Restore the Query session and verify the synthetic marker is gone:
 
 ```bash
+export GENIE_BRIDGE_URL=ws://localhost:3000/__genie/ws
+export GENIE_SESSION=docs-case-start
 npx @genie-react/cli call query_restore_state \
   '{"queryKey":["dashboard","metrics"]}' --json
 query_state="$(npx @genie-react/cli call query_get \
@@ -92,13 +103,14 @@ agent-browser --session docs-case-start get text body | rg -F 'Acme NA #1'
 Reset the Router session and verify the real child is visible again:
 
 ```bash
+export GENIE_BRIDGE_URL=ws://localhost:3030/__genie/ws
+export GENIE_SESSION=docs-case-router
 reset="$(npx @genie-react/cli call react_reset_overrides '{}' --json)"
 printf '%s\n' "$reset" | jq -e '.remaining == 0'
 agent-browser --session docs-case-router get text body | rg -F 'Throw'
 unset query_state suspense_state error_state reset lazy_panel_id bomb_id
 ```
 
-## Agent outcome
-
-The agent can verify states that normally last only a few milliseconds. This makes layout-shift,
-fallback, and error-boundary work testable without adding temporary app code.
+Finish only after the target UI checks pass and each app returns to its real state. Record the
+state you forced, the visible result, and the cleanup check. The
+[cleanup reference](/docs/reference/cleanup) covers interrupted sessions.

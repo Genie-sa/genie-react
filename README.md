@@ -6,550 +6,90 @@
 [![CI](https://github.com/Genie-sa/genie-react/actions/workflows/ci.yml/badge.svg)](https://github.com/Genie-sa/genie-react/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/genie-react.svg)](./LICENSE)
 
-> Live React and TanStack tools for coding agents.
+Give your coding agent a view inside your running React app.
 
-Genie lets an agent inspect the app that is running now. It can explain renders, inspect effects, read Query and Router state, test hard-to-reach UI, and measure a fix.
+Find out why a component rendered, whether a Query update reached the UI, or where an interaction spent its time. Then run the same flow after a fix and compare the evidence.
 
-Genie is for development only. The hub listens on localhost.
+Works with React web and React Native. Query and routing tools support TanStack Query and TanStack Router. Use Genie in development.
 
-[Read the full docs](https://genie-react.com/docs).
+[Docs](https://genie-react.com/docs) · [Setup guides](https://genie-react.com/docs/setup) · [Tool reference](https://genie-react.com/docs/tools)
 
-## Quick start
+## Get started
+
+For Vite or Next.js, run these from your app folder. The CLI requires Node.js 22.12 or newer.
 
 ```bash
 pnpm add -D genie-react @genie-react/cli
-npx @genie-react/cli init
-pnpm dev
+pnpm exec genie-react init
 ```
 
-Open the app in a browser. Then check the connection:
-
-```bash
-npx @genie-react/cli status --sessions-only
-```
-
-When the session says `ready=true`, try a read:
-
-```bash
-npx @genie-react/cli call react_get_tree '{"depth":3,"maxNodes":50}'
-```
-
-Run commands from the app folder. If several running apps match, Genie stops and asks you to choose instead of guessing.
-
-## Common tasks
-
-### Explain why a component rendered
-
-Clear old data, perform one action, then read the result:
-
-```bash
-npx @genie-react/cli call react_clear_renders '{}'
-# Click, type, or navigate in the app.
-npx @genie-react/cli call react_get_renders '{"component":"Checkout","sort":"selfTime","limit":10}'
-npx @genie-react/cli call react_render_causes '{"component":"Checkout","limit":20}'
-```
-
-The result can point to a state hook, Context, Query, Router, children, a parent render, or a mount.
-
-### Find a slow flow
-
-```bash
-npx @genie-react/cli call react_profile_start '{}'
-# Perform the flow once.
-npx @genie-react/cli call react_profile_report '{"limit":10}'
-npx @genie-react/cli call react_profile_stop '{}'
-```
-
-The report separates the slowest single render from total time across the whole flow.
-
-### Check effects
-
-```bash
-npx @genie-react/cli call react_clear_renders '{}'
-# Perform one action.
-npx @genie-react/cli call react_effect_events '{"component":"Checkout"}'
-npx @genie-react/cli call react_effect_audit '{"component":"Checkout"}'
-```
-
-`react_effect_events` shows what React scheduled. It does not claim that an effect or cleanup ran.
-
-To inspect one package:
-
-```bash
-npx @genie-react/cli call react_effect_audit \
-  '{"packageName":"@tanstack/react-query","appOnly":false}'
-```
-
-### Inspect a Query
-
-```bash
-npx @genie-react/cli call query_list '{"limit":20}'
-npx @genie-react/cli call query_get '{"queryKey":["cart"]}'
-```
-
-Wait for one exact key instead of sleeping:
-
-```bash
-npx @genie-react/cli call devtools_wait \
-  '{"condition":"query-settled","queryKey":["cart"],"timeoutMs":10000}'
-```
-
-### Inspect or change a route
-
-```bash
-npx @genie-react/cli call router_get_state '{}'
-npx @genie-react/cli call router_build_location '{"to":"/products/$productId","params":{"productId":"42"}}'
-npx @genie-react/cli call router_navigate '{"to":"/products/$productId","params":{"productId":"42"}}'
-```
-
-`router_get_state` returns the Router URL and browser URL together. Check `locationSync` before trusting them.
-
-### Inspect one component
-
-```bash
-npx @genie-react/cli call react_find_components '{"query":"Checkout","exact":true}'
-npx @genie-react/cli call react_inspect_component '{"id":42,"path":["user","address"],"depth":3}'
-```
-
-For a large tree, read only one subtree:
-
-```bash
-npx @genie-react/cli call react_get_tree '{"rootId":42,"depth":3,"maxNodes":100}'
-```
-
-### Check repeated list items
-
-```bash
-npx @genie-react/cli call react_clear_renders '{}'
-# Perform one action.
-npx @genie-react/cli call react_component_cohort '{"component":"Row","exact":true}'
-```
-
-The result separates updated, mounted-but-idle, unmounted, and missing rows. It also reports rows omitted by the limit.
-
-### Use the app's own dev tools
-
-An app can register its own tools with `useGenieTool`. They appear under the `app` group:
-
-```tsx
-import { useGenieTool } from 'genie-react'
-import { z } from 'zod'
-
-useGenieTool({
-  name: 'login_as',
-  kind: 'action', // or 'query' — tells the agent read vs mutate
-  description: 'Switches the session role and re-gates the UI.',
-  input: z.object({ role: z.enum(['guest', 'member', 'admin']) }),
-  handler: ({ role }) => switchRole(role),
-})
-```
-
-```bash
-npx @genie-react/cli tools app
-npx @genie-react/cli call app_login_as '{"role":"admin"}'
-```
-
-Register several tools with one hook call — handlers still see the latest render's state:
-
-```tsx
-import { defineGenieTool, useGenieTools } from 'genie-react'
-
-useGenieTools([
-  defineGenieTool({ name: 'session', kind: 'query', description: '…', handler: () => ({ role }) }),
-  defineGenieTool({ name: 'login_as', kind: 'action', description: '…', input, handler }),
-])
-```
-
-Outside components — a store, an API client, any module:
-
-```ts
-import { defineGenieTool, registerGenieTools } from 'genie-react/client'
-
-const unregister = registerGenieTools(
-  defineGenieTool({
-    name: 'cart_state',
-    kind: 'query',
-    description: 'Current cart line items and totals from the zustand store.',
-    handler: () => useCartStore.getState().summary(),
-  }),
-  defineGenieTool({
-    name: 'cart_clear',
-    kind: 'action',
-    destructive: true,
-    description: 'Empties the cart store. No undo.',
-    handler: () => useCartStore.getState().clear(),
-  }),
-)
-```
-
-Registration waits for the genie client if it has not started yet; `unregister()` tombstones the
-tools. Args are validated by the schema in the app. A tool whose component unmounted stays listed
-as unavailable with the place it was registered. Use this for what only the app can do: switch
-roles, seed fixtures, inject API failures, jump wizard steps. See the
-[App tools reference](https://genie-react.com/docs/tools/app-tools).
-
-## Prove a fix
-
-For labelled measurements without clearing global data, open a span, drive the UI, then read and close it:
-
-```sh
-npx @genie-react/cli call react_measure '{"label":"open checkout"}' --json
-# Drive the UI, then wait for React commits to settle.
-npx @genie-react/cli call react_quiesce '{"idleMs":500}' --json
-npx @genie-react/cli call react_renders_since '{"handle":"<returned handle>","close":true}' --json
-```
-
-The result carries its label, owned document commit IDs, component counts, and coverage. Concurrent handles use explicit exclusive ownership: the newest open span captures subsequent commits; older spans resume when it closes. Their commit sets are disjoint, and `excludedCommits` reports work owned by a newer span. Reading without `close:true` keeps capture open. A global clear leaves span evidence intact. This associates an interaction with a labelled capture, but background work inside that capture is still included: `attribution:"temporal-only"` is not a causal guarantee.
-
-Handles expire after five minutes or a document reload/Fast Refresh. At most 20 spans are retained; opening at capacity evicts a closed span or rejects if all are open. Each span retains up to 500 components and 1000 commits; reaching the commit limit stops that span, and any collection/retention loss is reported as incomplete coverage. App ownership filtering reports unresolved sources; pass `appOnly:false` to inspect them. Export results for a durable audit.
-
-For React commit quiescence, use the dedicated wait tool instead of a fixed sleep:
-
-```sh
-npx @genie-react/cli call react_clear_renders '{}'
-# Drive the UI.
-npx @genie-react/cli call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --json
-npx @genie-react/cli call react_get_renders '{}' --json
-```
-
-`outcome` is `idle`, `timed-out`, or `unavailable`. Results include `elapsedMs`, the number of
-commits observed between samples, and collection status. An idle React tree can coexist with a
-canvas/native animation; the tool waits for React commits, not animation frames or future timers.
-A document replacement invalidates the wait, while a tool-catalog refresh in the same document does
-not. Use `--fail-on-result-error` to exit nonzero when quiescence was not established.
-
-For the existing bridge-owned interaction workflow:
-
-
-```bash
-npx @genie-react/cli call devtools_interaction_begin '{"name":"open checkout","components":["CheckoutRow"]}' --json
-# Save interactionId from the result, then perform the UI action.
-# If its asynchronous work belongs in the measurement, wait for it before stopping:
-npx @genie-react/cli call devtools_wait '{"condition":"react-quiet","quietMs":500,"timeoutMs":10000}' --json
-# Check ok:true, then replace the example ID with the returned interactionId.
-npx @genie-react/cli call devtools_interaction_stop '{"interactionId":"int_RETURNED_ID"}' --json
-```
-
-The result retains the name, physical session, observation ID, and start/stop document commit boundaries. Inspect `coverage.comparable`, `notComparableReasons`, and warnings before comparing runs. Stop freezes the profile **before** its own settle wait; later commits are counted as `postInteractionCommits` and excluded. A timeout means the requested settle condition was not observed; do not treat the result as a completed measurement.
-
-Only one interaction can start or record per physical document. A competing begin is rejected before it can clear the first window; stop the existing handle before opening the next one. Avoid `react_clear_renders` or another profile start during a recording, and start a new handle after relaunch. Handles are retained in the hub's bounded memory, so export results for a durable audit.
-
-This is a labelled observation window, not proof that the action caused every render inside it: background query updates can still occur in the same window. Inspect the recorded render causes and exact notification evidence. Concurrent time windows alone cannot yield disjoint causal commit sets.
-
-`react_get_renders` and `react_profile_report` include `bundle` (`development`, `production`,
-`mixed`, or `unknown`), `timingsBundleDependent: true`, and `countsScope: "observed-run"`.
-Bundle metadata comes from the app document's registered React renderers. Quote render/update
-counts as observations of that run, subject to collection coverage; development behavior and
-Strict Mode can differ from production. Quote timings with the bundle and measurement conditions;
-development timings are not release estimates. Compare equivalent environments, and do not treat
-`unknown` or `mixed` as a verified production measurement. A production bundle label identifies the
-renderer; it does not establish that profiling or collection is available.
-
-For a quick same-session check:
-
-```bash
-npx @genie-react/cli call react_profile_start '{}'
-# Run the flow before the code change.
-npx @genie-react/cli call devtools_wait '{"condition":"react-quiet","quietMs":500,"timeoutMs":10000}' --json
-npx @genie-react/cli call react_profile_snapshot '{"label":"before"}'
-
-# Make the change, start a clean window, then run the same flow again.
-npx @genie-react/cli call react_profile_start '{}'
-# Run the same flow again.
-npx @genie-react/cli call devtools_wait '{"condition":"react-quiet","quietMs":500,"timeoutMs":10000}' --json
-npx @genie-react/cli call react_renders_diff '{"baseline":"before","thresholdMs":0.5}'
-```
-
-`devtools_wait` reports `ok`, `waitedMs`, and the last observed document commit ID. Check `ok: true` before trusting the measurement; a timeout or unavailable commit collection returns `ok: false`. The quiet window restarts after each observed commit, failed sample, or app session change. A degraded late hook can establish quiet during this window, but cannot recover earlier commits. React quiet does not prove pending queries, native animations, or future scheduled work are idle, or guarantee identical counts across runs; use `condition: "settled"` with supported domains for additional checks.
-
-For a stronger result, capture the same flow at least three times before and after the change:
-
-```bash
-npx @genie-react/cli call react_clear_renders '{}'
-# Run the flow.
-npx @genie-react/cli call devtools_wait '{"condition":"react-quiet","quietMs":500,"timeoutMs":10000}' --json
-npx @genie-react/cli call devtools_capture_create '{"name":"before-1"}' --json
-
-# After the change, clear, run the same flow, and capture again.
-npx @genie-react/cli call react_clear_renders '{}'
-# Run the same flow.
-npx @genie-react/cli call devtools_wait '{"condition":"react-quiet","quietMs":500,"timeoutMs":10000}' --json
-npx @genie-react/cli call devtools_capture_create '{"name":"after-1"}' --json
-```
-
-Use the returned capture IDs to compare both groups:
-
-```bash
-npx @genie-react/cli call devtools_capture_compare \
-  '{"baselineCaptureIds":["<before-1>","<before-2>","<before-3>"],"candidateCaptureIds":["<after-1>","<after-2>","<after-3>"],"metrics":["react.renders","react.selfTimeMs"],"budgets":[{"metric":"react.renders","maxRegressionPct":0}]}'
-```
-
-Use the same build, route, device, and action for every run. `insufficient-data` is not a pass.
-
-## Trace an interaction across domains
-
-Record requests, Query cache updates, React root commits, and TanStack Router navigation together:
-
-```bash
-npx @genie-react/cli call timeline_start '{"name":"open checkout"}' --json
-# Save the returned id, perform the action, and wait for its successful outcome.
-npx @genie-react/cli call timeline_stop '{"id":"RETURNED_ID"}' --json
-npx @genie-react/cli call timeline_read '{"id":"RETURNED_ID","limit":200}' --json
-```
-
-The collector is available through `<Genie />`; listeners run only while recording. Read each lane's
-`coverage` and the recording's `stopReason`. Events share a monotonic observation clock, with request
-start/end timings reported separately. `correlation:"temporal-only"` does not prove causation.
-React render duration is not native UI-thread or commit wall time. Requests use completed browser
-Resource Timing entries; failed or unfinished requests may be absent.
-
-Recording defaults to 1,000 events or 30 seconds and stops at either limit. Starting a new recording
-replaces the stopped one. See the [interaction timeline workflow](apps/docs/content/docs/workflows/interaction-timeline.mdx)
-for filtering, pagination, manual composition, native coverage, and live verification.
-
-## Read results safely
-
-| Field | Meaning |
-| --- | --- |
-| `exact` | Genie observed the direct runtime link. |
-| `inferred` | Useful lead, but not proof. |
-| `unknown` | Genie could not prove the cause. |
-| `not-proven-safe` | Test the page before removing the render. |
-| `coverage.complete` | The tool's main measurement is complete. |
-| `coverage.inputAttributionComplete` | Every captured render has complete input evidence. |
-| `attribution.status: stale` | Wait for React to settle, then retry. |
-| `propsNotEnumerated` | Props were not read because a Proxy could run app code. Inspect a named path instead. |
-
-A timing report can be complete while render-cause data is partial. Never use incomplete data to prove that a change worked.
-
-Effect hotness needs at least three updates by default. One sample returns `insufficient-data`. Only effect hotness gets a 95% range; other results stay `exact`, `inferred`, or `unknown`.
-
-## Target one tab
-
-Name the tab in its URL:
-
-```text
-http://localhost:3000/?_genie=my-agent
-```
-
-Pin later calls to it:
-
-```bash
-export GENIE_SESSION=my-agent
-```
-
-The name survives navigation, reloads, and reconnects. You can also pass `--session my-agent` to one command.
-
-## JSON and scripts
-
-```bash
-npx @genie-react/cli status --json
-npx @genie-react/cli call react_get_renders '{}' --json | jq '.coverage'
-npx @genie-react/cli batch \
-  '[{"tool":"react_get_tree","args":{"depth":2}},{"tool":"react_get_renders","args":{"limit":5}}]' --ndjson
-```
-
-- Commands return compact JSON by default, including `--help`, `--version`, setup receipts, and failures. `--json` remains accepted.
-- `batch` writes JSONL by default. `--ndjson` makes that explicit.
-- `batch --json` writes one JSON array.
-- `hub` emits ready/reused/stopped JSONL. `--fields` emits projected JSONL rows; an empty collection emits zero bytes.
-- CLI-owned records include `schemaVersion`; tool results keep their advertised schema.
-- Results default to a 262,144-byte limit. Oversized results return `status:"truncated"`; use tool pagination, `--select`, or `--max-bytes` to retrieve the evidence you need. The default JSONL limit applies per record; an explicit batch `--max-bytes` caps the whole command.
-
-Use `--verbose` when startup hangs. It emits structured JSONL diagnostics to stderr. Connection secrets are omitted.
-
-See the [JSON CLI migration and design](docs/json-cli.md) for compatibility details and research.
-
-## Setup by platform
-
-`init` handles Vite and Next.js. Use the examples below when you need manual control.
-
-### Vite and TanStack Start
-
-`init` adds the `genie()` Vite plugin. For Query and Router tools, render `<Genie />` near the app root:
+Follow the setup result, then run `pnpm dev` and open the app. In Vite, render `<Genie />` near the app root to add Query, Router, memory, and timeline tools:
 
 ```tsx
 import { Genie } from 'genie-react'
 
+// Inside your root component:
 {import.meta.env.DEV && <Genie />}
 ```
 
-It normally finds the Router and Query client. You can also pass them:
-
-```tsx
-{import.meta.env.DEV && <Genie queryClient={queryClient} router={router} />}
-```
-
-The `genie()` plugin removes this dedicated component import during production builds, so the guard
-adds no Genie browser modules or protocol code to production assets.
-
-### Next.js
-
-`init` adds `<GenieScript />` to the root layout and creates `instrumentation.ts`. This setup uses
-the Next.js App Router. It does not use TanStack Router.
-
-To add Query tools, register the same client used by `QueryClientProvider`:
-
-```tsx
-'use client'
-
-import { queryCollector } from 'genie-react/collectors/query'
-import { registerGenieCollector } from 'genie-react/protocol'
-import { useEffect } from 'react'
-import { queryClient } from './query-client'
-
-export function GenieQueryTools() {
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'production') return
-
-    return registerGenieCollector(queryCollector(queryClient))
-  }, [])
-
-  return null
-}
-```
-
-Render `<GenieQueryTools />` after `<GenieScript />` in the root layout.
-
-### Other web bundlers
-
-Start the hub:
+Check that your app is connected:
 
 ```bash
-npx @genie-react/cli hub
+pnpm exec genie-react status --sessions-only --json
+pnpm exec genie-react call react_get_tree '{"depth":3,"maxNodes":50}' --json
 ```
 
-Load the client first in `<head>`:
+Continue when the intended session has `ready: true` and the tree shows your components. If setup needs attention, run `pnpm exec genie-react doctor --live`.
 
-```html
-<script src="http://localhost:4390/__genie/client.js"></script>
-```
+Using [React Native or Expo](https://genie-react.com/docs/setup/react-native), [Next.js](https://genie-react.com/docs/setup/nextjs), or [another web bundler](https://genie-react.com/docs/setup/other-web)? Follow its setup guide.
 
-This adds React and memory tools. To add Query tools, start the client from your bundle with your own Query client:
+## Give your agent a useful task
 
-```ts
-import 'genie-react/hook'
-import { createGenieClient, reactCollector, sessionCollector } from 'genie-react/client'
-import { memoryCollector, queryCollector } from 'genie-react/collectors'
-import { queryClient } from './query-client'
+`init` installs the Genie skill in `.agents/skills/genie`. Pair your agent with a browser or device driver so it can use the UI and check what changed.
 
-createGenieClient({
-  url: 'ws://localhost:4390/__genie/ws',
-  collectors: [sessionCollector(), reactCollector(), memoryCollector(), queryCollector(queryClient)],
-}).start()
-```
+Try a prompt like:
 
-Import `genie-react/hook` before React.
+> Use Genie to find why Checkout renders when I type in search. Fix it, then repeat the interaction and check that checkout still works.
 
-### React Native and Expo
+> Record the interaction timeline when I open the product page. Check whether the delay comes from a request or React rendering.
 
-Start the hub on your development machine:
+> Put the cart into loading and error states, check both screens, then restore it.
+
+Genie can read runtime state and call tools your app registers. The UI driver clicks, types, and checks the screen. See the [agent workflow](https://genie-react.com/docs/getting-started/agent-workflow).
+
+## Try it from the terminal
+
+Find a render cause. Replace `Checkout` with a component in your app:
 
 ```bash
-npx @genie-react/cli hub
+pnpm exec genie-react call react_clear_renders '{}'
+# Perform one action in the app.
+pnpm exec genie-react call react_render_causes '{"component":"Checkout","limit":10}' --json
 ```
 
-Import the hook in your entry file (`index.js`) before anything that loads React, then render Genie in development:
-
-```tsx
-import 'genie-react/hook'
-```
-
-```tsx
-import { Genie } from 'genie-react/native'
-
-{__DEV__ && <Genie url="ws://127.0.0.1:4390/__genie/ws" />}
-```
-
-The early hook import is what makes render collection work; without it, tree and inspect tools still function but render reports stay empty (`react_get_renders` reports `renderCollection` so you can tell the difference). Use `127.0.0.1` for the iOS simulator or `10.0.2.2` for the Android emulator. Desktop targets such as react-native-macos and react-native-windows run on the same machine as the hub, so `127.0.0.1` works with no port forward. A physical device needs a port forward to the local hub. Pass `queryClient` or `router` to add those tools.
-
-React Native has no DOM selectors. `react_dom_for_component` returns native view details instead. Browser-only tools stay unavailable.
-
-For Expo Router navigation, opt into `createNavigationTools` from `genie-react/navigation`.
-`app_navigate` then returns the resulting route and stack depth after the native transition ends;
-repeated pushes expose duplicate screens in that response. See the
-[navigation integration](https://genie-react.com/docs/tools/app-tools#settled-native-navigation)
-for registration, event forwarding and timeout handling.
-
-
-## Find more tools
+Read a Query:
 
 ```bash
-npx @genie-react/cli tools
-npx @genie-react/cli tools react.render
-npx @genie-react/cli tools react_render_causes
+pnpm exec genie-react call query_list '{"limit":10}' --json
+# Use a key returned above.
+pnpm exec genie-react call query_get '{"queryKey":["cart"]}' --json
 ```
 
-Group listings expose parameter names, enum values, bounds, and defaults in JSON. Use `tools <tool>` for nested options and a runnable example. For named render/effect reports,
-use `component`; `react_component_cohort` uses that same key with exact matching by default. Tools
-that inspect or mutate one live instance use its returned `id`, which is distinct from a name filter.
-`react_get_renders` accepts `sort:"updates"` to rank update counts before applying the result limit.
-Pass `appOnly` only where advertised: cohort queries retain mounted and unmounted lifecycle evidence
-and do not currently support ownership filtering.
-
-Tool areas include React, effects, Query, Router, memory, frame rate, plugins, and runtime captures. Read tools inspect the app. Action tools can change live Query, Router, component, Suspense, and error state.
-
-After testing an action, restore temporary state:
+Discover tools and their exact inputs:
 
 ```bash
-npx @genie-react/cli call query_restore_state '{"all":true}'
-npx @genie-react/cli call react_reset_overrides '{}'
+pnpm exec genie-react tools
+pnpm exec genie-react tools timeline_start --json
 ```
 
-## Give Genie to your agent
+For scripts, use JSON and check the result's coverage before claiming a fix worked. CLI 0.14 and newer return JSON by default. Older releases need `--json` for structured reads. See [CLI output](https://genie-react.com/docs/getting-started/cli-output) for framing, limits, and migration details.
 
-Install the agent skill:
+## Go further
 
-```bash
-npx skills add y0u-0/genie-react
-```
-
-Pair Genie with a UI driver:
-
-- [agent-browser](https://github.com/vercel-labs/agent-browser) for web apps.
-- [agent-device](https://github.com/callstack/agent-device) for React Native.
-
-The UI driver performs the action. Genie explains what happened inside the app.
-
-## Check setup
-
-```bash
-npx @genie-react/cli doctor
-npx @genie-react/cli doctor --live
-```
-
-`doctor` checks files. `doctor --live` also checks the running hub, client script, and browser session.
-
-## Test a pull request build
-
-Each pull request publishes packages through [pkg.pr.new](https://pkg.pr.new):
-
-```bash
-pnpm add -D https://pkg.pr.new/genie-react@<sha>
-npx https://pkg.pr.new/@genie-react/cli@<sha> status
-```
-
-## How it works
-
-The browser collectors read React and TanStack state. They send tool results to a local WebSocket hub. The CLI sends requests to that hub and prints the result.
-
-Vite runs the hub inside its development server. Next.js and other setups run a small standalone hub. More than one app or tab can connect safely when you target the right session.
-
-## Packages
-
-| Package or export | Purpose |
-| --- | --- |
-| `genie-react` | `<Genie />` component |
-| `genie-react/vite` | Vite plugin |
-| `genie-react/next` | Next.js setup |
-| `genie-react/native` | React Native and Expo |
-| `genie-react/navigation` | App-owned native navigation with transition settlement |
-| `genie-react/client` | Browser client |
-| `genie-react/collectors` | Individual collectors |
-| `genie-react/collectors/query` | Query collector without Router types |
-| `genie-react/collectors/router` | Router collector |
-| `genie-react/hub` | Local hub |
-| `genie-react/protocol` | Tool and wire types |
-| `@genie-react/cli` | Terminal commands |
+- [Trace requests, Query updates, renders, and navigation together](https://genie-react.com/docs/workflows/interaction-timeline).
+- [Compare repeated runs before and after a change](https://genie-react.com/docs/workflows/performance-proof).
+- [Add app tools for login, fixtures, or hard-to-reach states](https://genie-react.com/docs/tools/app-tools).
+- [Target the right tab when several agents are working](https://genie-react.com/docs/getting-started/sessions).
+- [Understand runtime overhead and the measured limits](docs/runtime-overhead.md).
 
 MIT © Genie React Agent contributors

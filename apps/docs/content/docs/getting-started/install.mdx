@@ -1,8 +1,11 @@
 ---
 title: Install
-description: Add Genie and let the CLI wire it into the app.
+description: Add Genie, inspect setup changes, and confirm one live session.
 icon: PackagePlus
 ---
+
+Run setup from the app folder containing its `package.json`. You need a development build of
+React 18 or newer and Node.js 22.12.0 or newer. The verification examples use Bash and `jq`.
 
 ## Add the packages
 
@@ -10,68 +13,59 @@ icon: PackagePlus
 pnpm add -D genie-react @genie-react/cli
 ```
 
-Use npm or yarn if the project does not use pnpm.
+Use your project's package manager. If the project already has Genie installed, check the
+[CLI release and output note](/docs/getting-started/cli-output) before using the JSON examples.
 
-## Wire the app
-
-Run this from the app folder:
-
-```bash
-npx @genie-react/cli init
-```
-
-`init` detects Vite and Next.js. Preview its changes first when needed:
+## Review and apply setup
 
 ```bash
 npx @genie-react/cli init --dry-run
+npx @genie-react/cli init
 ```
 
-For a non-interactive run, `--yes` suppresses only the final post-init tip. It makes the same file
-changes as `init` and does not choose among setup options:
+`init` detects Vite and Next.js, updates supported configuration, and installs the agent skill. It
+runs without prompts. `--yes` is accepted for existing automation and makes the same changes.
 
-```bash
-npx @genie-react/cli init --yes
-```
+Read `data.artifacts`, `data.manualSteps`, and `userActionRequired` in the receipt. A successful exit
+can still require manual wiring. Plain Vite apps, for example, need `<Genie />` near the app root for
+the additional collectors. Follow the matching [platform setup](/docs/setup) until each manual step
+is complete. If setup fails partway through, inspect the files before retrying; changes may already
+have been applied.
 
-## Start and check
+## Start the app and name its session
 
-Keep the development server running in the first terminal:
+Keep the development server running in its own terminal:
 
 ```bash title="Terminal 1"
 pnpm dev
 ```
 
-Open the app in a browser. Then verify the running setup from a second terminal. `doctor` reports
-discovery and remediation as JSON; `status` must show at least one ready, non-stale session.
+Open the app's local URL with `?_genie=setup-check`. If the URL already has a query string, append
+`&_genie=setup-check`. In a second terminal, pin that session and check the running stack:
 
 ```bash title="Terminal 2"
-doctor_json="$(npx @genie-react/cli doctor --live --json)"
-jq '{ok, bridgeCandidates, remediation, live}' <<<"$doctor_json"
-jq -e '.ok == true' <<<"$doctor_json" >/dev/null
-
-status_json="$(npx @genie-react/cli status --sessions-only --json)"
-jq '{connected, ready, sessionId, sessions}' <<<"$status_json"
-jq -e '
-  .connected and .ready and
-  any(.sessions[]; .ready == true and .staleMs == null)
-' <<<"$status_json" >/dev/null
+export GENIE_SESSION=setup-check
+npx @genie-react/cli doctor --live
+npx @genie-react/cli status --sessions-only
 ```
 
-If either assertion exits non-zero, read `remediation`, keep Terminal 1 running, open or reload the
-app, and rerun the whole Terminal 2 block.
+Continue when `doctor` reports `ok:true` and the selected status session has `ready:true` and
+`staleMs:null`. On failure, follow `remediation`, keep the server running, and open or reload the app
+before retrying. [Troubleshooting](/docs/reference/troubleshooting) covers connection and collector
+failures.
 
-Do not put `doctor` or `status` after `pnpm dev` in the same shell:
+## Make the first read
 
 ```bash
-# pnpm dev blocks until you stop the server.
+npx @genie-react/cli tools react_get_tree
+npx @genie-react/cli call react_get_tree '{"depth":2}'
 ```
 
-## How this helps the agent
-
-The agent can check the complete path from config file to hub, client script, and browser session.
-It does not need to guess why a tool call cannot connect.
+A tree response confirms that calls reached the mounted app. Next, use
+[First live check](/docs/getting-started/first-check) for a reproducible demo with a visible assertion,
+or follow the [agent workflow](/docs/getting-started/agent-workflow) in your own app.
 
 <Callout type="info" title="Development only">
-  Genie listens on localhost and should only run in development. The provided
-  integrations skip production.
+  The hub listens on localhost. Keep manual integrations behind development guards. The Vite
+  integration and Next.js script component skip production.
 </Callout>

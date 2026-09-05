@@ -4,6 +4,9 @@ description: Setup, discovery, live calls, and machine output.
 icon: Terminal
 ---
 
+These commands use the current JSON output contract. Read the
+[release compatibility note](/docs/getting-started/cli-output) when upgrading an older installation.
+
 The CLI emits compact JSON in terminals, pipes, and CI. `--json` remains a compatibility alias.
 `--help` returns structured command metadata and `--version` returns a version object.
 
@@ -64,13 +67,14 @@ command when recovery is known. A failed batch item does not stop later items.
 
 ## Output framing and limits
 
-Finite commands return one JSON value. `call` retains the advertised tool result schema. Setup
+Finite commands return one JSON value, except the JSONL modes below. `call` retains the advertised tool result schema. Setup
 receipts list artifacts and manual actions without dumping source files. Diagnostic records use
 JSONL on stderr; `--verbose` enables connection phases.
 
 `batch` and `--ndjson` emit one result per line; `batch --json` returns one array. `--fields`
 emits projected JSONL rows and zero bytes for an empty collection. `hub` emits `ready`, `reused`,
-and `stopped` lifecycle records. Process exit is 0 for success and 1 for failure.
+and `stopped` lifecycle records. Process exit is 0 for CLI success and 1 for failure. A wait or quiesce result can report `ok:false`
+with exit 0; add `--fail-on-result-error` to `call` when a failed wait must fail the script.
 
 Output defaults to 262,144 bytes per JSON document or default JSONL record. An explicit batch
 `--max-bytes` bounds the whole command. `--max-bytes` accepts 512–50,000,000 bytes. Oversized

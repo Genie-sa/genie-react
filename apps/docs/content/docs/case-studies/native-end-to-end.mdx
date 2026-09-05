@@ -6,8 +6,9 @@ icon: Smartphone
 
 **Demo:** `examples/expo-demo`
 
-The UI driver proves what the user sees. Genie proves why React changed and which Query observer
-received the data. This case ran in Expo Go on an iPhone simulator.
+Use the UI driver to check visible state and Genie to inspect React causes and Query observer
+delivery. This case records an Expo Go run on an iPhone simulator; it does not establish behavior
+on every device or React Native version.
 
 ## Start the demo
 
@@ -59,29 +60,21 @@ export GENIE_SESSION="$(
 genie status --json
 ```
 
-Selected live status:
+Check these selected status fields before continuing:
 
 ```json
 {
   "schemaVersion": "1.0",
   "connected": true,
   "ready": true,
-  "app": { "name": "Expo demo", "reactVersion": "19.2.3" },
-  "domains": [
-    "session",
-    "react",
-    "memory",
-    "perf",
-    "plugin",
-    "router",
-    "query"
-  ],
-  "toolCount": 73,
-  "warnings": []
+  "app": { "name": "Expo demo" }
 }
 ```
 
-The agent now knows the intended native app is connected and exposes every expected domain.
+Inspect `domains` and discover `tools react` and `tools query` in your running version. Tool counts
+and renderer versions change. Native tools can be advertised while individual browser-only
+operations remain unavailable; check each result's support or coverage fields. For multi-domain
+timing, the [timeline workflow](/docs/workflows/interaction-timeline) explains native lane limits.
 
 ## Press once and explain the render
 

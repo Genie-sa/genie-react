@@ -44,15 +44,19 @@ agent-browser --session docs-case-router wait '[data-testid="lazy-content"]'
 agent-browser --session docs-case-router get text '[data-testid="lazy-content"]'
 ```
 
-```text
-/suspense?source=docs · idle · 2 matches · browser matched
+Selected fields from `router_get_state`:
 
-matches:
-- __root__      success
-- /suspense     success
-
-browser: Lazy content loaded
+```json
+{
+  "pathname": "/suspense",
+  "searchStr": "?source=docs",
+  "status": "idle",
+  "matchCount": 2,
+  "locationSync": "matched"
+}
 ```
+
+The browser text check returned `Lazy content loaded`.
 
 The agent only inspects the new page after `locationSync` is `matched`.
 
@@ -101,11 +105,8 @@ agent-browser --session docs-case-router get text \
   '[data-testid="suspense-fallback"]'
 ```
 
-```text
-0 caught · 1 suspended
-fallback SHOWING
-browser: Loading lazy panel…
-```
+Require an entry in `react_error_state.suspended` with `forced: true` and
+`isFallbackShowing: true`. The browser text must read `Loading lazy panel…`.
 
 On the error route:
 
@@ -126,11 +127,8 @@ agent-browser --session docs-case-router wait '[data-testid="error-ui"]'
 agent-browser --session docs-case-router get text '[data-testid="error-ui"]'
 ```
 
-```text
-1 caught · 0 suspended
-Boundary caught "Simulated error coming from DevTools"
-browser: Caught: Simulated error coming from DevTools · Reset
-```
+Require an entry in `react_error_state.caughtErrors` with `forced: true` and
+`boundaryName: "Boundary"`. The browser must show the simulated error and its reset control.
 
 The agent can now check fallback text, dimensions, focus, ARIA, containment, and retry controls.
 

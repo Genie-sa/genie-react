@@ -35,13 +35,17 @@ export async function register(): Promise<void> {
 }
 ```
 
-This is enough for the core session, React, memory, and performance tools.
+This loads the core session, React, memory, performance, and timeline tools. Query tools require
+the separate registration below. The timeline initially has browser request and React lanes; inspect
+its lane availability before expecting Query or Router events.
 
 ## Add Query tools
 
 Skip this section when the app does not use TanStack Query.
 
-Create the client once:
+Use the same client that your existing `QueryClientProvider` owns. The minimal example below creates
+one browser client. Preserve your app's existing per-request server client and hydration setup if it
+already has one:
 
 ```tsx title="app/query-client.ts"
 'use client'
@@ -116,14 +120,15 @@ Keep the Next.js development server running in one terminal, open the app, and c
 pnpm dev
 ```
 
-Open the page that mounts the Query provider. The demo uses
+Open the page that mounts the Query provider and has fetched at least one query. Add
+`?_genie=next-check` to its URL. The repository demo uses
 `http://localhost:3000/query-demo?_genie=next-check`.
 
 ```bash title="Terminal 2"
 export GENIE_SESSION=next-check
-status_json="$(npx @genie-react/cli status --json)"
-tools_json="$(npx @genie-react/cli tools --json)"
-query_json="$(npx @genie-react/cli call query_list '{"limit":10}' --json)"
+status_json="$(npx @genie-react/cli status)"
+tools_json="$(npx @genie-react/cli tools)"
+query_json="$(npx @genie-react/cli call query_list '{"limit":10}')"
 jq '{
   connected,
   ready,
@@ -148,14 +153,13 @@ jq -e '
 unset GENIE_SESSION query_json status_json tools_json
 ```
 
-Selected live output:
+Example selected fields, with formatting added for readability:
 
 ```json
 {
   "connected": true,
   "ready": true,
-  "domains": ["session", "react", "memory", "perf", "query"],
-  "toolCount": 59
+  "domains": ["session", "react", "memory", "perf", "timeline", "query"]
 }
 ```
 

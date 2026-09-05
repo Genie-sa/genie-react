@@ -4,7 +4,8 @@ description: Pair a UI driver with Genie so the agent can reproduce, fix, and ve
 icon: Bot
 ---
 
-Always use Genie with a UI driver.
+Use a UI driver to reproduce user actions and verify what users see. Genie reads the React runtime
+behind those actions. For a read-only inspection, you can call Genie directly.
 
 | Step                              | Tool                          | Result                                                                  |
 | --------------------------------- | ----------------------------- | ----------------------------------------------------------------------- |
@@ -49,7 +50,7 @@ read, and that read's coverage fields.
 
 ## Return the result
 
-Never end after the plan or tool calls. Return a short report:
+Return a short report:
 
 - What the agent reproduced.
 - What the evidence proved, including coverage limits.
