@@ -42,6 +42,13 @@ import {
 } from './instance-identity'
 import { getMeasurementEnvironment } from './measurement-environment'
 import {
+  beginMeasurementCommit,
+  clearMeasurementSpans,
+  markMeasurementCollectionGap,
+  markMeasurementIncomplete,
+  recordMeasurementRender,
+} from './measurement-spans'
+import {
   beginObservation,
   getActiveObservation,
   getDocumentCommitId,
@@ -247,11 +254,13 @@ export function startRenderTracking(): boolean {
         noteCommit()
         noteCommittedRoot(root)
         if (!isSafeRenderer(rendererId)) {
+          markMeasurementCollectionGap()
           if (getActiveObservation()) analysisFailedFibers += 1
           return
         }
         const hostUnmountObserved = pendingHostUnmountRenderers.delete(rendererId)
         if (isRefreshCommit()) {
+          clearMeasurementSpans()
           advanceExcludedCommitBaseline(root)
           noteAnalysisInvalidation()
           discardPendingUnmounts(rendererId)
@@ -261,6 +270,7 @@ export function startRenderTracking(): boolean {
         }
         noteDocumentCommit()
         commitObservedSinceInstall = true
+        beginMeasurementCommit(getDocumentCommitId(), !paused && !uncertainTraversalRoots.has(root))
         recordResultingEffectCommit(getDocumentCommitId())
         if (paused) {
           discardPendingUnmounts(rendererId)
@@ -379,6 +389,7 @@ function advanceExcludedCommitBaseline(root: FiberRoot): void {
 
 /** Module/HMR teardown only. Profiling stop must keep the lightweight commit heartbeat installed. */
 export function disposeRenderTracking(): void {
+  clearMeasurementSpans()
   renderPages = new Map()
   noteAnalysisInvalidation()
   for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(pending.fiber)
@@ -1027,6 +1038,8 @@ export function recordRender(
   const checkpoint = previous ? { ...previous, causeCounts: { ...previous.causeCounts } } : null
   try {
     recordRenderAtomic(fiber, phase, effectPreparation, commitWork, commitEvidence)
+    const recorded = records.get(id)
+    if (recorded && recorded !== previous) recordMeasurementRender(recorded, previous)
   } catch (error) {
     if (checkpoint) records.set(id, checkpoint)
     else records.delete(id)
@@ -1357,11 +1370,14 @@ function publishCauseEvent(
 
 /** Finalize once after traversal so report coverage names every subsystem the shared guard stopped. */
 export function finalizeCommitAnalysisBudget(budget: CommitAnalysisBudget): void {
+  if (budget.skipped > 0 || budget.targetSkipped > 0 || budget.failed > 0)
+    markMeasurementIncomplete()
   const exhausted = [
     ...commitWorkExhaustions(budget.work),
     ...commitWorkExhaustions(budget.targetWork).map((subsystem) => `target:${subsystem}`),
   ]
   if (exhausted.length === 0) return
+  markMeasurementIncomplete()
   budgetExhaustedCommits += 1
   for (const subsystem of exhausted) {
     budgetExhaustedSubsystems.set(subsystem, (budgetExhaustedSubsystems.get(subsystem) ?? 0) + 1)

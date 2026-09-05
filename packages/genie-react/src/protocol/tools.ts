@@ -438,6 +438,37 @@ const waitDomainResultSchema = z.object({
   lastObserved: z.unknown().optional(),
 })
 
+export const reactQuiesceContract = defineAgentToolContract({
+  name: 'react_quiesce',
+  title: 'Wait for React commits to become idle',
+  description:
+    'Wait until no React document commit is observed for idleMs. Returns idle, timed-out, or unavailable with elapsed time and commits observed since the first valid sample. Does not establish query, animation-frame, or future scheduled work completion. Session changes or counter resets cannot prove idle.',
+  group: 'react.render',
+  input: z
+    .object({
+      idleMs: z.number().int().min(100).max(5_000).default(500),
+      timeoutMs: z.number().int().positive().max(60_000).default(10_000),
+    })
+    .strict(),
+  output: z.object({
+    ok: z.boolean(),
+    outcome: z.enum(['idle', 'timed-out', 'unavailable']),
+    elapsedMs: z.number().nonnegative(),
+    observedCommits: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe(
+        'Document commit counter increases between valid samples in this call; excludes commits before the first sample.',
+      ),
+    documentCommitId: z.number().int().nonnegative().nullable(),
+    sessionId: z.string().nullable(),
+    renderCollection: z.string().nullable(),
+    reason: z.string().optional(),
+  }),
+  annotations: { readOnlyHint: true, idempotentHint: true },
+})
+
 export const devtoolsWaitContract = defineAgentToolContract({
   name: 'devtools_wait',
   title: 'Wait for a condition',
@@ -664,6 +695,7 @@ export const devtoolsInteractionStopContract = defineAgentToolContract({
 export const metaTools = [
   devtoolsStatusContract,
   devtoolsWaitContract,
+  reactQuiesceContract,
   devtoolsCaptureCreateContract,
   devtoolsCaptureListContract,
   devtoolsCaptureReadContract,
