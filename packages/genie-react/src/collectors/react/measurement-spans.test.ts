@@ -129,3 +129,18 @@ it('teardown invalidates handles instead of associating a new document with old 
   clearMeasurementSpans()
   await expect(readMeasurementSpan(a.handle, false, query)).rejects.toThrow('invalidated')
 })
+
+it('resumes the older span on the first commit after a newer span reaches its cap', async () => {
+  const counter = component('Counter')
+  const older = openMeasurementSpan('older')
+  commit(counter)
+  const newer = openMeasurementSpan('newer')
+  for (let i = 0; i < 1001; i++) commit(counter)
+  const a = await readMeasurementSpan(older.handle, true, query)
+  const b = await readMeasurementSpan(newer.handle, true, query)
+  expect(a.commitIds).toEqual([1, 1002])
+  expect(a.excludedCommits).toBe(1000)
+  expect(a.summary.totalUpdates).toBe(2)
+  expect(b.commitIds).toHaveLength(1000)
+  expect(b.endedAtDocumentCommitId).toBe(1001)
+})

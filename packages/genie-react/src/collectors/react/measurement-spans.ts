@@ -84,13 +84,18 @@ export function beginMeasurementCommit(documentCommitId: number, observable: boo
   }
   if (!commitOwner) return
   if (!observable) commitOwner.incomplete = true
-  if (commitOwner.commitIds.length >= MAX_COMMITS) {
-    commitOwner.incomplete = true
-    commitOwner.endedAtDocumentCommitId = documentCommitId - 1
-    commitOwner = undefined
-    return
-  }
   commitOwner.commitIds.push(documentCommitId)
+  if (commitOwner.commitIds.length === MAX_COMMITS) {
+    commitOwner.incomplete = true
+    commitOwner.endedAtDocumentCommitId = documentCommitId
+  }
+}
+
+/** An excluded renderer can arrive before the newest span owns any analyzable commit. */
+export function markMeasurementCollectionGap(): void {
+  prune()
+  const newest = [...spans.values()].filter((span) => span.endedAtDocumentCommitId === null).at(-1)
+  if (newest) newest.incomplete = true
 }
 
 export function markMeasurementIncomplete(): void {

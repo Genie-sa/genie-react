@@ -44,6 +44,7 @@ import { getMeasurementEnvironment } from './measurement-environment'
 import {
   beginMeasurementCommit,
   clearMeasurementSpans,
+  markMeasurementCollectionGap,
   markMeasurementIncomplete,
   recordMeasurementRender,
 } from './measurement-spans'
@@ -252,6 +253,7 @@ export function startRenderTracking(): boolean {
         noteCommit()
         noteCommittedRoot(root)
         if (!isSafeRenderer(rendererId)) {
+          markMeasurementCollectionGap()
           if (getActiveObservation()) analysisFailedFibers += 1
           return
         }
