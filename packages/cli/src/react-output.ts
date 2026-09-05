@@ -577,7 +577,7 @@ function declarationLabel(declaration: Record<string, unknown>): string {
       )
     }
   }
-  if (typeof declaration.condition === 'string') parts.push(`@ ${declaration.condition}`)
+  if (typeof declaration.condition === 'string') parts.push(`when ${declaration.condition}`)
   return parts.join(' ')
 }
 

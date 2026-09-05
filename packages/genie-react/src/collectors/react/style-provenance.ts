@@ -1,15 +1,4 @@
-/**
- * StyleX style provenance for host elements, read from what its compiler leaves on the DOM in dev mode:
- *  - `data-style-src="pkg:src/Card.tsx:5; src/Theme.tsx:12"` — one entry per stylex.create() object
- *    applied via stylex.props(), in argument order (= conflict-resolution order, later wins); the line
- *    is that of the style key (`card: {`). Emitted with `debug: true`.
- *  - marker classes naming each applied object: `Card__styles.card`, or `Card__card` when create()
- *    is not assigned to a variable, and `theme__dark` for createTheme() (which has no data-style-src).
- *    Emitted with `dev: true`.
- *  - atomic classes (`x1e2nbdu`, or `borderColor-x1e2nbdu` with enableDebugClassNames) whose CSS
- *    rules live in a same-origin stylesheet, so the winning declaration per property is a CSSOM lookup.
- * None of this is on the fiber: stylex.props() has already merged everything into className.
- */
+/** StyleX provenance lives on the DOM, not the fiber: `data-style-src` (debug) holds one `file:line` per applied stylex.create() object in stylex.props() order — the style key's line, later wins conflicts; dev marker classes (`Card__styles.card`, `Card__card` when unassigned, `theme__dark` for createTheme, which has no data-style-src) name each object in the same order; atomic classes (`x1e2nbdu`, or `borderColor-x1e2nbdu` with enableDebugClassNames) resolve to declarations through the same-origin CSSOM. */
 
 export interface StyleSourceRef {
   file: string
@@ -62,10 +51,7 @@ export interface StyleProvenanceStatus {
   hint: string | null
 }
 
-// StyleX prefixes the file with the owning package name; neither package names nor the paths that
-// follow contain ':', so the first ':' is the boundary and only the trailing `:line` is positional.
-// A dynamic style function stamps its source twice (marker object + value object), so consecutive
-// duplicates collapse to one entry.
+// The first ':' separates StyleX's package-name prefix from the path (neither contains ':'), only the trailing `:line` is positional, and a dynamic style function stamps its source twice (marker + value object) so consecutive duplicates collapse.
 export function parseStyleSources(raw: string | null): StyleSourceRef[] {
   if (!raw) return []
   const sources: StyleSourceRef[] = []
@@ -91,8 +77,7 @@ export function parseStyleSources(raw: string | null): StyleSourceRef[] {
   return sources
 }
 
-// `Card__styles.card`: basename, double underscore, variable name, dot, style key. The dot is the
-// unambiguous StyleX signature; without it (`Card__card`, `theme__dark`) the shape is also BEM's.
+// `Card__styles.card` (basename, `__`, variable, `.`, key): the dot is the unambiguous StyleX signature; without it (`Card__card`, `theme__dark`) the shape is also BEM's.
 const KEYED_MARKER_CLASS = /^[\w-]+__[\w-]+\.[\w-]+$/
 const BARE_MARKER_CLASS = /^[\w-]+__[\w-]+$/
 // Atomic classes are a hash (`x1e2nbdu`), optionally prefixed by the property in debug mode (`borderColor-x1e2nbdu`).
@@ -231,8 +216,7 @@ function tokensIn(value: string, computed: CSSStyleDeclaration | null): StyleTok
   return tokens
 }
 
-// `cssText` keeps shorthands as authored (`border-color: red`), whereas iterating the declaration
-// expands them into every longhand — four lines of noise per border property.
+// `cssText` keeps shorthands as authored (`border-color: red`); iterating the declaration expands them into every longhand — four lines of noise per border property.
 function authoredDeclarations(cssText: string): Array<[string, string]> {
   const declarations: Array<[string, string]> = []
   for (const part of cssText.split(';')) {

@@ -4,12 +4,18 @@ import { useState, type ReactNode } from 'react'
 const styles = stylex.create({
   card: {
     backgroundColor: '#1a1a2e',
-    borderColor: '#3a3a5c',
+    borderColor: {
+      default: '#3a3a5c',
+      ':hover': '#9aa0ff',
+    },
     borderRadius: 12,
     borderStyle: 'solid',
     borderWidth: 1,
     display: 'grid',
-    gap: 8,
+    gap: {
+      default: 8,
+      '@media (min-width: 48rem)': 12,
+    },
     maxWidth: 360,
     padding: 20,
   },
@@ -22,6 +28,17 @@ const styles = stylex.create({
     color: '#9aa0ff',
     fontSize: 28,
     fontWeight: 700,
+  },
+  progress: (value: number) => ({
+    width: `${value}%`,
+  }),
+  track: {
+    backgroundColor: '#3a3a5c',
+    height: 6,
+  },
+  fill: {
+    backgroundColor: '#e4511e',
+    height: 6,
   },
 })
 
@@ -40,6 +57,9 @@ export function PricingCard(): ReactNode {
       <article {...stylex.props(styles.card, featured && emphasis.featured)}>
         <h3 {...stylex.props(styles.title)}>Pro plan</h3>
         <p {...stylex.props(styles.price)}>$12/mo</p>
+        <div {...stylex.props(styles.track)}>
+          <div {...stylex.props(styles.fill, styles.progress(featured ? 80 : 35))} />
+        </div>
       </article>
       <button type="button" onClick={() => setFeatured((current) => !current)}>
         toggle featured
