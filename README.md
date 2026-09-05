@@ -286,6 +286,27 @@ npx @genie-react/cli call devtools_capture_compare \
 
 Use the same build, route, device, and action for every run. `insufficient-data` is not a pass.
 
+## Trace an interaction across domains
+
+Record requests, Query cache updates, React root commits, and TanStack Router navigation together:
+
+```bash
+npx @genie-react/cli call timeline_start '{"name":"open checkout"}' --json
+# Save the returned id, perform the action, and wait for its successful outcome.
+npx @genie-react/cli call timeline_stop '{"id":"RETURNED_ID"}' --json
+npx @genie-react/cli call timeline_read '{"id":"RETURNED_ID","limit":200}' --json
+```
+
+The collector is available through `<Genie />`; listeners run only while recording. Read each lane's
+`coverage` and the recording's `stopReason`. Events share a monotonic observation clock, with request
+start/end timings reported separately. `correlation:"temporal-only"` does not prove causation.
+React render duration is not native UI-thread or commit wall time. Requests use completed browser
+Resource Timing entries; failed or unfinished requests may be absent.
+
+Recording defaults to 1,000 events or 30 seconds and stops at either limit. Starting a new recording
+replaces the stopped one. See the [interaction timeline workflow](apps/docs/content/docs/workflows/interaction-timeline.mdx)
+for filtering, pagination, manual composition, native coverage, and live verification.
+
 ## Read results safely
 
 | Field | Meaning |

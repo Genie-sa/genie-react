@@ -26,6 +26,10 @@ async function loadNative() {
   vi.doMock('../collectors/react/hook', () => ({}))
   vi.doMock('../collectors/memory', () => ({ memoryCollector: tag('memory') }))
   vi.doMock('../collectors/perf', () => ({ perfCollector: tag('perf') }))
+  const timelineCollector = vi.fn((_options: { queryClient?: unknown; router?: unknown }) => ({
+    __collector: 'timeline',
+  }))
+  vi.doMock('../collectors/timeline', () => ({ timelineCollector }))
   vi.doMock('../collectors/devtools-passthrough', () => ({
     pluginPassthroughCollector: () => ({ __collector: 'plugin' }),
   }))
@@ -35,7 +39,7 @@ async function loadNative() {
   }))
 
   const native = await import('./index')
-  return { ...native, createGenieClient, startSpy, registerSpy }
+  return { ...native, createGenieClient, startSpy, registerSpy, timelineCollector }
 }
 
 const names = (collectors: TaggedCollector[]) => collectors.map((c) => c.__collector)
@@ -70,6 +74,7 @@ describe('startGenie', () => {
       'memory',
       'perf',
       'plugin',
+      'timeline',
     ])
   })
 
@@ -84,13 +89,14 @@ describe('startGenie', () => {
       'memory',
       'perf',
       'plugin',
+      'timeline',
       'router',
       'query',
     ])
   })
 
-  it('registers a late queryClient onto the running client, exactly once', async () => {
-    const { startGenie, registerSpy } = await loadNative()
+  it('registers a late queryClient once and makes it available to the next timeline', async () => {
+    const { startGenie, registerSpy, timelineCollector } = await loadNative()
     const queryClient = queryClientDuck()
 
     startGenie({ url: URL })
@@ -98,6 +104,8 @@ describe('startGenie', () => {
     startGenie({ url: URL, queryClient })
 
     expect(registered(registerSpy)).toEqual(['query'])
+    expect(timelineCollector.mock.calls[0]?.[0].queryClient).toBe(queryClient)
+    expect(timelineCollector).toHaveBeenCalledTimes(1)
   })
 
   it('warns and skips an object that is not a QueryClient, without burning the slot', async () => {

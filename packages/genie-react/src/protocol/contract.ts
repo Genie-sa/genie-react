@@ -16,6 +16,7 @@ export type BuiltInToolGroup =
   | 'plugin'
   | 'memory'
   | 'perf'
+  | 'timeline'
   | 'action'
   | 'app'
 

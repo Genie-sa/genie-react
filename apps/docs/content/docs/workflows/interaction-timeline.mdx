@@ -1,0 +1,99 @@
+---
+title: Interaction timeline
+description: Separate request latency, Query updates, React rendering, and navigation in one recording.
+icon: Activity
+---
+
+## Record a flow
+
+With `<Genie />` mounted in your development app, the `timeline` tool group is available. Query and
+navigation lanes use the QueryClient and TanStack Router supplied to, or discovered by, Genie.
+The hub-served script entry also exposes the timeline, with unavailable Query/Router lanes unless
+configured through a collector. Recording is off until you call `timeline_start`.
+
+```bash
+npx @genie-react/cli tools timeline --json
+npx @genie-react/cli call timeline_start \
+  '{"name":"open checkout","maxEvents":1000,"maxDurationMs":30000}' --json
+```
+
+Save the returned `id`, then perform the interaction. Wait for its actual success condition: for
+example, the expected result appears and the relevant query finishes. React quiet alone does not
+mean a pending request or a native animation has finished.
+
+```bash
+# Replace the example ID with the returned recording id.
+npx @genie-react/cli call timeline_stop '{"id":"RETURNED_ID"}' --json
+npx @genie-react/cli call timeline_read \
+  '{"id":"RETURNED_ID","limit":200}' --json
+```
+
+`timeline_stop` returns frozen metadata. `timeline_read` returns the events. Follow `nextOffset` for
+additional pages, keeping the same domain filter. To read only requests and React commits:
+
+```bash
+npx @genie-react/cli call timeline_read \
+  '{"id":"RETURNED_ID","domains":["request","react"],"offset":0,"limit":200}' --json
+```
+
+Each event has a `domain`, `type`, `sequence`, `atMs`, and domain-specific `details`. `atMs` is the
+observation time relative to the start on the same monotonic clock; `sequence` resolves equal times.
+Request `startMs` and `endMs` describe the resource's own timing separately, because the browser may
+deliver its completion later. A request that started before recording can have a negative `startMs`.
+
+## Interpret the lanes
+
+| Lane | Recorded evidence | Interpretation limits |
+| --- | --- | --- |
+| `request` | Completed fetch/XHR resource timing, URL path, duration, and available status | Failed, unfinished, worker, and other request types may be absent. Cross-origin detailed timing can be restricted. |
+| `query` | Cache additions, removals, and updates with query hash, action, status, and fetch status | A cache update is not proof of a particular network request or component update. Mutation cache and payloads are not recorded. |
+| `react` | Supported development renderer root commits and positive root `actualDuration`, when available | `renderDurationMs` measures React render work; it is not commit wall time or native UI-thread time. Null means unknown. |
+| `navigation` | TanStack Router before-navigation, before-load, load, and resolved events | Other routers and native navigation adapters are not recorded by this lane. |
+
+Start by comparing the request duration with the observed React render duration. A long request and
+short render suggest investigating data delivery. Short requests with expensive renders suggest
+investigating React work. These are diagnostic leads: every report has `correlation: "temporal-only"`.
+Background work can occur in the same recording. Inspect render-cause tools for stronger attribution.
+
+Read `coverage` even when no events appear. An unavailable lane is not evidence that no work occurred.
+Development timings must not be quoted as production measurements.
+
+## Bounds and lifecycle
+
+One recording is retained per collector. Starting again replaces a stopped recording; export any
+result you want to keep using the CLI's JSON output. A stale ID is rejected. Stopping twice returns
+the same frozen metadata.
+
+The default limit is 1,000 events over at most 30 seconds. `maxEvents` accepts 1–10,000;
+`maxDurationMs` accepts 1–120,000. Recording stops automatically when either limit is reached.
+`stopReason` explains why; `truncated` indicates the event cap was reached. A read returns
+at most 1,000 events. Active reads are append-only; `nextOffset: null` means caught up at that instant.
+
+Only an active recording installs listeners. Stopping releases them. The React lane reads root
+metadata without another Fiber tree traversal, and requests use Resource Timing without wrapping
+`fetch` or reading bodies. URL queries, fragments, and credentials are omitted; paths and Query
+hashes can still contain application values.
+
+React Native can provide the React and supplied Query lanes when supported. Browser request timing
+and non-TanStack native navigation remain explicitly unavailable. Query/Router instances registered
+later through `startGenie` are used by the next recording.
+
+For manual collector composition:
+
+```ts
+import { timelineCollector } from 'genie-react/collectors'
+
+const collector = timelineCollector({ queryClient, router })
+// Add collector to createGenieClient({ collectors: [...] }).
+```
+
+## Live verification
+
+The repository includes a real Chromium flow with a delayed API response and a separate expensive
+React render. It uses the built CLI and checks that all four lanes are present, that each slowdown
+appears in the appropriate lane, and that stopped evidence remains frozen.
+
+```bash
+pnpm build
+node scripts/check-timeline-e2e.mjs
+```

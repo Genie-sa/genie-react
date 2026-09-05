@@ -60,6 +60,9 @@ jobs:
       - name: Run Vite E2E
         run: pnpm check:e2e
 
+      - name: Verify interaction timeline in Chromium
+        run: node scripts/check-timeline-e2e.mjs
+
   compatibility:
     name: Compatibility · ${{ matrix.profile }} · Node ${{ matrix.node }}
     runs-on: ubuntu-latest

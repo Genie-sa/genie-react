@@ -22,6 +22,7 @@ async function loadGenie(router: unknown) {
   vi.doMock('../collectors/react', () => ({ reactCollector: tag('react') }))
   vi.doMock('../collectors/memory', () => ({ memoryCollector: tag('memory') }))
   vi.doMock('../collectors/perf', () => ({ perfCollector: tag('perf') }))
+  vi.doMock('../collectors/timeline', () => ({ timelineCollector: tag('timeline') }))
   const pluginPassthroughCollector = vi.fn(() => ({ __collector: 'plugin' }))
   vi.doMock('../collectors/devtools-passthrough', () => ({ pluginPassthroughCollector }))
   vi.doMock('../collectors/tanstack', () => ({
@@ -59,6 +60,7 @@ describe('<Genie /> in a plain React app (no router)', () => {
       'memory',
       'perf',
       'plugin',
+      'timeline',
     ])
     expect(startSpy).toHaveBeenCalledTimes(1)
     expect(errorSpy).not.toHaveBeenCalled()
@@ -74,9 +76,9 @@ describe('<Genie /> with a plugin-injected client already running', () => {
     render(createElement(Genie))
 
     expect(createGenieClient).not.toHaveBeenCalled()
-    expect(register).toHaveBeenCalledTimes(3)
+    expect(register).toHaveBeenCalledTimes(4)
     const registered = register.mock.calls.map((c) => (c[0] as TaggedCollector).__collector)
-    expect(registered).toEqual(['memory', 'perf', 'plugin'])
+    expect(registered).toEqual(['memory', 'perf', 'plugin', 'timeline'])
   })
 })
 
@@ -93,6 +95,7 @@ describe('<Genie /> under a TanStack Router', () => {
       'memory',
       'perf',
       'plugin',
+      'timeline',
       'router',
       'query',
     ])
@@ -110,6 +113,7 @@ describe('<Genie /> under a TanStack Router', () => {
       'memory',
       'perf',
       'plugin',
+      'timeline',
       'router',
     ])
   })
@@ -144,6 +148,7 @@ describe('<Genie /> under a TanStack Router', () => {
       'memory',
       'perf',
       'plugin',
+      'timeline',
       'router',
     ])
     expect(errorSpy).not.toHaveBeenCalled()
@@ -163,6 +168,7 @@ describe('<Genie /> under a bare QueryClientProvider (no router)', () => {
       'memory',
       'perf',
       'plugin',
+      'timeline',
       'query',
     ])
   })
@@ -198,6 +204,7 @@ describe('<Genie /> under a bare QueryClientProvider (no router)', () => {
       'memory',
       'perf',
       'plugin',
+      'timeline',
     ])
   })
 })
