@@ -15,6 +15,7 @@ const MAX_PROCESS_OUTPUT = 1_000_000
 const CONSUMER_DEPENDENCIES = [
   'react@19.2.7',
   'react-dom@19.2.7',
+  'react-freeze@1.0.4',
   'vite@8.1.0',
   '@vitejs/plugin-react@6.0.3',
   '@rolldown/plugin-babel@0.2.3',
@@ -216,7 +217,9 @@ export default defineConfig(({ command }) => ({
   )
   await writeFile(
     join(temporaryRoot, 'src/main.js'),
-    `import { createElement, memo, useEffect, useRef, useState } from 'react'
+    `import { Activity, createElement, memo, useEffect, useRef, useState } from 'react'
+import 'genie-react/react-freeze'
+import { Freeze } from 'react-freeze'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { Genie } from 'genie-react'
@@ -264,6 +267,20 @@ function QuiesceCanvas() {
     }}, 'Run canvas interaction'))
 }
 
+function FreezeProbe() {
+  const [count, setCount] = useState(0)
+  return createElement('button', { id: 'freeze-probe', onClick: () => setCount(value => value + 1) }, 'Retained:' + count)
+}
+function FreezeFallback() { return createElement('span', { id: 'freeze-fallback' }, 'Frozen placeholder') }
+function FreezeFixture() {
+  const [mode, setMode] = useState('active')
+  return createElement('section', null,
+    ['active', 'frozen', 'hidden', 'unmounted'].map(mode => createElement('button', { key: mode, id: 'freeze-' + mode, onClick: () => setMode(mode) }, mode)),
+    mode !== 'unmounted' && createElement(Activity, { mode: mode === 'hidden' ? 'hidden' : 'visible' },
+      createElement(Freeze, { freeze: mode === 'frozen', placeholder: createElement(FreezeFallback) }, createElement(FreezeProbe))),
+  )
+}
+
 function App() {
   const [value, setValue] = useState(0)
   const [showRows, setShowRows] = useState(false)
@@ -271,6 +288,7 @@ function App() {
   const query = useQuery({ queryKey: ['greeting'], queryFn: async () => 'hello' })
   const [tick, setTick] = useState(0)
   return createElement('main', { id: 'lab' },
+    createElement(FreezeFixture),
     createElement('div', { id: 'greeting' }, query.data ?? query.status),
     createElement('button', { onClick: () => setShowRows(true) }, 'Mount rows'),
     createElement('button', { onClick: () => setRevision(value => value + 1) }, 'Update rows'),
@@ -671,6 +689,66 @@ async function main() {
   await page.waitForFunction(() => document.querySelector('#greeting')?.textContent === 'hello')
   const callTool = async (name, args = {}) =>
     parseSuccessfulJson(name, await runCli(['call', name, JSON.stringify(args), '--json']))
+  await callTool('react_clear_renders', {
+    budget: { fiberLimit: 2000, operationLimit: 2000000, timeLimitMs: 500, adaptive: false },
+  })
+  const freezeCohort = (component = 'FreezeProbe') =>
+    callTool('react_component_cohort', { component, exact: true })
+  const activeFreeze = await freezeCohort()
+  assert(
+    activeFreeze.instances[0]?.renderingState === 'mounted-rendering',
+    'Active freeze probe was not eligible to render',
+  )
+  const retainedMountId = activeFreeze.instances[0].instance.mountId
+  await page.locator('#freeze-probe').click()
+  await page.locator('#freeze-frozen').click()
+  await page.locator('#freeze-fallback').waitFor({ state: 'visible' })
+  const frozenCohort = await freezeCohort()
+  assert(
+    frozenCohort.instances[0]?.renderingState === 'mounted-frozen',
+    `Actual react-freeze primary was not reported frozen: ${JSON.stringify(frozenCohort)}`,
+  )
+  assert(
+    frozenCohort.instances[0].instance.mountId === retainedMountId,
+    'Freezing changed mount identity',
+  )
+  assert(
+    (await freezeCohort('FreezeFallback')).instances[0]?.renderingState === 'mounted-rendering',
+    'Freeze fallback was wrongly frozen',
+  )
+  await page.locator('#freeze-active').click()
+  await page.locator('#freeze-probe').waitFor({ state: 'visible' })
+  assert(
+    (await page.locator('#freeze-probe').textContent()) === 'Retained:1',
+    'Thaw lost component state',
+  )
+  assert(
+    (await freezeCohort()).instances[0]?.renderingState === 'mounted-rendering',
+    'Thaw retained stale freeze state',
+  )
+  await page.locator('#freeze-hidden').click()
+  await page.locator('#freeze-probe').waitFor({ state: 'hidden' })
+  assert(
+    (await freezeCohort()).instances[0]?.renderingState === 'mounted-hidden',
+    'Activity was conflated with react-freeze',
+  )
+  await page.locator('#freeze-unmounted').click()
+  const removedFreeze = await waitFor(
+    'freeze probe unmount',
+    async () => {
+      const report = await freezeCohort()
+      return (
+        report.instances.some(
+          (row) => row.renderingState === 'unmounted' && row.instance.mountId === retainedMountId,
+        ) && report
+      )
+    },
+    10000,
+  )
+  assert(removedFreeze.unmounted === 1, 'Actual unmount did not preserve a tombstone')
+  process.stdout.write(
+    'Freeze E2E passed: active → frozen → thawed (state retained) → Activity hidden → unmounted; fallback remained rendering.\n',
+  )
   await callTool('react_clear_renders', { components: ['PolicyConsumer'] })
   const notificationsBefore = await callTool('query_notifications')
   await page.locator('#metadata-update').click()
