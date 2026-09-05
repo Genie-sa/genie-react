@@ -65,7 +65,7 @@ describe('agent CLI integration', () => {
       schemaVersion: '1.0',
       status: 'error',
       reason: 'invalid_input',
-      message: 'Unknown tool or group "missing_tool". Groups: meta, query',
+      message: 'Unknown tool or group "missing_tool". Groups: meta, query, react.render',
       userActionRequired: true,
       next: {
         command: 'genie-react tools',

@@ -217,7 +217,7 @@ export default defineConfig(({ command }) => ({
   )
   await writeFile(
     join(temporaryRoot, 'src/main.js'),
-    `import { Activity, createElement, memo, useState } from 'react'
+    `import { Activity, createElement, memo, useEffect, useRef, useState } from 'react'
 import 'genie-react/react-freeze'
 import { Freeze } from 'react-freeze'
 import { createRoot } from 'react-dom/client'
@@ -243,6 +243,28 @@ ExplicitMemoRow.displayName = 'CustomMemoRow'
 
 function OwnershipRow({ index, revision }) {
   return createElement('span', { id: 'row-' + index }, index + ':' + revision)
+}
+
+function QuiesceCanvas() {
+  const canvas = useRef(null)
+  const [updates, setUpdates] = useState(0)
+  useEffect(() => {
+    let frame
+    const paint = (time) => {
+      const context = canvas.current?.getContext('2d')
+      if (context) { context.clearRect(0,0,120,24); context.fillRect(time % 100, 0, 20, 20) }
+      frame = requestAnimationFrame(paint)
+    }
+    frame = requestAnimationFrame(paint)
+    return () => cancelAnimationFrame(frame)
+  }, [])
+  return createElement('section', null,
+    createElement('canvas', {ref: canvas, width:120, height:24}),
+    createElement('output', {id:'quiesce-updates'}, updates),
+    createElement('button', {id:'quiesce-interact', onClick: () => {
+      setUpdates(value => value + 1)
+      for (const delay of [30,60,90]) setTimeout(() => setUpdates(value => value + 1), delay)
+    }}, 'Run canvas interaction'))
 }
 
 function FreezeProbe() {
@@ -272,6 +294,7 @@ function App() {
     createElement('button', { onClick: () => setRevision(value => value + 1) }, 'Update rows'),
     showRows && Array.from({ length: 241 }, (_, index) => createElement(OwnershipRow, { key: index, index, revision })),
     createElement(PolicyConsumer, { tick }),
+    createElement(QuiesceCanvas),
     createElement('button', { id: 'metadata-update', onClick: () => {
       queryClient.setQueryData(policyKey, stableData, { updatedAt: 2 })
       setTick(value => value + 1)
@@ -765,6 +788,28 @@ async function main() {
       ),
     ),
     `Subscribed data update lost its exact Query cause: ${JSON.stringify(delivered.events)}`,
+  )
+  const canvasRuns = []
+  for (let run = 0; run < 10; run++) {
+    await callTool('react_clear_renders', { components: ['QuiesceCanvas'] })
+    await page.locator('#quiesce-interact').click()
+    const settled = await callTool('react_quiesce', { idleMs: 250, timeoutMs: 5000 })
+    assert(
+      settled.outcome === 'idle',
+      `Canvas interaction failed to quiesce: ${JSON.stringify(settled)}`,
+    )
+    const renders = await callTool('react_get_renders', {
+      component: 'QuiesceCanvas',
+      appOnly: false,
+    })
+    assert(
+      renders.components.length === 1 && renders.components[0].updates === 4,
+      `Canvas run ${run + 1} lost deferred updates: ${JSON.stringify(renders)}`,
+    )
+    canvasRuns.push(renders.components[0].updates)
+  }
+  process.stdout.write(
+    `React quiesce live canvas: ${canvasRuns.join(', ')} updates across ten consecutive clear→interact→quiesce→report runs.\n`,
   )
   assert(pageErrors.length === 0, `Browser page errors:\n${pageErrors.join('\n')}`)
 
