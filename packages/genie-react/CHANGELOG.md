@@ -1,5 +1,16 @@
 # genie-react
 
+## 0.14.0
+
+### Minor Changes
+
+- bc8665f: Add `stylex_inspect`: for apps styled with StyleX in dev mode (`debug: true`), report the applied `stylex.create()` objects by name and source file:line in override order, the CSS each atomic class resolves to (with pseudo/media conditions), `defineVars` tokens with current values, and dynamic style values — by CSS selector or component id. `react_dom_for_component` and `react_component_for_dom` gain a `styleSources` breadcrumb, and DOM selectors skip compiler-generated class names.
+- 16411a2: Add an on-demand interaction timeline combining completed browser requests, Query cache updates, React root commits, and TanStack Router navigation. Recording uses bounded retention and one monotonic clock, releases listeners when stopped, and reports coverage gaps and temporal-only correlation through timeline_start, timeline_read, and timeline_stop.
+
+### Patch Changes
+
+- 62472b1: Reduce synchronous render-analysis overhead for wide component lists by reusing bounded sibling identity scans within each commit. Preserve key uniqueness, reorder handling, deadlines, and incomplete coverage reporting.
+
 ## 0.13.0
 
 ### Minor Changes

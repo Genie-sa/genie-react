@@ -1,5 +1,19 @@
 # @genie-react/cli
 
+## 0.14.0
+
+### Minor Changes
+
+- ef1c58a: Migrate the CLI to JSON output by default, including help, version, setup receipts and failures. Preserve existing tool JSON schemas and --json compatibility, document JSONL batch/fields/hub streams, and bound output with explicit truncation. Diagnostics are JSONL on stderr. Consumers parsing previous human output must migrate to the structured fields; see docs/json-cli.md.
+- bc8665f: Add `stylex_inspect`: for apps styled with StyleX in dev mode (`debug: true`), report the applied `stylex.create()` objects by name and source file:line in override order, the CSS each atomic class resolves to (with pseudo/media conditions), `defineVars` tokens with current values, and dynamic style values — by CSS selector or component id. `react_dom_for_component` and `react_component_for_dom` gain a `styleSources` breadcrumb, and DOM selectors skip compiler-generated class names.
+
+### Patch Changes
+
+- Updated dependencies [62472b1]
+- Updated dependencies [bc8665f]
+- Updated dependencies [16411a2]
+  - genie-react@0.14.0
+
 ## 0.13.0
 
 ### Minor Changes
