@@ -9,7 +9,6 @@ const context: CollectorContext = {
   refreshTools() {},
   markActivity() {},
 }
-const collectors: GenieCollector[] = []
 const clients: QueryClient[] = []
 const cleanups: Array<() => void> = []
 let time = 100
@@ -21,7 +20,6 @@ function call<T>(collector: GenieCollector, name: string, input: unknown): T {
 }
 function create(options: Parameters<typeof timelineCollector>[0] = {}) {
   const collector = timelineCollector(options)
-  collectors.push(collector)
   const cleanup = collector.start?.(context)
   if (cleanup) cleanups.push(cleanup)
   return collector
@@ -91,7 +89,6 @@ beforeEach(() => {
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup()
   for (const value of clients.splice(0)) value.clear()
-  collectors.length = 0
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
