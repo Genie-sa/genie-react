@@ -1,6 +1,8 @@
 import type { Fiber } from 'bippy'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import { minimalExampleArgs } from '../../protocol'
+import { schemaConstraints } from '../../protocol/schema-description'
 
 vi.mock('bippy/source', () => ({
   getSource: async (fiber: { _debugSource?: unknown }) => fiber._debugSource ?? null,
@@ -13,7 +15,8 @@ vi.mock('bippy/source', () => ({
 }))
 const { reactCollector } = await import('./collector')
 const { buildTree, noteCommittedRoot, forgetCommittedRoots } = await import('./fiber')
-const { clearRenders } = await import('./render-tracker')
+const { clearRenders, recordRender, takeSnapshot, rendersDiff, getRendersLeaderboardsMeasurement } =
+  await import('./render-tracker')
 const { noteInstanceRender } = await import('./instance-identity')
 const { classifyFiber, clearSourceCache } = await import('./source')
 const { getRenderCohort } = await import('./render-cohort')
@@ -123,4 +126,49 @@ it('advertises ownership filtering on every component listing and profile compar
       name,
     ).toContain('"appOnly"')
   }
+})
+
+it('composes valid first-call arguments for the entire advertised React catalog', () => {
+  for (const { contract } of reactCollector().tools ?? []) {
+    const schema = z.toJSONSchema(contract.input, { io: 'input' })
+    const properties = schema.properties ?? {}
+    const args = JSON.parse(minimalExampleArgs(properties, new Set(schema.required ?? []), schema))
+    expect(
+      contract.input.safeParse(args).success,
+      `${contract.name}: ${JSON.stringify(args)}`,
+    ).toBe(true)
+    const constraints = schemaConstraints(schema)
+    for (const [name, field] of Object.entries(properties)) {
+      if (typeof field !== 'object' || field === null) continue
+      if ('enum' in field || 'minimum' in field || 'maximum' in field)
+        expect(constraints, contract.name).toContain(`${name}:`)
+    }
+  }
+})
+
+it('keeps source incompleteness on filtered leaderboards and both sides of profile comparisons', async () => {
+  const app = row('AppRow', '/src/App.tsx'),
+    library = row('LibraryRow', '/node_modules/ui/Row.tsx'),
+    unknown = row('UnknownRow', null)
+  recordRender(app, 'update')
+  recordRender(library, 'update')
+  recordRender(unknown, 'update')
+  const board = await getRendersLeaderboardsMeasurement(1, { appOnly: true })
+  expect(board.boards.mostRerendered.map((row) => row.name)).toEqual(['AppRow'])
+  expect(board.coverage).toMatchObject({
+    complete: false,
+    semantics: 'lower-bound',
+    sourceClassification: { app: 1, library: 1, unknown: 1 },
+  })
+  const snapshot = await takeSnapshot('ownership', true)
+  expect(snapshot.components).toBe(1)
+  expect(snapshot.coverage).toMatchObject({ complete: false, sourceClassification: { unknown: 1 } })
+  const diff = await rendersDiff('ownership', 0.5, true)
+  expect(diff.coverage).toMatchObject({
+    baseline: { complete: false },
+    current: { complete: false },
+  })
+  await expect(rendersDiff('ownership', 0.5, false)).rejects.toThrow('appOnly must match')
+  const raw = await takeSnapshot('all', false)
+  expect(raw.components).toBe(3)
 })

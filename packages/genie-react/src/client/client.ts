@@ -14,6 +14,7 @@ import {
   type ToolDescriptor,
   type ValidationCallHint,
 } from '../protocol'
+import { schemaConstraints } from '../protocol/schema-description'
 import type { CollectorContext, ErasedCollectorTool, GenieCollector } from './collector'
 import {
   forkSessionIdentity,
@@ -465,7 +466,10 @@ function validationCallHint(input: AgentToolContract['input']): ValidationCallHi
   }
   if (!properties) return undefined
   const requiredKeys = (required ?? []).filter((key) => key in properties)
-  return { requiredKeys, exampleArgs: minimalExampleArgs(properties, new Set(requiredKeys)) }
+  return {
+    requiredKeys,
+    exampleArgs: minimalExampleArgs(properties, new Set(requiredKeys), schema),
+  }
 }
 
 // Dev-only output-side twin of the input validation; warns instead of throwing so schema lag never breaks a running app.
@@ -496,12 +500,16 @@ function toDescriptor(tool: ErasedCollectorTool): ToolDescriptor {
   const { contract } = tool
   let base = descriptorCache.get(contract)
   if (!base) {
+    const inputJsonSchema = safeToJsonSchema(contract.name, contract.input, 'input')
+    const constraints = contract.name.startsWith('react_') ? schemaConstraints(inputJsonSchema) : ''
     base = {
       name: contract.name,
       title: contract.title,
-      description: contract.description,
+      description: constraints
+        ? `${contract.description} Arguments: ${constraints}.`
+        : contract.description,
       group: contract.group,
-      inputJsonSchema: safeToJsonSchema(contract.name, contract.input, 'input'),
+      inputJsonSchema,
       outputJsonSchema: safeToJsonSchema(contract.name, contract.output, 'output'),
       annotations: contract.annotations,
     }

@@ -76,7 +76,7 @@ import type {
 import { draftRenderRecord } from './render-model'
 import { assessRender, type CurrentCommitEvidence, type RenderAssessment } from './render-outcomes'
 import {
-  buildCurrentAggregates,
+  buildCurrentAggregateMeasurement,
   buildRenderCauseEventsReport,
   buildRenderSummary,
   buildRenders,
@@ -93,6 +93,7 @@ import {
   diffRenderSnapshot,
   type RenderTrackingCoverage,
   storeRenderSnapshot,
+  withSourceCoverage,
 } from './render-snapshots'
 import { captureReportEpoch, reportAttribution, reportStateMatches } from './report-attribution'
 import { isSafeRenderer, supportedCommitHandler } from './safe-instrumentation'
@@ -880,7 +881,7 @@ export async function getRendersLeaderboardsMeasurement(
     tracking,
     documentCommitId: epoch.documentCommitId,
     attribution: reportAttribution(epoch),
-    coverage,
+    coverage: withSourceCoverage(coverage, boards.sourceClassification, selection.appOnly === true),
     boards,
   }
 }
@@ -904,7 +905,7 @@ export async function takeSnapshot(
   const clearsAtStart = clears
   const epoch = captureReportEpoch()
   const coverage = getRenderTrackingCoverage('measurement')
-  const components = await buildCurrentAggregates(recordsAtStart, appOnly, {
+  const measurement = await buildCurrentAggregateMeasurement(recordsAtStart, appOnly, {
     isCurrent: () => reportStateMatches(epoch),
   })
   if (!reportStateMatches(epoch)) {
@@ -912,7 +913,14 @@ export async function takeSnapshot(
       'React analysis changed while the snapshot was resolving. Retry after commits, clears, or refreshes settle.',
     )
   }
-  return storeRenderSnapshot(label, commitsAtStart, clearsAtStart, components, coverage, appOnly)
+  return storeRenderSnapshot(
+    label,
+    commitsAtStart,
+    clearsAtStart,
+    measurement.components,
+    withSourceCoverage(coverage, measurement.sourceClassification, appOnly),
+    appOnly,
+  )
 }
 
 /** Compare a stored snapshot against the current live aggregates: total self-time change plus per-component regressions/improvements past a threshold, and components that appeared/vanished. */
@@ -922,7 +930,7 @@ export async function rendersDiff(baseline: string, thresholdMs: number, appOnly
   const clearsAtStart = clears
   const epoch = captureReportEpoch()
   const coverage = getRenderTrackingCoverage('measurement')
-  const after = await buildCurrentAggregates(recordsAtStart, appOnly, {
+  const measurement = await buildCurrentAggregateMeasurement(recordsAtStart, appOnly, {
     isCurrent: () => reportStateMatches(epoch),
   })
   if (!reportStateMatches(epoch)) {
@@ -935,8 +943,8 @@ export async function rendersDiff(baseline: string, thresholdMs: number, appOnly
     thresholdMs,
     commitsAtStart,
     clearsAtStart,
-    after,
-    coverage,
+    measurement.components,
+    withSourceCoverage(coverage, measurement.sourceClassification, appOnly),
     appOnly,
   )
 }

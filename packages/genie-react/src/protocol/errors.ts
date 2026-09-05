@@ -17,7 +17,18 @@ export interface ValidationCallHint {
 export function minimalExampleArgs(
   properties: Record<string, unknown>,
   required: ReadonlySet<unknown>,
+  schema?: unknown,
 ): string {
+  if (
+    schema &&
+    typeof schema === 'object' &&
+    'examples' in schema &&
+    Array.isArray(schema.examples)
+  ) {
+    const example = schema.examples[0]
+    if (example && typeof example === 'object' && !Array.isArray(example))
+      return JSON.stringify(example)
+  }
   const example: Record<string, unknown> = {}
   for (const name of Object.keys(properties)) {
     if (required.has(name)) example[name] = examplePropValue(properties[name], name)

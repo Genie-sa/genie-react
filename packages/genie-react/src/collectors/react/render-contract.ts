@@ -462,6 +462,9 @@ const reportAttributionSchema = z.object({
 })
 
 export const renderCoverageSchema = z.object({
+  sourceClassification: ownershipCoverageSchema
+    .extend({ evaluated: z.number().int().nonnegative() })
+    .optional(),
   complete: z.boolean().describe("Completeness for this tool's primary result."),
   inputAttributionComplete: z
     .boolean()

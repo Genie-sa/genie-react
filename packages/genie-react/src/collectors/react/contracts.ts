@@ -306,10 +306,21 @@ export const reactComponentForDomContract = defineAgentToolContract({
     selector: z
       .string()
       .describe('CSS selector; each matched element resolves to its owning component.'),
-    limit: z.number().int().min(1).max(20).default(5).describe('Max matched elements to resolve.'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(20)
+      .default(5)
+      .describe(
+        'Max unique owning components after ownership filtering; scans at most 5000 DOM matches.',
+      ),
     propsDepth: z.number().int().min(0).max(4).default(1),
   }),
   output: z.object({
+    ownershipCoverage: ownershipCoverageSchema,
+    omittedByLimit: z.number().int().nonnegative(),
+    scanTruncated: z.boolean(),
     selector: z.string(),
     matched: z.number().describe('Total DOM elements the selector matched (before limit).'),
     components: z.array(
@@ -534,6 +545,7 @@ export const reactErrorStateContract = defineAgentToolContract({
     'Report error boundaries that have caught an error (with the boundary + throwing component, the message/stack, and their source file:line) and Suspense boundaries currently showing a fallback. Answers "why is the page blank or stuck?" — a render/tree snapshot cannot show a caught error or a suspended subtree. Recorded at commit time, so call it after the blank/stuck state appears. Boundaries you are holding open with react_force_error_boundary / react_toggle_suspense_fallback are included and flagged `forced:true` (release them with react_reset_overrides); real errors/suspends are `forced:false`.',
   group: 'react.render',
   input: z.object({
+    appOnly: appOnlySchema,
     includeSource: z
       .boolean()
       .default(true)
@@ -541,6 +553,8 @@ export const reactErrorStateContract = defineAgentToolContract({
     limit: z.number().int().min(1).max(100).default(20),
   }),
   output: z.object({
+    scanTruncated: z.boolean(),
+    ownershipCoverage: ownershipCoverageSchema,
     caughtErrors: z.array(
       z.object({
         boundaryId: z.number(),
@@ -591,6 +605,7 @@ export const reactRefreshEventsContract = defineAgentToolContract({
     'Report recent React Fast Refresh/HMR updates: changed files, components that preserved state, components that remounted and lost state, and their live fiber ids/source locations. Genie excludes the associated refresh commits from render profiling and clears stale source caches automatically. filePaths is best-effort and can be empty when the bundler does not expose its HMR transport (notably Turbopack). Use afterSequence to poll incrementally.',
   group: 'react.render',
   input: z.object({
+    appOnly: appOnlySchema,
     afterSequence: z
       .number()
       .int()
@@ -604,6 +619,7 @@ export const reactRefreshEventsContract = defineAgentToolContract({
       .describe('Resolve file:line for affected mounted fibers.'),
   }),
   output: z.object({
+    ownershipCoverage: ownershipCoverageSchema,
     events: z.array(
       z.object({
         sequence: z.number().int(),

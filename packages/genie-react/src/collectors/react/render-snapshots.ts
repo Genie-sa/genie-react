@@ -1,5 +1,6 @@
 import type { ToolOutput } from '../../protocol'
 import type { reactRendersDiffContract } from './contracts'
+import type { SourceClassificationCoverage } from './render-reports'
 
 export interface ComponentAggregate {
   definitionKey: string
@@ -17,6 +18,7 @@ export interface ComponentAggregate {
 }
 
 export interface RenderTrackingCoverage {
+  sourceClassification?: SourceClassificationCoverage
   complete: boolean
   inputAttributionComplete: boolean
   semantics: 'exact' | 'lower-bound'
@@ -240,4 +242,21 @@ export function diffRenderSnapshot(
 
 export function clearSnapshots(): void {
   snapshots.clear()
+}
+
+export function withSourceCoverage(
+  coverage: RenderTrackingCoverage,
+  sourceClassification: SourceClassificationCoverage,
+  appOnly: boolean,
+): RenderTrackingCoverage {
+  if (appOnly && !sourceClassification.complete) {
+    return {
+      ...coverage,
+      sourceClassification,
+      complete: false,
+      inputAttributionComplete: false,
+      semantics: 'lower-bound',
+    }
+  }
+  return { ...coverage, sourceClassification }
 }

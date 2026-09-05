@@ -91,7 +91,7 @@ import {
   stopRenderTracking,
   takeSnapshot,
 } from './render-tracker'
-import { classifyFiber, classifyFibersWithinBudget, ownershipCoverage } from './source'
+import { classifyFibersWithinBudget, ownershipCoverage } from './source'
 
 function currentEffectCoverage() {
   const renderCoverage = getRenderTrackingCoverage('measurement')
@@ -312,24 +312,39 @@ export function reactCollector(): GenieCollector {
             throw new Error(`Invalid CSS selector: ${JSON.stringify(selector)}`)
           }
           const seen = new Set<number>()
-          const components = []
-          for (const element of elements.slice(0, limit)) {
+          const owners = []
+          for (const element of elements.slice(0, 5000)) {
             const owner = owningComponentFor(element, propsDepth)
             if (!owner || seen.has(owner.id)) continue
             seen.add(owner.id)
-            const { source, isLibrary, ownership } = await classifyFiber(owner.fiber)
-            if (appOnly && ownership !== 'app') continue
-            components.push({
-              id: owner.id as number,
-              name: owner.name,
-              kind: owner.kind,
-              tag: element.tagName.toLowerCase(),
-              props: owner.props,
-              source,
-              isLibrary,
-            })
+            owners.push({ owner, tag: element.tagName.toLowerCase() })
           }
-          return { selector, matched: elements.length, components }
+          const { classes } = await classifyFibersWithinBudget(
+            owners.map((entry) => entry.owner.fiber),
+          )
+          const selected = owners.flatMap(({ owner, tag }, index) => {
+            const classification = classes[index]
+            if (appOnly && classification?.ownership !== 'app') return []
+            return [
+              {
+                id: owner.id as number,
+                name: owner.name,
+                kind: owner.kind,
+                tag,
+                props: owner.props,
+                source: classification?.source ?? null,
+                isLibrary: classification?.isLibrary ?? false,
+              },
+            ]
+          })
+          return {
+            selector,
+            matched: elements.length,
+            components: selected.slice(0, limit),
+            omittedByLimit: Math.max(0, selected.length - limit),
+            scanTruncated: elements.length > 5000,
+            ownershipCoverage: ownershipCoverage(classes.map((entry) => entry.ownership)),
+          }
         },
       }),
       defineCollectorTool({
@@ -598,12 +613,13 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactErrorStateContract,
-        handler: ({ includeSource, limit }) => getErrorState({ includeSource, limit }),
+        handler: ({ includeSource, limit, appOnly }) =>
+          getErrorState({ includeSource, limit, appOnly }),
       }),
       defineCollectorTool({
         contract: reactRefreshEventsContract,
-        handler: ({ afterSequence, limit, includeSource }) =>
-          getRefreshEvents({ afterSequence, limit, includeSource }),
+        handler: ({ afterSequence, limit, includeSource, appOnly }) =>
+          getRefreshEvents({ afterSequence, limit, includeSource, appOnly }),
       }),
       defineCollectorTool({
         contract: reactClearRendersContract,

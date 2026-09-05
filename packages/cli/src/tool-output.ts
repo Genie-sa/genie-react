@@ -120,7 +120,7 @@ export function formatToolDetail(tool: ToolDescriptor): string {
   }
   lines.push(
     '',
-    `example: genie-react call ${tool.name} ${shellSingleQuote(minimalExampleArgs(properties, required))}`,
+    `example: genie-react call ${tool.name} ${shellSingleQuote(minimalExampleArgs(properties, required, tool.inputJsonSchema))}`,
   )
   return lines.join('\n')
 }

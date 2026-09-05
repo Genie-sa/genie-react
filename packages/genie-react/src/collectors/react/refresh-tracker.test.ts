@@ -60,12 +60,18 @@ vi.mock('./fiber', () => ({
   nameOf: mocks.nameOf,
 }))
 
-vi.mock('./source', () => ({
+vi.mock('./source', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./source')>()),
   clearSourceCache: mocks.clearSourceCache,
   classifyFibersWithinBudget: async (fibers: Array<{ source?: string }>) => ({
     classes: fibers.map((fiber) => ({
       source: fiber.source ? { file: fiber.source, line: 1, column: 0, functionName: null } : null,
       isLibrary: fiber.source?.includes('node_modules') ?? false,
+      ownership: !fiber.source
+        ? 'unknown'
+        : fiber.source.includes('node_modules')
+          ? 'library'
+          : 'app',
     })),
     partial: false,
   }),
