@@ -141,6 +141,7 @@ let instrumentedHook: ReturnType<typeof getRDTHook> | null = null
 // Stop is intentionally a soft flag: the commit handler stays wired so the client's liveness heartbeat continues while profiling is paused.
 let paused = false
 let renderersPresentAtInstall = false
+let commitObservedSinceInstall = false
 let skippedCommitFibers = 0
 let droppedPendingUnmountFibers = 0
 let analysisFailedFibers = 0
@@ -258,6 +259,7 @@ export function startRenderTracking(): boolean {
           return
         }
         noteDocumentCommit()
+        commitObservedSinceInstall = true
         recordResultingEffectCommit(getDocumentCommitId())
         if (paused) {
           discardPendingUnmounts(rendererId)
@@ -385,6 +387,7 @@ export function disposeRenderTracking(): void {
   instrumentation = null
   instrumentedHook = null
   installed = false
+  commitObservedSinceInstall = false
   paused = false
   pendingHostUnmountRenderers.clear()
   uncertainTraversalRoots = new WeakMap()
@@ -403,7 +406,7 @@ export function renderCollectionStatus(): string {
   if (!installed) {
     return 'unavailable (render tracking is not installed — import genie-react/hook before React)'
   }
-  if (renderersPresentAtInstall && commits === 0) {
+  if (renderersPresentAtInstall && !commitObservedSinceInstall) {
     return 'unavailable (hook installed after React initialised — import genie-react/hook, or genie-react/native on React Native, before React)'
   }
   if (renderersPresentAtInstall) {
