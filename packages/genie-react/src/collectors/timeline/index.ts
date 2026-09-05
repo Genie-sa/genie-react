@@ -374,7 +374,9 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
       if (target.report.state === 'stopped') {
         release(target)
       } else {
-        target.timer = setTimeout(() => stop(target, 'max-duration'), args.maxDurationMs)
+        const remainingMs = args.maxDurationMs - (now() - target.startedAt)
+        if (remainingMs <= 0) stop(target, 'max-duration')
+        else target.timer = setTimeout(() => stop(target, 'max-duration'), remainingMs)
       }
       recording = target
       return describe(target)

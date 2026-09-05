@@ -152,6 +152,30 @@ describe('timeline recording lifecycle and bounds', () => {
     expect(JSON.stringify(result)).not.toContain('private failure text')
   })
 
+  it.each([
+    4, 25,
+  ])('counts %i ms of subscription setup against the recording deadline', (setupMs) => {
+    const queryClient = client()
+    const cache = queryClient.getQueryCache()
+    const subscribe = cache.subscribe.bind(cache)
+    vi.spyOn(cache, 'subscribe').mockImplementation((listener) => {
+      time += setupMs
+      return subscribe(listener)
+    })
+    const collector = create({ queryClient })
+    const recording = start(collector, { maxDurationMs: 10 })
+    if (setupMs >= 10) {
+      expect(recording.state).toBe('stopped')
+      expect(recording.stopReason).toBe('max-duration')
+    } else {
+      expect(recording.state).toBe('recording')
+      time = 110
+      vi.advanceTimersByTime(10 - setupMs)
+    }
+    expect(cache.hasListeners()).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('rejects concurrent recordings and stale IDs without losing the active recording', () => {
     const collector = create()
     const first = start(collector)
