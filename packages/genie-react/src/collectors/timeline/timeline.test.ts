@@ -456,6 +456,15 @@ describe('resource timing correlation', () => {
     expect(observerInstance().connected).toBe(false)
   })
 
+  it('reports native requests unavailable even when resource observation is advertised', () => {
+    browser()
+    vi.stubGlobal('navigator', { product: 'ReactNative' })
+    const recording = start(create())
+    expect(recording.coverage.request.status).toBe('unavailable')
+    expect(recording.coverage.request.detail).toContain('native')
+    expect(ResourceObserver.instances).toHaveLength(0)
+  })
+
   it('reports unavailable native/browser capabilities instead of implying an empty complete trace', () => {
     const collector = create()
     const recording = start(collector)

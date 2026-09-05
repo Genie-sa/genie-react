@@ -286,7 +286,11 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
       },
     }
     try {
-      if (typeof window !== 'undefined' && typeof PerformanceObserver !== 'undefined') {
+      if (
+        typeof window !== 'undefined' &&
+        typeof PerformanceObserver !== 'undefined' &&
+        !(typeof navigator !== 'undefined' && navigator.product === 'ReactNative')
+      ) {
         if (PerformanceObserver.supportedEntryTypes?.includes('resource')) {
           const observer = new PerformanceObserver((list) => resources(target, list.getEntries()))
           target.dispose.push(() => observer.disconnect())
