@@ -97,7 +97,7 @@ This step is complete when the output covers one known interaction.
 - Blank or stuck UI: `react_error_state`.
 - Component state: `react_find_components`, then `react_inspect_component`.
 - DOM owner: `react_component_for_dom`.
-- Wrong look (color, spacing, border): `react_inspect_styles` with the element's selector or the component id — it names the applied style objects with file:line in override order and the CSS each resolves to, so edit the definition it points at instead of grepping for values or stacking an override. Needs StyleX dev mode with `debug: true`; follow `status.hint` otherwise.
+- StyleX styling (wrong color, spacing, border): `stylex_inspect`; the last entry in `applied` owns the value, so edit that definition. Follow `status.hint` when it reports none.
 - Query state: `query_list`, `query_get`, or a focused Query action.
 - Route state: `router_get_state`, `router_list_matches`, or a focused Router action.
 - Memory: `browser_get_memory`.

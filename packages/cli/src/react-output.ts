@@ -22,7 +22,7 @@ export const reactSummarizers: Record<string, (result: unknown) => string | null
   react_get_tree: summarizeTree,
   react_dom_for_component: summarizeDom,
   react_component_for_dom: summarizeComponentForDom,
-  react_inspect_styles: summarizeInspectStyles,
+  stylex_inspect: summarizeStylexInspect,
   react_find_components: summarizeFindComponents,
   react_inspect_component: summarizeInspect,
   react_error_state: summarizeErrorState,
@@ -519,7 +519,7 @@ export function summarizeComponentForDom(result: unknown): string | null {
 
 const MAX_DECLARATION_LINES = 24
 
-export function summarizeInspectStyles(result: unknown): string | null {
+export function summarizeStylexInspect(result: unknown): string | null {
   if (!isRecord(result) || !Array.isArray(result.elements) || !isRecord(result.status)) return null
   const { status } = result
   const matched = num(result.matched)
@@ -572,8 +572,9 @@ function declarationLabel(declaration: Record<string, unknown>): string {
   const parts = [`${String(declaration.property)}: ${String(declaration.value)}`]
   if (Array.isArray(declaration.tokens)) {
     for (const token of declaration.tokens.filter(isRecord)) {
-      const label = typeof token.name === 'string' ? token.name : String(token.variable)
-      parts.push(`· ${label} = ${token.value === null ? '(unset)' : String(token.value)}`)
+      parts.push(
+        `· ${String(token.variable)} = ${token.value === null ? '(unset)' : String(token.value)}`,
+      )
     }
   }
   if (typeof declaration.condition === 'string') parts.push(`@ ${declaration.condition}`)

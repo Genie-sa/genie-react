@@ -1,10 +1,11 @@
 /**
- * Style provenance for host elements, read from what compile-time styling systems leave on the DOM.
- *
- * StyleX (the first supported system) emits, in dev/debug mode:
+ * StyleX style provenance for host elements, read from what its compiler leaves on the DOM in dev mode:
  *  - `data-style-src="pkg:src/Card.tsx:5; src/Theme.tsx:12"` — one entry per stylex.create() object
- *    applied via stylex.props(), in argument order (= conflict-resolution order, later wins);
- *  - marker classes `Card__styles.card` naming each applied style object, in the same order;
+ *    applied via stylex.props(), in argument order (= conflict-resolution order, later wins); the line
+ *    is that of the style key (`card: {`). Emitted with `debug: true`.
+ *  - marker classes naming each applied object: `Card__styles.card`, or `Card__card` when create()
+ *    is not assigned to a variable, and `theme__dark` for createTheme() (which has no data-style-src).
+ *    Emitted with `dev: true`.
  *  - atomic classes (`x1e2nbdu`, or `borderColor-x1e2nbdu` with enableDebugClassNames) whose CSS
  *    rules live in a same-origin stylesheet, so the winning declaration per property is a CSSOM lookup.
  * None of this is on the fiber: stylex.props() has already merged everything into className.
@@ -13,7 +14,7 @@
 export interface StyleSourceRef {
   file: string
   line: number | null
-  /** Package-name prefix StyleX prepends to files inside a package (`@scope/app:src/x.tsx`); null when absent. */
+  /** Package-name prefix StyleX prepends to the path (`@scope/app:src/x.tsx`); null when absent. */
   package: string | null
 }
 
@@ -32,14 +33,12 @@ export interface StyleDeclaration {
   /** Pseudo / at-rule condition the declaration applies under (`:hover`, `@media (min-width: 48rem)`); null for unconditional. */
   condition: string | null
   className: string
-  /** CSS custom properties the value reads via var(), with their current computed values. */
+  /** CSS custom properties the value reads via var() — StyleX tokens — with their current computed values. */
   tokens: StyleToken[]
 }
 
 export interface StyleToken {
   variable: string
-  /** Human token key recovered from a debug-named variable (`--accent-x1a2b3c` → `accent`); null for opaque names. */
-  name: string | null
   value: string | null
 }
 
@@ -65,12 +64,16 @@ export interface StyleProvenanceStatus {
 
 // StyleX prefixes the file with the owning package name; neither package names nor the paths that
 // follow contain ':', so the first ':' is the boundary and only the trailing `:line` is positional.
+// A dynamic style function stamps its source twice (marker object + value object), so consecutive
+// duplicates collapse to one entry.
 export function parseStyleSources(raw: string | null): StyleSourceRef[] {
   if (!raw) return []
   const sources: StyleSourceRef[] = []
+  let previous: string | null = null
   for (const part of raw.split(';')) {
     const entry = part.trim()
-    if (!entry) continue
+    if (!entry || entry === previous) continue
+    previous = entry
     const lineMatch = entry.match(/^(.+):(\d+)$/)
     const location = lineMatch ? (lineMatch[1] as string) : entry
     const line = lineMatch ? Number(lineMatch[2]) : null
@@ -88,29 +91,41 @@ export function parseStyleSources(raw: string | null): StyleSourceRef[] {
   return sources
 }
 
-// `Card__styles.card` — basename, double underscore, variable name, dot, style key.
-const MARKER_CLASS = /^[\w$-]+__[\w$]+\.[\w$-]+$/
+// `Card__styles.card`: basename, double underscore, variable name, dot, style key. The dot is the
+// unambiguous StyleX signature; without it (`Card__card`, `theme__dark`) the shape is also BEM's.
+const KEYED_MARKER_CLASS = /^[\w-]+__[\w-]+\.[\w-]+$/
+const BARE_MARKER_CLASS = /^[\w-]+__[\w-]+$/
 // Atomic classes are a hash (`x1e2nbdu`), optionally prefixed by the property in debug mode (`borderColor-x1e2nbdu`).
 const ATOMIC_CLASS = /^(?:[a-zA-Z]+-)?x[0-9a-z]{5,}$/
 
-export const isStyleMarkerClass = (className: string): boolean => MARKER_CLASS.test(className)
-
 /** Compiler-generated class names are worthless as selectors: hashed, and reassigned whenever the style changes. */
 export const isGeneratedClass = (className: string): boolean =>
-  MARKER_CLASS.test(className) || ATOMIC_CLASS.test(className)
+  KEYED_MARKER_CLASS.test(className) || ATOMIC_CLASS.test(className)
 
 const markerName = (className: string): string => className.slice(className.indexOf('__') + 2)
 
+/** Marker classes on an element; bare `A__b` names count only when StyleX evidence rules out BEM. */
+export function styleMarkerClasses(classes: string[], hasStyleSrc: boolean): string[] {
+  const stylex = hasStyleSrc || classes.some((className) => ATOMIC_CLASS.test(className))
+  return classes.filter(
+    (className) =>
+      KEYED_MARKER_CLASS.test(className) || (stylex && BARE_MARKER_CLASS.test(className)),
+  )
+}
+
 /** Pair marker classes with data-style-src entries by position; both are emitted in stylex.props() order. */
-export function styleObjectsFor(classes: string[], sources: StyleSourceRef[]): StyleObjectRef[] {
-  const markers = classes.filter(isStyleMarkerClass)
-  if (markers.length === sources.length) {
+export function styleObjectsFor(markers: string[], sources: StyleSourceRef[]): StyleObjectRef[] {
+  // Theme markers carry no data-style-src, so when counts disagree the keyed `var.key` markers are the ones with sources.
+  const paired =
+    markers.length === sources.length
+      ? markers
+      : markers.filter((marker) => KEYED_MARKER_CLASS.test(marker))
+  if (sources.length > 0) {
     return sources.map((source, index) => ({
       ...source,
-      name: markerName(markers[index] as string),
+      name: paired.length === sources.length ? markerName(paired[index] as string) : null,
     }))
   }
-  if (sources.length > 0) return sources.map((source) => ({ ...source, name: null }))
   return markers.map((marker) => ({
     name: markerName(marker),
     package: null,
@@ -131,23 +146,28 @@ interface RuleEntry {
 const MAX_RULES = 20_000
 
 const CLASS_TOKEN = /\.((?:[\w-]|\\.)+)/g
-// StyleX bumps specificity for conditional rules by repeating `:not(#\#)`; it carries no meaning for readers.
+// Without CSS layers, StyleX bumps specificity by repeating `:not(#\#)`; it carries no meaning for readers.
 const SPECIFICITY_BUMP = /:not\(#\\#\)/g
 
 const unescapeClass = (token: string): string => token.replace(/\\(.)/g, '$1')
 
+// StyleX also repeats the class once per nested at-rule (`.x1.x1` under @media) for specificity.
 function ruleEntry(rule: CSSStyleRule, atRuleConditions: string[]): RuleEntry | null {
   const selector = rule.selectorText.replace(SPECIFICITY_BUMP, '')
-  const classNames: string[] = []
+  const classNames = new Set<string>()
   let residue = selector
   for (const match of selector.matchAll(CLASS_TOKEN)) {
-    classNames.push(unescapeClass(match[1] as string))
+    classNames.add(unescapeClass(match[1] as string))
     residue = residue.replace(match[0], '')
   }
-  if (classNames.length === 0) return null
+  if (classNames.size === 0) return null
   const pseudo = residue.trim()
   const parts = [...atRuleConditions, pseudo].filter(Boolean)
-  return { classNames, condition: parts.length ? parts.join(' ') : null, style: rule.style }
+  return {
+    classNames: Array.from(classNames),
+    condition: parts.length ? parts.join(' ') : null,
+    style: rule.style,
+  }
 }
 
 // Duck-typed on purpose: the CSSOM constructors are not globals in every runtime that has a document.
@@ -165,7 +185,7 @@ const conditionOf = (rule: CSSRule): string | null => {
   return `${keyword} ${conditionText}`
 }
 
-/** Index every class-selected rule the document can read, keyed by class name. Cross-origin sheets are skipped silently. */
+/** Index every class-selected rule the document can read, keyed by class name. Disabled and cross-origin sheets are skipped. */
 export function indexStyleRules(doc: Document): Map<string, RuleEntry[]> {
   const index = new Map<string, RuleEntry[]>()
   let scanned = 0
@@ -187,6 +207,7 @@ export function indexStyleRules(doc: Document): Map<string, RuleEntry[]> {
     }
   }
   for (const sheet of Array.from(doc.styleSheets)) {
+    if (sheet.disabled) continue
     let rules: CSSRuleList
     try {
       rules = sheet.cssRules
@@ -199,16 +220,13 @@ export function indexStyleRules(doc: Document): Map<string, RuleEntry[]> {
 }
 
 const VAR_REFERENCE = /var\((--[\w-]+)/g
-// Debug-named StyleX variables are `--<key>-x<hash>`; the trailing hash segment is not part of the key.
-const DEBUG_VAR_NAME = /^--(.+)-x[0-9a-z]+$/
 
 function tokensIn(value: string, computed: CSSStyleDeclaration | null): StyleToken[] {
   const tokens: StyleToken[] = []
   for (const match of value.matchAll(VAR_REFERENCE)) {
     const variable = match[1] as string
-    const name = variable.match(DEBUG_VAR_NAME)?.[1] ?? null
     const resolved = computed?.getPropertyValue(variable).trim()
-    tokens.push({ variable, name, value: resolved || null })
+    tokens.push({ variable, value: resolved || null })
   }
   return tokens
 }
@@ -245,13 +263,14 @@ export function describeElementStyles(
 ): ElementStyleInfo {
   const classes = Array.from(el.classList)
   const sources = parseStyleSources(el.getAttribute('data-style-src'))
+  const markers = styleMarkerClasses(classes, sources.length > 0)
   const view = el.ownerDocument.defaultView
   const computed = view ? view.getComputedStyle(el) : null
 
   const declarations: StyleDeclaration[] = []
   const unresolvedClasses: string[] = []
   for (const className of classes) {
-    if (isStyleMarkerClass(className)) continue
+    if (markers.includes(className)) continue
     const entries = index.get(className)
     if (!entries) {
       unresolvedClasses.push(className)
@@ -273,7 +292,7 @@ export function describeElementStyles(
   }
 
   return {
-    styleObjects: styleObjectsFor(classes, sources),
+    styleObjects: styleObjectsFor(markers, sources),
     declarations,
     dynamic: dynamicValues(el),
     unresolvedClasses,
@@ -288,7 +307,7 @@ export function styleProvenanceStatus(infos: ElementStyleInfo[]): StyleProvenanc
     return {
       system: 'none',
       styleSrc: false,
-      hint: 'No style provenance on these elements. StyleX apps: set `dev: true` and `debug: true` on the StyleX bundler plugin to emit data-style-src.',
+      hint: 'No StyleX provenance on these elements. Set `dev: true` and `debug: true` on the StyleX bundler plugin (@stylexjs/unplugin, babel-plugin) to emit data-style-src.',
     }
   }
   return {

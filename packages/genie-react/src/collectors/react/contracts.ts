@@ -356,19 +356,15 @@ export const reactComponentForDomContract = defineAgentToolContract({
 })
 
 const styleTokenSchema = z.object({
-  variable: z.string(),
-  name: z
-    .string()
-    .nullable()
-    .describe('Token key recovered from a debug-named variable (`--accent-x1a2b3c` → `accent`).'),
+  variable: z.string().describe('The CSS custom property a StyleX defineVars token compiled to.'),
   value: z.string().nullable().describe('Current computed value of the variable on this element.'),
 })
 
-export const reactInspectStylesContract = defineAgentToolContract({
-  name: 'react_inspect_styles',
-  title: 'Style provenance and applied CSS for elements',
+export const stylexInspectContract = defineAgentToolContract({
+  name: 'stylex_inspect',
+  title: 'StyleX: applied style objects, their source, and resolved CSS',
   description:
-    'Explain how elements are styled, from the running page: which style objects are applied (by name and source file:line, in application order — later wins conflicts), the CSS declarations those atomic classes resolve to (property, value, pseudo/media condition), the design tokens they read (CSS variables with current values), runtime values from dynamic styles, and class names no readable stylesheet explains. Target either a CSS `selector` (elements a browser tool found) or a component `id` (every styled host element it renders, including nested ones). Requires a styling system that emits provenance on the DOM — StyleX in dev mode with `debug: true`; `status.hint` says what to enable when nothing is found. Use it to turn "this looks wrong" into "edit this style object at this line" without grepping for class names or values.',
+    'For apps styled with StyleX (dev mode with `debug: true`): explain how elements are styled from the running page. Reports the applied stylex.create() objects by name and source file:line in application order (later wins conflicts), the CSS each atomic class resolves to (property, value, pseudo/media condition), the defineVars tokens read (CSS variables with current values), runtime values from dynamic style functions, and class names no readable stylesheet explains. Target a CSS `selector` (elements a browser tool found) or a component `id` (every styled host element it renders, nested ones included). `status.hint` names the StyleX plugin option to enable when nothing is found. Use it to go from "this looks wrong" straight to the style object and line that owns the value: the last entry in `styleObjects` wins each conflict, so edit that definition.',
   group: 'react.inspect',
   input: z.object({
     selector: z.string().optional().describe('CSS selector; each matched element is described.'),
@@ -401,7 +397,7 @@ export const reactInspectStylesContract = defineAgentToolContract({
             }),
           )
           .describe(
-            'Applied style objects in application order. `name` is `<var>.<key>` from the dev marker class (e.g. `styles.card`); file/line come from data-style-src.',
+            'Applied stylex.create() objects in application order. `name` is `<var>.<key>` from the dev marker class (e.g. `styles.card`); `file`/`line` (the style key line) come from data-style-src.',
           ),
         declarations: z
           .array(

@@ -16,7 +16,6 @@ import {
   reactGetTreeContract,
   reactInspectComponentContract,
   reactInspectContextContract,
-  reactInspectStylesContract,
   reactListOverridesContract,
   reactOverrideContextContract,
   reactOverrideHookStateContract,
@@ -31,6 +30,7 @@ import {
   reactRendersDiffContract,
   reactResetOverridesContract,
   reactToggleSuspenseFallbackContract,
+  stylexInspectContract,
 } from './contracts'
 import { getEffectScheduleEventsWithOwnership } from './effect-events'
 import { getEffectAuditReport, getEffectTrackingCoverage } from './effect-tracker'
@@ -385,7 +385,7 @@ export function reactCollector(): GenieCollector {
         },
       }),
       defineCollectorTool({
-        contract: reactInspectStylesContract,
+        contract: stylexInspectContract,
         handler: ({ selector, id, limit }) => {
           if (!hasDomLookupRuntime()) throw new Error('No DOM in this environment.')
           if (selector === undefined && id === undefined)

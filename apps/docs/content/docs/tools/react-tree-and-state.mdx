@@ -266,17 +266,18 @@ npx @genie-react/cli call react_component_for_dom \
 **Agent use:** Use the owner `id` and exact source to inspect the visible bug or choose the file to
 edit; compare all returned owners when the selector matches more than one element.
 
-## `react_inspect_styles`
+## `stylex_inspect`
 
-Explains how elements are styled from the running page: the applied style objects (name and source
-file:line, in override order), the CSS declarations they resolve to, design tokens they read, and
-runtime values from dynamic styles.
+For apps styled with [StyleX](https://stylexjs.com). Explains how elements are styled from the
+running page: the applied `stylex.create()` objects (name and source file:line, in override order),
+the CSS declarations they resolve to, `defineVars` tokens they read, and runtime values from dynamic
+style functions.
 
 **Input:** `selector` (CSS selector) or `id` (component; describes every styled element it renders,
 nested ones included). `limit` is an integer from 1 to 20 and defaults to 5.
 
 ```bash
-npx @genie-react/cli call react_inspect_styles \
+npx @genie-react/cli call stylex_inspect \
   '{"selector":"#pricing article"}'
 ```
 
@@ -289,17 +290,17 @@ npx @genie-react/cli call react_inspect_styles \
     padding: 28px
 ```
 
-**Output (selected fields):** `status.system` (`stylex` or `none`) with a `hint` naming the config
-change that unlocks more; per element `styleObjects[]` (`name`, `package`, `file`, `line`),
-`declarations[]` (`property`, `value`, `condition` such as `:hover` or `@media (...)`, `tokens[]`
-with current variable values), `dynamic[]`, and `unresolvedClasses[]`.
+**Output (selected fields):** `status.system` (`stylex` or `none`) with a `hint` naming the plugin
+option that unlocks more; per element `styleObjects[]` (`name`, `package`, `file`, `line` of the
+style key), `declarations[]` (`property`, `value`, `condition` such as `:hover` or `@media (...)`,
+`tokens[]` with current variable values), `dynamic[]`, and `unresolvedClasses[]`.
 
-**Requires** a styling system that emits provenance on the DOM. For StyleX, set `dev: true` and
-`debug: true` on the bundler plugin; without `debug`, only style-object names are available.
+**Requires** StyleX dev output: set `dev: true` and `debug: true` on the StyleX bundler plugin
+(`@stylexjs/unplugin` or the Babel plugin). `dev` alone yields style-object names; `debug` adds
+file:line.
 
-**Agent use:** The later entry in `applied` wins property conflicts, so fix the definition that
-owns the wrong value instead of adding an override. Values are what the browser is asked to render,
-not computed layout; use a browser tool for geometry.
+**Agent use:** The last entry in `applied` owns each property it declares, so edit that definition.
+Values are declared CSS; measure rendered geometry with a browser tool.
 
 ## `react_inspect_context`
 
