@@ -16,6 +16,7 @@ import {
   reactGetTreeContract,
   reactInspectComponentContract,
   reactInspectContextContract,
+  reactInspectStylesContract,
   reactListOverridesContract,
   reactOverrideContextContract,
   reactOverrideHookStateContract,
@@ -39,10 +40,12 @@ import {
   buildProvenanceReport,
   buildTree,
   contextsForFiber,
+  describeHostElement,
   domForFiber,
   findByName,
   findFiberById,
   findRootFiber,
+  hostElementsWithin,
   inspectFiber,
   matchDetail,
   nameOf,
@@ -94,6 +97,12 @@ import {
   takeSnapshot,
 } from './render-tracker'
 import { classifyFibersWithinBudget, ownershipCoverage } from './source'
+import {
+  describeElementStyles,
+  indexStyleRules,
+  parseStyleSources,
+  styleProvenanceStatus,
+} from './style-provenance'
 
 function currentEffectCoverage() {
   const renderCoverage = getRenderTrackingCoverage('measurement')
@@ -103,6 +112,27 @@ function currentEffectCoverage() {
     complete: renderCoverage.complete && truncatedEffectLists === 0,
     truncatedEffectLists,
   }
+}
+
+function styleTargets(
+  selector: string | undefined,
+  id: NodeId | undefined,
+): { target: string; candidates: Element[] } {
+  if (selector !== undefined) {
+    try {
+      return { target: selector, candidates: Array.from(document.querySelectorAll(selector)) }
+    } catch {
+      throw new Error(`Invalid CSS selector: ${JSON.stringify(selector)}`)
+    }
+  }
+  const root = findRootFiber()
+  const fiber = root && id !== undefined ? findFiberById(root, id) : null
+  if (!fiber) throw new Error(`Component ${id} not found (it may have unmounted).`)
+  // Only elements that carry styling, so a wrapper-heavy tree does not spend the limit on bare divs.
+  const styled = hostElementsWithin(fiber).filter(
+    (element) => element.classList.length > 0 || element.hasAttribute('data-style-src'),
+  )
+  return { target: `#${id} ${nameOf(fiber)}`, candidates: styled }
 }
 
 export function hasDomLookupRuntime(): boolean {
@@ -319,12 +349,16 @@ export function reactCollector(): GenieCollector {
             const owner = owningComponentFor(element, propsDepth)
             if (!owner || seen.has(owner.id)) continue
             seen.add(owner.id)
-            owners.push({ owner, tag: element.tagName.toLowerCase() })
+            owners.push({
+              owner,
+              tag: element.tagName.toLowerCase(),
+              styleSources: parseStyleSources(element.getAttribute('data-style-src')),
+            })
           }
           const { classes } = await classifyFibersWithinBudget(
             owners.map((entry) => entry.owner.fiber),
           )
-          const selected = owners.flatMap(({ owner, tag }, index) => {
+          const selected = owners.flatMap(({ owner, tag, styleSources }, index) => {
             const classification = classes[index]
             if (appOnly && classification?.ownership !== 'app') return []
             return [
@@ -336,6 +370,7 @@ export function reactCollector(): GenieCollector {
                 props: owner.props,
                 source: classification?.source ?? null,
                 isLibrary: classification?.isLibrary ?? false,
+                styleSources,
               },
             ]
           })
@@ -346,6 +381,31 @@ export function reactCollector(): GenieCollector {
             omittedByLimit: Math.max(0, selected.length - limit),
             scanTruncated: elements.length > 5000,
             ownershipCoverage: ownershipCoverage(classes.map((entry) => entry.ownership)),
+          }
+        },
+      }),
+      defineCollectorTool({
+        contract: reactInspectStylesContract,
+        handler: ({ selector, id, limit }) => {
+          if (!hasDomLookupRuntime()) throw new Error('No DOM in this environment.')
+          if (selector === undefined && id === undefined)
+            throw new Error('Pass a CSS `selector` or a component `id`.')
+          const { target, candidates } = styleTargets(selector, id)
+          const index = indexStyleRules(document)
+          const elements = candidates.slice(0, limit).map((element) => {
+            const owner = owningComponentFor(element, 0)
+            return {
+              tag: element.tagName.toLowerCase(),
+              selector: describeHostElement(element).selector,
+              owner: owner ? { id: owner.id as number, name: owner.name } : null,
+              ...describeElementStyles(element, index),
+            }
+          })
+          return {
+            target,
+            matched: candidates.length,
+            status: styleProvenanceStatus(elements),
+            elements,
           }
         },
       }),

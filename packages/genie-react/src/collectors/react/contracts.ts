@@ -250,11 +250,26 @@ export const reactInspectComponentContract = defineAgentToolContract({
   annotations: { readOnlyHint: true },
 })
 
+const styleSourceRefSchema = z.object({
+  file: z.string().describe('Path relative to the owning package root.'),
+  line: z.number().nullable(),
+  package: z
+    .string()
+    .nullable()
+    .describe('Owning package name when the styling system prefixes one; null otherwise.'),
+})
+
+const styleSourcesSchema = z
+  .array(styleSourceRefSchema)
+  .describe(
+    'Style definitions applied to this element, from its data-style-src attribute (emitted by compile-time styling systems like StyleX in dev/debug mode). Ordered by application: later entries win property conflicts. Empty when the app does not emit style provenance — use react_inspect_styles for declarations and setup hints.',
+  )
+
 export const reactDomForComponentContract = defineAgentToolContract({
   name: 'react_dom_for_component',
   title: 'DOM elements for a component',
   description:
-    'Map a React component (by id, from react_get_tree / react_find_components / react_inspect_component) to the actual DOM element(s) it renders — the missing link between the React tree and the live page. Each element comes with a best-effort CSS `selector` plus its id / data-testid / role / aria-label / name / classes / text, so you can hand it straight to a browser tool (click, screenshot, assert) instead of guessing which node a component controls.',
+    'Map a React component (by id, from react_get_tree / react_find_components / react_inspect_component) to the actual DOM element(s) it renders — the missing link between the React tree and the live page. Each element comes with a best-effort CSS `selector` plus its id / data-testid / role / aria-label / name / classes / text, so you can hand it straight to a browser tool (click, screenshot, assert) instead of guessing which node a component controls. `styleSources` lists the style definitions applied to the element (file:line, application order) when the app emits style provenance (e.g. StyleX dev mode).',
   group: 'react.inspect',
   input: z.object({
     id: nodeIdSchema,
@@ -283,6 +298,7 @@ export const reactDomForComponentContract = defineAgentToolContract({
         ariaLabel: z.string().nullable(),
         name: z.string().nullable().describe('The `name` attribute, for form controls.'),
         classes: z.array(z.string()),
+        styleSources: styleSourcesSchema,
         text: z.string().nullable().describe('Trimmed textContent preview.'),
       }),
     ),
@@ -299,7 +315,7 @@ export const reactComponentForDomContract = defineAgentToolContract({
   name: 'react_component_for_dom',
   title: 'Owning component for a DOM element',
   description:
-    'Map a CSS selector (e.g. an element a browser tool found) to the React component(s) rendering it — the reverse of react_dom_for_component, turning "this button is wrong" into "edit this component". Each match reports the owning component id (feed it to react_inspect_component / overrides), name, kind, shallow props, and source file:line. Elements outside this React tree are skipped; duplicate owners are collapsed.',
+    'Map a CSS selector (e.g. an element a browser tool found) to the React component(s) rendering it — the reverse of react_dom_for_component, turning "this button is wrong" into "edit this component". Each match reports the owning component id (feed it to react_inspect_component / overrides), name, kind, shallow props, and source file:line, plus `styleSources` — the style definitions applied to the matched element (file:line, application order; later wins conflicts) when the app emits style provenance (e.g. StyleX dev mode), turning "this looks wrong" into "edit this style definition". Elements outside this React tree are skipped; duplicate owners are collapsed.',
   group: 'react.inspect',
   input: z.object({
     appOnly: appOnlySchema,
@@ -332,6 +348,85 @@ export const reactComponentForDomContract = defineAgentToolContract({
         props: z.unknown(),
         source: sourceSchema,
         isLibrary: z.boolean(),
+        styleSources: styleSourcesSchema,
+      }),
+    ),
+  }),
+  annotations: { readOnlyHint: true },
+})
+
+const styleTokenSchema = z.object({
+  variable: z.string(),
+  name: z
+    .string()
+    .nullable()
+    .describe('Token key recovered from a debug-named variable (`--accent-x1a2b3c` → `accent`).'),
+  value: z.string().nullable().describe('Current computed value of the variable on this element.'),
+})
+
+export const reactInspectStylesContract = defineAgentToolContract({
+  name: 'react_inspect_styles',
+  title: 'Style provenance and applied CSS for elements',
+  description:
+    'Explain how elements are styled, from the running page: which style objects are applied (by name and source file:line, in application order — later wins conflicts), the CSS declarations those atomic classes resolve to (property, value, pseudo/media condition), the design tokens they read (CSS variables with current values), runtime values from dynamic styles, and class names no readable stylesheet explains. Target either a CSS `selector` (elements a browser tool found) or a component `id` (every styled host element it renders, including nested ones). Requires a styling system that emits provenance on the DOM — StyleX in dev mode with `debug: true`; `status.hint` says what to enable when nothing is found. Use it to turn "this looks wrong" into "edit this style object at this line" without grepping for class names or values.',
+  group: 'react.inspect',
+  input: z.object({
+    selector: z.string().optional().describe('CSS selector; each matched element is described.'),
+    id: nodeIdSchema
+      .optional()
+      .describe('Component id; describes the styled host elements in its rendered subtree.'),
+    limit: z.number().int().min(1).max(20).default(5).describe('Max elements to describe.'),
+  }),
+  output: z.object({
+    target: z.string().describe('The selector, or `#<id> <ComponentName>`.'),
+    matched: z.number().describe('Elements found before limit.'),
+    status: z.object({
+      system: z.enum(['stylex', 'none']),
+      styleSrc: z.boolean().describe('Whether file:line provenance (data-style-src) was present.'),
+      hint: z.string().nullable().describe('Configuration change that would unlock more, if any.'),
+    }),
+    elements: z.array(
+      z.object({
+        tag: z.string(),
+        selector: z.string(),
+        owner: z
+          .object({ id: z.number(), name: z.string() })
+          .nullable()
+          .describe('Owning React component (feed id to react_inspect_component).'),
+        styleObjects: z
+          .array(
+            styleSourceRefSchema.extend({
+              name: z.string().nullable(),
+              file: z.string().nullable(),
+            }),
+          )
+          .describe(
+            'Applied style objects in application order. `name` is `<var>.<key>` from the dev marker class (e.g. `styles.card`); file/line come from data-style-src.',
+          ),
+        declarations: z
+          .array(
+            z.object({
+              property: z.string(),
+              value: z.string(),
+              condition: z
+                .string()
+                .nullable()
+                .describe('`:hover`, `@media (...)`, etc.; null when unconditional.'),
+              className: z.string(),
+              tokens: z.array(styleTokenSchema),
+            }),
+          )
+          .describe(
+            'The winning declaration per property after the styling system merged the applied objects — what the browser is actually asked to render.',
+          ),
+        dynamic: z
+          .array(z.object({ variable: z.string(), value: z.string() }))
+          .describe('Inline custom properties written by runtime style functions.'),
+        unresolvedClasses: z
+          .array(z.string())
+          .describe(
+            'Classes not explained by any readable stylesheet rule (external CSS, utilities).',
+          ),
       }),
     ),
   }),

@@ -266,6 +266,41 @@ npx @genie-react/cli call react_component_for_dom \
 **Agent use:** Use the owner `id` and exact source to inspect the visible bug or choose the file to
 edit; compare all returned owners when the selector matches more than one element.
 
+## `react_inspect_styles`
+
+Explains how elements are styled from the running page: the applied style objects (name and source
+file:line, in override order), the CSS declarations they resolve to, design tokens they read, and
+runtime values from dynamic styles.
+
+**Input:** `selector` (CSS selector) or `id` (component; describes every styled element it renders,
+nested ones included). `limit` is an integer from 1 to 20 and defaults to 5.
+
+```bash
+npx @genie-react/cli call react_inspect_styles \
+  '{"selector":"#pricing article"}'
+```
+
+```text
+#pricing article → 1 element · stylex
+  <article> PricingCard #82 · article
+    applied: styles.card (src/PricingCard.tsx:5) → emphasis.featured (src/PricingCard.tsx:29)
+    background-color: rgb(26, 26, 46)
+    border-color: rgb(228, 81, 30)
+    padding: 28px
+```
+
+**Output (selected fields):** `status.system` (`stylex` or `none`) with a `hint` naming the config
+change that unlocks more; per element `styleObjects[]` (`name`, `package`, `file`, `line`),
+`declarations[]` (`property`, `value`, `condition` such as `:hover` or `@media (...)`, `tokens[]`
+with current variable values), `dynamic[]`, and `unresolvedClasses[]`.
+
+**Requires** a styling system that emits provenance on the DOM. For StyleX, set `dev: true` and
+`debug: true` on the bundler plugin; without `debug`, only style-object names are available.
+
+**Agent use:** The later entry in `applied` wins property conflicts, so fix the definition that
+owns the wrong value instead of adding an override. Values are what the browser is asked to render,
+not computed layout; use a browser tool for geometry.
+
 ## `react_inspect_context`
 
 Reads every React Context value consumed by one component.
