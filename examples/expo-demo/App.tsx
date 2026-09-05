@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar'
 import { Genie } from 'genie-react/native'
 import { useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { FreezeScreenTestbed } from './components/freeze-screen-testbed'
 import { ExplicitMemoRow, MemoNameRow, NamedMemoRow } from './components/memo-name-fixture'
 import { ToolTestbed } from './components/tool-testbed'
 import { VisibilityTestbed } from './components/visibility-testbed'
@@ -31,6 +32,7 @@ export default function App() {
         contentInsetAdjustmentBehavior="automatic"
       >
         <VisibilityTestbed />
+        <FreezeScreenTestbed />
         <View style={styles.card}>
           <Text selectable style={styles.eyebrow}>
             GENIE REACT / EXPO
