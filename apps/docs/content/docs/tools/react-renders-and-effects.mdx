@@ -980,6 +980,59 @@ npx @genie-react/cli call react_profile_report \
 **Agent use:** Use the slowest or most-rendered row as a shortlist, then inspect its exact render
 causes before editing. Causal leaderboards are not sufficient when input attribution is incomplete.
 
+## `react_measure`
+
+Opens a labelled measurement without clearing global counters.
+
+**Input:** `label` is required, trimmed, and
+1–160 characters. The response includes `handle`, `label`, `startedAfterDocumentCommitId`, and
+`expiresAt` (Unix milliseconds). Collection must be active and able to observe commits.
+
+```bash
+npx @genie-react/cli call react_measure '{"label":"open checkout"}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{"handle":"span-id","label":"open checkout","startedAfterDocumentCommitId":18,"ownership":"newest-open-span","attribution":"temporal-only"}
+```
+
+**Agent use:** Drive the UI next, then read and close the returned handle.
+Ownership is explicitly `newest-open-span`: while multiple spans are open, only the newest records
+commits. Closing it resumes the previous span. This gives disjoint commit sets, not causal isolation;
+background work can still be included. At most 20 spans are retained for five minutes. A closed span
+may be evicted at capacity; opening fails if all 20 are open. Reload/Fast Refresh invalidates handles.
+
+## `react_renders_since`
+
+Reads the labelled span's owned commits.
+
+**Input:** `handle` is required (1–100 characters), `close` defaults to
+`false`, `component` optionally filters by name substring, `appOnly` defaults to `true`, and `limit`
+is an integer from 1 to 200 (default 40). Set `close:true` after driving the interaction and waiting
+for commits to settle. Re-reading a closed span preserves its captured counts.
+
+```bash
+npx @genie-react/cli call react_renders_since '{"handle":"<returned handle>","close":true}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{"label":"open checkout","commitIds":[19,21],"commits":2,"excludedCommits":1,"coverage":{"complete":true,"semantics":"exact"}}
+```
+
+**Agent use:** Compare labelled counts without clearing another span's evidence.
+The response carries `label`, disjoint `commitIds`, `excludedCommits` owned by newer spans,
+`components`, `summary`, `sourceClassification`, and `coverage`. Counts are frozen before source
+lookup. `omittedByLimit` identifies rows outside the selected page; the summary covers all selected
+components. Global clear does not erase span evidence. A span retains at most 500 components and
+1000 commits; hitting the commit cap closes it. Collection and retention losses make coverage
+incomplete. Unresolved source ownership also makes an app-only report incomplete; use
+`appOnly:false` to inspect all retained records. `attribution:"temporal-only"` explicitly means
+these counts do not prove which interaction caused a commit.
+
 ## `react_quiesce`
 
 Waits until React document commits have remained unchanged for the requested interval.

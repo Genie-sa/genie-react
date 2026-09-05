@@ -811,6 +811,40 @@ async function main() {
   process.stdout.write(
     `React quiesce live canvas: ${canvasRuns.join(', ')} updates across ten consecutive clear→interact→quiesce→report runs.\n`,
   )
+  await callTool('react_clear_renders', { components: ['App'] })
+  const spanA = await callTool('react_measure', { label: 'outer route' })
+  await page.getByRole('button', { name: 'Update memo rows', exact: true }).click()
+  const spanB = await callTool('react_measure', { label: 'inner route' })
+  await page.getByRole('button', { name: 'Update memo rows', exact: true }).click()
+  const inner = await callTool('react_renders_since', {
+    handle: spanB.handle,
+    close: true,
+    component: 'App',
+    appOnly: false,
+  })
+  await callTool('react_clear_renders')
+  await page.getByRole('button', { name: 'Update memo rows', exact: true }).click()
+  const outer = await callTool('react_renders_since', {
+    handle: spanA.handle,
+    close: true,
+    component: 'App',
+    appOnly: false,
+  })
+  assert(
+    inner.label === 'inner route' && outer.label === 'outer route',
+    'Span labels must cross the CLI unchanged',
+  )
+  assert(
+    inner.summary.totalUpdates === 1 && outer.summary.totalUpdates === 2,
+    `Span counts mixed: ${JSON.stringify({ inner, outer })}`,
+  )
+  assert(
+    outer.excludedCommits > 0 && !outer.commitIds.some((id) => inner.commitIds.includes(id)),
+    'Concurrent span commit sets must be disjoint',
+  )
+  process.stdout.write(
+    'Live labelled spans passed: outer=2 updates, inner=1, disjoint commits across global clear.\n',
+  )
   assert(pageErrors.length === 0, `Browser page errors:\n${pageErrors.join('\n')}`)
 
   process.stdout.write(
