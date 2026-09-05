@@ -267,6 +267,31 @@ describe('React component instance identity', () => {
 describe('commit-scoped sibling identity work', () => {
   const work = () => createCommitWorkBudget({ operationLimit: 1_000_000, now: () => 0 })
 
+  it.each([
+    0, 3,
+  ])('keeps sparse unkeyed row %i positional without scanning later siblings', (index) => {
+    const parent = component('Rows')
+    const rows = Array.from({ length: 500 }, () => component('Row'))
+    attach(parent, rows)
+    let siblingReads = 0
+    rows.forEach((row, position) => {
+      Object.defineProperty(row, 'sibling', {
+        get() {
+          siblingReads += 1
+          return rows[position + 1] ?? null
+        },
+      })
+    })
+    const budget = createCommitWorkBudget({ operationLimit: 20, now: () => 0 })
+
+    expect(noteInstanceRender(rows[index] as Fiber, 'update', 1, 1, budget)).toMatchObject({
+      siblingIndex: index,
+      logicalIdentityEvidence: 'positional',
+    })
+    expect(siblingReads).toBe(index)
+    expect(budget.exhaustedSubsystems.size).toBe(0)
+  })
+
   it('identifies a wide keyed list with linear app-owned sibling reads', () => {
     const parent = component('Rows')
     const rows = Array.from({ length: 100 }, (_, index) => component('Row', String(index)))

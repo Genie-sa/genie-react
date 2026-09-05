@@ -420,35 +420,59 @@ interface SiblingIdentityScan {
   indices: Map<Fiber, number>
   keyCounts: Map<string, number>
   complete: boolean
+  current: Fiber | null
+  advance: boolean
+  scanned: number
 }
 
 // A work budget belongs to one synchronous commit; sibling order can change on the next one.
 const siblingScans = new WeakMap<CommitWorkBudget, WeakMap<Fiber, SiblingIdentityScan>>()
 
-function commitSiblingScan(first: Fiber, budget: CommitWorkBudget): SiblingIdentityScan {
+function commitSiblingScan(
+  first: Fiber,
+  budget: CommitWorkBudget,
+  target?: Fiber,
+): SiblingIdentityScan {
   let scans = siblingScans.get(budget)
   if (!scans) {
     scans = new WeakMap()
     siblingScans.set(budget, scans)
   }
-  const cached = scans.get(first)
-  if (cached) return cached
-
-  const scan: SiblingIdentityScan = { indices: new Map(), keyCounts: new Map(), complete: false }
-  let current: Fiber | null = first
-  let index = 0
-  while (current && index < SIBLING_SCAN_LIMIT) {
-    if (!consumeCommitWork(budget, 'instance-siblings')) break
-    scan.indices.set(current, index)
-    if (current.alternate) scan.indices.set(current.alternate, index)
-    if (typeof current.key === 'string') {
-      scan.keyCounts.set(current.key, (scan.keyCounts.get(current.key) ?? 0) + 1)
+  let scan = scans.get(first)
+  if (!scan) {
+    scan = {
+      indices: new Map(),
+      keyCounts: new Map(),
+      complete: false,
+      current: first,
+      advance: false,
+      scanned: 0,
     }
-    current = current.sibling
-    index += 1
+    scans.set(first, scan)
   }
-  scan.complete = current === null
-  scans.set(first, scan)
+
+  // Position lookup needs only a prefix; key uniqueness needs the complete bounded list.
+  while (!scan.complete && (!target || !scan.indices.has(target))) {
+    if (scan.advance) {
+      scan.current = scan.current?.sibling ?? null
+      scan.advance = false
+    }
+    const current = scan.current
+    if (!current) {
+      scan.complete = true
+      break
+    }
+    if (scan.scanned >= SIBLING_SCAN_LIMIT) break
+    if (!consumeCommitWork(budget, 'instance-siblings')) break
+    const key = current.key
+    scan.indices.set(current, scan.scanned)
+    if (current.alternate) scan.indices.set(current.alternate, scan.scanned)
+    if (typeof key === 'string') {
+      scan.keyCounts.set(key, (scan.keyCounts.get(key) ?? 0) + 1)
+    }
+    scan.scanned += 1
+    scan.advance = true
+  }
   return scan
 }
 
@@ -457,7 +481,7 @@ function indexAmongSiblings(fiber: Fiber, budget?: CommitWorkBudget): number | n
   if (!first) return fiber.return ? null : 0
   if (budget) {
     if (!consumeCommitWork(budget, 'instance-siblings')) return null
-    return commitSiblingScan(first, budget).indices.get(fiber) ?? null
+    return commitSiblingScan(first, budget, fiber).indices.get(fiber) ?? null
   }
   let current: Fiber | null = first
   let index = 0
