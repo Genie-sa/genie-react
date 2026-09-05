@@ -18,6 +18,7 @@ export function formatOutputFailureDiagnostic(error: NodeJS.ErrnoException): str
     schemaVersion: '1.0',
     status: 'error',
     reason: 'output-failure',
+    userActionRequired: true,
     code: error.code ?? 'UNKNOWN',
     operation: context.operation,
     ...(context.operationId === undefined ? {} : { operationId: context.operationId }),

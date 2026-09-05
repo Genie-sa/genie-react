@@ -604,7 +604,14 @@ async function main() {
     const readPage = async (args) =>
       parseSuccessfulJson(
         'render page',
-        await runCli(['call', 'react_get_renders', JSON.stringify(args), '--json']),
+        await runCli([
+          'call',
+          'react_get_renders',
+          JSON.stringify(args),
+          '--json',
+          '--max-bytes',
+          '2000000',
+        ]),
       )
     const callReact = async (tool, args) =>
       parseSuccessfulJson(tool, await runCli(['call', tool, JSON.stringify(args), '--json']))
@@ -736,14 +743,17 @@ async function main() {
         second.summary.totalUpdates === first.summary.totalUpdates,
       `${stage}: continuation changed measurement metadata`,
     )
-    const human = await runCli([
+    const defaultPageResult = await runCli([
       'call',
       'react_get_renders',
       JSON.stringify({ ...selection, limit: 1 }),
     ])
+    const defaultPage = parseSuccessfulJson('default render page', defaultPageResult)
     assert(
-      human.code === 0 && human.stdout.includes('next: genie-react call react_get_renders'),
-      `${stage}: human CLI omitted continuation guidance`,
+      typeof defaultPage.nextCursor === 'string' &&
+        defaultPage.components.length === 1 &&
+        defaultPage.pagination.totalComponents === 241,
+      `${stage}: default JSON omitted bounded continuation evidence`,
     )
     const invalid = await runCli([
       'call',

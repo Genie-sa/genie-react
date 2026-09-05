@@ -79,7 +79,11 @@ describe('resolveBridgeUrl', () => {
     )
     expect(await resolveBridgeUrl(cwd)).toBe(`ws://localhost:5173${GENIE_WS_PATH}`)
     expect(existsSync(join(cwd, GENIE_DISCOVERY_FILE))).toBe(false)
-    expect(stderrSpy.mock.calls.flat().join('')).toContain('pid 999999 is gone')
+    expect(JSON.parse(stderrSpy.mock.calls.flat().join(''))).toMatchObject({
+      status: 'diagnostic',
+      reason: 'stale-discovery',
+      data: { pid: 999999 },
+    })
     stderrSpy.mockRestore()
   })
 

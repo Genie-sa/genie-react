@@ -1,16 +1,27 @@
-import { errorMessage, GENIE_DEFAULT_HUB_PORT } from 'genie-react/protocol'
+import { writeJson } from './cli-output'
 
 export interface HubOptions {
   port?: number
   cwd?: string
+  maxBytes?: number
 }
 
-/** Runs the standalone hub for Next.js and other non-Vite apps; a busy default port walks upward, an explicit --port is strict, and a hub already serving this app is reported instead of duplicated. */
 export async function runHub(options: HubOptions = {}): Promise<number> {
   const { removeDiscoveryFile, startGenieHub } = await import('genie-react/hub')
   const cwd = options.cwd ?? process.cwd()
-  const out = (line: string): void => void process.stdout.write(`${line}\n`)
-
+  const failure = (reason: string, message: string): void => {
+    writeJson(
+      {
+        schemaVersion: '1.0',
+        status: 'error',
+        reason,
+        message,
+        userActionRequired: true,
+        next: { command: 'genie-react doctor', argv: ['genie-react', 'doctor'] },
+      },
+      options.maxBytes,
+    )
+  }
   let result: Awaited<ReturnType<typeof startGenieHub>>
   try {
     result = await startGenieHub({
@@ -18,43 +29,59 @@ export async function runHub(options: HubOptions = {}): Promise<number> {
       port: options.port,
       strictPort: options.port !== undefined,
     })
-  } catch (error) {
-    process.stderr.write(`Failed to start the Genie hub: ${errorMessage(error)}\n`)
+  } catch {
+    failure(
+      'hub_start_failed',
+      'Failed to start the local hub. Check port availability and project directory permissions.',
+    )
     return 1
   }
-
+  const data = { cwd, port: result.port, url: result.url, clientUrl: result.clientUrl }
+  const emit = (event: 'ready' | 'reused' | 'stopped'): void => {
+    writeJson(
+      {
+        schemaVersion: '1.0',
+        status: 'ok',
+        event,
+        reason: `hub_${event}`,
+        message: event === 'stopped' ? 'Stopped the local hub.' : 'The local hub is available.',
+        userActionRequired: false,
+        data,
+        ...(event === 'stopped'
+          ? {}
+          : { next: { command: 'genie-react status', argv: ['genie-react', 'status'] } }),
+      },
+      options.maxBytes,
+    )
+  }
   if (result.status === 'reused') {
-    out('Hub already running')
-    out(`  WebSocket  ${result.url}`)
-    out(`  Client     ${result.clientUrl}`)
+    emit('reused')
     return 0
   }
-
-  const scriptTag =
-    result.port === GENIE_DEFAULT_HUB_PORT
-      ? '<GenieScript />'
-      : `<GenieScript port={${result.port}} />`
-  out('✓ Hub ready')
-  out(`  WebSocket  ${result.url}`)
-  out(`  Client     ${result.clientUrl}`)
-  out('')
-  out('Attach your app (dev only):')
-  out("  Next.js / any SSR React root layout:   import { GenieScript } from 'genie-react/next'")
-  out(`                                         ${scriptTag}`)
-  out(`  anything else, first in <head>:        <script src="${result.clientUrl}"></script>`)
-  out('')
-  out('Next: run `genie-react status`. Ctrl-C stops this local hub.')
-
   const { handle } = result
   return new Promise<number>((resolve) => {
+    let stopping = false
     const shutdown = (): void => {
+      if (stopping) return
+      stopping = true
       void (async () => {
-        await removeDiscoveryFile(cwd)
-        await handle.close()
-        resolve(0)
+        const results = await Promise.allSettled([removeDiscoveryFile(cwd), handle.close()])
+        process.removeListener('SIGINT', shutdown)
+        process.removeListener('SIGTERM', shutdown)
+        if (results.some((result) => result.status === 'rejected')) {
+          failure(
+            'hub_stop_failed',
+            'Failed to fully stop the local hub. Inspect the project discovery file and listening port.',
+          )
+          resolve(1)
+        } else {
+          emit('stopped')
+          resolve(0)
+        }
       })()
     }
-    process.once('SIGINT', shutdown)
-    process.once('SIGTERM', shutdown)
+    process.on('SIGINT', shutdown)
+    process.on('SIGTERM', shutdown)
+    emit('ready')
   })
 }

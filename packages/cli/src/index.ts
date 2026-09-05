@@ -99,7 +99,15 @@ export type RootRouteOutcome =
   | { action: 'edit'; path: string; contents: string }
   | { action: 'manual'; path: string; reason: string }
 
+export interface InitArtifact {
+  kind: 'gitignore' | 'agent_skill'
+  path: string
+  status: 'planned' | 'applied' | 'already' | 'skipped' | 'manual'
+  reason?: string
+}
+
 export interface InitResult {
+  artifacts: InitArtifact[]
   /** Whether setup completed for this framework. Drives the CLI exit code. */
   ok: boolean
   dryRun: boolean
@@ -165,13 +173,13 @@ export function runInit(options: InitOptions = {}): InitResult {
   // No Vite, no Next: the hub + script-tag path IS the setup, so don't fail or print Vite-only guidance.
   if (framework === 'unknown' && viteConfig.action === 'missing') {
     printUniversalSetup(log)
-    ensureGenieIgnored(ctx)
-    ensureAgentSkill(ctx)
+    const artifacts = [...ensureGenieIgnored(ctx), ...ensureAgentSkill(ctx)]
     printUniversalNextSteps(log, packageManagerHints(cwd))
     return {
       ok: true,
       dryRun,
       framework,
+      artifacts,
       viteConfig,
       rootRoute: { action: 'skip', reason: 'universal hub + script-tag setup' },
     }
@@ -184,8 +192,7 @@ export function runInit(options: InitOptions = {}): InitResult {
       `${PREVIEW}@cloudflare/vite-plugin detected — genie() will run its bridge on a standalone hub (workerd owns this port's WebSocket upgrades)`,
     )
   }
-  ensureGenieIgnored(ctx)
-  ensureAgentSkill(ctx)
+  const artifacts = [...ensureGenieIgnored(ctx), ...ensureAgentSkill(ctx)]
   printNextSteps(log, framework, rootRoute, packageManagerHints(cwd))
   if (!dryRun && !options.yes) {
     log.info(
@@ -198,7 +205,7 @@ export function runInit(options: InitOptions = {}): InitResult {
     rootRoute.action === 'already' || rootRoute.action === 'edit' || rootRoute.action === 'skip'
   // Start has no index.html, so there `<Genie />` alone starts the client; elsewhere a failed insert is only a warning.
   const ok = framework === 'tanstack-start' ? viteWired && componentWired : viteWired
-  return { ok, dryRun, framework, viteConfig, rootRoute }
+  return { ok, dryRun, framework, viteConfig, rootRoute, artifacts }
 }
 
 export function runDoctor(options: DoctorOptions = {}): DoctorResult {
@@ -881,8 +888,7 @@ function runNextInit(ctx: ApplyContext, options: InitOptions): InitResult {
 
   applyNextLayoutOutcome(layout, ctx)
   applyInstrumentationOutcome(instrumentation, ctx)
-  ensureGenieIgnored(ctx)
-  ensureAgentSkill(ctx)
+  const artifacts = [...ensureGenieIgnored(ctx), ...ensureAgentSkill(ctx)]
   printNextStepsForNext(log, packageManagerHints(cwd))
   if (!dryRun && !options.yes) {
     log.info("\nTip: run 'npx @genie-react/cli doctor' to verify the wiring.")
@@ -893,6 +899,7 @@ function runNextInit(ctx: ApplyContext, options: InitOptions): InitResult {
     ok: layoutWired,
     dryRun,
     framework: 'nextjs',
+    artifacts,
     viteConfig: {
       action: 'skip',
       reason: 'Next.js — the standalone hub serves the client, no Vite config needed',
@@ -1090,40 +1097,57 @@ function findPackageDir(cwd: string, name: string): string | null {
 }
 
 /** `.genie/` holds the ephemeral bridge discovery file; keep it out of `git status` noise. */
-function ensureGenieIgnored(ctx: ApplyContext): void {
+function ensureGenieIgnored(ctx: ApplyContext): InitArtifact[] {
   const { cwd, dryRun, log } = ctx
-  if (!inGitRepo(cwd)) return
   const path = join(cwd, '.gitignore')
+  const artifact = { kind: 'gitignore' as const, path }
+  if (!inGitRepo(cwd)) return [{ ...artifact, status: 'skipped', reason: 'not_git_repository' }]
   const current = readFileSafe(path)
-  if (/^\.genie\/?\s*$/m.test(current)) return
+  if (/^\.genie\/?\s*$/m.test(current)) return [{ ...artifact, status: 'already' }]
   if (dryRun) {
     log.info(`${PREVIEW}Would add .genie/ to .gitignore`)
-    return
+    return [{ ...artifact, status: 'planned' }]
   }
   const base = current === '' || current.endsWith('\n') ? current : `${current}\n`
   writeFileSync(path, `${base}.genie/\n`)
   log.info(`${OK} added .genie/ to .gitignore`)
+  return [{ ...artifact, status: 'applied' }]
 }
 
-function ensureAgentSkill(ctx: ApplyContext): void {
+function ensureAgentSkill(ctx: ApplyContext): InitArtifact[] {
   const bundledFiles = [
     ['SKILL.md', readBundledSkill()],
     [APP_TOOLS_REFERENCE, readBundledSkillFile(APP_TOOLS_REFERENCE)],
   ] as const
+  const directory = join(ctx.cwd, AGENT_SKILL_DIRECTORY)
   if (bundledFiles.some(([, contents]) => !contents)) {
     ctx.log.info(`${WARN} bundled Genie skill is unavailable; reinstall ${CLI_PACKAGE}`)
-    return
+    return bundledFiles.map(([name]) => ({
+      kind: 'agent_skill',
+      path: join(directory, name),
+      status: 'manual',
+      reason: 'bundled_skill_missing',
+    }))
   }
-  const directory = join(ctx.cwd, AGENT_SKILL_DIRECTORY)
-  if (bundledFiles.every(([name, contents]) => readFileSafe(join(directory, name)) === contents))
-    return
+  const artifacts: InitArtifact[] = bundledFiles.map(([name, contents]) => ({
+    kind: 'agent_skill',
+    path: join(directory, name),
+    status:
+      readFileSafe(join(directory, name)) === contents
+        ? 'already'
+        : ctx.dryRun
+          ? 'planned'
+          : 'applied',
+  }))
+  if (artifacts.every(({ status }) => status === 'already')) return artifacts
   if (ctx.dryRun) {
     ctx.log.info(`${PREVIEW}Would install the versioned agent skill at ${AGENT_SKILL_PATH}`)
-    return
+    return artifacts
   }
   mkdirSync(directory, { recursive: true })
   for (const [name, contents] of bundledFiles) writeFileSync(join(directory, name), contents)
   ctx.log.info(`${OK} installed the versioned agent skill at ${AGENT_SKILL_PATH}`)
+  return artifacts
 }
 
 function readBundledSkill(): string {
@@ -1184,6 +1208,16 @@ function inGitRepo(cwd: string): boolean {
 interface PackageManagerHints {
   add: string
   dev: string
+}
+
+export function initNextCommands(cwd: string, framework: Framework) {
+  const pm = packageManagerHints(cwd)
+  const install = [...pm.add.split(' '), ...requiredPackages(framework)]
+  const dev = pm.dev.split(' ')
+  return {
+    install: { command: install.join(' '), argv: install, condition: 'if packages are missing' },
+    dev: { command: pm.dev, argv: dev },
+  }
 }
 
 function packageManagerHints(cwd: string): PackageManagerHints {
