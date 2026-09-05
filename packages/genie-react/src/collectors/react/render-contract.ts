@@ -885,6 +885,7 @@ export const reactRendersSinceContract = defineAgentToolContract({
     limit: z.number().int().min(1).max(200).default(40),
   }),
   output: measurementSpanSchema.extend({
+    ...renderMeasurementEnvironmentSchema.shape,
     commitIds: z.array(z.number().int().nonnegative()),
     commits: z.number().int().nonnegative(),
     excludedCommits: z.number().int().nonnegative(),

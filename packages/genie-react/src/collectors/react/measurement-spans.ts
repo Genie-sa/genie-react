@@ -1,4 +1,5 @@
 import { newId } from '../../protocol'
+import { getMeasurementEnvironment } from './measurement-environment'
 import { getDocumentCommitId } from './observation'
 import { emptyCauseCounts } from './render-causes'
 import type { RenderRecord } from './render-model'
@@ -159,6 +160,7 @@ export async function readMeasurementSpan(handle: string, close: boolean, query:
     if (commitOwner === span) commitOwner = undefined
   }
   const header = metadata(span)
+  const measurementEnvironment = getMeasurementEnvironment()
   const commitIds = [...span.commitIds]
   const excludedCommits = span.excludedCommits
   const incomplete = span.incomplete
@@ -172,6 +174,7 @@ export async function readMeasurementSpan(handle: string, close: boolean, query:
   const complete = !incomplete && (!query.appOnly || report.sourceClassification.complete)
   return {
     ...header,
+    ...measurementEnvironment,
     commitIds,
     commits: commitIds.length,
     excludedCommits,

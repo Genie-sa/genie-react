@@ -54,6 +54,8 @@ it('keeps concurrent handles disjoint and resumes the older owner when the newer
   const middle = await readMeasurementSpan(a.handle, false, query)
   expect(middle.commitIds).toEqual([2])
   expect(middle.excludedCommits).toBe(1)
+  expect(middle.timingsBundleDependent).toBe(true)
+  expect(middle.countsScope).toBe('observed-run')
   const closed = await readMeasurementSpan(b.handle, true, query)
   commit(counter)
   const older = await readMeasurementSpan(a.handle, true, query)
