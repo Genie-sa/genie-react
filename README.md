@@ -440,6 +440,13 @@ The early hook import is what makes render collection work; without it, tree and
 
 React Native has no DOM selectors. `react_dom_for_component` returns native view details instead. Browser-only tools stay unavailable.
 
+For Expo Router navigation, opt into `createNavigationTools` from `genie-react/navigation`.
+`app_navigate` then returns the resulting route and stack depth after the native transition ends;
+repeated pushes expose duplicate screens in that response. See the
+[navigation integration](https://genie-react.com/docs/tools/app-tools#settled-native-navigation)
+for registration, event forwarding and timeout handling.
+
+
 ## Find more tools
 
 ```bash
@@ -512,6 +519,7 @@ Vite runs the hub inside its development server. Next.js and other setups run a 
 | `genie-react/vite` | Vite plugin |
 | `genie-react/next` | Next.js setup |
 | `genie-react/native` | React Native and Expo |
+| `genie-react/navigation` | App-owned native navigation with transition settlement |
 | `genie-react/client` | Browser client |
 | `genie-react/collectors` | Individual collectors |
 | `genie-react/collectors/query` | Query collector without Router types |
