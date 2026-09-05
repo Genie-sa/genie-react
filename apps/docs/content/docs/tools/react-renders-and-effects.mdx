@@ -946,3 +946,29 @@ npx @genie-react/cli call react_profile_report \
 
 **Agent use:** Use the slowest or most-rendered row as a shortlist, then inspect its exact render
 causes before editing. Causal leaderboards are not sufficient when input attribution is incomplete.
+
+## `react_quiesce`
+
+Waits until React document commits have remained unchanged for the requested interval.
+
+**Input:** `idleMs` is an integer from 100 to 5000 (default 500); `timeoutMs` is an integer from
+1 to 60000 (default 10000). Unknown fields are rejected. The CLI transport allows the requested deadline.
+
+```bash
+npx @genie-react/cli call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{"ok":true,"outcome":"idle","elapsedMs":750,"observedCommits":3,"documentCommitId":21,"renderCollection":"available"}
+```
+
+**Agent use:** Clear, drive one UI interaction, quiesce, then read the render report. Outcomes are
+`idle`, `timed-out`, or `unavailable`; `observedCommits` counts increases between valid samples,
+excluding commits before the first sample. A missing collector, changed document, or counter reset
+cannot prove idle. Historical late-hook degradation remains visible but can establish a new quiet
+interval. Failed samples restart the quiet interval; silent requests respect the overall deadline.
+Tool-catalog refreshes in the same document preserve the wait. Add `--fail-on-result-error` for a
+nonzero exit on a result with `ok:false`. This observes React commits, not continuous canvas/native
+frames, query freshness, or future scheduled work.

@@ -21,6 +21,7 @@ import {
   metaToolDescriptors,
   newId,
   ROLE_QUERY_PARAM,
+  reactQuiesceContract,
   type SessionSummary,
   type ToolDescriptor,
   WAIT_CONDITIONS,
@@ -131,6 +132,7 @@ interface WaitInput {
   queryKey?: unknown[]
   domains: WaitDomain[]
   quietMs: number
+  deadline?: number
 }
 
 interface WaitDomainCheck {
@@ -770,12 +772,117 @@ export class GenieBridge {
       return
     }
 
+    if (tool === reactQuiesceContract.name) {
+      await this.handleQuiesce(agent, id, args, sessionId)
+      return
+    }
+
     if (tool === devtoolsWaitContract.name) {
       await this.handleWait(agent, id, args, sessionId)
       return
     }
 
     this.forwardToApp(agent, id, tool, args, sessionId, timeoutMs)
+  }
+
+  private async handleQuiesce(
+    agent: WebSocket,
+    id: string,
+    args: unknown,
+    sessionId?: string,
+  ): Promise<void> {
+    const parsed = reactQuiesceContract.input.safeParse(args ?? {})
+    if (!parsed.success) {
+      this.result(
+        agent,
+        id,
+        false,
+        undefined,
+        formatToolValidationError(reactQuiesceContract.name, parsed.error.issues),
+        { errorCode: 'invalid-args' },
+      )
+      return
+    }
+    const started = Date.now()
+    const deadline = started + parsed.data.timeoutMs
+    const session = sessionId ? this.resolveSession(sessionId) : this.currentSession()
+    const pollState: WaitPollState = {
+      reactSession: null,
+      reactCommit: null,
+      reactChangedAt: started,
+      frameCheck: null,
+    }
+    const sameDocument = (current: AppSession | null | undefined) =>
+      current?.socket === session?.socket &&
+      current?.sessionId === session?.sessionId &&
+      current?.documentGeneration === session?.documentGeneration
+    let observedCommits = 0
+    let documentCommitId: number | null = null
+    let renderCollection: string | null = null
+    const finish = (outcome: 'idle' | 'timed-out' | 'unavailable', reason?: string) =>
+      this.result(agent, id, true, {
+        ok: outcome === 'idle',
+        outcome,
+        elapsedMs: Date.now() - started,
+        observedCommits,
+        documentCommitId,
+        sessionId: session?.sessionId ?? null,
+        renderCollection,
+        ...(reason ? { reason } : {}),
+      })
+    if (!session) {
+      finish('unavailable', 'No app document is connected. Connect the app and retry.')
+      return
+    }
+    while (Date.now() < deadline) {
+      const current = sessionId ? this.resolveSession(sessionId) : this.currentSession()
+      if (!sameDocument(current)) {
+        finish('unavailable', 'App document changed during quiescence. Start a fresh measurement.')
+        return
+      }
+      const check = await this.checkSettleDomain(
+        'react',
+        {
+          condition: 'react-quiet',
+          domains: ['react'],
+          quietMs: parsed.data.idleMs,
+          deadline,
+        },
+        session.sessionId,
+        pollState,
+      )
+      if (!sameDocument(sessionId ? this.resolveSession(sessionId) : this.currentSession())) {
+        finish('unavailable', 'App document changed during quiescence. Start a fresh measurement.')
+        return
+      }
+      const sample = recordOf(check.lastObserved)
+      const commit = sample && numberField(sample, 'documentCommitId')
+      if (commit !== null) {
+        if (documentCommitId !== null && commit < documentCommitId) {
+          finish('unavailable', 'React document commit counter reset. Start a fresh measurement.')
+          return
+        }
+        observedCommits += documentCommitId === null ? 0 : commit - documentCommitId
+        documentCommitId = commit
+        renderCollection =
+          typeof sample?.renderCollection === 'string' ? sample.renderCollection : null
+      }
+      if (check.status === 'unsupported' || check.status === 'failed') {
+        finish('unavailable', check.reason)
+        return
+      }
+      // A late response cannot establish that the deadline was met.
+      if (Date.now() >= deadline) break
+      if (check.status === 'met') {
+        finish('idle')
+        return
+      }
+      await delay(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())))
+    }
+    finish(
+      'timed-out',
+      'React idle was not observed before timeoutMs. Inspect pending work and retry.',
+    )
   }
 
   private async handleWait(
@@ -1027,6 +1134,7 @@ export class GenieBridge {
         'react_get_renders',
         { sort: 'renders', limit: 1, appOnly: false, includeCursor: false },
         session,
+        input.deadline,
       )
       const result = recordOf(response.result)
       const commit = result && numberField(result, 'documentCommitId')
@@ -1147,9 +1255,10 @@ export class GenieBridge {
     tool: string,
     args: unknown,
     session: AppSession,
+    deadline?: number,
   ): Promise<AppResponse> {
     return new Promise((resolve) =>
-      this.sendAppRequest(newId(), tool, args, resolve, undefined, undefined, session),
+      this.sendAppRequest(newId(), tool, args, resolve, undefined, undefined, session, deadline),
     )
   }
 
@@ -1166,6 +1275,7 @@ export class GenieBridge {
     sessionId?: string,
     timeoutMs?: number,
     exactSession?: AppSession,
+    deadline?: number,
   ): void {
     const exactCurrent = exactSession ? this.apps.get(exactSession.sessionId) : undefined
     const session = exactSession
@@ -1187,7 +1297,10 @@ export class GenieBridge {
       })
       return
     }
-    const fullTimeout = this.clampTimeout(timeoutMs)
+    const fullTimeout = Math.min(
+      this.clampTimeout(timeoutMs),
+      deadline === undefined ? Infinity : Math.max(0, deadline - Date.now()),
+    )
     const timer = setTimeout(() => {
       const pending = this.pending.get(id)
       if (pending) this.clearPendingTimers(pending)

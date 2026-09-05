@@ -190,6 +190,21 @@ roles, seed fixtures, inject API failures, jump wizard steps. See the
 
 ## Prove a fix
 
+For React commit quiescence, use the dedicated wait tool instead of a fixed sleep:
+
+```sh
+npx @genie-react/cli call react_clear_renders '{}'
+# Drive the UI.
+npx @genie-react/cli call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --json
+npx @genie-react/cli call react_get_renders '{}' --json
+```
+
+`outcome` is `idle`, `timed-out`, or `unavailable`. Results include `elapsedMs`, the number of
+commits observed between samples, and collection status. An idle React tree can coexist with a
+canvas/native animation; the tool waits for React commits, not animation frames or future timers.
+A document replacement invalidates the wait, while a tool-catalog refresh in the same document does
+not. Use `--fail-on-result-error` to exit nonzero when quiescence was not established.
+
 For a labelled interaction, use the existing bridge-owned handle:
 
 ```bash
