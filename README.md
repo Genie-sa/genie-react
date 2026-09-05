@@ -195,13 +195,28 @@ For labelled measurements without clearing global data, open a span, drive the U
 ```sh
 npx @genie-react/cli call react_measure '{"label":"open checkout"}' --json
 # Drive the UI, then wait for React commits to settle.
-npx @genie-react/cli call devtools_wait '{"condition":"react-quiet","quietMs":500}' --json
+npx @genie-react/cli call react_quiesce '{"idleMs":500}' --json
 npx @genie-react/cli call react_renders_since '{"handle":"<returned handle>","close":true}' --json
 ```
 
 The result carries its label, owned document commit IDs, component counts, and coverage. Concurrent handles use explicit exclusive ownership: the newest open span captures subsequent commits; older spans resume when it closes. Their commit sets are disjoint, and `excludedCommits` reports work owned by a newer span. Reading without `close:true` keeps capture open. A global clear leaves span evidence intact. This associates an interaction with a labelled capture, but background work inside that capture is still included: `attribution:"temporal-only"` is not a causal guarantee.
 
 Handles expire after five minutes or a document reload/Fast Refresh. At most 20 spans are retained; opening at capacity evicts a closed span or rejects if all are open. Each span retains up to 500 components and 1000 commits; reaching the commit limit stops that span, and any collection/retention loss is reported as incomplete coverage. App ownership filtering reports unresolved sources; pass `appOnly:false` to inspect them. Export results for a durable audit.
+
+For React commit quiescence, use the dedicated wait tool instead of a fixed sleep:
+
+```sh
+npx @genie-react/cli call react_clear_renders '{}'
+# Drive the UI.
+npx @genie-react/cli call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --json
+npx @genie-react/cli call react_get_renders '{}' --json
+```
+
+`outcome` is `idle`, `timed-out`, or `unavailable`. Results include `elapsedMs`, the number of
+commits observed between samples, and collection status. An idle React tree can coexist with a
+canvas/native animation; the tool waits for React commits, not animation frames or future timers.
+A document replacement invalidates the wait, while a tool-catalog refresh in the same document does
+not. Use `--fail-on-result-error` to exit nonzero when quiescence was not established.
 
 For the existing bridge-owned interaction workflow:
 

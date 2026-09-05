@@ -9,6 +9,7 @@ import {
   encodeMessage,
   errorMessage,
   newId,
+  reactQuiesceContract,
   type ToolInput,
   type ToolOutput,
 } from 'genie-react/protocol'
@@ -124,8 +125,12 @@ export class GenieAgentLink {
     const ws = await this.ensureConnection()
     const id = newId()
     // Give the bridge its per-call budget plus a grace window, so its typed timeout/busy result arrives before this local guard fires.
+    const quiesce =
+      tool === reactQuiesceContract.name ? reactQuiesceContract.input.safeParse(args ?? {}) : null
+    const callTimeoutMs =
+      options.timeoutMs ?? (quiesce?.success ? quiesce.data.timeoutMs : undefined)
     const localTimeoutMs =
-      options.timeoutMs === undefined ? this.invokeTimeoutMs : options.timeoutMs + INVOKE_GRACE_MS
+      callTimeoutMs === undefined ? this.invokeTimeoutMs : callTimeoutMs + INVOKE_GRACE_MS
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)

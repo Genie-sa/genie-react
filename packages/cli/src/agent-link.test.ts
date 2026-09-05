@@ -167,6 +167,26 @@ describe('GenieAgentLink', () => {
     await expect(link.invoke('slow_tool', {})).rejects.toThrow(/did not respond.*200ms/)
   })
 
+  it('lets quiesce finish its requested budget beyond the default transport guard', async () => {
+    const { url } = await makeBridge()
+    const link = makeLink({ url, invokeTimeoutMs: 25 })
+    link.start()
+    // No app gives an immediate structured unavailable outcome; use a connected silent app to exercise the requested deadline rather than the ordinary 25ms link guard.
+    const socket = await connectApp(url)
+    socket.send(
+      encodeMessage({
+        kind: 'app/hello',
+        protocol: 1,
+        sessionId: 's-1',
+        app: { name: 'demo' },
+        capabilities: ['react'],
+        tools: [{ name: 'react_get_renders', title: 'renders', description: '', group: 'react' }],
+      }),
+    )
+    const result = await link.invoke('react_quiesce', { idleMs: 100, timeoutMs: 150 })
+    expect(result).toMatchObject({ outcome: 'timed-out' })
+  })
+
   it('reconnects after the socket closes and heals onto a new bridge', async () => {
     const first = await makeBridge()
     let currentUrl = first.url

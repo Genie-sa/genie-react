@@ -12,6 +12,7 @@ import {
   devtoolsStatusContract,
   devtoolsWaitContract,
   errorMessage,
+  reactQuiesceContract,
 } from 'genie-react/protocol'
 import { BridgeCallError, GenieAgentLink, INVOKE_GRACE_MS } from './agent-link'
 import {
@@ -81,7 +82,7 @@ export interface AgentOptions {
   select?: string
   /** Hard byte ceiling for emitted command output, including the trailing newline. */
   maxBytes?: number
-  /** Make a devtools_wait result with ok:false set a failing process status. */
+  /** Make a wait/quiesce result with ok:false set a failing process status. */
   failOnResultError?: boolean
   /** Optional caller marker echoed by status machine output. */
   marker?: string
@@ -154,6 +155,7 @@ const isMachineMode = (opts: AgentOptions): boolean =>
 const BRIDGE_LOCAL_TOOLS = new Set([
   devtoolsStatusContract.name,
   devtoolsWaitContract.name,
+  reactQuiesceContract.name,
   devtoolsCaptureListContract.name,
   devtoolsCaptureReadContract.name,
   devtoolsCaptureCompareContract.name,
@@ -592,7 +594,9 @@ export async function runCall(
     if (operationId) setOutputContext({ operation: `call ${tool}`, operationId })
     const rendered = renderResult(tool, result, opts.json, opts.fields, opts.select, opts.maxBytes)
     if (rendered !== '') out(rendered)
-    return opts.failOnResultError && tool === devtoolsWaitContract.name && waitResultFailed(result)
+    return opts.failOnResultError &&
+      (tool === devtoolsWaitContract.name || tool === reactQuiesceContract.name) &&
+      waitResultFailed(result)
       ? 1
       : 0
   } catch (error) {
