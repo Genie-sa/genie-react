@@ -123,6 +123,8 @@ export function styleObjectsFor(markers: string[], sources: StyleSourceRef[]): S
 
 interface RuleEntry {
   classNames: string[]
+  /** Selector to verify with element.matches() when the part has more than classes and pseudos (tags, combinators, `:not(.x)`); null for class-only parts. */
+  matcher: string | null
   condition: string | null
   style: CSSStyleDeclaration
 }
@@ -133,25 +135,56 @@ const MAX_RULES = 20_000
 const CLASS_TOKEN = /\.((?:[\w-]|\\.)+)/g
 // Without CSS layers, StyleX bumps specificity by repeating `:not(#\#)`; it carries no meaning for readers.
 const SPECIFICITY_BUMP = /:not\(#\\#\)/g
+// Trailing pseudo-classes/elements are conditions (`:hover`, `::before`, `:nth-child(2)`); ones selecting by class/id/attribute (`:not(.x)`) are structure.
+const TRAILING_PSEUDOS = /((?:::?[\w-]+(?:\([^()]*\))?)+)$/
+const STRUCTURAL_PSEUDO_ARG = /[.#[]/
 
 const unescapeClass = (token: string): string => token.replace(/\\(.)/g, '$1')
 
-// StyleX also repeats the class once per nested at-rule (`.x1.x1` under @media) for specificity.
-function ruleEntry(rule: CSSStyleRule, atRuleConditions: string[]): RuleEntry | null {
-  const selector = rule.selectorText.replace(SPECIFICITY_BUMP, '')
-  const classNames = new Set<string>()
-  let residue = selector
-  for (const match of selector.matchAll(CLASS_TOKEN)) {
-    classNames.add(unescapeClass(match[1] as string))
-    residue = residue.replace(match[0], '')
+function splitSelectorList(selectorText: string): string[] {
+  const parts: string[] = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < selectorText.length; i++) {
+    const char = selectorText[i]
+    if (char === '(') depth += 1
+    else if (char === ')') depth -= 1
+    else if (char === ',' && depth === 0) {
+      parts.push(selectorText.slice(start, i))
+      start = i + 1
+    }
   }
-  if (classNames.size === 0) return null
-  const pseudo = residue.trim()
-  const parts = [...atRuleConditions, pseudo].filter(Boolean)
-  return {
-    classNames: Array.from(classNames),
-    condition: parts.length ? parts.join(' ') : null,
-    style: rule.style,
+  parts.push(selectorText.slice(start))
+  return parts.map((part) => part.trim()).filter(Boolean)
+}
+
+// One entry per selector-list part; StyleX repeats the class once per nested at-rule (`.x1.x1` under @media), so class names are deduplicated.
+function ruleEntries(rule: CSSStyleRule, atRuleConditions: string[]): RuleEntry[] {
+  const entries: RuleEntry[] = []
+  for (const part of splitSelectorList(rule.selectorText.replace(SPECIFICITY_BUMP, ''))) {
+    const classNames = Array.from(
+      new Set(Array.from(part.matchAll(CLASS_TOKEN), (match) => unescapeClass(match[1] as string))),
+    )
+    if (classNames.length === 0) continue
+    const trailing = part.match(TRAILING_PSEUDOS)?.[1] ?? ''
+    const pseudo = STRUCTURAL_PSEUDO_ARG.test(trailing) ? '' : trailing
+    const structural = part.slice(0, part.length - pseudo.length)
+    const conditions = [...atRuleConditions, pseudo].filter(Boolean)
+    entries.push({
+      classNames,
+      matcher: structural.replace(CLASS_TOKEN, '').trim() === '' ? null : structural,
+      condition: conditions.length ? conditions.join(' ') : null,
+      style: rule.style,
+    })
+  }
+  return entries
+}
+
+const safeMatches = (el: Element, selector: string): boolean => {
+  try {
+    return typeof el.matches === 'function' && el.matches(selector)
+  } catch {
+    return false
   }
 }
 
@@ -170,20 +203,25 @@ const conditionOf = (rule: CSSRule): string | null => {
   return `${keyword} ${conditionText}`
 }
 
-/** Index every class-selected rule the document can read, keyed by class name. Disabled and cross-origin sheets are skipped. */
-export function indexStyleRules(doc: Document): Map<string, RuleEntry[]> {
+/** Index the readable rules that select any of `classes`, keyed by class name; other rules are skipped before any parsing. Disabled and cross-origin sheets are skipped. */
+export function indexStyleRules(
+  doc: Document,
+  classes: ReadonlySet<string>,
+): Map<string, RuleEntry[]> {
   const index = new Map<string, RuleEntry[]>()
   let scanned = 0
   const visit = (rules: CSSRuleList, atRuleConditions: string[]): void => {
     for (const rule of Array.from(rules)) {
       if (scanned++ >= MAX_RULES) return
       if (isStyleRule(rule)) {
-        const entry = ruleEntry(rule, atRuleConditions)
-        if (!entry) continue
-        for (const className of entry.classNames) {
-          const list = index.get(className)
-          if (list) list.push(entry)
-          else index.set(className, [entry])
+        if (!rule.selectorText.includes('.')) continue
+        for (const entry of ruleEntries(rule, atRuleConditions)) {
+          if (!entry.classNames.some((className) => classes.has(className))) continue
+          for (const className of entry.classNames) {
+            const list = index.get(className)
+            if (list) list.push(entry)
+            else index.set(className, [entry])
+          }
         }
       } else if (isGroupingRule(rule)) {
         const condition = conditionOf(rule)
@@ -206,11 +244,13 @@ export function indexStyleRules(doc: Document): Map<string, RuleEntry[]> {
 
 const VAR_REFERENCE = /var\((--[\w-]+)/g
 
-function tokensIn(value: string, computed: CSSStyleDeclaration | null): StyleToken[] {
+// getComputedStyle forces style resolution, so it runs only for values that read a variable.
+function tokensIn(value: string, computed: () => CSSStyleDeclaration | null): StyleToken[] {
+  if (!value.includes('var(')) return []
   const tokens: StyleToken[] = []
   for (const match of value.matchAll(VAR_REFERENCE)) {
     const variable = match[1] as string
-    const resolved = computed?.getPropertyValue(variable).trim()
+    const resolved = computed()?.getPropertyValue(variable).trim()
     tokens.push({ variable, value: resolved || null })
   }
   return tokens
@@ -246,30 +286,42 @@ export function describeElementStyles(
   index: Map<string, RuleEntry[]>,
 ): ElementStyleInfo {
   const classes = Array.from(el.classList)
+  const classSet = new Set(classes)
   const sources = parseStyleSources(el.getAttribute?.('data-style-src') ?? null)
   const markers = styleMarkerClasses(classes, sources.length > 0)
-  const view = el.ownerDocument.defaultView
-  const computed = view ? view.getComputedStyle(el) : null
+  const markerSet = new Set(markers)
+  let computed: CSSStyleDeclaration | null | undefined
+  const computedStyle = (): CSSStyleDeclaration | null => {
+    if (computed === undefined) {
+      const view = el.ownerDocument.defaultView
+      computed = view ? view.getComputedStyle(el) : null
+    }
+    return computed
+  }
 
   const declarations: StyleDeclaration[] = []
   const unresolvedClasses: string[] = []
   for (const className of classes) {
-    if (markers.includes(className)) continue
+    if (markerSet.has(className)) continue
     const entries = index.get(className)
     if (!entries) {
       unresolvedClasses.push(className)
       continue
     }
     for (const entry of entries) {
-      // Every class in the selector must be on the element for the rule to apply (`.a.b` compound selectors).
-      if (!entry.classNames.every((name) => classes.includes(name))) continue
+      // Class-only parts apply when every class is present (`.a.b`); anything structural is asked of the element itself.
+      const applies =
+        entry.matcher === null
+          ? entry.classNames.every((name) => classSet.has(name))
+          : safeMatches(el, entry.matcher)
+      if (!applies) continue
       for (const [property, value] of authoredDeclarations(entry.style.cssText)) {
         declarations.push({
           property,
           value,
           condition: entry.condition,
           className,
-          tokens: tokensIn(value, computed),
+          tokens: tokensIn(value, computedStyle),
         })
       }
     }

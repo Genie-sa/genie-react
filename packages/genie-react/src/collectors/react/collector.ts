@@ -40,12 +40,12 @@ import {
   buildProvenanceReport,
   buildTree,
   contextsForFiber,
-  describeHostElement,
   domForFiber,
   findByName,
   findFiberById,
   findRootFiber,
   hostElementsWithin,
+  hostSelectorOf,
   inspectFiber,
   matchDetail,
   nameOf,
@@ -391,12 +391,16 @@ export function reactCollector(): GenieCollector {
           if (selector === undefined && id === undefined)
             throw new Error('Pass a CSS `selector` or a component `id`.')
           const { target, candidates } = styleTargets(selector, id)
-          const index = indexStyleRules(document)
-          const elements = candidates.slice(0, limit).map((element) => {
+          const targets = candidates.slice(0, limit)
+          const index = indexStyleRules(
+            document,
+            new Set(targets.flatMap((element) => Array.from(element.classList))),
+          )
+          const elements = targets.map((element) => {
             const owner = owningComponentFor(element, 0)
             return {
               tag: element.tagName.toLowerCase(),
-              selector: describeHostElement(element).selector,
+              selector: hostSelectorOf(element),
               owner: owner ? { id: owner.id as number, name: owner.name } : null,
               ...describeElementStyles(element, index),
             }

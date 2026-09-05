@@ -133,6 +133,7 @@ const fakeElement = (opts: {
   classes: string[]
   styleSrc?: string
   inline?: Record<string, string>
+  matches?: (selector: string) => boolean
   doc: Document
 }): Element => {
   const inline = opts.inline ?? {}
@@ -140,6 +141,7 @@ const fakeElement = (opts: {
   return {
     classList: opts.classes,
     getAttribute: (name: string) => (name === 'data-style-src' ? (opts.styleSrc ?? null) : null),
+    matches: opts.matches ?? (() => false),
     ownerDocument: opts.doc,
     style: {
       length: inlineKeys.length,
@@ -172,7 +174,14 @@ describe('indexStyleRules + describeElementStyles', () => {
     ],
     { '--x9z': '#e4511e' },
   )
-  const index = indexStyleRules(doc)
+  const index = indexStyleRules(
+    doc,
+    new Set(['borderColor-x1a', 'color-x2b', 'padding-x3c', 'compound-a', 'card', 'md:flex']),
+  )
+
+  it('indexes only rules that select a requested class', () => {
+    expect(indexStyleRules(doc, new Set(['color-x2b'])).has('borderColor-x1a')).toBe(false)
+  })
 
   it('resolves each atomic class to its declaration, condition, and tokens', () => {
     const info = describeElementStyles(
@@ -223,7 +232,7 @@ describe('indexStyleRules + describeElementStyles', () => {
     ])
     const info = describeElementStyles(
       fakeElement({ classes: ['padding-x9', 'borderColor-x8'], doc: shorthandDoc }),
-      indexStyleRules(shorthandDoc),
+      indexStyleRules(shorthandDoc, new Set(['padding-x9', 'borderColor-x8'])),
     )
     expect(info.declarations.map((d) => `${d.property}: ${d.value}`)).toEqual([
       'padding: 20px',
@@ -238,6 +247,46 @@ describe('indexStyleRules + describeElementStyles', () => {
     )
     expect(info.declarations).toEqual([])
     expect(info.unresolvedClasses).toEqual(['card', 'md:flex'])
+  })
+
+  it('treats each part of a selector list on its own, so a sibling selector is never a condition', () => {
+    const listDoc = fakeDocument([
+      { rules: [styleRule('code, .counter, .counter:hover', { 'font-size': '16px' })] },
+    ])
+    const info = describeElementStyles(
+      fakeElement({ classes: ['counter'], doc: listDoc }),
+      indexStyleRules(listDoc, new Set(['counter'])),
+    )
+    expect(info.declarations.map((d) => d.condition)).toEqual([null, ':hover'])
+  })
+
+  it('asks the element itself about structural selectors (tags, combinators, :not(.x))', () => {
+    const structuralDoc = fakeDocument([
+      {
+        rules: [
+          styleRule('button.counter:hover', { color: 'red' }),
+          styleRule('#lab > .counter', { margin: '0' }),
+          styleRule('.counter:not(.muted)', { opacity: '1' }),
+        ],
+      },
+    ])
+    const index = indexStyleRules(structuralDoc, new Set(['counter']))
+    const asked: string[] = []
+    const info = describeElementStyles(
+      fakeElement({
+        classes: ['counter'],
+        matches: (selector) => {
+          asked.push(selector)
+          return selector === 'button.counter'
+        },
+        doc: structuralDoc,
+      }),
+      index,
+    )
+    expect(asked).toEqual(['button.counter', '#lab > .counter', '.counter:not(.muted)'])
+    expect(info.declarations).toEqual([
+      { property: 'color', value: 'red', condition: ':hover', className: 'counter', tokens: [] },
+    ])
   })
 
   it('surfaces inline custom properties as dynamic values', () => {

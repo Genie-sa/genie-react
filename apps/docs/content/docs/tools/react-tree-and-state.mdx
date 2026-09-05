@@ -290,10 +290,36 @@ npx @genie-react/cli call stylex_inspect \
     padding: 28px
 ```
 
-**Output (selected fields):** `status.system` (`stylex` or `none`) with a `hint` naming the plugin
-option that unlocks more; per element `styleObjects[]` (`name`, `package`, `file`, `line` of the
-style key), `declarations[]` (`property`, `value`, `condition` such as `:hover` or `@media (...)`,
-`tokens[]` with current variable values), `dynamic[]`, and `unresolvedClasses[]`.
+**Output (selected fields):**
+
+```json
+{
+  "target": "#pricing article",
+  "matched": 1,
+  "status": { "system": "stylex", "styleSrc": true, "hint": null },
+  "elements": [
+    {
+      "tag": "article",
+      "selector": "article",
+      "owner": { "id": 82, "name": "PricingCard" },
+      "styleObjects": [
+        { "name": "styles.card", "package": "@acme/app", "file": "src/PricingCard.tsx", "line": 5 },
+        { "name": "emphasis.featured", "package": "@acme/app", "file": "src/PricingCard.tsx", "line": 29 }
+      ],
+      "declarations": [
+        { "property": "border-color", "value": "rgb(228, 81, 30)", "condition": null, "className": "borderColor-x1xsh3er", "tokens": [] },
+        { "property": "gap", "value": "12px", "condition": "@media (width >= 48rem)", "className": "gap-x1e7g6uk", "tokens": [] },
+        { "property": "width", "value": "var(--x-width)", "condition": null, "className": "width-x5lhr3w", "tokens": [{ "variable": "--x-width", "value": "80%" }] }
+      ],
+      "dynamic": [{ "variable": "--x-width", "value": "80%" }],
+      "unresolvedClasses": []
+    }
+  ]
+}
+```
+
+`status.hint` names the StyleX plugin option that unlocks more when `system` is `none` or
+`styleSrc` is false. `line` is the style key's line (`card: {`).
 
 **Requires** StyleX dev output: set `dev: true` and `debug: true` on the StyleX bundler plugin
 (`@stylexjs/unplugin` or the Babel plugin). `dev` alone yields style-object names; `debug` adds

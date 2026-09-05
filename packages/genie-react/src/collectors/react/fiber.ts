@@ -955,7 +955,7 @@ export function describeHostElement(el: Element): HostElementInfo {
   const rawText = el.textContent?.trim() ?? ''
   return {
     tag,
-    selector: hostSelector(tag, domId, testId, classes),
+    selector: hostSelectorOf(el),
     domId,
     testId,
     role: attrOf(el, 'role'),
@@ -993,15 +993,14 @@ export function describeNativeHostFiber(fiber: Fiber): HostElementInfo {
 // Utility-framework classes (`hover:bg-x`, `md:flex`) are not valid bare selectors, so only simple tokens follow the dot; role/testId/text ride alongside for semantic locators.
 const SIMPLE_CLASS = /^[a-zA-Z_][\w-]*$/
 
-function hostSelector(
-  tag: string,
-  domId: string | null,
-  testId: string | null,
-  classes: string[],
-): string {
+/** The locator alone — none of the subtree text walk describeHostElement pays for. */
+export function hostSelectorOf(el: Element): string {
+  const tag = el.tagName.toLowerCase()
+  const domId = attrOf(el, 'id')
   if (domId) return `#${domId}`
+  const testId = attrOf(el, 'data-testid')
   if (testId) return attrSelector('data-testid', testId)
-  const simple = classes
+  const simple = (el.classList ? Array.from(el.classList) : [])
     .filter((token) => SIMPLE_CLASS.test(token) && !isGeneratedClass(token))
     .slice(0, 3)
   return simple.length ? `${tag}.${simple.join('.')}` : tag
