@@ -1,5 +1,12 @@
 # @genie-react/cli
 
+## 0.14.1
+
+### Patch Changes
+
+- fcc8f06: Refresh the bundled agent skill for JSON output, live schema discovery, bounded measurements, and verified app tool error handling.
+  - genie-react@0.14.1
+
 ## 0.14.0
 
 ### Minor Changes
