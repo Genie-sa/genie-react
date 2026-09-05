@@ -333,6 +333,39 @@ Reports lifecycle outcomes for every matching component instance in the current 
 **Input:** `component` is a required non-empty string. `exact` defaults to `true`. `limit` is an
 integer from 1 to 200 and defaults to 50.
 
+Each instance also reports its current `renderingState`, independently of recorded updates:
+
+- `mounted-rendering`: mounted and eligible to render; it may have stayed idle during the observation.
+- `mounted-frozen`: retained under a registered `react-freeze` boundary whose primary subtree has committed suspension.
+- `mounted-hidden`: retained under React Offscreen hiding, without proven `react-freeze` origin (for example, Activity).
+- `mounted-unknown`: the boundary state is unavailable.
+- `unmounted`: an actual unmount was observed during this observation.
+
+Enable freeze identification in your development entry, alongside the Genie hook:
+
+```ts
+import 'genie-react/react-freeze'
+```
+
+The optional adapter imports and registers the actual `Freeze` export from `react-freeze` 1.x.
+It also identifies the same export used internally by `react-native-screens` when
+`enableFreeze(true)` suspends a screen. No component-name heuristic is used. If your workspace
+resolves multiple copies, register the app's public import too:
+
+```ts
+import { registerReactFreeze } from 'genie-react/react-freeze'
+import { Freeze } from 'react-freeze'
+
+registerReactFreeze(Freeze)
+```
+
+Use the same `react-freeze` package version/resolution as your navigation dependency. A copy
+that was not registered remains generic hidden evidence; the adapter never guesses its identity.
+`coverage.freezeDetection` reports whether the adapter is enabled. Frozen status requires
+committed suspension, so a delayed or pending freeze request does not count yet. Suspense
+fallback components remain eligible to render. Thawing preserves mount identity; actual
+unmounting produces a tombstone. None of these states proves effect or Query observer subscriptions.
+
 Each instance reports `reactVisibility` independently of its lifecycle status:
 
 - `hidden`: a committed React Offscreen ancestor has hidden state, including Activity or suspended content.

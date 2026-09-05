@@ -787,6 +787,17 @@ export const reactComponentCohortContract = defineAgentToolContract({
         sourceOwnership: z.enum(['app', 'library', 'unknown']),
         source: sourceSchema,
         sourceProvenance: sourceProvenanceSchema,
+        renderingState: z
+          .enum([
+            'mounted-rendering',
+            'mounted-frozen',
+            'mounted-hidden',
+            'mounted-unknown',
+            'unmounted',
+          ])
+          .describe(
+            'Current render eligibility, independent of updates during the observation. Frozen requires the react-freeze adapter and a committed suspended primary; hidden alone does not prove react-freeze. Rendering means eligible, not necessarily currently updating. No effect or observer subscription claim.',
+          ),
         reactVisibility: z
           .enum(['hidden', 'not-hidden', 'unknown'])
           .describe(
@@ -799,6 +810,7 @@ export const reactComponentCohortContract = defineAgentToolContract({
       }),
     ),
     coverage: z.object({
+      freezeDetection: z.enum(['react-freeze-identity', 'disabled']),
       complete: z
         .boolean()
         .describe(

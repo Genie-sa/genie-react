@@ -1,5 +1,6 @@
 import { type Fiber, getReactWorkTagsForFiber, isCompositeFiber } from 'bippy'
 import { findAllCommittedRootFibers, nameOf } from './fiber'
+import { hasReactFreezeAdapter, isReactFreeze } from './freeze-identity'
 import {
   getInstanceIdentityCoverage,
   getInstanceTombstones,
@@ -32,6 +33,12 @@ export interface CohortInstance {
   source: FiberClassification['source']
   sourceProvenance: SourceProvenance
   componentName: string
+  renderingState:
+    | 'mounted-rendering'
+    | 'mounted-frozen'
+    | 'mounted-hidden'
+    | 'mounted-unknown'
+    | 'unmounted'
   reactVisibility: 'hidden' | 'not-hidden' | 'unknown'
   status: 'mounted-idle' | 'mounted-updated' | 'mounted-unknown' | 'unmounted'
   instance: InstanceDescriptor
@@ -56,6 +63,7 @@ export interface RenderCohort {
   instances: CohortInstance[]
   coverage: {
     complete: boolean
+    freezeDetection: 'react-freeze-identity' | 'disabled'
     scannedFibers: number
     scanLimit: number
     scanTruncated: boolean
@@ -97,11 +105,13 @@ export async function getRenderCohort(
   query: { component: string; exact: boolean; limit: number; appOnly?: boolean },
   coverageGaps: RenderCoverageGaps,
 ): Promise<RenderCohort> {
+  const freezeDetection = hasReactFreezeAdapter() ? 'react-freeze-identity' : 'disabled'
   const epoch = captureReportEpoch()
   const observation = getActiveObservation()
   const mountedCandidates: Array<{
     fiber: Fiber
     reactVisibility: CohortInstance['reactVisibility']
+    frozen: boolean
     componentName: string
     instance: InstanceDescriptor
     observed: boolean
@@ -131,17 +141,34 @@ export async function getRenderCohort(
   const visitedFibers = new Set<Fiber>()
   const mountedFiberIds = new Set<number>()
   // Reverse once so the oldest committed root remains first in the LIFO walk.
-  const stack: Array<{ fiber: Fiber; reactVisibility: CohortInstance['reactVisibility'] }> = [
-    ...roots,
-  ]
+  const frozenPrimaries = new Set<Fiber>()
+  const stack: Array<{
+    fiber: Fiber
+    reactVisibility: CohortInstance['reactVisibility']
+    frozen: boolean
+  }> = [...roots]
     .reverse()
-    .map((fiber) => ({ fiber, reactVisibility: 'not-hidden' }))
+    .map((fiber) => ({ fiber, reactVisibility: 'not-hidden', frozen: false }))
   let scannedFibers = 0
 
   while (stack.length > 0 && scannedFibers < COHORT_SCAN_LIMIT) {
     const entry = stack.pop()
     if (!entry || visitedFibers.has(entry.fiber)) continue
     const { fiber } = entry
+    const childFrozen = entry.frozen || frozenPrimaries.has(fiber)
+    // react-freeze 1.x suspends its direct Suspense primary; fallbacks and siblings remain eligible.
+    if (isReactFreeze(fiber.type) && fiber.memoizedProps?.freeze === true) {
+      const suspense = fiber.child
+      const tags = getReactWorkTagsForFiber(fiber)
+      if (
+        suspense?.tag === tags.SuspenseComponent &&
+        suspense.memoizedState != null &&
+        suspense.child?.tag === tags.OffscreenComponent &&
+        suspense.child.memoizedState != null
+      ) {
+        frozenPrimaries.add(suspense.child)
+      }
+    }
     let childVisibility = entry.reactVisibility
     if (
       childVisibility !== 'hidden' &&
@@ -166,6 +193,7 @@ export async function getRenderCohort(
           mountedCandidates.push({
             fiber,
             reactVisibility: entry.reactVisibility,
+            frozen: entry.frozen,
             componentName,
             instance,
             observed: wasInstanceObserved(instance.fiberId),
@@ -174,8 +202,14 @@ export async function getRenderCohort(
         }
       }
     }
-    if (fiber.sibling) stack.push({ fiber: fiber.sibling, reactVisibility: entry.reactVisibility })
-    if (fiber.child) stack.push({ fiber: fiber.child, reactVisibility: childVisibility })
+    if (fiber.sibling)
+      stack.push({
+        fiber: fiber.sibling,
+        reactVisibility: entry.reactVisibility,
+        frozen: entry.frozen,
+      })
+    if (fiber.child)
+      stack.push({ fiber: fiber.child, reactVisibility: childVisibility, frozen: childFrozen })
   }
 
   // Duplicate roots/fibers left on the stack do not represent missing data.
@@ -215,7 +249,17 @@ export async function getRenderCohort(
     complete &&
     effectiveCoverageGaps.truncatedInputFibers === 0 &&
     effectiveCoverageGaps.propsNotEnumeratedFibers === 0
-  const mountedUnclassified = mountedCandidates.map((entry) => ({
+  const mountedUnclassified: Omit<
+    CohortInstance,
+    'source' | 'sourceOwnership' | 'sourceProvenance'
+  >[] = mountedCandidates.map((entry) => ({
+    renderingState: entry.frozen
+      ? 'mounted-frozen'
+      : entry.reactVisibility === 'hidden'
+        ? 'mounted-hidden'
+        : entry.reactVisibility === 'unknown'
+          ? 'mounted-unknown'
+          : 'mounted-rendering',
     reactVisibility: entry.reactVisibility,
     componentName: entry.componentName,
     status: entry.observed
@@ -235,6 +279,7 @@ export async function getRenderCohort(
           source: entry.ownership.source,
           sourceProvenance: sourceProvenanceForSource(entry.ownership.source),
           status: 'unmounted' as const,
+          renderingState: 'unmounted' as const,
           reactVisibility: 'unknown' as const,
           instance: entry.instance,
           profileCommitId: entry.profileCommitId,
@@ -297,6 +342,7 @@ export async function getRenderCohort(
     instances,
     coverage: {
       complete: complete && current && (!query.appOnly || ownership.complete),
+      freezeDetection,
       scannedFibers,
       scanLimit: COHORT_SCAN_LIMIT,
       scanTruncated,
