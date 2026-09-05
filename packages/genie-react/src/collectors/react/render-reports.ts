@@ -405,13 +405,14 @@ export async function buildRendersLeaderboards(
   records: Map<number, RenderRecord>,
   limit: number,
   guard?: ReportAttributionGuard,
+  selection: Pick<RenderQuery, 'component' | 'appOnly'> = {},
 ): Promise<{
   slowest: RenderReport[]
   mostRerendered: RenderReport[]
   mostUnnecessary: RenderReport[]
   mostUnstable: RenderReport[]
 }> {
-  const { kept } = await selectRecords(records, { limit, sort: 'renders' }, guard)
+  const { kept } = await selectRecords(records, { limit, sort: 'renders', ...selection }, guard)
   const top = (sort: RenderQuery['sort']): RenderReport[] =>
     sortReports(kept, sort)
       .slice(0, limit)

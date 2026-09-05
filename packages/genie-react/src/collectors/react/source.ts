@@ -390,7 +390,7 @@ export async function classifyFiberBeforeDeadline(
 }
 
 /** Cache-only classification: exact when the fiber itself resolved before, null when unknown (never guesses via ancestors, which classifyFiber resolves differently). */
-function classifyFiberFromCache(fiber: Fiber): FiberClassification | null {
+export function classifyFiberFromCache(fiber: Fiber): FiberClassification | null {
   const cached = cache.get(getFiberId(fiber))
   return cached ? classificationForSource(cached) : null
 }
@@ -951,4 +951,10 @@ export async function resolveExternalStoreSourceResolutionBeforeDeadline(
   } finally {
     if (timer) clearTimeout(timer)
   }
+}
+
+export function ownershipCoverage(ownership: readonly SourceOwnership[]) {
+  const counts = { app: 0, library: 0, unknown: 0 }
+  for (const value of ownership) counts[value] += 1
+  return { complete: counts.unknown === 0, totalCandidates: ownership.length, ...counts }
 }

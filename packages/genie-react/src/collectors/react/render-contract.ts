@@ -1,7 +1,13 @@
 import { z } from 'zod'
 import { defineAgentToolContract } from '../../protocol'
 import { renderObservationBudgetInputSchema } from '../../protocol/react-observation-schema'
-import { sourceProvenanceSchema, sourceSchema, wrapperFrameSchema } from './contract-schemas'
+import {
+  appOnlySchema,
+  ownershipCoverageSchema,
+  sourceProvenanceSchema,
+  sourceSchema,
+  wrapperFrameSchema,
+} from './contract-schemas'
 
 export const observationSchema = z.object({
   id: z.string().describe('Measurement-window ID, unique within this browser document.'),
@@ -743,6 +749,7 @@ export const reactComponentCohortContract = defineAgentToolContract({
     'Distinguish matching component instances that updated, stayed mounted and idle, unmounted, are absent, or were omitted by a limit. Start with react_clear_renders, drive one interaction, then query an exact display name. Each row includes key/position strength, mount generation, and React Offscreen visibility independently of lifecycle. Hidden does not establish the cause of freezing or whether effects remain subscribed.',
   group: 'react.render',
   input: z.object({
+    appOnly: appOnlySchema,
     component: z
       .string()
       .min(1)
@@ -753,6 +760,9 @@ export const reactComponentCohortContract = defineAgentToolContract({
     limit: z.number().int().min(1).max(200).default(50),
   }),
   output: z.object({
+    attribution: reportAttributionSchema,
+    documentCommitId: z.number().int().nonnegative(),
+    ownershipCoverage: ownershipCoverageSchema,
     observation: observationSchema.nullable(),
     query: z.object({ component: z.string(), exact: z.boolean() }),
     status: z.enum([
@@ -774,6 +784,9 @@ export const reactComponentCohortContract = defineAgentToolContract({
     instances: z.array(
       z.object({
         componentName: z.string(),
+        sourceOwnership: z.enum(['app', 'library', 'unknown']),
+        source: sourceSchema,
+        sourceProvenance: sourceProvenanceSchema,
         reactVisibility: z
           .enum(['hidden', 'not-hidden', 'unknown'])
           .describe(

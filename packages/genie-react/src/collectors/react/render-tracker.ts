@@ -848,7 +848,10 @@ export async function getRendersLeaderboards(limit: number): Promise<{
   return buildRendersLeaderboards(records, limit)
 }
 
-export async function getRendersLeaderboardsMeasurement(limit: number): Promise<{
+export async function getRendersLeaderboardsMeasurement(
+  limit: number,
+  selection: Pick<RenderQuery, 'component' | 'appOnly'> = {},
+): Promise<{
   commits: number
   tracking: boolean
   documentCommitId: number
@@ -861,9 +864,14 @@ export async function getRendersLeaderboardsMeasurement(limit: number): Promise<
   const epoch = captureReportEpoch()
   const tracking = isTracking()
   const coverage = getRenderTrackingCoverage('measurement')
-  const boards = await buildRendersLeaderboards(recordsAtStart, limit, {
-    isCurrent: () => reportStateMatches(epoch),
-  })
+  const boards = await buildRendersLeaderboards(
+    recordsAtStart,
+    limit,
+    {
+      isCurrent: () => reportStateMatches(epoch),
+    },
+    selection,
+  )
   return {
     commits: commitsAtStart,
     tracking,
@@ -879,7 +887,10 @@ export async function getRenderSummary(appOnly = true): Promise<RenderSummary> {
 }
 
 /** Store the current aggregates under `label` (overwriting a prior snapshot of the same label) so a later react_renders_diff can measure change against it. */
-export async function takeSnapshot(label: string): Promise<{
+export async function takeSnapshot(
+  label: string,
+  appOnly = true,
+): Promise<{
   label: string
   commits: number
   components: number
@@ -890,7 +901,7 @@ export async function takeSnapshot(label: string): Promise<{
   const clearsAtStart = clears
   const epoch = captureReportEpoch()
   const coverage = getRenderTrackingCoverage('measurement')
-  const components = await buildCurrentAggregates(recordsAtStart, true, {
+  const components = await buildCurrentAggregates(recordsAtStart, appOnly, {
     isCurrent: () => reportStateMatches(epoch),
   })
   if (!reportStateMatches(epoch)) {
@@ -898,17 +909,17 @@ export async function takeSnapshot(label: string): Promise<{
       'React analysis changed while the snapshot was resolving. Retry after commits, clears, or refreshes settle.',
     )
   }
-  return storeRenderSnapshot(label, commitsAtStart, clearsAtStart, components, coverage)
+  return storeRenderSnapshot(label, commitsAtStart, clearsAtStart, components, coverage, appOnly)
 }
 
 /** Compare a stored snapshot against the current live aggregates: total self-time change plus per-component regressions/improvements past a threshold, and components that appeared/vanished. */
-export async function rendersDiff(baseline: string, thresholdMs: number) {
+export async function rendersDiff(baseline: string, thresholdMs: number, appOnly = true) {
   const recordsAtStart = snapshotRenderRecords()
   const commitsAtStart = commits
   const clearsAtStart = clears
   const epoch = captureReportEpoch()
   const coverage = getRenderTrackingCoverage('measurement')
-  const after = await buildCurrentAggregates(recordsAtStart, true, {
+  const after = await buildCurrentAggregates(recordsAtStart, appOnly, {
     isCurrent: () => reportStateMatches(epoch),
   })
   if (!reportStateMatches(epoch)) {
@@ -916,7 +927,15 @@ export async function rendersDiff(baseline: string, thresholdMs: number) {
       'React analysis changed while the render diff was resolving. Retry after commits, clears, or refreshes settle.',
     )
   }
-  return diffRenderSnapshot(baseline, thresholdMs, commitsAtStart, clearsAtStart, after, coverage)
+  return diffRenderSnapshot(
+    baseline,
+    thresholdMs,
+    commitsAtStart,
+    clearsAtStart,
+    after,
+    coverage,
+    appOnly,
+  )
 }
 
 /** The commit walk reached this fiber and the budget declined it. It rendered, so the cohort must not read it as idle. */

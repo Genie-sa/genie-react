@@ -9,6 +9,14 @@ import {
   wasInstanceRenderUnanalyzed,
 } from './instance-identity'
 import { getActiveObservation, type ObservationWindow } from './observation'
+import { captureReportEpoch, reportAttribution, reportStateMatches } from './report-attribution'
+import {
+  classifyFibersWithinBudget,
+  type FiberClassification,
+  ownershipCoverage,
+  type SourceProvenance,
+  sourceProvenanceForSource,
+} from './source'
 
 export type CohortStatus =
   | 'not-started'
@@ -20,6 +28,9 @@ export type CohortStatus =
   | 'unknown'
 
 export interface CohortInstance {
+  sourceOwnership: FiberClassification['ownership']
+  source: FiberClassification['source']
+  sourceProvenance: SourceProvenance
   componentName: string
   reactVisibility: 'hidden' | 'not-hidden' | 'unknown'
   status: 'mounted-idle' | 'mounted-updated' | 'mounted-unknown' | 'unmounted'
@@ -29,6 +40,9 @@ export interface CohortInstance {
 }
 
 export interface RenderCohort {
+  attribution: ReturnType<typeof reportAttribution>
+  documentCommitId: number
+  ownershipCoverage: ReturnType<typeof ownershipCoverage>
   observation: ObservationWindow | null
   query: { component: string; exact: boolean }
   status: CohortStatus
@@ -78,13 +92,15 @@ export interface RenderCoverageGaps {
 
 const COHORT_SCAN_LIMIT = 20_000
 
-export function getRenderCohort(
+export async function getRenderCohort(
   fallbackRoot: Fiber | null,
-  query: { component: string; exact: boolean; limit: number },
+  query: { component: string; exact: boolean; limit: number; appOnly?: boolean },
   coverageGaps: RenderCoverageGaps,
-): RenderCohort {
+): Promise<RenderCohort> {
+  const epoch = captureReportEpoch()
   const observation = getActiveObservation()
   const mountedCandidates: Array<{
+    fiber: Fiber
     reactVisibility: CohortInstance['reactVisibility']
     componentName: string
     instance: InstanceDescriptor
@@ -148,6 +164,7 @@ export function getRenderCohort(
         if (!mountedFiberIds.has(instance.fiberId)) {
           mountedFiberIds.add(instance.fiberId)
           mountedCandidates.push({
+            fiber,
             reactVisibility: entry.reactVisibility,
             componentName,
             instance,
@@ -198,22 +215,25 @@ export function getRenderCohort(
     complete &&
     effectiveCoverageGaps.truncatedInputFibers === 0 &&
     effectiveCoverageGaps.propsNotEnumeratedFibers === 0
-  const mounted: CohortInstance[] = mountedCandidates.map((entry) => ({
+  const mountedUnclassified = mountedCandidates.map((entry) => ({
     reactVisibility: entry.reactVisibility,
     componentName: entry.componentName,
     status: entry.observed
-      ? 'mounted-updated'
+      ? ('mounted-updated' as const)
       : renderCoverageComplete && !entry.renderUnanalyzed
-        ? 'mounted-idle'
-        : 'mounted-unknown',
+        ? ('mounted-idle' as const)
+        : ('mounted-unknown' as const),
     instance: entry.instance,
   }))
-  const unmounted: CohortInstance[] = observation
+  const unmountedUnfiltered: CohortInstance[] = observation
     ? getInstanceTombstones()
         .filter((entry) => entry.observationId === observation.id)
         .filter((entry) => matches(entry.componentName, query.component, query.exact))
         .map((entry) => ({
           componentName: entry.componentName,
+          sourceOwnership: entry.ownership.ownership,
+          source: entry.ownership.source,
+          sourceProvenance: sourceProvenanceForSource(entry.ownership.source),
           status: 'unmounted' as const,
           reactVisibility: 'unknown' as const,
           instance: entry.instance,
@@ -222,6 +242,30 @@ export function getRenderCohort(
         }))
     : []
 
+  const { classes } = await classifyFibersWithinBudget(
+    mountedCandidates.map((entry) => entry.fiber),
+  )
+  const current = reportStateMatches(epoch)
+  const mountedUnfiltered: CohortInstance[] = mountedUnclassified.map((entry, index) => {
+    const classification = current
+      ? (classes[index] ?? { ownership: 'unknown' as const, source: null })
+      : { ownership: 'unknown' as const, source: null }
+    return {
+      ...entry,
+      sourceOwnership: classification.ownership,
+      source: classification.source,
+      sourceProvenance: sourceProvenanceForSource(classification.source),
+    }
+  })
+  const ownership = ownershipCoverage(
+    [...mountedUnfiltered, ...unmountedUnfiltered].map((entry) => entry.sourceOwnership),
+  )
+  const mounted = mountedUnfiltered.filter(
+    (entry) => !query.appOnly || entry.sourceOwnership === 'app',
+  )
+  const unmounted = unmountedUnfiltered.filter(
+    (entry) => !query.appOnly || entry.sourceOwnership === 'app',
+  )
   const all = [...mounted, ...unmounted]
   const mountedUpdated = mounted.filter((entry) => entry.status === 'mounted-updated').length
   const mountedIdle = mounted.filter((entry) => entry.status === 'mounted-idle').length
@@ -230,6 +274,9 @@ export function getRenderCohort(
   const instances = all.slice(0, query.limit)
 
   return {
+    attribution: reportAttribution(epoch),
+    documentCommitId: epoch.documentCommitId,
+    ownershipCoverage: ownership,
     observation,
     query: { component: query.component, exact: query.exact },
     status: cohortStatus({
@@ -238,7 +285,7 @@ export function getRenderCohort(
       mountedIdle,
       mountedUnknown,
       unmounted: unmounted.length,
-      renderCoverageComplete,
+      renderCoverageComplete: renderCoverageComplete && (!query.appOnly || ownership.complete),
     }),
     matched,
     mountedUpdated,
@@ -249,7 +296,7 @@ export function getRenderCohort(
     omittedByLimit: Math.max(0, matched - instances.length),
     instances,
     coverage: {
-      complete,
+      complete: complete && current && (!query.appOnly || ownership.complete),
       scannedFibers,
       scanLimit: COHORT_SCAN_LIMIT,
       scanTruncated,

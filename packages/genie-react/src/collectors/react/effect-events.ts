@@ -4,6 +4,7 @@ import {
   runInEffectContext,
   setEffectConsequenceListener,
 } from '../causal/effect-consequence'
+import { safeStructuredClone } from '../structured-clone'
 import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
 import { nameOf } from './fiber'
 import { type InstanceDescriptor, instanceForMountedFiber } from './instance-identity'
@@ -13,6 +14,7 @@ import {
   nextCausalEventId,
   type ObservationWindow,
 } from './observation'
+import { classifyFibersWithinBudget, ownershipCoverage } from './source'
 
 export type ScheduledEffectKind = 'effect' | 'layout' | 'insertion'
 
@@ -101,6 +103,7 @@ const EFFECT_EVENT_LIMIT = 1_000
 const DEPENDENCY_SCAN_LIMIT = 200
 const CHANGED_DEPENDENCY_LIMIT = 50
 const events: EffectScheduleEvent[] = []
+const eventFibers = new WeakMap<EffectScheduleEvent, Fiber>()
 let droppedEvents = 0
 const pendingResultingCommit = new Set<string>()
 
@@ -218,6 +221,7 @@ export function publishEffectSchedule(
       },
     ],
   }
+  eventFibers.set(event, prepared.fiber)
   events.push(event)
   if (events.length > EFFECT_EVENT_LIMIT) {
     events.shift()
@@ -450,4 +454,33 @@ export function changedDependencySlots(
     else omitted += 1
   }
   return { slots, omitted, unscanned: Math.max(0, length - scanned) }
+}
+
+export async function getEffectScheduleEventsWithOwnership(query: {
+  component?: string
+  afterDocumentCommitId?: number
+  limit: number
+  appOnly?: boolean
+}) {
+  const report = getEffectScheduleEvents({ ...query, limit: EFFECT_EVENT_LIMIT })
+  const fibers = report.events.map((event) => eventFibers.get(event))
+  const captured = safeStructuredClone(report)
+  const present = fibers.filter((fiber): fiber is Fiber => fiber !== undefined)
+  const { classes } = await classifyFibersWithinBudget(present)
+  let index = 0
+  const enriched = captured.events.map((event, eventIndex) => {
+    const source = fibers[eventIndex] ? classes[index++] : undefined
+    return {
+      ...event,
+      sourceOwnership: source?.ownership ?? ('unknown' as const),
+      source: source?.source ?? null,
+    }
+  })
+  const selected = enriched.filter((event) => !query.appOnly || event.sourceOwnership === 'app')
+  return {
+    ...captured,
+    events: selected.slice(0, query.limit),
+    omittedByLimit: Math.max(0, selected.length - query.limit),
+    ownershipCoverage: ownershipCoverage(enriched.map((event) => event.sourceOwnership)),
+  }
 }

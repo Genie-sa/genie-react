@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { defineAgentToolContract } from '../../protocol'
-import { sourceSchema } from './contract-schemas'
+import { appOnlySchema, ownershipCoverageSchema, sourceSchema } from './contract-schemas'
 import { observationSchema } from './render-contract'
 
 const effectOwnershipSchema = z.enum(['app', 'library', 'unknown'])
@@ -245,6 +245,7 @@ export const reactEffectAuditContract = defineAgentToolContract({
 })
 
 const effectEventsInputSchema = z.object({
+  appOnly: appOnlySchema,
   component: z.string().optional(),
   afterDocumentCommitId: z.number().int().nonnegative().optional(),
   limit: z.number().int().min(1).max(500).default(100),
@@ -261,6 +262,8 @@ const observedEffectRunSchema = z.object({
 })
 
 const effectEventSchema = z.object({
+  sourceOwnership: z.enum(['app', 'library', 'unknown']),
+  source: sourceSchema,
   effectEventId: z.string(),
   effectId: z.string(),
   observationId: z.string().nullable(),
@@ -340,6 +343,7 @@ const effectEventSchema = z.object({
 })
 
 const effectEventsOutputSchema = z.object({
+  ownershipCoverage: ownershipCoverageSchema,
   tracking: z.boolean(),
   documentCommitId: z.number().int().nonnegative(),
   observation: observationSchema.nullable(),
