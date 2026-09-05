@@ -31,3 +31,17 @@ export const wrapperFrameSchema = z.object({
   kind: z.enum(['memo', 'forward-ref', 'lazy', 'compiler-memo-cache', 'wrapper']),
   name: z.string(),
 })
+
+export const appOnlySchema = z
+  .boolean()
+  .default(false)
+  .describe(
+    'Include only proven app ownership when true; library and unknown ownership are excluded with coverage. False includes all ownership classes.',
+  )
+export const ownershipCoverageSchema = z.object({
+  complete: z.boolean(),
+  totalCandidates: z.number().int().nonnegative(),
+  app: z.number().int().nonnegative(),
+  library: z.number().int().nonnegative(),
+  unknown: z.number().int().nonnegative(),
+})

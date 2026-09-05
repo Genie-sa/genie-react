@@ -21,6 +21,7 @@ import { type hookEntrySchema, type hookKindSchema, MAX_HOOKS, type NodeId } fro
 import {
   classifyFibersWithinBudget,
   type FiberClassification,
+  ownershipCoverage,
   type ResolvedSource,
   type SourceProvenance,
   scheduleClassificationWarmup,
@@ -43,10 +44,12 @@ export interface TreeNode {
   kind: 'component' | 'host'
   source?: ResolvedSource | null
   isLibrary?: boolean
+  ownership?: FiberClassification['ownership']
   wrapperAncestry?: WrapperFrame[]
 }
 
 export interface TreeResult {
+  ownershipCoverage?: ReturnType<typeof ownershipCoverage>
   rootId: NodeId | null
   nodes: TreeNode[]
   total: number
@@ -417,6 +420,7 @@ export async function buildTree(
     return treeCache.result
   }
 
+  const candidateLimit = options.appOnly ? 5000 : options.maxNodes
   const entries: { node: TreeNode; fiber: Fiber }[] = []
   let total = 0
   let depthClipped = false
@@ -444,7 +448,7 @@ export async function buildTree(
       const keep = composite || (options.includeHost && isHostFiber(child))
       if (keep) {
         total += 1
-        if (entries.length >= options.maxNodes) {
+        if (entries.length >= candidateLimit) {
           nodeCapped = true
           countOnly(child)
         } else {
@@ -499,10 +503,13 @@ export async function buildTree(
   let nodes = entries.map((entry) => entry.node)
   let filteredNote: string | undefined
   let classificationPartial = false
+  let ownership: ReturnType<typeof ownershipCoverage> | undefined
 
   if (options.appOnly) {
     const folded = await foldLibrarySubtrees(entries)
-    nodes = folded.nodes
+    nodeCapped ||= folded.nodes.length > options.maxNodes
+    nodes = folded.nodes.slice(0, options.maxNodes)
+    ownership = folded.ownershipCoverage
     classificationPartial = folded.partial
     filteredNote = appOnlyFilteredNote(
       nodes.length,
@@ -511,14 +518,14 @@ export async function buildTree(
       folded.appOwnedShown,
     )
     if (folded.partial) {
-      const partialNote =
-        'source classification budget reached; some library components may be shown'
+      const partialNote = 'source ownership is incomplete; unknown components were excluded'
       filteredNote = filteredNote ? `${filteredNote}; ${partialNote}` : partialNote
     }
   }
 
   const truncatedBy = nodeCapped ? 'maxNodes' : depthClipped ? 'depth' : null
   const result: TreeResult = {
+    ...(ownership ? { ownershipCoverage: ownership } : {}),
     rootId: nodes[0]?.id ?? null,
     nodes,
     total,
@@ -609,44 +616,51 @@ export async function buildProvenanceReport(
   }
 }
 
-// Classifies each node, labels anonymous nodes by source (`cmdk.js:1998`), and folds each library subtree into its top node instead of a wall of "Anonymous"; hidden counts the folded-away library nodes.
-async function foldLibrarySubtrees(
-  entries: { node: TreeNode; fiber: Fiber }[],
-): Promise<{ nodes: TreeNode[]; hidden: number; partial: boolean; appOwnedShown: number }> {
+// Classify bounded candidates before the output cap and reconnect app nodes through hidden ancestors.
+async function foldLibrarySubtrees(entries: { node: TreeNode; fiber: Fiber }[]): Promise<{
+  nodes: TreeNode[]
+  hidden: number
+  partial: boolean
+  appOwnedShown: number
+  ownershipCoverage: ReturnType<typeof ownershipCoverage>
+}> {
   const { classes, partial } = await classifyTreeEntries(entries)
   if (partial) scheduleClassificationWarmup(entries.map((entry) => entry.fiber))
   entries.forEach((entry, index) => {
     const { source, isLibrary } = classes[index] ?? UNCLASSIFIED_FIBER
     entry.node.source = source
     entry.node.isLibrary = isLibrary
+    entry.node.ownership = classes[index]?.ownership ?? 'unknown'
     if (entry.node.name === 'Anonymous') {
       const label = sourceLabel(source)
       if (label) entry.node.name = label
     }
   })
 
-  // Drop a library node whose nearest kept parent is also library: subtrees collapse to their top node while app components composed under library providers are kept.
+  // Preserve hierarchy through excluded library and unknown ancestors.
   const nearestRetainedById = new Map<NodeId, NodeId | null>()
-  const retainedById = new Map<NodeId, TreeNode>()
   const nodes: TreeNode[] = []
   let appOwnedShown = 0
   for (const [index, { node }] of entries.entries()) {
     const retainedParentId =
       node.parentId === null ? null : (nearestRetainedById.get(node.parentId) ?? null)
-    const retainedParent =
-      retainedParentId === null ? undefined : retainedById.get(retainedParentId)
-    if (node.isLibrary && retainedParent?.isLibrary) {
+    if (node.ownership !== 'app') {
       nearestRetainedById.set(node.id, retainedParentId)
       continue
     }
     node.parentId = retainedParentId
     nodes.push(node)
-    retainedById.set(node.id, node)
     nearestRetainedById.set(node.id, node.id)
     const classification = classes[index] ?? UNCLASSIFIED_FIBER
     if (classification.ownership === 'app') appOwnedShown += 1
   }
-  return { nodes, hidden: entries.length - nodes.length, partial, appOwnedShown }
+  return {
+    nodes,
+    hidden: entries.length - nodes.length,
+    partial: partial || classes.some((entry) => entry.ownership === 'unknown'),
+    appOwnedShown,
+    ownershipCoverage: ownershipCoverage(classes.map((entry) => entry.ownership)),
+  }
 }
 
 async function classifyTreeEntries(

@@ -405,18 +405,25 @@ export async function buildRendersLeaderboards(
   records: Map<number, RenderRecord>,
   limit: number,
   guard?: ReportAttributionGuard,
+  selection: Pick<RenderQuery, 'component' | 'appOnly'> = {},
 ): Promise<{
+  sourceClassification: SourceClassificationCoverage
   slowest: RenderReport[]
   mostRerendered: RenderReport[]
   mostUnnecessary: RenderReport[]
   mostUnstable: RenderReport[]
 }> {
-  const { kept } = await selectRecords(records, { limit, sort: 'renders' }, guard)
+  const { kept, sourceClassification } = await selectRecords(
+    records,
+    { limit, sort: 'renders', ...selection },
+    guard,
+  )
   const top = (sort: RenderQuery['sort']): RenderReport[] =>
     sortReports(kept, sort)
       .slice(0, limit)
       .map((entry) => entry.report)
   return {
+    sourceClassification,
     slowest: top('selfTime'),
     mostRerendered: top('renders'),
     mostUnnecessary: top('unnecessary'),
@@ -485,11 +492,14 @@ function summarizeRecords(list: RenderRecord[], commits: number): RenderSummary 
   }
 }
 
-export async function buildCurrentAggregates(
+export async function buildCurrentAggregateMeasurement(
   records: Map<number, RenderRecord>,
   appOnly = false,
   guard?: ReportAttributionGuard,
-): Promise<ComponentAggregate[]> {
+): Promise<{
+  components: ComponentAggregate[]
+  sourceClassification: SourceClassificationCoverage
+}> {
   const list = [...records.values()]
   const resolvedEvidence = await recordSourceEvidence(list)
   const evidence =
@@ -529,7 +539,22 @@ export async function buildCurrentAggregates(
       unstableRenders: record.unstableRenders,
     })
   })
-  return [...aggregates.values()]
+  const sourceClassification = {
+    complete: true,
+    totalCandidates: list.length,
+    evaluated: 0,
+    app: 0,
+    library: 0,
+    unknown: 0,
+  }
+  for (const entry of evidence) {
+    if (entry.evaluated) sourceClassification.evaluated += 1
+    if (entry.appOwned) sourceClassification.app += 1
+    else if (entry.libraryOnly) sourceClassification.library += 1
+    else sourceClassification.unknown += 1
+  }
+  sourceClassification.complete = sourceClassification.unknown === 0
+  return { components: [...aggregates.values()], sourceClassification }
 }
 
 const componentDefinitionIds = new WeakMap<object, number>()
@@ -547,4 +572,10 @@ function componentDefinitionKey(record: RenderRecord): string {
     return `definition:${id}`
   }
   return `fiber:${record.id}`
+}
+
+export async function buildCurrentAggregates(
+  ...args: Parameters<typeof buildCurrentAggregateMeasurement>
+) {
+  return (await buildCurrentAggregateMeasurement(...args)).components
 }

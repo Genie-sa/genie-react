@@ -111,7 +111,7 @@ describe('excluded commit traversal baselines', () => {
     ])
   })
 
-  it('does not publish an unmount tombstone while profiling is paused', () => {
+  it('does not publish an unmount tombstone while profiling is paused', async () => {
     const root = rootWithComponent('PausedUnmount')
     const child = root.current.child
     expect(child).not.toBeNull()
@@ -163,7 +163,7 @@ describe('excluded commit traversal baselines', () => {
     expect(() => harness.options?.onCommitFiberRoot?.(1, root)).not.toThrow()
     expect(getAnalysisFailedFiberCount()).toBe(1)
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root.current,
         { component: 'MissedByTraversal', exact: true, limit: 10 },
         getRenderTrackingCoverage('measurement'),
@@ -198,7 +198,7 @@ describe('excluded commit traversal baselines', () => {
 
     expect(getAnalysisFailedFiberCount()).toBe(1)
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root.current,
         { component: 'RecoveredAfterClear', exact: true, limit: 10 },
         getRenderTrackingCoverage('measurement'),
@@ -212,7 +212,7 @@ describe('excluded commit traversal baselines', () => {
     ])
   })
 
-  it('keeps absence unknown until a budget-deferred unmount is published', () => {
+  it('keeps absence unknown until a budget-deferred unmount is published', async () => {
     clearRenders({
       budget: {
         fiberLimit: 50,
@@ -245,7 +245,7 @@ describe('excluded commit traversal baselines', () => {
       harness.options?.onCommitFiberRoot?.(1, root)
       expect(getPendingUnmountFiberCount()).toBe(1)
       expect(
-        getRenderCohort(
+        await getRenderCohort(
           root.current,
           { component: 'Gone', exact: true, limit: 10 },
           {
@@ -259,7 +259,7 @@ describe('excluded commit traversal baselines', () => {
       harness.options?.onCommitFiberRoot?.(1, root)
       expect(getPendingUnmountFiberCount()).toBe(0)
       expect(
-        getRenderCohort(
+        await getRenderCohort(
           root.current,
           { component: 'Gone', exact: true, limit: 10 },
           {
@@ -269,7 +269,7 @@ describe('excluded commit traversal baselines', () => {
         ),
       ).toMatchObject({ status: 'unmounted', matched: 1, unmounted: 1 })
       expect(
-        getRenderCohort(
+        await getRenderCohort(
           root.current,
           { component: 'Missing', exact: true, limit: 10 },
           {
@@ -283,7 +283,7 @@ describe('excluded commit traversal baselines', () => {
     }
   })
 
-  it('does not let another renderer consume the pending-unmount budget', () => {
+  it('does not let another renderer consume the pending-unmount budget', async () => {
     clearRenders({
       budget: {
         fiberLimit: 50,
@@ -307,7 +307,7 @@ describe('excluded commit traversal baselines', () => {
     expect(getInstanceTombstones().map(({ componentName }) => componentName)).toEqual(['GoneNow'])
   })
 
-  it('retains a lifecycle coverage gap when tracking is disposed with a pending unmount', () => {
+  it('retains a lifecycle coverage gap when tracking is disposed with a pending unmount', async () => {
     const root = rootWithComponent('Sentinel')
     const gone = rootWithComponent('GoneDuringDispose').current.child
     expect(gone).not.toBeNull()
@@ -320,7 +320,7 @@ describe('excluded commit traversal baselines', () => {
 
     expect(getPendingUnmountFiberCount()).toBe(0)
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root.current,
         { component: 'GoneDuringDispose', exact: true, limit: 10 },
         {
@@ -338,7 +338,7 @@ describe('excluded commit traversal baselines', () => {
     })
   })
 
-  it('preserves prior pending-unmount eviction coverage when tracking is disposed', () => {
+  it('preserves prior pending-unmount eviction coverage when tracking is disposed', async () => {
     clearRenders({ lifecycle: { bufferLimit: 100, targetReserve: 0 } })
     const root = rootWithComponent('Sentinel')
     const evicted = rootWithComponent('EvictedDuringDispose').current.child
@@ -362,14 +362,14 @@ describe('excluded commit traversal baselines', () => {
     expect(getDroppedPendingUnmountFiberCount()).toBe(1)
   })
 
-  it('marks a refresh commit incomplete even before any instance identity was materialized', () => {
+  it('marks a refresh commit incomplete even before any instance identity was materialized', async () => {
     const root = rootWithComponent('RefreshedBeforeIdentity')
     harness.refresh = true
     harness.options?.onCommitFiberRoot?.(1, root)
     harness.refresh = false
 
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root.current,
         { component: 'RefreshedBeforeIdentity', exact: true, limit: 10 },
         {
@@ -388,14 +388,14 @@ describe('excluded commit traversal baselines', () => {
     })
   })
 
-  it('does not report an update that occurred while profiling was paused as idle', () => {
+  it('does not report an update that occurred while profiling was paused as idle', async () => {
     const root = rootWithComponent('UpdatedWhilePaused')
     stopRenderTracking()
     harness.options?.onCommitFiberRoot?.(1, root)
 
     expect(getAnalysisFailedFiberCount()).toBe(1)
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root.current,
         { component: 'UpdatedWhilePaused', exact: true, limit: 10 },
         {
@@ -409,14 +409,14 @@ describe('excluded commit traversal baselines', () => {
     ).toMatchObject({ status: 'unknown', mountedIdle: 0, mountedUnknown: 1 })
   })
 
-  it('fails closed for roots whose supported renderer is unsafe for deep analysis', () => {
+  it('fails closed for roots whose supported renderer is unsafe for deep analysis', async () => {
     const root = rootWithComponent('UnsafeRendererRow')
     harness.safe = false
     harness.options?.onCommitFiberRoot?.(1, root)
 
     expect(getAnalysisFailedFiberCount()).toBe(1)
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root.current,
         { component: 'UnsafeRendererRow', exact: true, limit: 10 },
         {

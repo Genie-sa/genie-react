@@ -31,7 +31,7 @@ import {
   reactResetOverridesContract,
   reactToggleSuspenseFallbackContract,
 } from './contracts'
-import { getEffectScheduleEvents } from './effect-events'
+import { getEffectScheduleEventsWithOwnership } from './effect-events'
 import { getEffectAuditReport, getEffectTrackingCoverage } from './effect-tracker'
 import { getErrorState } from './error-tracker'
 import {
@@ -93,7 +93,7 @@ import {
   stopRenderTracking,
   takeSnapshot,
 } from './render-tracker'
-import { classifyFiber, classifyFibersWithinBudget } from './source'
+import { classifyFibersWithinBudget, ownershipCoverage } from './source'
 
 function currentEffectCoverage() {
   const renderCoverage = getRenderTrackingCoverage('measurement')
@@ -176,12 +176,21 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactFindComponentsContract,
-        handler: async ({ query, exact, limit }) => {
+        handler: async ({ component, query, exact, limit, appOnly }) => {
           const root = findRootFiber()
-          if (!root) return { matches: [] }
-          const found = findByName(root, query, exact, limit)
+          if (!root)
+            return {
+              matches: [],
+              ownershipCoverage: ownershipCoverage([]),
+              omittedByLimit: 0,
+              scanTruncated: false,
+            }
+          const found = findByName(root, component ?? query ?? '', exact, 5001)
+          const scanTruncated = found.length > 5000
+          found.length = Math.min(found.length, 5000)
           const { classes } = await classifyFibersWithinBudget(found.map(({ fiber }) => fiber))
-          const matches = found.map(({ id, name, path, fiber }, index) => {
+          const matches = found.flatMap(({ id, name, path, fiber }, index) => {
+            if (appOnly && classes[index]?.ownership !== 'app') return []
             const { kind, props } = matchDetail(fiber, 1)
             const { source, isLibrary } = classes[index] ?? {
               source: null,
@@ -189,7 +198,12 @@ export function reactCollector(): GenieCollector {
             }
             return { id, name, path, kind, props, source, isLibrary }
           })
-          return { matches }
+          return {
+            matches: matches.slice(0, limit),
+            ownershipCoverage: ownershipCoverage(classes.map((entry) => entry.ownership)),
+            omittedByLimit: Math.max(0, matches.length - limit),
+            scanTruncated,
+          }
         },
       }),
       defineCollectorTool({
@@ -291,7 +305,7 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactComponentForDomContract,
-        handler: async ({ selector, limit, propsDepth }) => {
+        handler: async ({ selector, limit, propsDepth, appOnly }) => {
           if (!hasDomLookupRuntime()) throw new Error('No DOM in this environment.')
           let elements: Element[]
           try {
@@ -300,23 +314,39 @@ export function reactCollector(): GenieCollector {
             throw new Error(`Invalid CSS selector: ${JSON.stringify(selector)}`)
           }
           const seen = new Set<number>()
-          const components = []
-          for (const element of elements.slice(0, limit)) {
+          const owners = []
+          for (const element of elements.slice(0, 5000)) {
             const owner = owningComponentFor(element, propsDepth)
             if (!owner || seen.has(owner.id)) continue
             seen.add(owner.id)
-            const { source, isLibrary } = await classifyFiber(owner.fiber)
-            components.push({
-              id: owner.id as number,
-              name: owner.name,
-              kind: owner.kind,
-              tag: element.tagName.toLowerCase(),
-              props: owner.props,
-              source,
-              isLibrary,
-            })
+            owners.push({ owner, tag: element.tagName.toLowerCase() })
           }
-          return { selector, matched: elements.length, components }
+          const { classes } = await classifyFibersWithinBudget(
+            owners.map((entry) => entry.owner.fiber),
+          )
+          const selected = owners.flatMap(({ owner, tag }, index) => {
+            const classification = classes[index]
+            if (appOnly && classification?.ownership !== 'app') return []
+            return [
+              {
+                id: owner.id as number,
+                name: owner.name,
+                kind: owner.kind,
+                tag,
+                props: owner.props,
+                source: classification?.source ?? null,
+                isLibrary: classification?.isLibrary ?? false,
+              },
+            ]
+          })
+          return {
+            selector,
+            matched: elements.length,
+            components: selected.slice(0, limit),
+            omittedByLimit: Math.max(0, selected.length - limit),
+            scanTruncated: elements.length > 5000,
+            ownershipCoverage: ownershipCoverage(classes.map((entry) => entry.ownership)),
+          }
         },
       }),
       defineCollectorTool({
@@ -471,10 +501,10 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactComponentCohortContract,
-        handler: ({ component, exact, limit }) =>
+        handler: ({ component, exact, limit, appOnly }) =>
           getRenderCohort(
             findRootFiber(),
-            { component, exact, limit },
+            { component, exact, limit, appOnly },
             {
               skippedCommitFibers: getSkippedCommitFiberCount(),
               droppedUnmountFibers: getDroppedPendingUnmountFiberCount(),
@@ -563,48 +593,51 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactEffectEventsContract,
-        handler: ({ component, afterDocumentCommitId, limit }) => {
+        handler: async ({ component, afterDocumentCommitId, limit, appOnly }) => {
           const tracking = isTracking()
           const documentCommitId = getDocumentCommitId()
           const coverage = currentEffectCoverage()
           return {
             tracking,
             documentCommitId,
-            ...getEffectScheduleEvents({
+            ...(await getEffectScheduleEventsWithOwnership({
+              appOnly,
               component,
               afterDocumentCommitId,
               limit,
-            }),
+            })),
             coverage,
           }
         },
       }),
       defineCollectorTool({
         contract: reactEffectTimelineContract,
-        handler: ({ component, afterDocumentCommitId, limit }) => {
+        handler: async ({ component, afterDocumentCommitId, limit, appOnly }) => {
           const tracking = isTracking()
           const documentCommitId = getDocumentCommitId()
           const coverage = currentEffectCoverage()
           return {
             tracking,
             documentCommitId,
-            ...getEffectScheduleEvents({
+            ...(await getEffectScheduleEventsWithOwnership({
+              appOnly,
               component,
               afterDocumentCommitId,
               limit,
-            }),
+            })),
             coverage,
           }
         },
       }),
       defineCollectorTool({
         contract: reactErrorStateContract,
-        handler: ({ includeSource, limit }) => getErrorState({ includeSource, limit }),
+        handler: ({ includeSource, limit, appOnly }) =>
+          getErrorState({ includeSource, limit, appOnly }),
       }),
       defineCollectorTool({
         contract: reactRefreshEventsContract,
-        handler: ({ afterSequence, limit, includeSource }) =>
-          getRefreshEvents({ afterSequence, limit, includeSource }),
+        handler: ({ afterSequence, limit, includeSource, appOnly }) =>
+          getRefreshEvents({ afterSequence, limit, includeSource, appOnly }),
       }),
       defineCollectorTool({
         contract: reactClearRendersContract,
@@ -649,19 +682,20 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactProfileSnapshotContract,
-        handler: async ({ label }) => {
-          const result = await takeSnapshot(label)
+        handler: async ({ label, appOnly }) => {
+          const result = await takeSnapshot(label, appOnly)
           return { ok: true as const, ...result }
         },
       }),
       defineCollectorTool({
         contract: reactRendersDiffContract,
-        handler: ({ baseline, thresholdMs }) => rendersDiff(baseline, thresholdMs),
+        handler: ({ baseline, thresholdMs, appOnly }) =>
+          rendersDiff(baseline, thresholdMs, appOnly),
       }),
       defineCollectorTool({
         contract: reactProfileReportContract,
-        handler: async ({ limit }) => {
-          const measurement = await getRendersLeaderboardsMeasurement(limit)
+        handler: async ({ limit, component, appOnly }) => {
+          const measurement = await getRendersLeaderboardsMeasurement(limit, { component, appOnly })
           const { boards } = measurement
           const bySelfTime = boards.slowest
           const byRenders = boards.mostRerendered

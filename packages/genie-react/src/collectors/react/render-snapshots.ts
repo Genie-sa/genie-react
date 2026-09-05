@@ -1,5 +1,6 @@
 import type { ToolOutput } from '../../protocol'
 import type { reactRendersDiffContract } from './contracts'
+import type { SourceClassificationCoverage } from './render-reports'
 
 export interface ComponentAggregate {
   definitionKey: string
@@ -17,6 +18,7 @@ export interface ComponentAggregate {
 }
 
 export interface RenderTrackingCoverage {
+  sourceClassification?: SourceClassificationCoverage
   complete: boolean
   inputAttributionComplete: boolean
   semantics: 'exact' | 'lower-bound'
@@ -104,6 +106,7 @@ export function renderEvidenceComparability(
 }
 
 interface Snapshot {
+  appOnly: boolean
   commits: number
   clears: number
   components: ComponentAggregate[]
@@ -141,8 +144,9 @@ export function storeRenderSnapshot(
   clears: number,
   components: ComponentAggregate[],
   coverage: RenderTrackingCoverage,
+  appOnly = true,
 ): { label: string; commits: number; components: number; coverage: RenderTrackingCoverage } {
-  snapshots.set(label, { commits, clears, components, coverage })
+  snapshots.set(label, { commits, clears, components, coverage, appOnly })
   return { label, commits, components: components.length, coverage }
 }
 
@@ -155,6 +159,7 @@ export function diffRenderSnapshot(
   clears: number,
   after: ComponentAggregate[],
   coverage: RenderTrackingCoverage,
+  appOnly = true,
 ): RendersDiff {
   const snapshot = snapshots.get(baseline)
   if (!snapshot) {
@@ -162,6 +167,12 @@ export function diffRenderSnapshot(
       snapshots.size === 0
         ? `No snapshot named "${baseline}" — take one with react_profile_snapshot first (no snapshots stored yet).`
         : `No snapshot named "${baseline}". Stored labels: ${snapshotLabels().join(', ')}.`,
+    )
+  }
+
+  if (snapshot.appOnly !== appOnly) {
+    throw new Error(
+      'appOnly must match the baseline snapshot; use the same appOnly value or capture a new baseline.',
     )
   }
 
@@ -231,4 +242,21 @@ export function diffRenderSnapshot(
 
 export function clearSnapshots(): void {
   snapshots.clear()
+}
+
+export function withSourceCoverage(
+  coverage: RenderTrackingCoverage,
+  sourceClassification: SourceClassificationCoverage,
+  appOnly: boolean,
+): RenderTrackingCoverage {
+  if (appOnly && !sourceClassification.complete) {
+    return {
+      ...coverage,
+      sourceClassification,
+      complete: false,
+      inputAttributionComplete: false,
+      semantics: 'lower-bound',
+    }
+  }
+  return { ...coverage, sourceClassification }
 }

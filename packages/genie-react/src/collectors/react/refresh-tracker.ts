@@ -7,7 +7,13 @@ import {
   type RefreshCapableRenderer,
   type ScheduleRefresh,
 } from './react-refresh'
-import { classifyFibersWithinBudget, clearSourceCache, type ResolvedSource } from './source'
+import {
+  classifyFibersWithinBudget,
+  clearSourceCache,
+  ownershipCoverage,
+  type ResolvedSource,
+  type SourceOwnership,
+} from './source'
 
 const EVENT_LIMIT = 50
 const FIBER_LIMIT_PER_KIND = 100
@@ -36,6 +42,7 @@ interface RefreshEventCounts {
 }
 
 export interface RefreshFiberReport {
+  sourceOwnership: SourceOwnership
   id: NodeId
   name: string
   source: ResolvedSource | null
@@ -56,6 +63,7 @@ export interface RefreshEventReport {
 }
 
 export interface RefreshEventsReport {
+  ownershipCoverage: ReturnType<typeof ownershipCoverage>
   events: RefreshEventReport[]
   latestSequence: number
   droppedEvents: number
@@ -274,6 +282,7 @@ export function clearRefreshEvents(): void {
 }
 
 export async function getRefreshEvents(query: {
+  appOnly?: boolean
   afterSequence?: number
   limit: number
   includeSource: boolean
@@ -282,35 +291,53 @@ export async function getRefreshEvents(query: {
     .filter((event) => event.sequence > (query.afterSequence ?? 0))
     .slice(-query.limit)
   const fibers = selected.flatMap((event) => [...event.updatedFibers, ...event.remountedFibers])
-  const classified = query.includeSource
-    ? await classifyFibersWithinBudget(fibers, {
-        limit: SOURCE_CLASSIFY_LIMIT,
-        budgetMs: SOURCE_CLASSIFY_BUDGET_MS,
-      })
-    : {
-        classes: fibers.map(() => ({ source: null, isLibrary: false })),
-        partial: false,
-      }
+  const classified =
+    query.includeSource || query.appOnly
+      ? await classifyFibersWithinBudget(fibers, {
+          limit: SOURCE_CLASSIFY_LIMIT,
+          budgetMs: SOURCE_CLASSIFY_BUDGET_MS,
+        })
+      : {
+          classes: fibers.map(() => ({
+            source: null,
+            isLibrary: false,
+            ownership: 'unknown' as const,
+          })),
+          partial: false,
+        }
   let offset = 0
   const reports = selected.map((event): RefreshEventReport => {
     const toReports = (eventFibers: ReactRefreshUpdate['updatedFibers']) =>
       eventFibers.map((fiber): RefreshFiberReport => {
-        const classification = classified.classes[offset++] ?? { source: null, isLibrary: false }
+        const classification = classified.classes[offset++] ?? {
+          source: null,
+          isLibrary: false,
+          ownership: 'unknown' as const,
+        }
         return {
           id: registerFiber(fiber),
           name: nameOf(fiber),
-          source: classification.source,
+          source: query.includeSource ? classification.source : null,
+          sourceOwnership: classification.ownership,
           isLibrary: classification.isLibrary,
         }
       })
-    const preservedState = toReports(event.updatedFibers)
-    const remounted = toReports(event.remountedFibers)
+    const preservedState = toReports(event.updatedFibers).filter(
+      (entry) => !query.appOnly || entry.sourceOwnership === 'app',
+    )
+    const remounted = toReports(event.remountedFibers).filter(
+      (entry) => !query.appOnly || entry.sourceOwnership === 'app',
+    )
     return {
       sequence: event.sequence,
       timestamp: event.timestamp,
       filePaths: event.filePaths,
-      updatedComponents: event.updatedComponents,
-      remountedComponents: event.remountedComponents,
+      updatedComponents: query.appOnly
+        ? [...new Set(preservedState.map((entry) => entry.name))]
+        : event.updatedComponents,
+      remountedComponents: query.appOnly
+        ? [...new Set(remounted.map((entry) => entry.name))]
+        : event.remountedComponents,
       preservedState,
       remounted,
       counts: event.counts,
@@ -327,5 +354,6 @@ export async function getRefreshEvents(query: {
     latestSequence: sequence,
     droppedEvents,
     partialSources: classified.partial,
+    ownershipCoverage: ownershipCoverage(classified.classes.map((entry) => entry.ownership)),
   }
 }

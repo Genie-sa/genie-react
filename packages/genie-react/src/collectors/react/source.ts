@@ -98,7 +98,6 @@ export interface ExternalStoreSourceResolution {
 const cache = new Map<number, ResolvedSource>()
 const pendingSource = new Map<number, Promise<ResolvedSource | null>>()
 let cacheGeneration = 0
-const ANCESTOR_HOPS = 20
 const OWNED_DEFINITION_SCAN_LIMIT = 200
 const DEFAULT_CLASSIFY_LIMIT = 120
 const DEFAULT_CLASSIFY_BUDGET_MS = 500
@@ -132,7 +131,7 @@ export async function resolveSource(fiber: Fiber): Promise<ResolvedSource | null
   lookup = (async () => {
     try {
       const target = getLatestFiber(fiber) ?? fiber
-      const source = await safeFiberSource(target)
+      const source = (await safeFiberSource(target)) ?? (await safeOwnedDefinitionSource(target))
       if (generation !== cacheGeneration) return null
       if (!source?.fileName) return null
       let resolved = await resolveCapturedSource(source, generation)
@@ -358,18 +357,11 @@ function classificationForSource(source: ResolvedSource | null): FiberClassifica
   return { source, ownership, isLibrary: ownership === 'library' }
 }
 
-/** Resolve affirmative app/library evidence, climbing to the nearest ancestor; unresolved ownership stays unknown. */
+/** Ownership requires source evidence associated with this fiber; an ancestor's source cannot establish it. */
 export async function classifyFiber(fiber: Fiber): Promise<FiberClassification> {
   const generation = cacheGeneration
-  let current: Fiber | null = fiber
-  for (let hops = 0; current && hops < ANCESTOR_HOPS; hops++) {
-    if (generation !== cacheGeneration) return UNCLASSIFIED_FIBER
-    const source = await resolveSource(current)
-    if (generation !== cacheGeneration) return UNCLASSIFIED_FIBER
-    if (source) return classificationForSource(source)
-    current = current.return
-  }
-  return UNCLASSIFIED_FIBER
+  const source = await resolveSource(fiber)
+  return generation === cacheGeneration ? classificationForSource(source) : UNCLASSIFIED_FIBER
 }
 
 export async function classifyFiberBeforeDeadline(
@@ -389,8 +381,8 @@ export async function classifyFiberBeforeDeadline(
   }
 }
 
-/** Cache-only classification: exact when the fiber itself resolved before, null when unknown (never guesses via ancestors, which classifyFiber resolves differently). */
-function classifyFiberFromCache(fiber: Fiber): FiberClassification | null {
+/** Cache-only classification from source previously resolved for this fiber; null when unknown. */
+export function classifyFiberFromCache(fiber: Fiber): FiberClassification | null {
   const cached = cache.get(getFiberId(fiber))
   return cached ? classificationForSource(cached) : null
 }
@@ -951,4 +943,10 @@ export async function resolveExternalStoreSourceResolutionBeforeDeadline(
   } finally {
     if (timer) clearTimeout(timer)
   }
+}
+
+export function ownershipCoverage(ownership: readonly SourceOwnership[]) {
+  const counts = { app: 0, library: 0, unknown: 0 }
+  for (const value of ownership) counts[value] += 1
+  return { complete: counts.unknown === 0, totalCandidates: ownership.length, ...counts }
 }

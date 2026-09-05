@@ -88,7 +88,7 @@ function startObservation(): void {
 }
 
 describe('render lifecycle cohorts', () => {
-  it('identifies the registered suspended primary without freezing fallbacks, siblings, or namesakes', () => {
+  it('identifies the registered suspended primary without freezing fallbacks, siblings, or namesakes', async () => {
     registerReactFreeze(Freeze)
     const root = component('Root')
     const boundary = component('Freeze')
@@ -116,8 +116,9 @@ describe('render lifecycle cohorts', () => {
       analysisFailedFibers: 0,
       truncatedInputFibers: 0,
     }
-    const read = () => getRenderCohort(root, { component: 'Row', exact: true, limit: 10 }, gaps)
-    const report = read()
+    const read = async () =>
+      await getRenderCohort(root, { component: 'Row', exact: true, limit: 10 }, gaps)
+    const report = await read()
     expect(report.instances.map((row) => row.renderingState)).toEqual([
       'mounted-frozen',
       'mounted-rendering',
@@ -128,18 +129,18 @@ describe('render lifecycle cohorts', () => {
     // A requested freeze has not taken effect until Suspense commits the suspension.
     suspense.memoizedState = null
     primary.memoizedState = null
-    expect(read().instances[0]).toMatchObject({
+    expect((await read()).instances[0]).toMatchObject({
       renderingState: 'mounted-rendering',
       instance: { mountId },
     })
     Object.assign(suspense, { memoizedState: {} })
     Object.assign(primary, { memoizedState: {} })
     boundary.memoizedProps = { freeze: false }
-    expect(read().instances[0]?.renderingState).toBe('mounted-hidden')
+    expect((await read()).instances[0]?.renderingState).toBe('mounted-hidden')
     boundary.memoizedProps = { freeze: true }
     noteInstanceRender(retained, 'unmount', 1, 1)
     attach(primary, [])
-    expect(read().instances).toContainEqual(
+    expect((await read()).instances).toContainEqual(
       expect.objectContaining({
         renderingState: 'unmounted',
         instance: expect.objectContaining({ mountId }),
@@ -147,7 +148,7 @@ describe('render lifecycle cohorts', () => {
     )
   })
 
-  it('reads freeze evidence from the current root after an alternate swap', () => {
+  it('reads freeze evidence from the current root after an alternate swap', async () => {
     registerReactFreeze(Freeze)
     const row = component('Row')
     const active = component('Root')
@@ -165,7 +166,7 @@ describe('render lifecycle cohorts', () => {
     frozen.alternate = active
     owner.current = frozen
     startObservation()
-    const report = getRenderCohort(
+    const report = await getRenderCohort(
       null,
       { component: 'Row', exact: true, limit: 10 },
       {
@@ -179,7 +180,7 @@ describe('render lifecycle cohorts', () => {
     expect(report.instances[0]?.renderingState).toBe('mounted-frozen')
   })
 
-  it('keeps hidden React ancestry separate from inactivity, sibling visibility, and unmounts', () => {
+  it('keeps hidden React ancestry separate from inactivity, sibling visibility, and unmounts', async () => {
     const root = component('Root')
     const hiddenBoundary = asFiber({ tag: defaultWorkTags.OffscreenComponent, memoizedState: {} })
     const nestedVisible = asFiber({ tag: defaultWorkTags.OffscreenComponent, memoizedState: null })
@@ -190,8 +191,8 @@ describe('render lifecycle cohorts', () => {
     attach(root, [hiddenBoundary, sibling])
     commit(root)
     startObservation()
-    const read = () =>
-      getRenderCohort(
+    const read = async () =>
+      await getRenderCohort(
         root,
         { component: 'Row', exact: true, limit: 10 },
         {
@@ -201,23 +202,23 @@ describe('render lifecycle cohorts', () => {
           truncatedInputFibers: 0,
         },
       )
-    const hiddenReport = read()
+    const hiddenReport = await read()
     expect(hiddenReport.instances).toEqual([
       expect.objectContaining({ status: 'mounted-idle', reactVisibility: 'hidden' }),
       expect.objectContaining({ status: 'mounted-idle', reactVisibility: 'not-hidden' }),
     ])
     const mountId = hiddenReport.instances[0]?.instance.mountId
     hiddenBoundary.memoizedState = null
-    expect(read().instances[0]).toMatchObject({
+    expect((await read()).instances[0]).toMatchObject({
       reactVisibility: 'not-hidden',
       instance: { mountId },
     })
     Reflect.deleteProperty(hiddenBoundary, 'memoizedState')
-    expect(read().instances[0]?.reactVisibility).toBe('unknown')
+    expect((await read()).instances[0]?.reactVisibility).toBe('unknown')
     hiddenBoundary.memoizedState = null
     noteInstanceRender(hidden, 'unmount', 1, 1)
     attach(nestedVisible, [])
-    expect(read().instances).toContainEqual(
+    expect((await read()).instances).toContainEqual(
       expect.objectContaining({
         status: 'unmounted',
         reactVisibility: 'unknown',
@@ -226,7 +227,7 @@ describe('render lifecycle cohorts', () => {
     )
   })
 
-  it('distinguishes mounted-idle, updated, unmounted, and absent', () => {
+  it('distinguishes mounted-idle, updated, unmounted, and absent', async () => {
     const root = component('Root')
     const idle = component('Row', 'idle')
     const updated = component('Row', 'updated')
@@ -236,7 +237,7 @@ describe('render lifecycle cohorts', () => {
     noteInstanceRender(updated, 'update', 1, 1)
 
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root,
         { component: 'Row', exact: true, limit: 10 },
         {
@@ -258,7 +259,7 @@ describe('render lifecycle cohorts', () => {
     noteInstanceRender(idle, 'unmount', 2, 2)
     attach(root, [updated])
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root,
         { component: 'Row', exact: true, limit: 10 },
         {
@@ -277,7 +278,7 @@ describe('render lifecycle cohorts', () => {
     })
 
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root,
         { component: 'Missing', exact: true, limit: 10 },
         {
@@ -290,13 +291,13 @@ describe('render lifecycle cohorts', () => {
     ).toMatchObject({ status: 'absent', matched: 0, coverage: { complete: true } })
   })
 
-  it('keeps lifecycle coverage complete when only prop attribution is opaque', () => {
+  it('keeps lifecycle coverage complete when only prop attribution is opaque', async () => {
     const root = component('Root')
     attach(root, [component('Row')])
     commit(root)
     startObservation()
 
-    const report = getRenderCohort(
+    const report = await getRenderCohort(
       root,
       { component: 'Row', exact: true, limit: 10 },
       {
@@ -316,7 +317,7 @@ describe('render lifecycle cohorts', () => {
     })
   })
 
-  it('discloses result and commit-analysis omissions', () => {
+  it('discloses result and commit-analysis omissions', async () => {
     const root = component('Root')
     const rows = [component('Row', 'a'), component('Row', 'b'), component('Row', 'c')]
     attach(root, rows)
@@ -324,7 +325,7 @@ describe('render lifecycle cohorts', () => {
     startObservation()
 
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root,
         { component: 'Row', exact: true, limit: 1 },
         {
@@ -344,27 +345,29 @@ describe('render lifecycle cohorts', () => {
       coverage: { complete: false, skippedCommitFibers: 4, droppedUnmountFibers: 2 },
     })
     expect(
-      getRenderCohort(
-        root,
-        { component: 'Missing', exact: true, limit: 1 },
-        {
-          skippedCommitFibers: 4,
-          droppedUnmountFibers: 2,
-          analysisFailedFibers: 0,
-          truncatedInputFibers: 0,
-        },
+      (
+        await getRenderCohort(
+          root,
+          { component: 'Missing', exact: true, limit: 1 },
+          {
+            skippedCommitFibers: 4,
+            droppedUnmountFibers: 2,
+            analysisFailedFibers: 0,
+            truncatedInputFibers: 0,
+          },
+        )
       ).status,
     ).toBe('unknown')
   })
 
-  it('still answers idle for instances the commit walk reached when other fibers were skipped', () => {
+  it('still answers idle for instances the commit walk reached when other fibers were skipped', async () => {
     const root = component('Root')
     attach(root, [component('Row')])
     commit(root)
     startObservation()
 
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root,
         { component: 'Row', exact: true, limit: 10 },
         {
@@ -384,7 +387,7 @@ describe('render lifecycle cohorts', () => {
     })
   })
 
-  it('withholds lifecycle verdicts only while deferred unmounts remain pending', () => {
+  it('withholds lifecycle verdicts only while deferred unmounts remain pending', async () => {
     const root = component('Root')
     attach(root, [component('Row')])
     commit(root)
@@ -399,21 +402,21 @@ describe('render lifecycle cohorts', () => {
       pendingUnmountFibers: 1,
     }
 
-    expect(getRenderCohort(root, { component: 'Row', exact: true, limit: 10 }, gaps)).toMatchObject(
-      {
-        status: 'unknown',
-        mountedIdle: 0,
-        mountedUnknown: 1,
-        coverage: { complete: false },
-      },
-    )
     expect(
-      getRenderCohort(root, { component: 'Missing', exact: true, limit: 10 }, gaps).status,
+      await getRenderCohort(root, { component: 'Row', exact: true, limit: 10 }, gaps),
+    ).toMatchObject({
+      status: 'unknown',
+      mountedIdle: 0,
+      mountedUnknown: 1,
+      coverage: { complete: false },
+    })
+    expect(
+      (await getRenderCohort(root, { component: 'Missing', exact: true, limit: 10 }, gaps)).status,
     ).toBe('unknown')
 
     const processed = { ...gaps, pendingUnmountFibers: 0 }
     expect(
-      getRenderCohort(root, { component: 'Row', exact: true, limit: 10 }, processed),
+      await getRenderCohort(root, { component: 'Row', exact: true, limit: 10 }, processed),
     ).toMatchObject({
       status: 'mounted-idle',
       mountedIdle: 1,
@@ -421,11 +424,12 @@ describe('render lifecycle cohorts', () => {
       coverage: { complete: false },
     })
     expect(
-      getRenderCohort(root, { component: 'Missing', exact: true, limit: 10 }, processed).status,
+      (await getRenderCohort(root, { component: 'Missing', exact: true, limit: 10 }, processed))
+        .status,
     ).toBe('absent')
   })
 
-  it('withholds a verdict only from the instances whose own render went unanalyzed', () => {
+  it('withholds a verdict only from the instances whose own render went unanalyzed', async () => {
     const root = component('Root')
     const reached = component('Row', 'reached')
     const declined = component('Row', 'declined')
@@ -435,7 +439,7 @@ describe('render lifecycle cohorts', () => {
     noteUnanalyzedInstanceRender(declined)
 
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root,
         { component: 'Row', exact: true, limit: 10 },
         {
@@ -453,7 +457,7 @@ describe('render lifecycle cohorts', () => {
     })
   })
 
-  it('fails closed when bounded skipped-render identity detail overflows', () => {
+  it('fails closed when bounded skipped-render identity detail overflows', async () => {
     const root = component('Root')
     const row = component('Row')
     attach(root, [row])
@@ -469,13 +473,13 @@ describe('render lifecycle cohorts', () => {
       truncatedInputFibers: 0,
     }
 
-    expect(getRenderCohort(root, { component: 'Row', exact: true, limit: 10 }, gaps)).toMatchObject(
-      { status: 'mounted-idle', mountedIdle: 1, mountedUnknown: 0 },
-    )
+    expect(
+      await getRenderCohort(root, { component: 'Row', exact: true, limit: 10 }, gaps),
+    ).toMatchObject({ status: 'mounted-idle', mountedIdle: 1, mountedUnknown: 0 })
 
     noteUnanalyzedInstanceRender(component('Skipped1000'))
     const overflowedGaps = { ...gaps, skippedCommitFibers: 1_001 }
-    const overflowed = getRenderCohort(
+    const overflowed = await getRenderCohort(
       root,
       { component: 'Row', exact: true, limit: 10 },
       overflowedGaps,
@@ -488,17 +492,22 @@ describe('render lifecycle cohorts', () => {
     })
     expect(overflowed.coverage).not.toHaveProperty('unanalyzedRenderIdentityComplete')
     expect(
-      getRenderCohort(root, { component: 'Missing', exact: true, limit: 10 }, overflowedGaps)
-        .status,
+      (
+        await getRenderCohort(
+          root,
+          { component: 'Missing', exact: true, limit: 10 },
+          overflowedGaps,
+        )
+      ).status,
     ).toBe('unknown')
 
     noteInstanceRender(row, 'update', 1, 1)
     expect(
-      getRenderCohort(root, { component: 'Row', exact: true, limit: 10 }, overflowedGaps),
+      await getRenderCohort(root, { component: 'Row', exact: true, limit: 10 }, overflowedGaps),
     ).toMatchObject({ status: 'updated', mountedUpdated: 1, mountedUnknown: 0 })
   })
 
-  it('prefers an observed render over a later commit that skipped the same instance', () => {
+  it('prefers an observed render over a later commit that skipped the same instance', async () => {
     const root = component('Root')
     const row = component('Row')
     attach(root, [row])
@@ -508,7 +517,7 @@ describe('render lifecycle cohorts', () => {
     noteUnanalyzedInstanceRender(row)
 
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root,
         { component: 'Row', exact: true, limit: 10 },
         {
@@ -521,7 +530,7 @@ describe('render lifecycle cohorts', () => {
     ).toMatchObject({ status: 'updated', mountedUpdated: 1, mountedUnknown: 0 })
   })
 
-  it('keeps a recorded render answered even when an unrelated gap breaks coverage', () => {
+  it('keeps a recorded render answered even when an unrelated gap breaks coverage', async () => {
     const root = component('Root')
     const row = component('Row')
     attach(root, [row])
@@ -530,7 +539,7 @@ describe('render lifecycle cohorts', () => {
     noteInstanceRender(row, 'update', 1, 1)
 
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root,
         { component: 'Row', exact: true, limit: 10 },
         {
@@ -548,7 +557,7 @@ describe('render lifecycle cohorts', () => {
     })
   })
 
-  it('withholds every verdict when a gap could have hidden a render outright', () => {
+  it('withholds every verdict when a gap could have hidden a render outright', async () => {
     const root = component('Root')
     attach(root, [component('Row')])
     commit(root)
@@ -562,34 +571,40 @@ describe('render lifecycle cohorts', () => {
 
     for (const gap of ['droppedUnmountFibers', 'analysisFailedFibers'] as const) {
       expect(
-        getRenderCohort(root, { component: 'Row', exact: true, limit: 10 }, { ...gaps, [gap]: 1 }),
+        await getRenderCohort(
+          root,
+          { component: 'Row', exact: true, limit: 10 },
+          { ...gaps, [gap]: 1 },
+        ),
       ).toMatchObject({ status: 'unknown', mountedIdle: 0, mountedUnknown: 1 })
     }
   })
 
-  it('reports that measurement has not started instead of inventing an empty window', () => {
+  it('reports that measurement has not started instead of inventing an empty window', async () => {
     const root = component('Root')
     attach(root, [component('Row')])
     commit(root)
     expect(
-      getRenderCohort(
-        root,
-        { component: 'Row', exact: true, limit: 10 },
-        {
-          skippedCommitFibers: 0,
-          droppedUnmountFibers: 0,
-          analysisFailedFibers: 0,
-          truncatedInputFibers: 0,
-        },
+      (
+        await getRenderCohort(
+          root,
+          { component: 'Row', exact: true, limit: 10 },
+          {
+            skippedCommitFibers: 0,
+            droppedUnmountFibers: 0,
+            analysisFailedFibers: 0,
+            truncatedInputFibers: 0,
+          },
+        )
       ).status,
     ).toBe('not-started')
   })
 
-  it('does not claim absence when the React root is unavailable', () => {
+  it('does not claim absence when the React root is unavailable', async () => {
     startObservation()
 
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         null,
         { component: 'Missing', exact: true, limit: 10 },
         {
@@ -605,7 +620,7 @@ describe('render lifecycle cohorts', () => {
     })
   })
 
-  it('scans every committed root and reports the document root scope', () => {
+  it('scans every committed root and reports the document root scope', async () => {
     const firstRoot = component('FirstRoot')
     const idle = component('Row', 'first')
     attach(firstRoot, [idle])
@@ -618,7 +633,7 @@ describe('render lifecycle cohorts', () => {
     noteInstanceRender(updated, 'update', 1, 1)
 
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         firstRoot,
         { component: 'Row', exact: true, limit: 10 },
         {
@@ -646,7 +661,7 @@ describe('render lifecycle cohorts', () => {
     })
   })
 
-  it('includes a selected app root that the commit registry has not seen', () => {
+  it('includes a selected app root that the commit registry has not seen', async () => {
     const overlayRoot = component('OverlayRoot')
     attach(overlayRoot, [component('DevOverlay')])
     const appRoot = component('AppRoot')
@@ -655,7 +670,7 @@ describe('render lifecycle cohorts', () => {
     startObservation()
 
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         appRoot,
         { component: 'Row', exact: true, limit: 10 },
         {
@@ -679,7 +694,7 @@ describe('render lifecycle cohorts', () => {
     })
   })
 
-  it('deduplicates the same live root registered by more than one owner', () => {
+  it('deduplicates the same live root registered by more than one owner', async () => {
     const root = component('Root')
     attach(root, [component('Row')])
     commit(root)
@@ -687,7 +702,7 @@ describe('render lifecycle cohorts', () => {
     startObservation()
 
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root,
         { component: 'Row', exact: true, limit: 10 },
         {
@@ -709,13 +724,13 @@ describe('render lifecycle cohorts', () => {
     })
   })
 
-  it('marks a DOM fallback root as an incomplete root scope', () => {
+  it('marks a DOM fallback root as an incomplete root scope', async () => {
     const root = component('Root')
     attach(root, [component('Row')])
     startObservation()
 
     expect(
-      getRenderCohort(
+      await getRenderCohort(
         root,
         { component: 'Row', exact: true, limit: 10 },
         {
@@ -741,7 +756,7 @@ describe('render lifecycle cohorts', () => {
     })
   })
 
-  it('does not claim completeness when the committed-root scope is capped', () => {
+  it('does not claim completeness when the committed-root scope is capped', async () => {
     let firstRoot: Fiber | null = null
     for (let index = 0; index < 101; index += 1) {
       const root = component(`Root${index}`)
@@ -751,7 +766,7 @@ describe('render lifecycle cohorts', () => {
     }
     startObservation()
 
-    const report = getRenderCohort(
+    const report = await getRenderCohort(
       firstRoot,
       { component: 'Missing', exact: true, limit: 10 },
       {
@@ -778,14 +793,14 @@ describe('render lifecycle cohorts', () => {
     })
   })
 
-  it('shares one fiber scan budget across all roots', () => {
+  it('shares one fiber scan budget across all roots', async () => {
     const firstRoot = hostChain(12_000)
     const secondRoot = hostChain(12_000)
     commit(firstRoot)
     commit(secondRoot)
     startObservation()
 
-    const report = getRenderCohort(
+    const report = await getRenderCohort(
       firstRoot,
       { component: 'Missing', exact: true, limit: 10 },
       {

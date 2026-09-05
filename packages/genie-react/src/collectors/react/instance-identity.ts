@@ -1,6 +1,7 @@
 import { type Fiber, isCompositeFiber, isHostFiber, type RenderPhase } from 'bippy'
 import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
 import { domForFiber, nameOf, registerFiber } from './fiber'
+import { classifyFiberFromCache, type FiberClassification } from './source'
 
 export type LogicalIdentityEvidence = 'keyed' | 'positional' | 'unknown'
 export type MountGenerationEvidence = 'exact' | 'inferred' | 'unknown'
@@ -29,6 +30,7 @@ export interface InstanceDescriptor {
 }
 
 export interface InstanceTombstone {
+  ownership: FiberClassification
   componentName: string
   observationId: string
   profileCommitId: number
@@ -98,6 +100,11 @@ export function prepareInstanceRender(
     const prepared = prepareInstanceDescription(fiber, false, true, budget)
     const observationId = activeObservationId
     const componentName = nameOf(fiber)
+    const ownership = classifyFiberFromCache(fiber) ?? {
+      source: null,
+      ownership: 'unknown' as const,
+      isLibrary: false,
+    }
     let published = false
     return {
       instance: prepared.instance,
@@ -110,6 +117,7 @@ export function prepareInstanceRender(
         forgetUnanalyzedInstance(fiber, prepared.instance.fiberId)
         if (!observationId) return
         tombstones.push({
+          ownership,
           componentName,
           observationId,
           profileCommitId,

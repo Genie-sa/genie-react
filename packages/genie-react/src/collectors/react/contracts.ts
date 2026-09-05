@@ -1,6 +1,12 @@
 import { z } from 'zod'
 import { defineAgentToolContract } from '../../protocol'
-import { sourceProvenanceSchema, sourceSchema, wrapperFrameSchema } from './contract-schemas'
+import {
+  appOnlySchema,
+  ownershipCoverageSchema,
+  sourceProvenanceSchema,
+  sourceSchema,
+  wrapperFrameSchema,
+} from './contract-schemas'
 import {
   observationSchema,
   renderCoverageSchema,
@@ -38,6 +44,7 @@ const treeNodeSchema = z.object({
   kind: z.enum(['component', 'host']),
   source: sourceSchema.optional(),
   isLibrary: z.boolean().optional(),
+  ownership: z.enum(['app', 'library', 'unknown']).optional(),
   wrapperAncestry: z.array(wrapperFrameSchema).max(9).optional(),
 })
 
@@ -59,14 +66,10 @@ export const reactGetTreeContract = defineAgentToolContract({
       .default(false)
       .describe('Include host (DOM) elements, not just components.'),
     maxNodes: z.number().int().min(1).max(2000).default(400),
-    appOnly: z
-      .boolean()
-      .default(true)
-      .describe(
-        'Fold each library subtree (node_modules, incl. Vite pre-bundled deps) into a single node and label anonymous nodes by file:line. On by default like the other react reads; pass false for the raw structural view.',
-      ),
+    appOnly: appOnlySchema.default(true),
   }),
   output: z.object({
+    ownershipCoverage: ownershipCoverageSchema.optional(),
     rootId: z.number().nullable(),
     nodes: z.array(treeNodeSchema),
     total: z
@@ -139,12 +142,35 @@ export const reactFindComponentsContract = defineAgentToolContract({
   description:
     'Find mounted components by display name (substring match, or exact). Each match carries its id, ancestor path, kind, a shallow (depth-1) props preview, source file:line, and whether it is a library component — enough to pick the right one and often to act without a follow-up react_inspect_component call. Deepen a nested prop with react_inspect_component + `path`.',
   group: 'react.tree',
-  input: z.object({
-    query: z.string().min(1),
-    exact: z.boolean().default(false),
-    limit: z.number().int().min(1).max(200).default(50),
-  }),
+  input: z
+    .object({
+      component: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('Canonical component display-name selector.'),
+      query: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('Deprecated alias for component. Provide component or query; both must agree.'),
+      exact: z.boolean().default(false),
+      limit: z.number().int().min(1).max(200).default(50),
+      appOnly: appOnlySchema,
+    })
+    .refine(
+      (input) => Boolean(input.component || input.query),
+      'Provide component (or legacy query).',
+    )
+    .refine(
+      (input) => !input.component || !input.query || input.component === input.query,
+      'component and legacy query must match when both are provided.',
+    )
+    .meta({ examples: [{ component: 'App' }] }),
   output: z.object({
+    ownershipCoverage: ownershipCoverageSchema,
+    omittedByLimit: z.number().int().nonnegative(),
+    scanTruncated: z.boolean(),
     matches: z.array(
       z.object({
         id: z.number(),
@@ -276,13 +302,25 @@ export const reactComponentForDomContract = defineAgentToolContract({
     'Map a CSS selector (e.g. an element a browser tool found) to the React component(s) rendering it — the reverse of react_dom_for_component, turning "this button is wrong" into "edit this component". Each match reports the owning component id (feed it to react_inspect_component / overrides), name, kind, shallow props, and source file:line. Elements outside this React tree are skipped; duplicate owners are collapsed.',
   group: 'react.inspect',
   input: z.object({
+    appOnly: appOnlySchema,
     selector: z
       .string()
       .describe('CSS selector; each matched element resolves to its owning component.'),
-    limit: z.number().int().min(1).max(20).default(5).describe('Max matched elements to resolve.'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(20)
+      .default(5)
+      .describe(
+        'Max unique owning components after ownership filtering; scans at most 5000 DOM matches.',
+      ),
     propsDepth: z.number().int().min(0).max(4).default(1),
   }),
   output: z.object({
+    ownershipCoverage: ownershipCoverageSchema,
+    omittedByLimit: z.number().int().nonnegative(),
+    scanTruncated: z.boolean(),
     selector: z.string(),
     matched: z.number().describe('Total DOM elements the selector matched (before limit).'),
     components: z.array(
@@ -370,7 +408,8 @@ export const reactOverrideHookStateContract = defineAgentToolContract({
     })
     .refine((input) => (input.hookIndex === undefined) !== (input.stateIndex === undefined), {
       message: 'Provide exactly one of hookIndex or stateIndex.',
-    }),
+    })
+    .meta({ examples: [{ id: 1, stateIndex: 0, value: null }] }),
   output: z.object({
     ok: z.boolean(),
     name: z.string(),
@@ -506,6 +545,7 @@ export const reactErrorStateContract = defineAgentToolContract({
     'Report error boundaries that have caught an error (with the boundary + throwing component, the message/stack, and their source file:line) and Suspense boundaries currently showing a fallback. Answers "why is the page blank or stuck?" — a render/tree snapshot cannot show a caught error or a suspended subtree. Recorded at commit time, so call it after the blank/stuck state appears. Boundaries you are holding open with react_force_error_boundary / react_toggle_suspense_fallback are included and flagged `forced:true` (release them with react_reset_overrides); real errors/suspends are `forced:false`.',
   group: 'react.render',
   input: z.object({
+    appOnly: appOnlySchema,
     includeSource: z
       .boolean()
       .default(true)
@@ -513,6 +553,8 @@ export const reactErrorStateContract = defineAgentToolContract({
     limit: z.number().int().min(1).max(100).default(20),
   }),
   output: z.object({
+    scanTruncated: z.boolean(),
+    ownershipCoverage: ownershipCoverageSchema,
     caughtErrors: z.array(
       z.object({
         boundaryId: z.number(),
@@ -563,6 +605,7 @@ export const reactRefreshEventsContract = defineAgentToolContract({
     'Report recent React Fast Refresh/HMR updates: changed files, components that preserved state, components that remounted and lost state, and their live fiber ids/source locations. Genie excludes the associated refresh commits from render profiling and clears stale source caches automatically. filePaths is best-effort and can be empty when the bundler does not expose its HMR transport (notably Turbopack). Use afterSequence to poll incrementally.',
   group: 'react.render',
   input: z.object({
+    appOnly: appOnlySchema,
     afterSequence: z
       .number()
       .int()
@@ -576,6 +619,7 @@ export const reactRefreshEventsContract = defineAgentToolContract({
       .describe('Resolve file:line for affected mounted fibers.'),
   }),
   output: z.object({
+    ownershipCoverage: ownershipCoverageSchema,
     events: z.array(
       z.object({
         sequence: z.number().int(),
@@ -661,6 +705,7 @@ export const reactProfileSnapshotContract = defineAgentToolContract({
     'Capture current app-component render aggregates under a label as the before baseline for react_renders_diff. The snapshot includes coverage; do not use an incomplete baseline to prove a change. Reusing a label overwrites it.',
   group: 'react.profile',
   input: z.object({
+    appOnly: appOnlySchema.default(true),
     label: z
       .string()
       .default('baseline')
@@ -687,6 +732,7 @@ export const reactRendersDiffContract = defineAgentToolContract({
     'Compare a stored profile snapshot with current app-component aggregates by component name plus source when resolved. Reports cumulative window self-time and the largest regressions, improvements, additions, and removals. Check coverage for both sides. If counters were cleared, compare only equivalent interactions; removed then means not observed in the current window.',
   group: 'react.profile',
   input: z.object({
+    appOnly: appOnlySchema.default(true),
     baseline: z
       .string()
       .default('baseline')
@@ -738,7 +784,11 @@ export const reactProfileReportContract = defineAgentToolContract({
   description:
     'Timing fields are bundle-dependent; counts describe the observed run, not a production estimate. Summarize peak render cost, render counts, and no-observed-input updates when causal attribution is complete. Check coverage.inputAttributionComplete before using causal leaderboards. The report never calls a render safe to remove.',
   group: 'react.profile',
-  input: z.object({ limit: z.number().int().min(1).max(100).default(20) }),
+  input: z.object({
+    component: z.string().optional(),
+    appOnly: appOnlySchema,
+    limit: z.number().int().min(1).max(100).default(20),
+  }),
   output: z.object({
     ...renderMeasurementEnvironmentSchema.shape,
     commits: z.number(),

@@ -606,6 +606,81 @@ async function main() {
         'render page',
         await runCli(['call', 'react_get_renders', JSON.stringify(args), '--json']),
       )
+    const callReact = async (tool, args) =>
+      parseSuccessfulJson(tool, await runCli(['call', tool, JSON.stringify(args), '--json']))
+    const found = await callReact('react_find_components', {
+      component: 'OwnershipRow',
+      exact: true,
+      appOnly: true,
+      limit: 1,
+    })
+    assert(
+      found.matches.length === 1 &&
+        found.omittedByLimit === 240 &&
+        found.ownershipCoverage.app === 241,
+      `${stage}: canonical find selection lost app rows before limit`,
+    )
+    const legacy = await callReact('react_find_components', {
+      query: 'OwnershipRow',
+      exact: true,
+      limit: 1,
+    })
+    assert(legacy.matches[0].id === found.matches[0].id, `${stage}: legacy selector diverged`)
+    const cohort = await callReact('react_component_cohort', {
+      component: 'OwnershipRow',
+      appOnly: true,
+      limit: 1,
+    })
+    assert(
+      cohort.matched === 241 &&
+        cohort.instances[0].sourceOwnership === 'app' &&
+        cohort.ownershipCoverage.complete,
+      `${stage}: cohort app ownership incomplete`,
+    )
+    const owners = await callReact('react_component_for_dom', {
+      selector: '#row-0',
+      appOnly: true,
+      limit: 1,
+    })
+    assert(
+      owners.components[0]?.name === 'OwnershipRow' && owners.ownershipCoverage.app === 1,
+      `${stage}: DOM ownership filter lost the app row`,
+    )
+    const profile = await callReact('react_profile_report', {
+      component: 'OwnershipRow',
+      appOnly: true,
+      limit: 1,
+    })
+    assert(
+      profile.mostRerendered[0]?.name === 'OwnershipRow' &&
+        profile.coverage.sourceClassification.app === 241,
+      `${stage}: profile ownership filtering failed`,
+    )
+    await callReact('react_profile_snapshot', { label: 'selector-baseline', appOnly: false })
+    await callReact('react_renders_diff', { baseline: 'selector-baseline', appOnly: false })
+    for (const tool of [
+      'react_effect_events',
+      'react_effect_timeline',
+      'react_error_state',
+      'react_refresh_events',
+    ]) {
+      const report = await callReact(tool, { appOnly: true })
+      assert(
+        report.ownershipCoverage !== undefined,
+        `${stage}: ${tool} omitted ownership disclosure`,
+      )
+    }
+    const detail = await runCli(['tools', 'react_find_components'])
+    assert(
+      detail.code === 0 &&
+        detail.stdout.includes('component') &&
+        detail.stdout.includes('appOnly') &&
+        detail.stdout.includes('200'),
+      `${stage}: selector catalog omitted arguments or bounds`,
+    )
+    process.stdout.write(
+      `${stage}: canonical/legacy selectors, cohort, DOM, profile, and diagnostic ownership filters passed live.\n`,
+    )
     const selection = {
       nameFilter: 'OwnershipR?w',
       excludeNames: ['*Internal*'],

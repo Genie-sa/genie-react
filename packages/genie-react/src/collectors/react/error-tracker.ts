@@ -1,7 +1,12 @@
 import { _fiberRoots, type Fiber, getFiberId, getLatestFiber, traverseFiber } from 'bippy'
 import { nameOf } from './fiber'
 import { forcedErrorBoundaries, forcedSuspenseBoundaries } from './overrides'
-import { classifyFiber, type ResolvedSource } from './source'
+import {
+  classifyFiber,
+  ownershipCoverage,
+  type ResolvedSource,
+  type SourceOwnership,
+} from './source'
 import { isSuspenseFiber } from './work-tags'
 
 // React's DidCapture flag is set on a boundary only during the catch commit, then cleared — transient, like fallback state, so both are recorded at commit time rather than scanned on demand.
@@ -120,6 +125,7 @@ export function parseBoundaryError(args: unknown[]): ErrorLog | null {
 }
 
 export interface CaughtError {
+  sourceOwnership: SourceOwnership
   boundaryId: number
   boundaryName: string
   boundarySource: ResolvedSource | null
@@ -133,6 +139,7 @@ export interface CaughtError {
 }
 
 export interface SuspendedBoundary {
+  sourceOwnership: SourceOwnership
   boundaryId: number
   boundaryName: string
   source: ResolvedSource | null
@@ -144,21 +151,24 @@ export interface SuspendedBoundary {
 const FORCED_ERROR_MESSAGE = 'forced via react_force_error_boundary (no real error thrown)'
 
 export interface ErrorState {
+  ownershipCoverage: ReturnType<typeof ownershipCoverage>
+  scanTruncated: boolean
   caughtErrors: CaughtError[]
   suspended: SuspendedBoundary[]
   blankTreeHint: string | null
 }
 
 export async function getErrorState(query: {
+  appOnly?: boolean
   includeSource?: boolean
   limit?: number
 }): Promise<ErrorState> {
   const includeSource = query.includeSource ?? true
   const limit = query.limit ?? 20
   const classify = (fiber: Fiber) =>
-    includeSource
+    includeSource || query.appOnly
       ? classifyFiber(fiber)
-      : Promise.resolve({ source: null, isLibrary: false } as const)
+      : Promise.resolve({ source: null, isLibrary: false, ownership: 'unknown' } as const)
 
   // Evict recorded boundaries that have unmounted since (no commit fires); skipped when no roots are registered so a rootless context keeps its state.
   if (_fiberRoots.size > 0) {
@@ -190,15 +200,16 @@ export async function getErrorState(query: {
     forced: true,
   }))
 
-  const caughtErrors: CaughtError[] = await Promise.all(
+  const caughtCandidates: CaughtError[] = await Promise.all(
     [...organicCaught, ...forcedCaught]
-      .slice(0, limit)
+      .slice(0, query.appOnly ? 1000 : limit)
       .map(async ({ fiber, boundaryId, boundaryName, log, forced }) => {
-        const { source, isLibrary } = await classify(fiber)
+        const { source, isLibrary, ownership } = await classify(fiber)
         return {
           boundaryId,
           boundaryName,
-          boundarySource: source,
+          boundarySource: includeSource ? source : null,
+          sourceOwnership: ownership,
           throwingComponent: log?.throwingComponent ?? null,
           message: log?.message ?? (forced ? FORCED_ERROR_MESSAGE : null),
           stack: log?.stack ?? null,
@@ -210,7 +221,7 @@ export async function getErrorState(query: {
 
   const suspendedIds = new Set(suspended.keys())
   const forcedSuspended = dedupeByBoundaryId(forcedSuspenseBoundaries(), suspendedIds)
-  const suspendedList: SuspendedBoundary[] = await Promise.all(
+  const suspendedCandidates: SuspendedBoundary[] = await Promise.all(
     [
       ...[...suspended.values()].map((entry) => ({
         fiber: entry.fiber,
@@ -219,17 +230,34 @@ export async function getErrorState(query: {
       })),
       ...forcedSuspended.map((entry) => ({ ...entry, forced: true })),
     ]
-      .slice(0, limit)
-      .map(async ({ fiber, boundaryId, forced }) => ({
-        boundaryId,
-        boundaryName: nameOf(fiber),
-        source: (await classify(fiber)).source,
-        isFallbackShowing: true,
-        forced,
-      })),
+      .slice(0, query.appOnly ? 1000 : limit)
+      .map(async ({ fiber, boundaryId, forced }) => {
+        const classification = await classify(fiber)
+        return {
+          boundaryId,
+          boundaryName: nameOf(fiber),
+          source: includeSource ? classification.source : null,
+          sourceOwnership: classification.ownership,
+          isFallbackShowing: true,
+          forced,
+        }
+      }),
   )
 
-  return { caughtErrors, suspended: suspendedList, blankTreeHint: hintFrom(caughtErrors) }
+  const all = [...caughtCandidates, ...suspendedCandidates]
+  const kept = (entry: { sourceOwnership: SourceOwnership }) =>
+    !query.appOnly || entry.sourceOwnership === 'app'
+  const caughtErrors = caughtCandidates.filter(kept).slice(0, limit)
+  const suspendedList = suspendedCandidates.filter(kept).slice(0, limit)
+  return {
+    caughtErrors,
+    suspended: suspendedList,
+    blankTreeHint: hintFrom(caughtErrors),
+    ownershipCoverage: ownershipCoverage(all.map((entry) => entry.sourceOwnership)),
+    scanTruncated:
+      caught.size + forcedCaught.length > caughtCandidates.length ||
+      suspended.size + forcedSuspended.length > suspendedCandidates.length,
+  }
 }
 
 // Forced boundaries are appended after organic ones, so a real thrown error always wins the hint; a forced-only state gets its own reset guidance.
