@@ -262,7 +262,7 @@ export function describeElementStyles(
   index: Map<string, RuleEntry[]>,
 ): ElementStyleInfo {
   const classes = Array.from(el.classList)
-  const sources = parseStyleSources(el.getAttribute('data-style-src'))
+  const sources = parseStyleSources(el.getAttribute?.('data-style-src') ?? null)
   const markers = styleMarkerClasses(classes, sources.length > 0)
   const view = el.ownerDocument.defaultView
   const computed = view ? view.getComputedStyle(el) : null

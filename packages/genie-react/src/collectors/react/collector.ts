@@ -352,7 +352,7 @@ export function reactCollector(): GenieCollector {
             owners.push({
               owner,
               tag: element.tagName.toLowerCase(),
-              styleSources: parseStyleSources(element.getAttribute('data-style-src')),
+              styleSources: parseStyleSources(element.getAttribute?.('data-style-src') ?? null),
             })
           }
           const { classes } = await classifyFibersWithinBudget(
