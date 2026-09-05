@@ -1,6 +1,8 @@
 import type { Fiber, FiberRoot } from 'bippy'
+import { Freeze } from 'react-freeze'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { forgetCommittedRoots, noteCommittedRoot } from './fiber'
+import { registerReactFreeze } from './freeze-identity'
 import {
   beginInstanceObservation,
   clearInstanceIdentityForTests,
@@ -86,6 +88,97 @@ function startObservation(): void {
 }
 
 describe('render lifecycle cohorts', () => {
+  it('identifies the registered suspended primary without freezing fallbacks, siblings, or namesakes', () => {
+    registerReactFreeze(Freeze)
+    const root = component('Root')
+    const boundary = component('Freeze')
+    boundary.type = Freeze
+    boundary.memoizedProps = { freeze: true }
+    const suspense = asFiber({ tag: defaultWorkTags.SuspenseComponent, memoizedState: {} })
+    const primary = asFiber({ tag: defaultWorkTags.OffscreenComponent, memoizedState: {} })
+    const retained = component('Row', 'retained')
+    const fallback = component('Row', 'fallback')
+    const sibling = component('Row', 'sibling')
+    const impostor = component('Freeze')
+    impostor.memoizedProps = { freeze: true }
+    const hidden = asFiber({ tag: defaultWorkTags.OffscreenComponent, memoizedState: {} })
+    attach(hidden, [component('Row', 'unrelated')])
+    attach(impostor, [hidden])
+    attach(primary, [retained])
+    attach(suspense, [primary, fallback])
+    attach(boundary, [suspense])
+    attach(root, [boundary, sibling, impostor])
+    commit(root)
+    startObservation()
+    const gaps = {
+      skippedCommitFibers: 0,
+      droppedUnmountFibers: 0,
+      analysisFailedFibers: 0,
+      truncatedInputFibers: 0,
+    }
+    const read = () => getRenderCohort(root, { component: 'Row', exact: true, limit: 10 }, gaps)
+    const report = read()
+    expect(report.instances.map((row) => row.renderingState)).toEqual([
+      'mounted-frozen',
+      'mounted-rendering',
+      'mounted-rendering',
+      'mounted-hidden',
+    ])
+    const mountId = report.instances[0]?.instance.mountId
+    // A requested freeze has not taken effect until Suspense commits the suspension.
+    suspense.memoizedState = null
+    primary.memoizedState = null
+    expect(read().instances[0]).toMatchObject({
+      renderingState: 'mounted-rendering',
+      instance: { mountId },
+    })
+    Object.assign(suspense, { memoizedState: {} })
+    Object.assign(primary, { memoizedState: {} })
+    boundary.memoizedProps = { freeze: false }
+    expect(read().instances[0]?.renderingState).toBe('mounted-hidden')
+    boundary.memoizedProps = { freeze: true }
+    noteInstanceRender(retained, 'unmount', 1, 1)
+    attach(primary, [])
+    expect(read().instances).toContainEqual(
+      expect.objectContaining({
+        renderingState: 'unmounted',
+        instance: expect.objectContaining({ mountId }),
+      }),
+    )
+  })
+
+  it('reads freeze evidence from the current root after an alternate swap', () => {
+    registerReactFreeze(Freeze)
+    const row = component('Row')
+    const active = component('Root')
+    attach(active, [row])
+    const owner = commit(active)
+    const frozen = component('Freeze')
+    frozen.type = Freeze
+    frozen.memoizedProps = { freeze: true }
+    const suspense = asFiber({ tag: defaultWorkTags.SuspenseComponent, memoizedState: {} })
+    const primary = asFiber({ tag: defaultWorkTags.OffscreenComponent, memoizedState: {} })
+    attach(primary, [row])
+    attach(suspense, [primary])
+    attach(frozen, [suspense])
+    active.alternate = frozen
+    frozen.alternate = active
+    owner.current = frozen
+    startObservation()
+    const report = getRenderCohort(
+      null,
+      { component: 'Row', exact: true, limit: 10 },
+      {
+        skippedCommitFibers: 0,
+        droppedUnmountFibers: 0,
+        analysisFailedFibers: 0,
+        truncatedInputFibers: 0,
+      },
+    )
+    expect(report.instances).toHaveLength(1)
+    expect(report.instances[0]?.renderingState).toBe('mounted-frozen')
+  })
+
   it('keeps hidden React ancestry separate from inactivity, sibling visibility, and unmounts', () => {
     const root = component('Root')
     const hiddenBoundary = asFiber({ tag: defaultWorkTags.OffscreenComponent, memoizedState: {} })
