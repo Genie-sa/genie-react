@@ -211,6 +211,7 @@ describe('describeNativeHostFiber', () => {
       ariaLabel: 'Submit',
       name: 'n1',
       classes: [],
+      styleSources: [],
       text: null,
     })
   })

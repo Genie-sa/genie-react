@@ -14,6 +14,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useGenieTool } from 'genie-react'
 import { FlagsPanel } from './FlagsPanel'
+import { PricingCard } from './PricingCard'
 import { TaskPanel } from './TaskPanel'
 import reactLogo from './assets/react.svg'
 import viteLogo from './assets/vite.svg'
@@ -235,6 +236,10 @@ function App(): ReactNode {
       <div className="ticks"></div>
 
       <FlagsPanel />
+
+      <div className="ticks"></div>
+
+      <PricingCard />
 
       <div className="ticks"></div>
       <StressGrid />

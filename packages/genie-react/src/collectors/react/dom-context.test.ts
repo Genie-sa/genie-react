@@ -66,6 +66,21 @@ describe('describeHostElement', () => {
     expect(info.classes).toEqual(['hover:bg-red', 'md:flex', 'card'])
   })
 
+  it('ignores compiler-generated (StyleX marker / atomic) classes when building the selector', () => {
+    expect(
+      describeHostElement(
+        fakeElement({
+          tag: 'article',
+          classes: ['PricingCard__styles.card', 'borderColor-x1xsh3er', 'x5m9cfj', 'card'],
+        }),
+      ).selector,
+    ).toBe('article.card')
+    expect(
+      describeHostElement(fakeElement({ tag: 'article', classes: ['borderColor-x1xsh3er'] }))
+        .selector,
+    ).toBe('article')
+  })
+
   it('falls back to the bare tag when every class is a non-selectable utility token', () => {
     expect(
       describeHostElement(fakeElement({ tag: 'section', classes: ['md:flex', 'hover:bg-red'] }))
@@ -85,6 +100,23 @@ describe('describeHostElement', () => {
     expect(info.ariaLabel).toBe('Search')
     expect(info.name).toBe('q')
     expect(info.text).toBe(`${'x'.repeat(80)}…`)
+  })
+
+  it('parses data-style-src into ordered style sources', () => {
+    const info = describeHostElement(
+      fakeElement({
+        tag: 'article',
+        attrs: { 'data-style-src': 'src/Card.tsx:5; src/Card.tsx:31' },
+      }),
+    )
+    expect(info.styleSources).toEqual([
+      { package: null, file: 'src/Card.tsx', line: 5 },
+      { package: null, file: 'src/Card.tsx', line: 31 },
+    ])
+  })
+
+  it('reports no style sources when data-style-src is absent', () => {
+    expect(describeHostElement(fakeElement({ tag: 'div' })).styleSources).toEqual([])
   })
 
   it('normalizes empty/whitespace attributes and text to null', () => {

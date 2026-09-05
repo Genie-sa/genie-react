@@ -28,6 +28,7 @@ import {
   sourceLabel,
   sourceProvenanceForSource,
 } from './source'
+import { isGeneratedClass, parseStyleSources, type StyleSourceRef } from './style-provenance'
 
 type HookEntry = z.infer<typeof hookEntrySchema>
 
@@ -875,6 +876,7 @@ export interface HostElementInfo {
   ariaLabel: string | null
   name: string | null
   classes: string[]
+  styleSources: StyleSourceRef[]
   text: string | null
 }
 
@@ -901,6 +903,23 @@ export function domForFiber(fiber: Fiber, options: { limit: number }): DomForRes
     else if (isNativeHostFiber(host)) push(describeNativeHostFiber(host))
   }
   return { id: asNodeId(getFiberId(fiber)), name: nameOf(fiber), elements, total }
+}
+
+const HOST_SUBTREE_SCAN_LIMIT = 5_000
+
+/** Every DOM element anywhere under a fiber, in tree order — nested components included — bounded by a fiber scan cap. */
+export function hostElementsWithin(fiber: Fiber): Element[] {
+  const elements: Element[] = []
+  const stack: Fiber[] = fiber.child ? [fiber.child] : []
+  let scanned = 0
+  while (stack.length > 0 && scanned < HOST_SUBTREE_SCAN_LIMIT) {
+    const node = stack.pop() as Fiber
+    scanned += 1
+    if (isElement(node.stateNode)) elements.push(node.stateNode)
+    if (node.sibling) stack.push(node.sibling)
+    if (node.child) stack.push(node.child)
+  }
+  return elements
 }
 
 const isNativeHostFiber = (fiber: Fiber): boolean =>
@@ -936,13 +955,14 @@ export function describeHostElement(el: Element): HostElementInfo {
   const rawText = el.textContent?.trim() ?? ''
   return {
     tag,
-    selector: hostSelector(tag, domId, testId, classes),
+    selector: hostSelectorOf(el),
     domId,
     testId,
     role: attrOf(el, 'role'),
     ariaLabel: attrOf(el, 'aria-label'),
     name: attrOf(el, 'name'),
     classes,
+    styleSources: parseStyleSources(attrOf(el, 'data-style-src')),
     text: rawText ? truncateText(rawText) : null,
   }
 }
@@ -965,6 +985,7 @@ export function describeNativeHostFiber(fiber: Fiber): HostElementInfo {
     ariaLabel: strProp(props.accessibilityLabel) ?? strProp(props['aria-label']),
     name: strProp(props.nativeID),
     classes: [],
+    styleSources: [],
     text: rawText ? truncateText(rawText) : null,
   }
 }
@@ -972,15 +993,16 @@ export function describeNativeHostFiber(fiber: Fiber): HostElementInfo {
 // Utility-framework classes (`hover:bg-x`, `md:flex`) are not valid bare selectors, so only simple tokens follow the dot; role/testId/text ride alongside for semantic locators.
 const SIMPLE_CLASS = /^[a-zA-Z_][\w-]*$/
 
-function hostSelector(
-  tag: string,
-  domId: string | null,
-  testId: string | null,
-  classes: string[],
-): string {
+/** The locator alone — none of the subtree text walk describeHostElement pays for. */
+export function hostSelectorOf(el: Element): string {
+  const tag = el.tagName.toLowerCase()
+  const domId = attrOf(el, 'id')
   if (domId) return `#${domId}`
+  const testId = attrOf(el, 'data-testid')
   if (testId) return attrSelector('data-testid', testId)
-  const simple = classes.filter((token) => SIMPLE_CLASS.test(token)).slice(0, 3)
+  const simple = (el.classList ? Array.from(el.classList) : [])
+    .filter((token) => SIMPLE_CLASS.test(token) && !isGeneratedClass(token))
+    .slice(0, 3)
   return simple.length ? `${tag}.${simple.join('.')}` : tag
 }
 

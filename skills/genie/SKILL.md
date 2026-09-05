@@ -97,6 +97,7 @@ This step is complete when the output covers one known interaction.
 - Blank or stuck UI: `react_error_state`.
 - Component state: `react_find_components`, then `react_inspect_component`.
 - DOM owner: `react_component_for_dom`.
+- StyleX styling (wrong color, spacing, border): `stylex_inspect`; the last entry in `applied` owns the value, so edit that definition. Follow `status.hint` when it reports none.
 - Query state: `query_list`, `query_get`, or a focused Query action.
 - Route state: `router_get_state`, `router_list_matches`, or a focused Router action.
 - Memory: `browser_get_memory`.

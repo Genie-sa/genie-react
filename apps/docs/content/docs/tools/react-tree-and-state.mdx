@@ -266,6 +266,68 @@ npx @genie-react/cli call react_component_for_dom \
 **Agent use:** Use the owner `id` and exact source to inspect the visible bug or choose the file to
 edit; compare all returned owners when the selector matches more than one element.
 
+## `stylex_inspect`
+
+For apps styled with [StyleX](https://stylexjs.com). Explains how elements are styled from the
+running page: the applied `stylex.create()` objects (name and source file:line, in override order),
+the CSS declarations they resolve to, `defineVars` tokens they read, and runtime values from dynamic
+style functions.
+
+**Input:** `selector` (CSS selector) or `id` (component; describes every styled element it renders,
+nested ones included). `limit` is an integer from 1 to 20 and defaults to 5.
+
+```bash
+npx @genie-react/cli call stylex_inspect \
+  '{"selector":"#pricing article"}'
+```
+
+```text
+#pricing article → 1 element · stylex
+  <article> PricingCard #82 · article
+    applied: styles.card (src/PricingCard.tsx:5) → emphasis.featured (src/PricingCard.tsx:29)
+    background-color: rgb(26, 26, 46)
+    border-color: rgb(228, 81, 30)
+    padding: 28px
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "target": "#pricing article",
+  "matched": 1,
+  "status": { "system": "stylex", "styleSrc": true, "hint": null },
+  "elements": [
+    {
+      "tag": "article",
+      "selector": "article",
+      "owner": { "id": 82, "name": "PricingCard" },
+      "styleObjects": [
+        { "name": "styles.card", "package": "@acme/app", "file": "src/PricingCard.tsx", "line": 5 },
+        { "name": "emphasis.featured", "package": "@acme/app", "file": "src/PricingCard.tsx", "line": 29 }
+      ],
+      "declarations": [
+        { "property": "border-color", "value": "rgb(228, 81, 30)", "condition": null, "className": "borderColor-x1xsh3er", "tokens": [] },
+        { "property": "gap", "value": "12px", "condition": "@media (width >= 48rem)", "className": "gap-x1e7g6uk", "tokens": [] },
+        { "property": "width", "value": "var(--x-width)", "condition": null, "className": "width-x5lhr3w", "tokens": [{ "variable": "--x-width", "value": "80%" }] }
+      ],
+      "dynamic": [{ "variable": "--x-width", "value": "80%" }],
+      "unresolvedClasses": []
+    }
+  ]
+}
+```
+
+`status.hint` names the StyleX plugin option that unlocks more when `system` is `none` or
+`styleSrc` is false. `line` is the style key's line (`card: {`).
+
+**Requires** StyleX dev output: set `dev: true` and `debug: true` on the StyleX bundler plugin
+(`@stylexjs/unplugin` or the Babel plugin). `dev` alone yields style-object names; `debug` adds
+file:line.
+
+**Agent use:** The last entry in `applied` owns each property it declares, so edit that definition.
+Values are declared CSS; measure rendered geometry with a browser tool.
+
 ## `react_inspect_context`
 
 Reads every React Context value consumed by one component.

@@ -22,6 +22,7 @@ export const reactSummarizers: Record<string, (result: unknown) => string | null
   react_get_tree: summarizeTree,
   react_dom_for_component: summarizeDom,
   react_component_for_dom: summarizeComponentForDom,
+  stylex_inspect: summarizeStylexInspect,
   react_find_components: summarizeFindComponents,
   react_inspect_component: summarizeInspect,
   react_error_state: summarizeErrorState,
@@ -391,9 +392,22 @@ export function summarizeDom(result: unknown): string | null {
     if (typeof element.role === 'string') parts.push(`· role=${element.role}`)
     if (typeof element.text === 'string' && element.text.length > 0)
       parts.push(`· ${JSON.stringify(element.text)}`)
+    const styles = styleSourcesSuffix(element)
+    if (styles) parts.push(styles)
     lines.push(parts.join(' '))
   }
   return lines.join('\n')
+}
+
+/** `data-style-src` provenance, application-ordered — the arrow reads "later overrides earlier". */
+function styleSourcesSuffix(element: Record<string, unknown>): string | null {
+  if (!Array.isArray(element.styleSources)) return null
+  const refs = element.styleSources
+    .filter(isRecord)
+    .map((ref) =>
+      typeof ref.line === 'number' ? `${String(ref.file)}:${ref.line}` : String(ref.file),
+    )
+  return refs.length ? `· styles ${refs.join(' → ')}` : null
 }
 
 export function summarizeTree(result: unknown): string | null {
@@ -496,9 +510,75 @@ export function summarizeComponentForDom(result: unknown): string | null {
       `  ${String(component.name)} #${num(component.id)} (${String(component.kind)}) <${String(component.tag)}>`,
     ]
     if (component.isLibrary === true) parts.push('· lib')
+    const styles = styleSourcesSuffix(component)
+    if (styles) parts.push(styles)
     lines.push(parts.join(' ') + sourceSuffix(component))
   }
   return lines.join('\n')
+}
+
+const MAX_DECLARATION_LINES = 24
+
+export function summarizeStylexInspect(result: unknown): string | null {
+  if (!isRecord(result) || !Array.isArray(result.elements) || !isRecord(result.status)) return null
+  const { status } = result
+  const matched = num(result.matched)
+  const provenance =
+    status.system === 'none'
+      ? 'no style provenance'
+      : `${String(status.system)}${status.styleSrc === true ? '' : ' (no file:line)'}`
+  const lines = [
+    `${String(result.target)} → ${matched} element${matched === 1 ? '' : 's'} · ${provenance}`,
+  ]
+  for (const element of result.elements.filter(isRecord)) {
+    const owner = isRecord(element.owner)
+      ? ` ${String(element.owner.name)} #${num(element.owner.id)}`
+      : ''
+    lines.push(`  <${String(element.tag)}>${owner} · ${String(element.selector)}`)
+    const objects = Array.isArray(element.styleObjects)
+      ? element.styleObjects.filter(isRecord).map(styleObjectLabel)
+      : []
+    if (objects.length > 0) lines.push(`    applied: ${objects.join(' → ')}`)
+    const declarations = Array.isArray(element.declarations)
+      ? element.declarations.filter(isRecord)
+      : []
+    for (const declaration of declarations.slice(0, MAX_DECLARATION_LINES)) {
+      lines.push(`    ${declarationLabel(declaration)}`)
+    }
+    if (declarations.length > MAX_DECLARATION_LINES)
+      lines.push(`    +${declarations.length - MAX_DECLARATION_LINES} more declarations`)
+    if (Array.isArray(element.dynamic)) {
+      for (const dynamic of element.dynamic.filter(isRecord)) {
+        lines.push(`    dynamic ${String(dynamic.variable)}: ${String(dynamic.value)}`)
+      }
+    }
+    if (Array.isArray(element.unresolvedClasses) && element.unresolvedClasses.length > 0) {
+      lines.push(`    unresolved classes: ${element.unresolvedClasses.map(String).join(' ')}`)
+    }
+  }
+  if (typeof status.hint === 'string') lines.push(`  hint: ${status.hint}`)
+  return lines.join('\n')
+}
+
+function styleObjectLabel(ref: Record<string, unknown>): string {
+  const name = typeof ref.name === 'string' ? ref.name : null
+  const file = typeof ref.file === 'string' ? ref.file : null
+  const location = file ? (typeof ref.line === 'number' ? `${file}:${ref.line}` : file) : null
+  if (name && location) return `${name} (${location})`
+  return name ?? location ?? '?'
+}
+
+function declarationLabel(declaration: Record<string, unknown>): string {
+  const parts = [`${String(declaration.property)}: ${String(declaration.value)}`]
+  if (Array.isArray(declaration.tokens)) {
+    for (const token of declaration.tokens.filter(isRecord)) {
+      parts.push(
+        `· ${String(token.variable)} = ${token.value === null ? '(unset)' : String(token.value)}`,
+      )
+    }
+  }
+  if (typeof declaration.condition === 'string') parts.push(`when ${declaration.condition}`)
+  return parts.join(' ')
 }
 
 const MAX_HOOK_LINES = 16
