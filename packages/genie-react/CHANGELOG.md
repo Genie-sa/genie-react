@@ -1,5 +1,29 @@
 # genie-react
 
+## 0.13.0
+
+### Minor Changes
+
+- e33e61a: Add an opt-in development Babel plugin at genie-react/babel to name anonymous React.memo components from their lexical bindings. Preserve explicit display names and named inner functions, and omit metadata in production builds.
+- 1026cf1: Add labelled render measurement handles with explicit exclusive commit ownership, independent retained counts, bounded capture and coverage. Global clears preserve spans; reads return their labels and disjoint document commit sets.
+- 9335523: Add react_quiesce to wait for an observed React commit idle interval with elapsed time, commit count and explicit timeout/unavailable outcomes. Honor deadlines across transport and preserve same-document catalog refreshes.
+- ee4172d: Identify retained react-freeze primary subtrees through an optional component-identity adapter. Component cohorts now distinguish current render eligibility, proven freezing, generic React hiding, and actual unmounting independently of observed update counts.
+- c998f34: Add opt-in native navigation tools that await navigator transition completion and return the resulting route and stack depth, with serialized actions, bounded deadlines, explicit unsettled outcomes, and an Expo Router integration fixture.
+
+### Patch Changes
+
+- d2d401d: Report React Offscreen visibility separately from component lifecycle in cohorts, preserving hidden mounted instances and distinguishing unmounted tombstones. Add native freeze/hide/thaw controls for live verification.
+- 0234ee1: Pin Bippy to the validated 0.7.2 release. Fresh installs previously selected 0.7.3, which removed the `didFiberCommit` export used by Genie and prevented the app from loading.
+- 085fd76: Reserve an interaction's document before awaiting its initial clear, so concurrent begin calls cannot invalidate each other's observation boundaries. Release reservations after failed starts and reject responses invalidated by a bridge clear or document change. Document labelled interaction handles and their temporal attribution limits.
+- 125f9c7: Preserve verified late-hook collection readiness across render/profile clears. Hook replacement still requires a new observed commit. Add an Expo late-import fixture for persistent-hub relaunch validation.
+- b4c90ee: Filter render reports by name globs, exclusions, and minimum updates before source classification and limits. Add bounded, expiring cursors over frozen reports so subsequent pages retain the same counters and ownership coverage while new commits arrive, and show a safe CLI continuation command.
+- b2338b8: Exclude inferred Query render causes incompatible with a complete current notification policy. Report matching subscribed fields or why compatibility could not be checked, including implicit error subscriptions and incomplete policies, while preserving exact delivered notifications.
+- 0c9a05b: Reject React quiet waits when commit collection is unavailable, and restart the quiet window after failed samples or document changes. Document the existing wait tool in measurement examples.
+- 81c60b9: Complete React selector and ownership-filter coverage, retain unmounted cohort source evidence, disclose incomplete profile populations, and advertise valid schema-derived calls and argument bounds.
+- aa3741c: Report renderer bundle metadata and timing/count interpretation in render and profiling reports, including human CLI output.
+- 31bca4a: Support sorting render reports by updates and expose parameter bounds and defaults in compact tool catalogs. Clarify name filters versus instance IDs.
+- 632c1ec: Expose app, library, and unknown ownership coverage in render reports. Warm source classifications beyond the cold-read budget, and reject app-only comparisons while unknown ownership makes the filtered sample incomplete.
+
 ## 0.12.6
 
 ### Patch Changes
