@@ -66,7 +66,16 @@ pnpm --filter @genie-react/expo-demo exec genie-react call \
 Increment the probe, then use **Freeze** or **Hide** and **Thaw**. Hidden instances should keep the
 same mount ID and count, with `reactVisibility:"hidden"` while hidden. **Unmount** should produce
 an unmounted cohort entry; **Thaw** then mounts a new probe with count zero. Hidden React evidence
-does not identify the navigation or freeze mechanism that caused it.
+does not identify the navigation or freeze mechanism that caused it. The registered adapter additionally
+reports `renderingState:"mounted-frozen"` for Freeze, `mounted-hidden` for Activity, and
+`unmounted` for a true removal.
+
+The native screen panel uses Expo's `react-native-screens` 4.25.2 with `enableFreeze(true)`.
+Query `FrozenScreenProbe`, increment its count, then tap **covered**. The row should remain
+present as `mounted-frozen`; **active** restores `mounted-rendering` with the same mount ID
+and count. **removed** produces an unmounted tombstone. This exercises the library's actual
+`Screen` and delayed Freeze boundary. The entry registers the app's public `Freeze` import
+so workspace React peer resolutions do not conceal the library identity.
 
 List the complete runtime catalog after the tool fixtures have mounted:
 
@@ -125,3 +134,15 @@ app-owned handlers automatically.
 
 Restore `package.json` main to `index.ts` after this fixture run. The fixture's href matcher covers
 its two parameterless routes; an app with parameters must compare the full destination.
+
+### Late-hook relaunch recovery fixture
+
+For a deliberate late-install test, temporarily set this demo's `package.json` `main` to
+`late-hook.tsx`, then start Expo with the same `EXPO_PUBLIC_GENIE_URL` as the running hub.
+This fixture imports `genie-react/native` inside an effect after the first native mount.
+Keep the hub running while relaunching Expo Go twice, press **Increment late probe**, and call
+`react_get_renders` with `{"component":"LateHookProbe","appOnly":true}`. The row should resolve
+as app-owned, with explicit source-classification counts and a degraded collection warning because
+earlier commits were not observed. After `react_clear_renders`, collection remains degraded and
+observable; clearing counters must not erase proof that the hook works. Restore `main` to
+`index.ts` afterward. Production integrations should still install `genie-react/hook` first.

@@ -110,6 +110,11 @@
       "types": "./dist/navigation.d.ts",
       "import": "./dist/navigation.js",
       "default": "./dist/navigation.js"
+    },
+    "./react-freeze": {
+      "types": "./dist/react-freeze.d.ts",
+      "import": "./dist/react-freeze.js",
+      "default": "./dist/react-freeze.js"
     }
   },
   "scripts": {
@@ -124,11 +129,12 @@
     "zod": "^4.4.3"
   },
   "peerDependencies": {
+    "@babel/core": "^7.0.0",
     "@tanstack/react-query": ">=5",
     "@tanstack/react-router": ">=1",
     "react": ">=18",
     "vite": ">=5",
-    "@babel/core": "^7.0.0"
+    "react-freeze": "^1.0.0"
   },
   "peerDependenciesMeta": {
     "@tanstack/react-query": {
@@ -145,6 +151,9 @@
     },
     "@babel/core": {
       "optional": true
+    },
+    "react-freeze": {
+      "optional": true
     }
   },
   "devDependencies": {
@@ -157,6 +166,7 @@
     "@types/ws": "^8.18.1",
     "jsdom": "^28.1.0",
     "react": "^19.2.7",
+    "react-freeze": "1.0.4",
     "vite": "^8.1.0"
   }
 }

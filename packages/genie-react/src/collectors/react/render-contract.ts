@@ -774,6 +774,17 @@ export const reactComponentCohortContract = defineAgentToolContract({
     instances: z.array(
       z.object({
         componentName: z.string(),
+        renderingState: z
+          .enum([
+            'mounted-rendering',
+            'mounted-frozen',
+            'mounted-hidden',
+            'mounted-unknown',
+            'unmounted',
+          ])
+          .describe(
+            'Current render eligibility, independent of updates during the observation. Frozen requires the react-freeze adapter and a committed suspended primary; hidden alone does not prove react-freeze. Rendering means eligible, not necessarily currently updating. No effect or observer subscription claim.',
+          ),
         reactVisibility: z
           .enum(['hidden', 'not-hidden', 'unknown'])
           .describe(
@@ -786,6 +797,7 @@ export const reactComponentCohortContract = defineAgentToolContract({
       }),
     ),
     coverage: z.object({
+      freezeDetection: z.enum(['react-freeze-identity', 'disabled']),
       complete: z
         .boolean()
         .describe(
@@ -832,4 +844,57 @@ export const reactClearRendersContract = defineAgentToolContract({
     observationConfig: renderCoverageSchema.shape.observationBudget.unwrap(),
   }),
   annotations: { idempotentHint: false },
+})
+
+const measurementSpanSchema = z.object({
+  handle: z.string(),
+  label: z.string(),
+  ownership: z.literal('newest-open-span'),
+  attribution: z.literal('temporal-only'),
+  startedAfterDocumentCommitId: z.number().int().nonnegative(),
+  endedAtDocumentCommitId: z.number().int().nonnegative().nullable(),
+  expiresAt: z.number(),
+})
+
+export const reactMeasureContract = defineAgentToolContract({
+  name: 'react_measure',
+  title: 'Open labelled measurement',
+  group: 'react.render',
+  description:
+    'Open a labelled span without clearing global renders. The newest open span exclusively owns subsequent commits; older spans resume when it closes. Temporal capture does not establish interaction causality. Up to 20 spans, 500 components and 1000 commits each; handles expire after five minutes or reload.',
+  input: z.object({ label: z.string().trim().min(1).max(160) }),
+  output: measurementSpanSchema,
+})
+
+export const reactRendersSinceContract = defineAgentToolContract({
+  name: 'react_renders_since',
+  title: 'Read labelled measurement',
+  group: 'react.render',
+  description:
+    'Read commits owned by a measurement handle after it opened. Set close:true to stop capture and resume the previous open span. Reports disjoint commit IDs, label, excluded commits, and coverage. Global clear does not erase spans. A report is frozen at call entry.',
+  input: z.object({
+    handle: z.string().min(1).max(100),
+    close: z.boolean().default(false),
+    component: z.string().optional().describe('Only components whose name contains this string.'),
+    appOnly: z
+      .boolean()
+      .default(true)
+      .describe(
+        'Only source-proven app components; unknown ownership is excluded and coverage becomes incomplete.',
+      ),
+    limit: z.number().int().min(1).max(200).default(40),
+  }),
+  output: measurementSpanSchema.extend({
+    ...renderMeasurementEnvironmentSchema.shape,
+    commitIds: z.array(z.number().int().nonnegative()),
+    commits: z.number().int().nonnegative(),
+    excludedCommits: z.number().int().nonnegative(),
+    summary: renderSummarySchema,
+    components: z.array(renderComponentSchema),
+    sourceClassification: reactGetRendersContract.output.shape.sourceClassification,
+    libraryHidden: z.number().int().nonnegative(),
+    omittedByLimit: z.number().int().nonnegative(),
+    coverage: z.object({ complete: z.boolean(), semantics: z.enum(['exact', 'lower-bound']) }),
+    limitation: z.string(),
+  }),
 })

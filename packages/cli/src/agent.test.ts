@@ -1078,6 +1078,7 @@ describe('agent failure output', () => {
 describe('bridge-local tools', () => {
   it('does not wait for an app before wait or retained-capture reads', () => {
     expect(requiresReadySession('devtools_wait')).toBe(false)
+    expect(requiresReadySession('react_quiesce')).toBe(false)
     expect(requiresReadySession('devtools_capture_list')).toBe(false)
     expect(requiresReadySession('devtools_capture_read')).toBe(false)
     expect(requiresReadySession('devtools_capture_compare')).toBe(false)

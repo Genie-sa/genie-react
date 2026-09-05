@@ -515,6 +515,9 @@ importers:
       react:
         specifier: ^19.2.7
         version: 19.2.7
+      react-freeze:
+        specifier: 1.0.4
+        version: 1.0.4(react@19.2.7)
       vite:
         specifier: ^8.1.0
         version: 8.1.0(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)
@@ -15450,6 +15453,10 @@ snapshots:
   react-freeze@1.0.4(react@19.2.3):
     dependencies:
       react: 19.2.3
+
+  react-freeze@1.0.4(react@19.2.7):
+    dependencies:
+      react: 19.2.7
 
   react-is@17.0.2: {}
 

@@ -50,6 +50,7 @@ import {
   registerFiber,
 } from './fiber'
 import { getMeasurementEnvironment } from './measurement-environment'
+import { openMeasurementSpan, readMeasurementSpan } from './measurement-spans'
 import { getAnalysisGeneration, getDocumentCommitId } from './observation'
 import {
   applyContextOverride,
@@ -62,6 +63,7 @@ import {
 } from './overrides'
 import { getRefreshEvents, startRefreshTracking } from './refresh-tracker'
 import { getRenderCohort } from './render-cohort'
+import { reactMeasureContract, reactRendersSinceContract } from './render-contract'
 import {
   buildRenderTrackingCoverage,
   renderEvidenceComparability,
@@ -325,6 +327,22 @@ export function reactCollector(): GenieCollector {
           if (!fiber) throw new Error(`Component ${id} not found (it may have unmounted).`)
           return contextsForFiber(fiber, { depth })
         },
+      }),
+      defineCollectorTool({
+        contract: reactMeasureContract,
+        handler: ({ label }) => {
+          if (!isTracking() || renderCollectionStatus().startsWith('unavailable')) {
+            throw new Error(
+              `Cannot open measurement: ${renderCollectionStatus()}. Enable render tracking and observe a commit first.`,
+            )
+          }
+          return openMeasurementSpan(label)
+        },
+      }),
+      defineCollectorTool({
+        contract: reactRendersSinceContract,
+        handler: ({ handle, close, component, appOnly, limit }) =>
+          readMeasurementSpan(handle, close, { component, appOnly, limit, sort: 'renders' }),
       }),
       defineCollectorTool({
         contract: reactGetRendersContract,

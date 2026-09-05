@@ -21,6 +21,7 @@ export default defineConfig([
       'collectors/router': 'src/collectors/router.ts',
       native: 'src/native/index.ts',
       navigation: 'src/navigation/index.ts',
+      'react-freeze': 'src/react-freeze.ts',
       script: 'src/script.ts',
       next: 'src/next/index.ts',
       protocol: 'src/protocol/index.ts',

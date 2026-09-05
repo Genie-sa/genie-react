@@ -15,6 +15,7 @@ const MAX_PROCESS_OUTPUT = 1_000_000
 const CONSUMER_DEPENDENCIES = [
   'react@19.2.7',
   'react-dom@19.2.7',
+  'react-freeze@1.0.4',
   'vite@8.1.0',
   '@vitejs/plugin-react@6.0.3',
   '@rolldown/plugin-babel@0.2.3',
@@ -216,7 +217,9 @@ export default defineConfig(({ command }) => ({
   )
   await writeFile(
     join(temporaryRoot, 'src/main.js'),
-    `import { createElement, memo, useState } from 'react'
+    `import { Activity, createElement, memo, useEffect, useRef, useState } from 'react'
+import 'genie-react/react-freeze'
+import { Freeze } from 'react-freeze'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { Genie } from 'genie-react'
@@ -242,6 +245,42 @@ function OwnershipRow({ index, revision }) {
   return createElement('span', { id: 'row-' + index }, index + ':' + revision)
 }
 
+function QuiesceCanvas() {
+  const canvas = useRef(null)
+  const [updates, setUpdates] = useState(0)
+  useEffect(() => {
+    let frame
+    const paint = (time) => {
+      const context = canvas.current?.getContext('2d')
+      if (context) { context.clearRect(0,0,120,24); context.fillRect(time % 100, 0, 20, 20) }
+      frame = requestAnimationFrame(paint)
+    }
+    frame = requestAnimationFrame(paint)
+    return () => cancelAnimationFrame(frame)
+  }, [])
+  return createElement('section', null,
+    createElement('canvas', {ref: canvas, width:120, height:24}),
+    createElement('output', {id:'quiesce-updates'}, updates),
+    createElement('button', {id:'quiesce-interact', onClick: () => {
+      setUpdates(value => value + 1)
+      for (const delay of [30,60,90]) setTimeout(() => setUpdates(value => value + 1), delay)
+    }}, 'Run canvas interaction'))
+}
+
+function FreezeProbe() {
+  const [count, setCount] = useState(0)
+  return createElement('button', { id: 'freeze-probe', onClick: () => setCount(value => value + 1) }, 'Retained:' + count)
+}
+function FreezeFallback() { return createElement('span', { id: 'freeze-fallback' }, 'Frozen placeholder') }
+function FreezeFixture() {
+  const [mode, setMode] = useState('active')
+  return createElement('section', null,
+    ['active', 'frozen', 'hidden', 'unmounted'].map(mode => createElement('button', { key: mode, id: 'freeze-' + mode, onClick: () => setMode(mode) }, mode)),
+    mode !== 'unmounted' && createElement(Activity, { mode: mode === 'hidden' ? 'hidden' : 'visible' },
+      createElement(Freeze, { freeze: mode === 'frozen', placeholder: createElement(FreezeFallback) }, createElement(FreezeProbe))),
+  )
+}
+
 function App() {
   const [value, setValue] = useState(0)
   const [showRows, setShowRows] = useState(false)
@@ -249,11 +288,13 @@ function App() {
   const query = useQuery({ queryKey: ['greeting'], queryFn: async () => 'hello' })
   const [tick, setTick] = useState(0)
   return createElement('main', { id: 'lab' },
+    createElement(FreezeFixture),
     createElement('div', { id: 'greeting' }, query.data ?? query.status),
     createElement('button', { onClick: () => setShowRows(true) }, 'Mount rows'),
     createElement('button', { onClick: () => setRevision(value => value + 1) }, 'Update rows'),
     showRows && Array.from({ length: 241 }, (_, index) => createElement(OwnershipRow, { key: index, index, revision })),
     createElement(PolicyConsumer, { tick }),
+    createElement(QuiesceCanvas),
     createElement('button', { id: 'metadata-update', onClick: () => {
       queryClient.setQueryData(policyKey, stableData, { updatedAt: 2 })
       setTick(value => value + 1)
@@ -648,6 +689,66 @@ async function main() {
   await page.waitForFunction(() => document.querySelector('#greeting')?.textContent === 'hello')
   const callTool = async (name, args = {}) =>
     parseSuccessfulJson(name, await runCli(['call', name, JSON.stringify(args), '--json']))
+  await callTool('react_clear_renders', {
+    budget: { fiberLimit: 2000, operationLimit: 2000000, timeLimitMs: 500, adaptive: false },
+  })
+  const freezeCohort = (component = 'FreezeProbe') =>
+    callTool('react_component_cohort', { component, exact: true })
+  const activeFreeze = await freezeCohort()
+  assert(
+    activeFreeze.instances[0]?.renderingState === 'mounted-rendering',
+    'Active freeze probe was not eligible to render',
+  )
+  const retainedMountId = activeFreeze.instances[0].instance.mountId
+  await page.locator('#freeze-probe').click()
+  await page.locator('#freeze-frozen').click()
+  await page.locator('#freeze-fallback').waitFor({ state: 'visible' })
+  const frozenCohort = await freezeCohort()
+  assert(
+    frozenCohort.instances[0]?.renderingState === 'mounted-frozen',
+    `Actual react-freeze primary was not reported frozen: ${JSON.stringify(frozenCohort)}`,
+  )
+  assert(
+    frozenCohort.instances[0].instance.mountId === retainedMountId,
+    'Freezing changed mount identity',
+  )
+  assert(
+    (await freezeCohort('FreezeFallback')).instances[0]?.renderingState === 'mounted-rendering',
+    'Freeze fallback was wrongly frozen',
+  )
+  await page.locator('#freeze-active').click()
+  await page.locator('#freeze-probe').waitFor({ state: 'visible' })
+  assert(
+    (await page.locator('#freeze-probe').textContent()) === 'Retained:1',
+    'Thaw lost component state',
+  )
+  assert(
+    (await freezeCohort()).instances[0]?.renderingState === 'mounted-rendering',
+    'Thaw retained stale freeze state',
+  )
+  await page.locator('#freeze-hidden').click()
+  await page.locator('#freeze-probe').waitFor({ state: 'hidden' })
+  assert(
+    (await freezeCohort()).instances[0]?.renderingState === 'mounted-hidden',
+    'Activity was conflated with react-freeze',
+  )
+  await page.locator('#freeze-unmounted').click()
+  const removedFreeze = await waitFor(
+    'freeze probe unmount',
+    async () => {
+      const report = await freezeCohort()
+      return (
+        report.instances.some(
+          (row) => row.renderingState === 'unmounted' && row.instance.mountId === retainedMountId,
+        ) && report
+      )
+    },
+    10000,
+  )
+  assert(removedFreeze.unmounted === 1, 'Actual unmount did not preserve a tombstone')
+  process.stdout.write(
+    'Freeze E2E passed: active → frozen → thawed (state retained) → Activity hidden → unmounted; fallback remained rendering.\n',
+  )
   await callTool('react_clear_renders', { components: ['PolicyConsumer'] })
   const notificationsBefore = await callTool('query_notifications')
   await page.locator('#metadata-update').click()
@@ -687,6 +788,62 @@ async function main() {
       ),
     ),
     `Subscribed data update lost its exact Query cause: ${JSON.stringify(delivered.events)}`,
+  )
+  const canvasRuns = []
+  for (let run = 0; run < 10; run++) {
+    await callTool('react_clear_renders', { components: ['QuiesceCanvas'] })
+    await page.locator('#quiesce-interact').click()
+    const settled = await callTool('react_quiesce', { idleMs: 250, timeoutMs: 5000 })
+    assert(
+      settled.outcome === 'idle',
+      `Canvas interaction failed to quiesce: ${JSON.stringify(settled)}`,
+    )
+    const renders = await callTool('react_get_renders', {
+      component: 'QuiesceCanvas',
+      appOnly: false,
+    })
+    assert(
+      renders.components.length === 1 && renders.components[0].updates === 4,
+      `Canvas run ${run + 1} lost deferred updates: ${JSON.stringify(renders)}`,
+    )
+    canvasRuns.push(renders.components[0].updates)
+  }
+  process.stdout.write(
+    `React quiesce live canvas: ${canvasRuns.join(', ')} updates across ten consecutive clear→interact→quiesce→report runs.\n`,
+  )
+  await callTool('react_clear_renders', { components: ['App'] })
+  const spanA = await callTool('react_measure', { label: 'outer route' })
+  await page.getByRole('button', { name: 'Update memo rows', exact: true }).click()
+  const spanB = await callTool('react_measure', { label: 'inner route' })
+  await page.getByRole('button', { name: 'Update memo rows', exact: true }).click()
+  const inner = await callTool('react_renders_since', {
+    handle: spanB.handle,
+    close: true,
+    component: 'App',
+    appOnly: false,
+  })
+  await callTool('react_clear_renders')
+  await page.getByRole('button', { name: 'Update memo rows', exact: true }).click()
+  const outer = await callTool('react_renders_since', {
+    handle: spanA.handle,
+    close: true,
+    component: 'App',
+    appOnly: false,
+  })
+  assert(
+    inner.label === 'inner route' && outer.label === 'outer route',
+    'Span labels must cross the CLI unchanged',
+  )
+  assert(
+    inner.summary.totalUpdates === 1 && outer.summary.totalUpdates === 2,
+    `Span counts mixed: ${JSON.stringify({ inner, outer })}`,
+  )
+  assert(
+    outer.excludedCommits > 0 && !outer.commitIds.some((id) => inner.commitIds.includes(id)),
+    'Concurrent span commit sets must be disjoint',
+  )
+  process.stdout.write(
+    'Live labelled spans passed: outer=2 updates, inner=1, disjoint commits across global clear.\n',
   )
   assert(pageErrors.length === 0, `Browser page errors:\n${pageErrors.join('\n')}`)
 

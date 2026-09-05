@@ -74,12 +74,13 @@ describe('GenieBridge', () => {
     const statusAfter = await agentInbox.wait(isResult(statusId2))
     expect(statusAfter.result.connected).toBe(true)
     expect(statusAfter.result.app.name).toBe('demo')
-    expect(statusAfter.result.toolCount).toBe(10) // 1 app tool + 9 bridge meta tools
+    expect(statusAfter.result.toolCount).toBe(11) // 1 app tool + 10 bridge meta tools
     const names = statusAfter.result.tools.map((tool: { name: string }) => tool.name)
     expect(names).toEqual([
       'echo',
       'devtools_status',
       'devtools_wait',
+      'react_quiesce',
       'devtools_capture_create',
       'devtools_capture_list',
       'devtools_capture_read',

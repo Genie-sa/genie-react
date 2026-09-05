@@ -42,6 +42,13 @@ import {
 } from './instance-identity'
 import { getMeasurementEnvironment } from './measurement-environment'
 import {
+  beginMeasurementCommit,
+  clearMeasurementSpans,
+  markMeasurementCollectionGap,
+  markMeasurementIncomplete,
+  recordMeasurementRender,
+} from './measurement-spans'
+import {
   beginObservation,
   getActiveObservation,
   getDocumentCommitId,
@@ -141,6 +148,7 @@ let instrumentedHook: ReturnType<typeof getRDTHook> | null = null
 // Stop is intentionally a soft flag: the commit handler stays wired so the client's liveness heartbeat continues while profiling is paused.
 let paused = false
 let renderersPresentAtInstall = false
+let commitObservedSinceInstall = false
 let skippedCommitFibers = 0
 let droppedPendingUnmountFibers = 0
 let analysisFailedFibers = 0
@@ -245,11 +253,13 @@ export function startRenderTracking(): boolean {
         noteCommit()
         noteCommittedRoot(root)
         if (!isSafeRenderer(rendererId)) {
+          markMeasurementCollectionGap()
           if (getActiveObservation()) analysisFailedFibers += 1
           return
         }
         const hostUnmountObserved = pendingHostUnmountRenderers.delete(rendererId)
         if (isRefreshCommit()) {
+          clearMeasurementSpans()
           advanceExcludedCommitBaseline(root)
           noteAnalysisInvalidation()
           discardPendingUnmounts(rendererId)
@@ -258,6 +268,8 @@ export function startRenderTracking(): boolean {
           return
         }
         noteDocumentCommit()
+        commitObservedSinceInstall = true
+        beginMeasurementCommit(getDocumentCommitId(), !paused && !uncertainTraversalRoots.has(root))
         recordResultingEffectCommit(getDocumentCommitId())
         if (paused) {
           discardPendingUnmounts(rendererId)
@@ -376,6 +388,7 @@ function advanceExcludedCommitBaseline(root: FiberRoot): void {
 
 /** Module/HMR teardown only. Profiling stop must keep the lightweight commit heartbeat installed. */
 export function disposeRenderTracking(): void {
+  clearMeasurementSpans()
   renderPages = new Map()
   noteAnalysisInvalidation()
   for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(pending.fiber)
@@ -385,6 +398,7 @@ export function disposeRenderTracking(): void {
   instrumentation = null
   instrumentedHook = null
   installed = false
+  commitObservedSinceInstall = false
   paused = false
   pendingHostUnmountRenderers.clear()
   uncertainTraversalRoots = new WeakMap()
@@ -403,7 +417,7 @@ export function renderCollectionStatus(): string {
   if (!installed) {
     return 'unavailable (render tracking is not installed — import genie-react/hook before React)'
   }
-  if (renderersPresentAtInstall && commits === 0) {
+  if (renderersPresentAtInstall && !commitObservedSinceInstall) {
     return 'unavailable (hook installed after React initialised — import genie-react/hook, or genie-react/native on React Native, before React)'
   }
   if (renderersPresentAtInstall) {
@@ -997,6 +1011,8 @@ export function recordRender(
   const checkpoint = previous ? { ...previous, causeCounts: { ...previous.causeCounts } } : null
   try {
     recordRenderAtomic(fiber, phase, effectPreparation, commitWork, commitEvidence)
+    const recorded = records.get(id)
+    if (recorded && recorded !== previous) recordMeasurementRender(recorded, previous)
   } catch (error) {
     if (checkpoint) records.set(id, checkpoint)
     else records.delete(id)
@@ -1327,11 +1343,14 @@ function publishCauseEvent(
 
 /** Finalize once after traversal so report coverage names every subsystem the shared guard stopped. */
 export function finalizeCommitAnalysisBudget(budget: CommitAnalysisBudget): void {
+  if (budget.skipped > 0 || budget.targetSkipped > 0 || budget.failed > 0)
+    markMeasurementIncomplete()
   const exhausted = [
     ...commitWorkExhaustions(budget.work),
     ...commitWorkExhaustions(budget.targetWork).map((subsystem) => `target:${subsystem}`),
   ]
   if (exhausted.length === 0) return
+  markMeasurementIncomplete()
   budgetExhaustedCommits += 1
   for (const subsystem of exhausted) {
     budgetExhaustedSubsystems.set(subsystem, (budgetExhaustedSubsystems.get(subsystem) ?? 0) + 1)
