@@ -1,5 +1,6 @@
 import { type Fiber, getFiberId } from 'bippy'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { createCommitWorkBudget } from './commit-budget'
 import {
   beginInstanceObservation,
   clearInstanceIdentityForTests,
@@ -260,5 +261,98 @@ describe('React component instance identity', () => {
 
     expect(getInstanceIdentityCoverage().generationHistoryEvictions).toBe(1)
     expect(last?.mountGenerationEvidence).toBe('unknown')
+  })
+})
+
+describe('commit-scoped sibling identity work', () => {
+  const work = () => createCommitWorkBudget({ operationLimit: 1_000_000, now: () => 0 })
+
+  it('identifies a wide keyed list with linear app-owned sibling reads', () => {
+    const parent = component('Rows')
+    const rows = Array.from({ length: 100 }, (_, index) => component('Row', String(index)))
+    attach(parent, rows)
+    let siblingReads = 0
+    rows.forEach((row, index) => {
+      Object.defineProperty(row, 'sibling', {
+        get() {
+          siblingReads += 1
+          return rows[index + 1] ?? null
+        },
+      })
+    })
+    const budget = work()
+
+    rows.forEach((row, index) => {
+      expect(noteInstanceRender(row, 'mount', 1, 1, budget)).toMatchObject({
+        siblingIndex: index,
+        key: String(index),
+        logicalIdentityEvidence: 'keyed',
+      })
+    })
+
+    // Recovering every position and key must not re-read the list for every row.
+    expect(siblingReads).toBeLessThanOrEqual(rows.length * 2)
+  })
+
+  it('recomputes positions and key uniqueness after the next commit reorders siblings', () => {
+    const parent = component('Rows')
+    const a = component('Row', 'a')
+    const b = component('Row', 'b')
+    attach(parent, [a, b])
+    const mounted = noteInstanceRender(a, 'mount', 1, 1, work())
+
+    attach(parent, [b, a])
+    const reordered = noteInstanceRender(a, 'update', 2, 2, work())
+    expect(reordered).toMatchObject({ siblingIndex: 1, logicalIdentityEvidence: 'keyed' })
+    expect(reordered.mountId).toBe(mounted.mountId)
+    expect(reordered.logicalPath).toBe(mounted.logicalPath)
+
+    ;(b as { key: string }).key = 'a'
+    const duplicated = noteInstanceRender(a, 'update', 3, 3, work())
+    expect(duplicated).toMatchObject({ siblingIndex: 1, logicalIdentityEvidence: 'positional' })
+    expect(duplicated.logicalPath).toContain('Row[index=1]')
+  })
+
+  it('does not let a cached sibling scan bypass an expired commit deadline', () => {
+    const parent = component('Rows')
+    const a = component('Row', 'a')
+    const b = component('Row', 'b')
+    attach(parent, [a, b])
+    let now = 0
+    const budget = createCommitWorkBudget({ now: () => now, timeLimitMs: 1 })
+    expect(noteInstanceRender(a, 'mount', 1, 1, budget).logicalIdentityEvidence).toBe('keyed')
+
+    now = 1
+    expect(noteInstanceRender(b, 'mount', 1, 1, budget)).toMatchObject({
+      siblingIndex: null,
+      logicalIdentityEvidence: 'unknown',
+    })
+  })
+
+  it('does not infer key uniqueness when the shared operation budget interrupts the scan', () => {
+    const parent = component('Rows')
+    const rows = Array.from({ length: 100 }, (_, index) => component('Row', String(index)))
+    attach(parent, rows)
+    const budget = createCommitWorkBudget({ now: () => 0, operationLimit: 10 })
+
+    expect(
+      noteInstanceRender(rows[0] as Fiber, 'mount', 1, 1, budget).logicalIdentityEvidence,
+    ).toBe('unknown')
+    expect(
+      noteInstanceRender(rows[1] as Fiber, 'mount', 1, 1, budget).logicalIdentityEvidence,
+    ).toBe('unknown')
+  })
+
+  it('does not infer key uniqueness from a bounded prefix of a larger sibling list', () => {
+    const parent = component('Rows')
+    const rows = Array.from({ length: 2_001 }, (_, index) => component('Row', String(index)))
+    attach(parent, rows)
+    const budget = work()
+
+    const first = noteInstanceRender(rows[0] as Fiber, 'mount', 1, 1, budget)
+    const last = noteInstanceRender(rows[2_000] as Fiber, 'mount', 1, 1, budget)
+
+    expect(first).toMatchObject({ siblingIndex: 0, logicalIdentityEvidence: 'positional' })
+    expect(last).toMatchObject({ siblingIndex: null, logicalIdentityEvidence: 'unknown' })
   })
 })

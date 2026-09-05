@@ -416,9 +416,49 @@ function nearestKeyedComposite(fiber: Fiber | null, budget?: CommitWorkBudget): 
   return null
 }
 
+interface SiblingIdentityScan {
+  indices: Map<Fiber, number>
+  keyCounts: Map<string, number>
+  complete: boolean
+}
+
+// A work budget belongs to one synchronous commit; sibling order can change on the next one.
+const siblingScans = new WeakMap<CommitWorkBudget, WeakMap<Fiber, SiblingIdentityScan>>()
+
+function commitSiblingScan(first: Fiber, budget: CommitWorkBudget): SiblingIdentityScan {
+  let scans = siblingScans.get(budget)
+  if (!scans) {
+    scans = new WeakMap()
+    siblingScans.set(budget, scans)
+  }
+  const cached = scans.get(first)
+  if (cached) return cached
+
+  const scan: SiblingIdentityScan = { indices: new Map(), keyCounts: new Map(), complete: false }
+  let current: Fiber | null = first
+  let index = 0
+  while (current && index < SIBLING_SCAN_LIMIT) {
+    if (!consumeCommitWork(budget, 'instance-siblings')) break
+    scan.indices.set(current, index)
+    if (current.alternate) scan.indices.set(current.alternate, index)
+    if (typeof current.key === 'string') {
+      scan.keyCounts.set(current.key, (scan.keyCounts.get(current.key) ?? 0) + 1)
+    }
+    current = current.sibling
+    index += 1
+  }
+  scan.complete = current === null
+  scans.set(first, scan)
+  return scan
+}
+
 function indexAmongSiblings(fiber: Fiber, budget?: CommitWorkBudget): number | null {
   const first = fiber.return?.child
   if (!first) return fiber.return ? null : 0
+  if (budget) {
+    if (!consumeCommitWork(budget, 'instance-siblings')) return null
+    return commitSiblingScan(first, budget).indices.get(fiber) ?? null
+  }
   let current: Fiber | null = first
   let index = 0
   while (current && index < SIBLING_SCAN_LIMIT) {
@@ -434,6 +474,11 @@ function indexAmongSiblings(fiber: Fiber, budget?: CommitWorkBudget): number | n
 function isUniqueSiblingKey(fiber: Fiber, key: string, budget?: CommitWorkBudget): boolean {
   const first = fiber.return?.child
   if (!first) return false
+  if (budget) {
+    if (!consumeCommitWork(budget, 'instance-siblings')) return false
+    const scan = commitSiblingScan(first, budget)
+    return scan.complete && scan.keyCounts.get(key) === 1
+  }
   let current: Fiber | null = first
   let matches = 0
   let scanned = 0
