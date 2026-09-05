@@ -2,7 +2,7 @@ import type { FiberRoot, InstrumentationOptions } from 'bippy'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const harness = vi.hoisted(() => ({
-  currentHook: { name: 'initial' },
+  currentHook: { name: 'initial', renderers: new Map<number, object>() },
   hookLookupError: false,
   installations: [] as Array<{
     hook: object
@@ -49,12 +49,13 @@ import {
   clearRenders,
   disposeRenderTracking,
   getCommitCount,
+  renderCollectionStatus,
   startRenderTracking,
 } from './render-tracker'
 
 beforeEach(() => {
   disposeRenderTracking()
-  harness.currentHook = { name: 'initial' }
+  harness.currentHook = { name: 'initial', renderers: new Map() }
   harness.hookLookupError = false
   harness.installations.length = 0
 })
@@ -66,7 +67,7 @@ describe('React DevTools hook replacement', () => {
     startRenderTracking()
     const initialInstallation = harness.installations[0]
 
-    harness.currentHook = { name: 'replacement' }
+    harness.currentHook = { name: 'replacement', renderers: new Map() }
     startRenderTracking()
 
     expect(initialInstallation?.disposed).toBe(true)
@@ -92,4 +93,21 @@ describe('React DevTools hook replacement', () => {
     expect(startRenderTracking()).toBe(true)
     expect(harness.installations).toHaveLength(2)
   })
+})
+
+it('retains late-hook collection proof across clear and resets it only when the hook changes', () => {
+  harness.currentHook.renderers.set(1, {})
+  clearRenders()
+  startRenderTracking()
+  expect(renderCollectionStatus()).toMatch(/^unavailable/)
+  harness.installations[0]?.options.onCommitFiberRoot?.(1, {
+    current: { child: null },
+  } as FiberRoot)
+  expect(renderCollectionStatus()).toMatch(/^degraded/)
+  clearRenders()
+  expect(getCommitCount()).toBe(0)
+  expect(renderCollectionStatus()).toMatch(/^degraded/)
+  harness.currentHook = { name: 'replacement', renderers: new Map([[1, {}]]) }
+  startRenderTracking()
+  expect(renderCollectionStatus()).toMatch(/^unavailable/)
 })

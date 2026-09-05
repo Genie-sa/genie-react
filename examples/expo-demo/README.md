@@ -99,3 +99,15 @@ The development Babel configuration enables `genie-react/babel`. After pressing 
 `react_get_renders` and `react_component_cohort` should identify `MemoNameRow`, `InnerNamedRow`,
 and `CustomMemoRow`. This verifies binding names, named inner functions, and explicit wrapper
 names respectively. Production exports omit the generated binding-name metadata.
+
+### Late-hook relaunch recovery fixture
+
+For a deliberate late-install test, temporarily set this demo's `package.json` `main` to
+`late-hook.tsx`, then start Expo with the same `EXPO_PUBLIC_GENIE_URL` as the running hub.
+This fixture imports `genie-react/native` inside an effect after the first native mount.
+Keep the hub running while relaunching Expo Go twice, press **Increment late probe**, and call
+`react_get_renders` with `{"component":"LateHookProbe","appOnly":true}`. The row should resolve
+as app-owned, with explicit source-classification counts and a degraded collection warning because
+earlier commits were not observed. After `react_clear_renders`, collection remains degraded and
+observable; clearing counters must not erase proof that the hook works. Restore `main` to
+`index.ts` afterward. Production integrations should still install `genie-react/hook` first.
