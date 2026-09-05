@@ -34,7 +34,7 @@ export function buildLlmsText(pages: readonly LlmsPageEntry[]): string {
 
 > ${appDescription}
 
-The genie-react package connects a running React or React Native app to a local hub. The @genie-react/cli package sends tool calls to it. Every page link below points at markdown; remove the .md suffix to read it as HTML.
+The genie-react package connects a running React or React Native app to a local hub. The @genie-react/cli package sends tool calls to it. Every page link below points at markdown. Use the site navigation to read the HTML pages.
 
 ## When to use Genie React
 
@@ -48,7 +48,7 @@ Use Genie React to inspect a running app:
 
 Use a local development build. Inspect source separately when runtime evidence leaves a question open.
 
-Run \`npx @genie-react/cli\` in the app folder. Follow [Getting started](${siteUrl}/docs/getting-started/index.md). Check [CLI output](${siteUrl}/docs/getting-started/cli-output.md) for JSON framing and release differences. Discover the running app with \`npx @genie-react/cli tools\`; use [Tools](${siteUrl}/docs/tools/index.md).
+Run \`npx @genie-react/cli\` in the app folder. Follow [Getting started](${siteUrl}/docs/getting-started.md). Check [CLI output](${siteUrl}/docs/getting-started/cli-output.md) for JSON framing and release differences. Discover the running app with \`npx @genie-react/cli tools\`; use [Tools](${siteUrl}/docs/tools.md).
 
 ## Machine-readable resources
 
