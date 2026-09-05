@@ -17,7 +17,7 @@ genie-react doctor --json
 genie-react status --sessions-only --json
 ```
 
-Machine output belongs on stdout; diagnostics belong on stderr. If doctor reports that this skill is stale, run `genie-react init` to refresh the bundled copy before continuing.
+CLI stdout is JSON by default in terminals and pipes; `--json` remains accepted. `--help` returns command metadata. Discover live input/output schemas with `tools <tool>`. Diagnostics are JSONL on stderr. If doctor reports that this skill is stale, run `genie-react init` to refresh the bundled copy before continuing.
 
 When several tabs are connected, name and pin the intended tab:
 
@@ -141,6 +141,8 @@ genie-react capture export cap_… --output .context/captures/before.json --sect
 The export verifies its embedded checksum before writing. Capture reads default to summaries; request `{"view":"full","sections":["react"]}` only when needed.
 
 ## Bound large output
+
+Results default to 262,144 bytes per JSON document or JSONL record. A `status:"truncated"` response is incomplete evidence: select fields, paginate the tool, or raise `--max-bytes`. Default batch and `--fields` output are JSONL; empty projected collections emit no rows. Use `batch --json` for one array. An explicit batch `--max-bytes` bounds the whole command. Hub output is lifecycle JSONL.
 
 Use tool limits first, then nested selection and a byte ceiling:
 

@@ -349,12 +349,16 @@ npx @genie-react/cli batch \
   '[{"tool":"react_get_tree","args":{"depth":2}},{"tool":"react_get_renders","args":{"limit":5}}]' --ndjson
 ```
 
-- `--json` writes one JSON value.
+- Commands return compact JSON by default, including `--help`, `--version`, setup receipts, and failures. `--json` remains accepted.
 - `batch` writes JSONL by default. `--ndjson` makes that explicit.
 - `batch --json` writes one JSON array.
-- CLI status, batch, and error objects include `schemaVersion`.
+- `hub` emits ready/reused/stopped JSONL. `--fields` emits projected JSONL rows; an empty collection emits zero bytes.
+- CLI-owned records include `schemaVersion`; tool results keep their advertised schema.
+- Results default to a 262,144-byte limit. Oversized results return `status:"truncated"`; use tool pagination, `--select`, or `--max-bytes` to retrieve the evidence you need. The default JSONL limit applies per record; an explicit batch `--max-bytes` caps the whole command.
 
-Use `--verbose` when startup hangs. It prints the CLI version, chosen connection, session, and time limits to stderr, so JSON stdout stays clean.
+Use `--verbose` when startup hangs. It emits structured JSONL diagnostics to stderr. Connection secrets are omitted.
+
+See the [JSON CLI migration and design](docs/json-cli.md) for compatibility details and research.
 
 ## Setup by platform
 
@@ -476,8 +480,7 @@ npx @genie-react/cli tools react.render
 npx @genie-react/cli tools react_render_causes
 ```
 
-Group listings show parameter names, enum values, bounds, and defaults in human output and compact
-JSON. Use `tools <tool>` for nested options and a runnable example. For named render/effect reports,
+Group listings expose parameter names, enum values, bounds, and defaults in JSON. Use `tools <tool>` for nested options and a runnable example. For named render/effect reports,
 use `component`; `react_component_cohort` uses that same key with exact matching by default. Tools
 that inspect or mutate one live instance use its returned `id`, which is distinct from a name filter.
 `react_get_renders` accepts `sort:"updates"` to rank update counts before applying the result limit.

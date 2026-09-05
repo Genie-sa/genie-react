@@ -2,6 +2,7 @@ import type { Dirent } from 'node:fs'
 import { access, readdir, readFile, unlink } from 'node:fs/promises'
 import { dirname, join, parse, relative } from 'node:path'
 import { GENIE_DISCOVERY_FILE, GENIE_WS_PATH } from 'genie-react/protocol'
+import { writeDiagnostic } from './cli-output'
 import { isRecord } from './guards'
 
 /** ESRCH/ERANGE mean the process is gone; EPERM means alive but owned by another user. */
@@ -121,8 +122,10 @@ async function readDiscoveryUpward(startDir: string): Promise<string | null> {
         if (discovery.pid === undefined || isPidAlive(discovery.pid)) return discovery.url
         // A SIGKILLed dev server/hub never cleans up; a dead pid means the URL is a lie — heal instead of failing weird.
         await unlink(path).catch(() => {})
-        process.stderr.write(
-          `genie-react: removed stale ${GENIE_DISCOVERY_FILE} (pid ${discovery.pid} is gone)\n`,
+        writeDiagnostic(
+          'stale-discovery',
+          'Removed a stale bridge discovery file because its process no longer exists.',
+          { file: GENIE_DISCOVERY_FILE, pid: discovery.pid },
         )
       }
     } catch {
@@ -187,8 +190,10 @@ async function readLiveDiscovery(file: string): Promise<BridgeDiscovery | null> 
   if (!discovery) return null
   if (discovery.pid === undefined || isPidAlive(discovery.pid)) return discovery
   await unlink(file).catch(() => {})
-  process.stderr.write(
-    `genie-react: removed stale ${relative(process.cwd(), file) || file} (pid ${discovery.pid} is gone)\n`,
+  writeDiagnostic(
+    'stale-discovery',
+    'Removed a stale bridge discovery file because its process no longer exists.',
+    { file: relative(process.cwd(), file) || file, pid: discovery.pid },
   )
   return null
 }

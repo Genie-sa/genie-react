@@ -12,6 +12,7 @@ describe('stdout failure diagnostics', () => {
       schemaVersion: '1.0',
       status: 'error',
       reason: 'output-failure',
+      userActionRequired: true,
       code: 'ENOSPC',
       operation: 'capture export',
       operationId: 'cap_123',

@@ -22,7 +22,7 @@ describe('capture output', () => {
       'capture "before fix" · stable at React commit 7 · 1/2 sections · incomplete · 12.3 KB · cap_123\n' +
         '  ! effects.react_effect_audit is unavailable',
     )
-    expect(renderResult('devtools_capture_read', artifact)).not.toContain('"sections"')
+    expect(JSON.parse(renderResult('devtools_capture_read', artifact))).toEqual(artifact)
     expect(summarizeCapture({ nope: true })).toBeNull()
   })
 
@@ -85,7 +85,7 @@ describe('capture output', () => {
         '    ! regression 20% exceeds maxRegressionPct 10%\n' +
         '  ! Capture cohorts span two runtimes.',
     )
-    expect(renderResult('devtools_capture_compare', comparison)).not.toContain('"metrics"')
+    expect(JSON.parse(renderResult('devtools_capture_compare', comparison))).toEqual(comparison)
     expect(summarizeCaptureComparison({ nope: true })).toBeNull()
   })
 })

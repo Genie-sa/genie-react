@@ -14,6 +14,7 @@ import {
   summarizeListOverrides,
   summarizeProfile,
   summarizeProfileSnapshot,
+  summarizeQueryGet,
   summarizeQueryList,
   summarizeRenders,
   summarizeRendersDiff,
@@ -365,78 +366,27 @@ describe('summarizeTree', () => {
 })
 
 describe('renderResult', () => {
-  it('returns terse output for a known tool with a valid shape', () => {
-    const out = renderResult('react_get_renders', rendersPayload)
-    expect(out).toContain('6 commits · 2 components')
-    expect(out).not.toBe(JSON.stringify(rendersPayload, null, 2))
-  })
-
-  it('prints compact machine JSON when json is true', () => {
-    expect(renderResult('react_get_renders', rendersPayload, true)).toBe(
+  it.each([undefined, false, true])('preserves raw result fields with json=%s', (json) => {
+    expect(renderResult('react_get_renders', rendersPayload, json)).toBe(
       JSON.stringify(rendersPayload),
     )
-  })
-
-  it('shows React hidden evidence without labelling retained instances frozen or unmounted', () => {
-    const cohort = {
-      query: { component: 'Row', exact: true },
-      status: 'mounted-idle',
-      matched: 1,
-      mountedIdle: 1,
-      instances: [
-        {
-          status: 'mounted-idle',
-          reactVisibility: 'hidden',
-          componentName: 'Row',
-          instance: { mountId: 'mount:1', mountGeneration: 1 },
-        },
-      ],
-    }
-    const human = renderResult('react_component_cohort', cohort)
-    expect(human).toContain('React hidden')
-    expect(human).not.toContain('frozen')
-    expect(renderResult('react_component_cohort', cohort, true)).toBe(JSON.stringify(cohort))
-  })
-
-  it('uses new React summaries only for human output', () => {
-    const cohort = {
-      query: { component: 'Row', exact: true },
-      status: 'absent',
-      matched: 0,
-      mountedUpdated: 0,
-      mountedIdle: 0,
-      unmounted: 0,
-      returned: 0,
-      omittedByLimit: 0,
-      instances: [],
-      coverage: { complete: true },
-    }
-    const effectEvents = {
-      tracking: true,
-      documentCommitId: 4,
-      observation: null,
-      events: [],
-      droppedEvents: 0,
-    }
-
-    expect(renderResult('react_component_cohort', cohort)).toContain('"Row" · absent')
-    expect(renderResult('react_effect_events', effectEvents)).toBe(
-      '0 effect schedules · document commit 4',
-    )
-    expect(renderResult('react_component_cohort', cohort, true)).toBe(JSON.stringify(cohort))
-    expect(renderResult('react_effect_events', effectEvents, true)).toBe(
-      JSON.stringify(effectEvents),
+    expect(renderResult('router_navigate', { ok: true, pathname: '/error' }, json)).toBe(
+      '{"ok":true,"pathname":"/error"}',
     )
   })
 
-  it('falls back to pretty JSON for an unknown tool', () => {
-    const payload = { a: 1, b: [2, 3] }
-    expect(renderResult('devtools_status', payload)).toBe(JSON.stringify(payload, null, 2))
+  it('bounds output by default without emitting partial JSON', () => {
+    const rendered = renderResult('query_get', { data: '界'.repeat(100_000) })
+    expect(Buffer.byteLength(`${rendered}\n`)).toBeLessThanOrEqual(262_144)
+    expect(JSON.parse(rendered)).toMatchObject({
+      status: 'truncated',
+      reason: 'max-bytes',
+      maxBytes: 262_144,
+    })
   })
 
-  it('falls back to pretty JSON when the summarizer returns null', () => {
-    const malformed = { summary: {}, components: 'nope' }
-    expect(renderResult('react_get_renders', malformed)).toBe(JSON.stringify(malformed, null, 2))
+  it('normalizes a missing tool result into valid JSON', () => {
+    expect(renderResult('unknown', undefined)).toBe('null')
   })
 })
 
@@ -757,7 +707,7 @@ describe('new summarizers', () => {
 
   it('bounds array-valued data previews instead of dumping the array', () => {
     const metrics = Array.from({ length: 50 }, (_, index) => ({ t: index, value: index * 2 }))
-    const outText = renderResult('query_get', {
+    const outText = summarizeQueryGet({
       queryHash: '["m"]',
       queryKey: ['m'],
       status: 'success',
@@ -766,11 +716,11 @@ describe('new summarizers', () => {
       data: metrics,
     })
     expect(outText).toContain('data: [50 items] first: {t, value}')
-    expect(outText.length).toBeLessThan(200)
+    expect(outText?.length).toBeLessThan(200)
   })
 
   it('shows bounded Query observer and subscriber evidence', () => {
-    const outText = renderResult('query_get', {
+    const outText = summarizeQueryGet({
       queryHash: '["greeting"]',
       queryKey: ['greeting'],
       status: 'success',
@@ -799,12 +749,12 @@ describe('new summarizers', () => {
     expect(outText).toContain('+2 observers omitted')
   })
 
-  it('small flat action results render as one line instead of pretty JSON', () => {
+  it('small flat action results preserve JSON fields', () => {
     expect(renderResult('router_navigate', { ok: true, pathname: '/error' })).toBe(
-      'ok=true · pathname="/error"',
+      '{"ok":true,"pathname":"/error"}',
     )
     expect(renderResult('react_clear_renders', { ok: true, tracking: true })).toBe(
-      'ok=true · tracking=true',
+      '{"ok":true,"tracking":true}',
     )
   })
 
@@ -999,29 +949,13 @@ describe('renderResult: --fields projection', () => {
 })
 
 describe('renderResult: filteredNote passthrough', () => {
-  it('appends a non-empty filteredNote after a summarizer output line', () => {
-    const result = {
-      commits: 1,
-      components: [],
-      filteredNote: '0 app effects (37 library effects hidden — set appOnly:false to include)',
-    }
-    const outText = renderResult('react_effect_audit', result)
-    expect(outText).toContain('37 library effects hidden')
-    expect(outText.split('\n').at(-1)).toBe(result.filteredNote)
-  })
-
-  it('appends a filteredNote on the small-flat-record path too', () => {
-    const outText = renderResult('react_reset_overrides', {
-      ok: true,
-      filteredNote: 'note here',
-    })
-    expect(outText.split('\n').at(-1)).toBe('note here')
-  })
-
-  it('never crashes on odd filteredNote shapes and never appends an empty note', () => {
-    expect(() => renderResult('x', { a: 1, filteredNote: 42 })).not.toThrow()
-    // Empty note: nothing is appended, so the small-record line is unchanged.
-    expect(renderResult('x', { a: 1, filteredNote: '' })).toBe('a=1 · filteredNote=""')
+  it.each([
+    '37 library effects hidden',
+    '',
+    42,
+  ])('keeps filteredNote=%s as data without appending prose', (filteredNote) => {
+    const result = { ok: true, filteredNote }
+    expect(renderResult('react_reset_overrides', result)).toBe(JSON.stringify(result))
   })
 })
 
@@ -1051,7 +985,7 @@ describe('parseBatchItems', () => {
       error: expect.stringContaining('non-empty "tool"'),
     })
     expect(parseBatchItems('[{"tool":"a","input":{"x":1}}]')).toEqual({
-      error: 'Batch item 0 contains unknown key "input". Use "args" for tool arguments.',
+      error: 'Batch item 0 contains an unknown key. Use only "tool" and "args".',
     })
   })
 })

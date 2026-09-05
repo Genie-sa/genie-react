@@ -122,7 +122,7 @@ createRoot(document.getElementById('root')).render(h(App))
     })
     return JSON.parse(result.stdout)
   }
-  const call = (name, args) => cli(['call', name, JSON.stringify(args), '--json'])
+  const call = (name, args) => cli(['call', name, JSON.stringify(args)])
   browser = await chromium.launch({ headless: true })
   const page = await browser.newPage()
   const errors = []

@@ -257,12 +257,15 @@ function verifyCliBin(projectDirectory, cliDirectory, cliManifest) {
     timeout: 10_000,
     maxBuffer: 64_000,
   })
+  const helpValue = JSON.parse(help.stdout)
   if (
     help.stderr !== '' ||
     help.stdout.includes('\u001b') ||
     !help.stdout.endsWith('\n') ||
-    !help.stdout.includes('Usage: npx @genie-react/cli <command> [options]') ||
-    !help.stdout.includes('--version')
+    helpValue.status !== 'ok' ||
+    helpValue.schemaVersion !== '1.0' ||
+    !helpValue.commands?.some((command) => command.name === 'call') ||
+    helpValue.options?.version?.type !== 'boolean'
   ) {
     throw new Error('Installed genie-react --help output does not match its public contract')
   }
@@ -273,7 +276,11 @@ function verifyCliBin(projectDirectory, cliDirectory, cliManifest) {
     timeout: 10_000,
     maxBuffer: 64_000,
   })
-  if (version.stderr !== '' || version.stdout !== `${cliManifest.version}\n`) {
+  if (
+    version.stderr !== '' ||
+    version.stdout !==
+      `${JSON.stringify({ schemaVersion: '1.0', status: 'ok', version: cliManifest.version })}\n`
+  ) {
     throw new Error(
       `Installed genie-react --version must print ${cliManifest.version}, got ${JSON.stringify(version.stdout)}`,
     )
