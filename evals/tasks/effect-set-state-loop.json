@@ -1,0 +1,49 @@
+{
+  "id": "effect-set-state-loop",
+  "split": "dev",
+  "mode": "diagnose",
+  "screen": "reports",
+  "prompt": "The Reports screen keeps the CPU busy and the reports table seems to re-render nonstop even when I'm idle. Find the root cause.",
+  "truth": {
+    "components": ["ReportTable"],
+    "files": ["src/screens/reports/ReportsScreen.tsx"],
+    "causePatterns": ["effect", "criteria|object", "@identity"],
+    "summary": "ReportTable builds a new `criteria` object every render and lists it as a useEffect dependency; the effect calls setRows with a new array, which re-renders and re-runs the effect forever."
+  },
+  "referenceAnswer": {
+    "component": "ReportTable",
+    "cause": "The useEffect depends on a criteria object recreated every render, and it calls setRows, so render -> effect -> setState loops forever.",
+    "file": "src/screens/reports/ReportsScreen.tsx"
+  },
+  "acceptedAnswers": [
+    {
+      "component": "ReportTable (useEffect)",
+      "cause": "ReportTable builds the criteria object inline and lists it as a useEffect dependency, so the effect's setRows re-renders and re-runs it.",
+      "file": "src/screens/reports/ReportsScreen.tsx"
+    }
+  ],
+  "decoyAnswers": [
+    {
+      "component": "ReportsScreen",
+      "cause": "The region select onChange handler fires continuously.",
+      "file": "src/screens/reports/ReportsScreen.tsx"
+    },
+    {
+      "component": "ReportTable",
+      "cause": "The useEffect is missing its dependency array, so it runs after every render and calls setRows in a loop.",
+      "file": "src/screens/reports/ReportsScreen.tsx"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/screens/reports/ReportsScreen.tsx",
+      "find": "import { useEffect, useState } from 'react'",
+      "replace": "import { useMemo, useState } from 'react'"
+    },
+    {
+      "file": "src/screens/reports/ReportsScreen.tsx",
+      "find": "  const [rows, setRows] = useState<Report[]>([])\n  const criteria: ReportCriteria = { region, includeArchived: false }\n\n  useEffect(() => {\n    setRows(filterReports(criteria))\n  }, [criteria])\n",
+      "replace": "  const rows = useMemo(() => filterReports({ region, includeArchived: false }), [region])\n"
+    }
+  ]
+}

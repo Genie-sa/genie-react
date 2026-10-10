@@ -28,6 +28,16 @@
       "trailingCommas": "all"
     }
   },
+  "overrides": [
+    {
+      "includes": ["evals/fixture-app/src/**"],
+      "linter": {
+        "rules": {
+          "correctness": { "useExhaustiveDependencies": "off" }
+        }
+      }
+    }
+  ],
   "assist": {
     "actions": {
       "source": {

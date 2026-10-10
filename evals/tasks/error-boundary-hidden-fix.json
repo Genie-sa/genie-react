@@ -1,0 +1,50 @@
+{
+  "id": "error-boundary-hidden-fix",
+  "split": "held-out",
+  "mode": "fix",
+  "screen": "account",
+  "prompt": "On the Account screen the Profile card is completely empty: no error message, no spinner, nothing. Find out what's going on and fix it so the profile shows up.",
+  "truth": {
+    "components": ["ProfileDetails", "CardBody"],
+    "files": ["src/screens/account/ProfileDetails.tsx"],
+    "causePatterns": [
+      "address|city",
+      "TypeError|throw|crash|exception|error",
+      "boundary|swallow|fallback|catch"
+    ],
+    "summary": "ProfileDetails throws reading address.city because the profile has no address; CardBody catches it and renders null."
+  },
+  "referenceAnswer": {
+    "component": "ProfileDetails",
+    "cause": "formatLocation reads address.city on a profile without an address, throwing a TypeError that CardBody catches and replaces with null.",
+    "file": "src/screens/account/ProfileDetails.tsx"
+  },
+  "decoyAnswers": [
+    {
+      "component": "CardBody",
+      "cause": "The boundary fallback is null.",
+      "file": "src/screens/account/CardBody.tsx"
+    },
+    {
+      "component": "ProfileDetails",
+      "cause": "profile is undefined because the query returns null, so the error boundary renders nothing.",
+      "file": "src/screens/account/ProfileDetails.tsx"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/screens/account/ProfileDetails.tsx",
+      "find": "function formatLocation(profile: Profile): string {\n  const address = profile.address as NonNullable<Profile['address']>\n  return `${address.city}, ${address.country}`\n}",
+      "replace": "function formatLocation({ address }: Profile): string {\n  return address ? `${address.city}, ${address.country}` : 'Not provided'\n}"
+    }
+  ],
+  "probe": {
+    "steps": [],
+    "settleMs": 1500,
+    "noCaughtErrors": true,
+    "text": {
+      "selector": "main",
+      "includes": "Dana Whitfield"
+    }
+  }
+}
