@@ -160,13 +160,13 @@
     "@babel/core": "^7.29.7",
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-router": "^1.170.0",
-    "@testing-library/react": "^16.3.2",
+    "@testing-library/react": "^16.3.3",
     "@types/babel__core": "^7.20.5",
     "@types/react": "^19.2.17",
     "@types/ws": "^8.18.1",
     "jsdom": "^28.1.0",
     "react": "^19.2.7",
     "react-freeze": "1.0.4",
-    "vite": "^8.1.0"
+    "vite": "^8.3.3"
   }
 }

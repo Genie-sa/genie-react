@@ -49,29 +49,29 @@ describe('measurement environment', () => {
     expect(getMeasurementEnvironment().bundle).toBe('unknown')
   })
 
-  it.each([
-    reactGetRendersContract,
-    reactProfileReportContract,
-  ])('preserves renderer metadata in the $name wire contract', async (contract) => {
-    mocks.renderers.set(1, { bundleType: 0 } as ReactRenderer)
-    const tool = reactCollector().tools?.find(
-      (candidate) => candidate.contract.name === contract.name,
-    )
-    if (!tool) throw new Error(`Missing ${contract.name}`)
-    const result = contract.output.parse(
-      await tool.handler(contract.input.parse({}) as never, {
-        pushSnapshot() {},
-        pushEvent() {},
-        refreshTools() {},
-        markActivity() {},
-      }),
-    )
-    expect(result).toMatchObject({
-      bundle: 'production',
-      timingsBundleDependent: true,
-      countsScope: 'observed-run',
-    })
-  })
+  it.each([reactGetRendersContract, reactProfileReportContract])(
+    'preserves renderer metadata in the $name wire contract',
+    async (contract) => {
+      mocks.renderers.set(1, { bundleType: 0 } as ReactRenderer)
+      const tool = reactCollector().tools?.find(
+        (candidate) => candidate.contract.name === contract.name,
+      )
+      if (!tool) throw new Error(`Missing ${contract.name}`)
+      const result = contract.output.parse(
+        await tool.handler(contract.input.parse({}) as never, {
+          pushSnapshot() {},
+          pushEvent() {},
+          refreshTools() {},
+          markActivity() {},
+        }),
+      )
+      expect(result).toMatchObject({
+        bundle: 'production',
+        timingsBundleDependent: true,
+        countsScope: 'observed-run',
+      })
+    },
+  )
 })
 
 it('keeps the original bundle metadata on later cursor pages', async () => {

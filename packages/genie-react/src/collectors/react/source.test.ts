@@ -227,18 +227,18 @@ describe('classifyFiber', () => {
     expect(isLibrary).toBe(false)
   })
 
-  it.each([
-    '/node_modules/provider/index.tsx',
-    '/src/Parent.tsx',
-  ])('does not borrow ancestor ownership from %s when the target has no evidence', async (file) => {
-    const parent = asFiber({ _debugSource: at(file, 200) })
-    const child = asFiber({ return: parent })
-    await expect(classifyFiber(child)).resolves.toEqual({
-      source: null,
-      ownership: 'unknown',
-      isLibrary: false,
-    })
-  })
+  it.each(['/node_modules/provider/index.tsx', '/src/Parent.tsx'])(
+    'does not borrow ancestor ownership from %s when the target has no evidence',
+    async (file) => {
+      const parent = asFiber({ _debugSource: at(file, 200) })
+      const child = asFiber({ return: parent })
+      await expect(classifyFiber(child)).resolves.toEqual({
+        source: null,
+        ownership: 'unknown',
+        isLibrary: false,
+      })
+    },
+  )
 
   it('recovers the target app body from an owned child when its own source is absent', async () => {
     const provider = asFiber({ _debugSource: at('/node_modules/provider/index.tsx', 200) })

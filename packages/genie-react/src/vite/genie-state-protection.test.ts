@@ -1,5 +1,4 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer, type InlineConfig, type ViteDevServer } from 'vite'
@@ -66,7 +65,9 @@ describe('genie() keeps .genie out of the dev server', () => {
       server: { host: '127.0.0.1', port: 0, ...config.server },
     })
     await server.listen()
-    const { port } = server.httpServer?.address() as AddressInfo
+    const address = server.httpServer?.address()
+    if (!address || typeof address === 'string') throw new Error('Vite did not bind a TCP port')
+    const { port } = address
     await expect
       .poll(() => readFile(join(root, '.genie', 'bridge.json'), 'utf8').catch(() => ''))
       .toContain(`:${port}/`)
@@ -84,30 +85,30 @@ describe('genie() keeps .genie out of the dev server', () => {
     expect(server?.config.server.fs.deny).toEqual(['secrets/**', '**/.genie/**'])
   })
 
-  it.each([
-    false,
-    true,
-  ])('answers 404 for every .genie URL form (fs.strict: %s)', async (strict) => {
-    const base = await start({ server: { fs: { strict } } })
-    const paths = [
-      '/.genie/bridge.json',
-      '/.genie/state.json',
-      '/.genie/state.json?raw',
-      '/.genie/state.json?import',
-      '/%2egenie/state.json',
-      '/./.genie/state.json',
-      `/@fs${root}/.genie/state.json`,
-      `/@fs${root}/.genie/state.json?raw`,
-    ]
-    for (const path of paths) {
-      const response = await fetch(`${base}${path}`)
-      const body = await response.text()
-      expect({ path, status: response.status, leaked: body.includes(SECRET) }).toEqual({
-        path,
-        status: 404,
-        leaked: false,
-      })
-    }
-    expect((await fetch(`${base}/`)).status).toBe(200)
-  })
+  it.each([false, true])(
+    'answers 404 for every .genie URL form (fs.strict: %s)',
+    async (strict) => {
+      const base = await start({ server: { fs: { strict } } })
+      const paths = [
+        '/.genie/bridge.json',
+        '/.genie/state.json',
+        '/.genie/state.json?raw',
+        '/.genie/state.json?import',
+        '/%2egenie/state.json',
+        '/./.genie/state.json',
+        `/@fs${root}/.genie/state.json`,
+        `/@fs${root}/.genie/state.json?raw`,
+      ]
+      for (const path of paths) {
+        const response = await fetch(`${base}${path}`)
+        const body = await response.text()
+        expect({ path, status: response.status, leaked: body.includes(SECRET) }).toEqual({
+          path,
+          status: 404,
+          leaked: false,
+        })
+      }
+      expect((await fetch(`${base}/`)).status).toBe(200)
+    },
+  )
 })

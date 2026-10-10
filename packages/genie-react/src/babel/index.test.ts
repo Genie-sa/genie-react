@@ -95,40 +95,40 @@ describe('development memo names', () => {
 })
 
 describe('Expo preset integration', () => {
-  it.each([
-    true,
-    false,
-  ])('preserves lexical memo names only in a Metro development build: %s', (isDev) => {
-    const projectRoot = fileURLToPath(new URL('../../../../examples/expo-demo/', import.meta.url))
-    const expoRequire = createRequire(`${projectRoot}/package.json`)
-    const caller = { name: 'metro', isDev, isHMREnabled: true, platform: 'ios', projectRoot }
-    const result = transformSync(
-      `
+  it.each([true, false])(
+    'preserves lexical memo names only in a Metro development build: %s',
+    (isDev) => {
+      const projectRoot = fileURLToPath(new URL('../../../../examples/expo-demo/', import.meta.url))
+      const expoRequire = createRequire(`${projectRoot}/package.json`)
+      const caller = { name: 'metro', isDev, isHMREnabled: true, platform: 'ios', projectRoot }
+      const result = transformSync(
+        `
       import { memo } from 'react'
       export const FriendListRow = memo(({ value }: { value: number }) => value)
       export const NamedRow = memo(function InnerRow() { return null })
       export const CustomRow = memo(() => null)
       CustomRow.displayName = 'ExplicitRow'
     `,
-      {
-        configFile: false,
-        babelrc: false,
-        filename: `${projectRoot}/row.tsx`,
-        envName: isDev ? 'development' : 'production',
-        caller,
-        plugins: [genieComponentNames],
-        presets: [expoRequire.resolve('babel-preset-expo')],
-      },
-    )
-    if (!result?.code) throw new Error('Expo preset produced no module')
-    const exported: Record<string, { displayName?: string; type: { name: string } }> = {}
-    new Function('require', 'exports', '$RefreshReg$', result.code)(
-      createRequire(import.meta.url),
-      exported,
-      () => {},
-    )
-    expect(exported.FriendListRow?.displayName).toBe(isDev ? 'FriendListRow' : undefined)
-    expect(exported.NamedRow?.type.name).toBe('InnerRow')
-    expect(exported.CustomRow?.displayName).toBe('ExplicitRow')
-  })
+        {
+          configFile: false,
+          babelrc: false,
+          filename: `${projectRoot}/row.tsx`,
+          envName: isDev ? 'development' : 'production',
+          caller,
+          plugins: [genieComponentNames],
+          presets: [expoRequire.resolve('babel-preset-expo')],
+        },
+      )
+      if (!result?.code) throw new Error('Expo preset produced no module')
+      const exported: Record<string, { displayName?: string; type: { name: string } }> = {}
+      new Function('require', 'exports', '$RefreshReg$', result.code)(
+        createRequire(import.meta.url),
+        exported,
+        () => {},
+      )
+      expect(exported.FriendListRow?.displayName).toBe(isDev ? 'FriendListRow' : undefined)
+      expect(exported.NamedRow?.type.name).toBe('InnerRow')
+      expect(exported.CustomRow?.displayName).toBe('ExplicitRow')
+    },
+  )
 })

@@ -6,14 +6,15 @@ describe('sitePages', () => {
     expect(sitePages.map((page) => page.path)).toEqual(['/about', '/contact', '/privacy'])
   })
 
-  it.each(
-    sitePages.map((page) => [page.path, page]),
-  )('%s has at least 500 characters of content', (_path, page) => {
-    const body = page.sections
-      .flatMap((section) => [section.heading, ...section.paragraphs])
-      .join(' ')
-    expect(body.length).toBeGreaterThanOrEqual(500)
-  })
+  it.each(sitePages.map((page) => [page.path, page]))(
+    '%s has at least 500 characters of content',
+    (_path, page) => {
+      const body = page.sections
+        .flatMap((section) => [section.heading, ...section.paragraphs])
+        .join(' ')
+      expect(body.length).toBeGreaterThanOrEqual(500)
+    },
+  )
 })
 
 describe('sitePageMarkdown', () => {

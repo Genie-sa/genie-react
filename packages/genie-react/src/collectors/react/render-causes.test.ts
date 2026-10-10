@@ -313,47 +313,45 @@ describe('current Query notification policy compatibility', () => {
     { policy: [], before: 1, after: 2, expected: [] },
     { policy: 'all', before: 1, after: 2, expected: ['data', 'dataUpdatedAt'] },
     { policy: ['refetch'], before: 1, after: 2, expected: [] },
-  ])('checks $policy against Query field equality ($before → $after)', ({
-    policy,
-    before,
-    after,
-    expected,
-  }) => {
-    const causes = policyCauses(
-      { queryHash: 'policy', notifyOnChangeProps: policy },
-      { ...queryResult(1), data: before },
-      { ...queryResult(2), data: after },
-    )
-    if (expected.length === 0) expect(causes).toEqual([])
-    else
+  ])(
+    'checks $policy against Query field equality ($before → $after)',
+    ({ policy, before, after, expected }) => {
+      const causes = policyCauses(
+        { queryHash: 'policy', notifyOnChangeProps: policy },
+        { ...queryResult(1), data: before },
+        { ...queryResult(2), data: after },
+      )
+      if (expected.length === 0) expect(causes).toEqual([])
+      else
+        expect(causes).toMatchObject([
+          {
+            kind: 'query',
+            evidence: 'inferred',
+            notificationPolicyCheck: {
+              status: 'matched',
+              basis: 'current-effective-policy',
+              changedSubscribedFields: expected,
+            },
+          },
+        ])
+    },
+  )
+
+  it.each([true, () => false])(
+    'includes implicit error subscriptions for throwOnError=%s',
+    (throwOnError) => {
+      const causes = policyCauses(
+        { queryHash: 'policy', notifyOnChangeProps: ['data'], throwOnError },
+        { ...queryResult(1), data: 1, error: null },
+        { ...queryResult(2), data: 1, error: new Error('query failed') },
+      )
       expect(causes).toMatchObject([
         {
-          kind: 'query',
-          evidence: 'inferred',
-          notificationPolicyCheck: {
-            status: 'matched',
-            basis: 'current-effective-policy',
-            changedSubscribedFields: expected,
-          },
+          notificationPolicyCheck: { status: 'matched', changedSubscribedFields: ['error'] },
         },
       ])
-  })
-
-  it.each([
-    true,
-    () => false,
-  ])('includes implicit error subscriptions for throwOnError=%s', (throwOnError) => {
-    const causes = policyCauses(
-      { queryHash: 'policy', notifyOnChangeProps: ['data'], throwOnError },
-      { ...queryResult(1), data: 1, error: null },
-      { ...queryResult(2), data: 1, error: new Error('query failed') },
-    )
-    expect(causes).toMatchObject([
-      {
-        notificationPolicyCheck: { status: 'matched', changedSubscribedFields: ['error'] },
-      },
-    ])
-  })
+    },
+  )
 
   it.each([
     { label: 'auto-tracked', policy: undefined },

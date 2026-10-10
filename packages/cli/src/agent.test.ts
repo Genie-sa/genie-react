@@ -425,14 +425,13 @@ describe('renderResult: --fields projection', () => {
 })
 
 describe('renderResult: filteredNote passthrough', () => {
-  it.each([
-    '37 library effects hidden',
-    '',
-    42,
-  ])('keeps filteredNote=%s as data without appending prose', (filteredNote) => {
-    const result = { ok: true, filteredNote }
-    expect(renderResult('react_reset_overrides', result)).toBe(JSON.stringify(result))
-  })
+  it.each(['37 library effects hidden', '', 42])(
+    'keeps filteredNote=%s as data without appending prose',
+    (filteredNote) => {
+      const result = { ok: true, filteredNote }
+      expect(renderResult('react_reset_overrides', result)).toBe(JSON.stringify(result))
+    },
+  )
 })
 
 describe('parseBatchItems', () => {

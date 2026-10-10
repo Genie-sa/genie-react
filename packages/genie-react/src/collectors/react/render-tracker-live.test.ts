@@ -198,25 +198,26 @@ describe('render tracking against a live React tree', () => {
   it.each([
     { bumps: 0, returnPointer: 'the committed root' },
     { bumps: 1, returnPointer: 'the alternate of a bailed-out root' },
-  ])('keeps descendants of an unmounted observation root targeted when they return to $returnPointer', async ({
-    bumps,
-  }) => {
-    view = render(createElement(TargetToggle))
-    const section = view.container.querySelector('section')
-    const targetRoot = section && getFiberFromHostInstance(section)?.return
-    if (!targetRoot) throw new Error('TargetRoot has no fiber')
-    clearRenders({
-      roots: [registerFiber(targetRoot)],
-      lifecycle: { bufferLimit: 2, targetReserve: 2 },
-    })
+  ])(
+    'keeps descendants of an unmounted observation root targeted when they return to $returnPointer',
+    async ({ bumps }) => {
+      view = render(createElement(TargetToggle))
+      const section = view.container.querySelector('section')
+      const targetRoot = section && getFiberFromHostInstance(section)?.return
+      if (!targetRoot) throw new Error('TargetRoot has no fiber')
+      clearRenders({
+        roots: [registerFiber(targetRoot)],
+        lifecycle: { bufferLimit: 2, targetReserve: 2 },
+      })
 
-    for (let bump = 0; bump < bumps; bump += 1) fireEvent.click(view.getByText('bump'))
-    fireEvent.click(view.getByText('hide'))
+      for (let bump = 0; bump < bumps; bump += 1) fireEvent.click(view.getByText('bump'))
+      fireEvent.click(view.getByText('hide'))
 
-    const [unmounted] = (await leafCohort()).instances
-    expect(unmounted?.renderingState).toBe('unmounted')
-    expect(getRenderTrackingCoverage('measurement').targeted?.complete).toBe(true)
-  })
+      const [unmounted] = (await leafCohort()).instances
+      expect(unmounted?.renderingState).toBe('unmounted')
+      expect(getRenderTrackingCoverage('measurement').targeted?.complete).toBe(true)
+    },
+  )
 
   it('forgets the mounted identity of an instance that unmounts while collection is paused', async () => {
     observe()
