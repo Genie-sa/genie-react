@@ -37,11 +37,11 @@
     "release": "pnpm build && changeset publish"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.1",
+    "@biomejs/biome": "^2.5.15",
     "@changesets/cli": "^2.31.0",
-    "@types/node": "^26.0.1",
-    "pkg-pr-new": "^0.0.75",
-    "playwright": "^1.61.1",
+    "@types/node": "^26.6.4",
+    "pkg-pr-new": "^0.0.91",
+    "playwright": "^1.63.0",
     "tsdown": "^0.22.3",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"

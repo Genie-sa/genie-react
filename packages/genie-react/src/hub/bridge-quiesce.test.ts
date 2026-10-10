@@ -106,17 +106,17 @@ describe('react_quiesce', () => {
     expect(checks()).toBeGreaterThanOrEqual(5)
   })
 
-  it.each([
-    'unavailable (hook missing)',
-    'unexpected',
-  ])('rejects unsupported collection %s', async (collection) => {
-    await app(() => ({ collection }))
-    expect((await invoke({ idleMs: 100 })).result).toMatchObject({
-      ok: false,
-      outcome: 'unavailable',
-      renderCollection: collection,
-    })
-  })
+  it.each(['unavailable (hook missing)', 'unexpected'])(
+    'rejects unsupported collection %s',
+    async (collection) => {
+      await app(() => ({ collection }))
+      expect((await invoke({ idleMs: 100 })).result).toMatchObject({
+        ok: false,
+        outcome: 'unavailable',
+        renderCollection: collection,
+      })
+    },
+  )
 
   it('retains historical degradation while proving a fresh idle window', async () => {
     const collection = 'degraded (hook installed late)'
@@ -154,12 +154,10 @@ describe('react_quiesce', () => {
     })
   })
 
-  it.each([
-    { idleMs: 0 },
-    { timeoutMs: 0 },
-    { timeoutMs: 60001 },
-    { quietMs: 500 },
-  ])('rejects invalid input %j', async (args) => {
-    expect(await invoke(args)).toMatchObject({ ok: false, errorCode: 'invalid-args' })
-  })
+  it.each([{ idleMs: 0 }, { timeoutMs: 0 }, { timeoutMs: 60001 }, { quietMs: 500 }])(
+    'rejects invalid input %j',
+    async (args) => {
+      expect(await invoke(args)).toMatchObject({ ok: false, errorCode: 'invalid-args' })
+    },
+  )
 })

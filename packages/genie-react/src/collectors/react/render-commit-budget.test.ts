@@ -45,28 +45,27 @@ describe('commit analysis budget', () => {
     expect(budget.targetWork.deadlineAt).toBe(33)
   })
 
-  it.each([
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-    Number.NEGATIVE_INFINITY,
-  ])('falls back to the default target reserve for non-finite internal duration %s', (timeLimitMs) => {
-    const budget = createCommitAnalysisBudget(250, { now: () => 0 }, { timeLimitMs })
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'falls back to the default target reserve for non-finite internal duration %s',
+    (timeLimitMs) => {
+      const budget = createCommitAnalysisBudget(250, { now: () => 0 }, { timeLimitMs })
 
-    expect(budget.work.deadlineAt).toBe(8)
-    expect(budget.targetWork.deadlineAt).toBe(12)
-  })
+      expect(budget.work.deadlineAt).toBe(8)
+      expect(budget.targetWork.deadlineAt).toBe(12)
+    },
+  )
 
   it.each([
     { timeLimitMs: 0, expectedDeadline: 8.1 },
     { timeLimitMs: -5, expectedDeadline: 8.1 },
-  ])('clamps finite target reserve $timeLimitMs to a positive duration', ({
-    timeLimitMs,
-    expectedDeadline,
-  }) => {
-    const budget = createCommitAnalysisBudget(250, { now: () => 0 }, { timeLimitMs })
+  ])(
+    'clamps finite target reserve $timeLimitMs to a positive duration',
+    ({ timeLimitMs, expectedDeadline }) => {
+      const budget = createCommitAnalysisBudget(250, { now: () => 0 }, { timeLimitMs })
 
-    expect(budget.targetWork.deadlineAt).toBeCloseTo(expectedDeadline)
-  })
+      expect(budget.targetWork.deadlineAt).toBeCloseTo(expectedDeadline)
+    },
+  )
 
   it.each([
     { timeLimitMs: Number.NaN, expectedGeneralDeadline: 8 },
@@ -74,15 +73,15 @@ describe('commit analysis budget', () => {
     { timeLimitMs: Number.NEGATIVE_INFINITY, expectedGeneralDeadline: 8 },
     { timeLimitMs: 0, expectedGeneralDeadline: 0.1 },
     { timeLimitMs: -5, expectedGeneralDeadline: 0.1 },
-  ])('adds the reserve after normalized general duration $timeLimitMs', ({
-    timeLimitMs,
-    expectedGeneralDeadline,
-  }) => {
-    const budget = createCommitAnalysisBudget(250, { timeLimitMs, now: () => 0 })
+  ])(
+    'adds the reserve after normalized general duration $timeLimitMs',
+    ({ timeLimitMs, expectedGeneralDeadline }) => {
+      const budget = createCommitAnalysisBudget(250, { timeLimitMs, now: () => 0 })
 
-    expect(budget.work.deadlineAt).toBeCloseTo(expectedGeneralDeadline)
-    expect(budget.targetWork.deadlineAt).toBeCloseTo(expectedGeneralDeadline + 4)
-  })
+      expect(budget.work.deadlineAt).toBeCloseTo(expectedGeneralDeadline)
+      expect(budget.targetWork.deadlineAt).toBeCloseTo(expectedGeneralDeadline + 4)
+    },
+  )
 
   it('uses a target-only injected clock as the shared clock', () => {
     const now = () => 5

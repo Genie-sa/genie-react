@@ -68,11 +68,12 @@ describe('task suite', async () => {
     ).toBe(true)
   })
 
-  it.each(
-    tasks.map((task) => [task.id, task] as const),
-  )('%s matches the fixture and its graders', async (_id, task) => {
-    expect(await checkTaskAgainstFixture(task, FIXTURE_DIR)).toEqual([])
-  })
+  it.each(tasks.map((task) => [task.id, task] as const))(
+    '%s matches the fixture and its graders',
+    async (_id, task) => {
+      expect(await checkTaskAgainstFixture(task, FIXTURE_DIR)).toEqual([])
+    },
+  )
 
   it('reports tasks that drift from the fixture', async () => {
     const task = { ...validTask, screen: 'missing', path: 'tasks/example-task.json' } as const

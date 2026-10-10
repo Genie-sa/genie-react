@@ -98,20 +98,20 @@ describe('render report evidence', () => {
     })
   })
 
-  it.each([
-    'shadow-render-disabled',
-    'inspection-truncated',
-  ] as const)('preserves the explicit %s reason in agent-facing provenance', (status) => {
-    expect(
-      withReportEvidence([externalCause(0)], null, { status, hooks: null }, 1)[0],
-    ).toMatchObject({
-      hookProvenance: {
-        status: 'unavailable',
-        evidence: 'unknown',
-        reason: status,
-      },
-    })
-  })
+  it.each(['shadow-render-disabled', 'inspection-truncated'] as const)(
+    'preserves the explicit %s reason in agent-facing provenance',
+    (status) => {
+      expect(
+        withReportEvidence([externalCause(0)], null, { status, hooks: null }, 1)[0],
+      ).toMatchObject({
+        hookProvenance: {
+          status: 'unavailable',
+          evidence: 'unknown',
+          reason: status,
+        },
+      })
+    },
+  )
 
   it('uses only count-aligned app hook evidence for appOnly ownership', () => {
     const resolution: ExternalStoreSourceResolution = {

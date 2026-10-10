@@ -204,14 +204,14 @@ describe('render cursor lifecycle and bounded retention', () => {
     ).rejects.toThrow('cleared')
   })
 
-  it.each([
-    'invalid',
-    '00000000-0000-4000-8000-000000000000:1',
-  ])('rejects an invalid or unknown cursor', async (cursor) => {
-    await expect(getRendersMeasurement({ sort: 'renders', limit: 1, cursor })).rejects.toThrow(
-      'Run react_get_renders without cursor',
-    )
-  })
+  it.each(['invalid', '00000000-0000-4000-8000-000000000000:1'])(
+    'rejects an invalid or unknown cursor',
+    async (cursor) => {
+      await expect(getRendersMeasurement({ sort: 'renders', limit: 1, cursor })).rejects.toThrow(
+        'Run react_get_renders without cursor',
+      )
+    },
+  )
 
   it('allows 5000 candidates and rejects overflow before inspecting sources', async () => {
     vi.useFakeTimers()

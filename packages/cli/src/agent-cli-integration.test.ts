@@ -455,19 +455,22 @@ describe('agent CLI integration', () => {
     ['call', (url: string) => runCall('query_rows', '{}', { url, waitMs: 12_000 })],
     ['batch', (url: string) => runBatch('[{"tool":"query_rows"}]', { url, waitMs: 12_000 })],
     ['tools', (url: string) => runTools(undefined, { url, waitMs: 12_000 })],
-  ] as const)('surfaces a refused token from %s at once instead of waiting for an app', async (_command, run) => {
-    const { url } = await fixture()
-    vi.stubEnv('GENIE_BRIDGE_TOKEN', 'stale-token')
-    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+  ] as const)(
+    'surfaces a refused token from %s at once instead of waiting for an app',
+    async (_command, run) => {
+      const { url } = await fixture()
+      vi.stubEnv('GENIE_BRIDGE_TOKEN', 'stale-token')
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+      vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 
-    const startedAt = Date.now()
-    expect(await run(url)).toBe(1)
-    expect(Date.now() - startedAt).toBeLessThan(3_000)
-    const output = stdout.mock.calls.flat().join('')
-    expect(output).toContain('rejected the agent token')
-    expect(output).not.toContain('not_connected')
-  })
+      const startedAt = Date.now()
+      expect(await run(url)).toBe(1)
+      expect(Date.now() - startedAt).toBeLessThan(3_000)
+      const output = stdout.mock.calls.flat().join('')
+      expect(output).toContain('rejected the agent token')
+      expect(output).not.toContain('not_connected')
+    },
+  )
 
   it('keeps upstream instructions and unsafe session values out of trusted errors and diagnostics', async () => {
     const session = 'secret-session-$(steal-secret)'
@@ -502,92 +505,122 @@ describe('agent CLI integration', () => {
     )
   })
 
-  it.each([
-    undefined,
-    true,
-  ])('returns a schema-versioned JSON failure for an unknown tool with json=%s', async (json) => {
-    const bridge = createStandaloneBridge({ agentToken: AGENT_TOKEN })
-    cleanups.push(() => bridge.close())
-    const { url } = await bridge.listen()
+  it.each([undefined, true])(
+    'returns a schema-versioned JSON failure for an unknown tool with json=%s',
+    async (json) => {
+      const bridge = createStandaloneBridge({ agentToken: AGENT_TOKEN })
+      cleanups.push(() => bridge.close())
+      const { url } = await bridge.listen()
 
-    const app = new WebSocket(`${url}?role=app`)
-    cleanups.push(() => app.close())
-    await new Promise<void>((resolve, reject) => {
-      app.once('open', () => resolve())
-      app.once('error', reject)
-    })
-    app.send(
-      encodeMessage({
-        kind: 'app/hello',
-        protocol: 1,
-        sessionId: 'session-1',
-        app: { name: 'demo' },
-        capabilities: ['query'],
-        tools: [
-          {
-            name: 'query_list',
-            title: 'List queries',
-            description: 'List Query cache entries.',
-            group: 'query',
+      const app = new WebSocket(`${url}?role=app`)
+      cleanups.push(() => app.close())
+      await new Promise<void>((resolve, reject) => {
+        app.once('open', () => resolve())
+        app.once('error', reject)
+      })
+      app.send(
+        encodeMessage({
+          kind: 'app/hello',
+          protocol: 1,
+          sessionId: 'session-1',
+          app: { name: 'demo' },
+          capabilities: ['query'],
+          tools: [
+            {
+              name: 'query_list',
+              title: 'List queries',
+              description: 'List Query cache entries.',
+              group: 'query',
+            },
+          ],
+        }),
+      )
+      app.send(encodeMessage({ kind: 'app/ready', sessionId: 'session-1' }))
+      await waitUntil(() => bridge.bridge.getStatus().ready)
+
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+      const exitCode = await runTools('secret-selector-$(steal-secret)', {
+        url,
+        json,
+        waitMs: 1_000,
+      })
+
+      expect(exitCode).toBe(1)
+      expect(stderr.mock.calls.flat().join('')).toBe('')
+      expect(JSON.parse(stdout.mock.calls.flat().join(''))).toEqual({
+        schemaVersion: '2.0',
+        status: 'error',
+        reason: 'unknown_tool',
+        message:
+          'No advertised tool or group matches the selector. Run next to inspect available groups.',
+        userActionRequired: true,
+        next: {
+          command: 'pnpm exec genie-react tools',
+          argv: ['pnpm', 'exec', 'genie-react', 'tools'],
+        },
+      })
+      expect(stdout.mock.calls.flat().join('')).not.toContain('secret')
+    },
+  )
+
+  it.each([undefined, true])(
+    'keeps projection input and app keys out of trusted recovery with json=%s',
+    async (json) => {
+      const { url } = await fixture()
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+      const secret = 'secret-selection-$(steal-secret)'
+      const cases = [
+        {
+          run: () => runCall('query_rows', '{}', { url, json, fields: [secret] }),
+          tool: 'query_rows',
+        },
+        {
+          run: () =>
+            runCall('query_rows', '{"secretKeys":true}', { url, json, fields: ['missing'] }),
+          tool: 'query_rows',
+        },
+        {
+          run: () =>
+            runCall('query_rows', '{"secretKeys":true}', { url, json, select: `/${secret}` }),
+          tool: 'query_rows',
+        },
+        { run: () => runStatus({ url, json, fields: [secret] }), tool: 'devtools_status' },
+        { run: () => runStatus({ url, json, select: `/${secret}` }), tool: 'devtools_status' },
+        {
+          run: () => runTools('query_rows', { url, json, select: `/${secret}` }),
+          tool: 'query_rows',
+        },
+      ]
+      for (const { run, tool } of cases) {
+        expect(await run()).toBe(1)
+        const output = stdout.mock.calls.flat().join('')
+        expect(output).not.toContain('secret')
+        expect(JSON.parse(output)).toMatchObject({
+          schemaVersion: '2.0',
+          status: 'error',
+          reason: 'invalid_input',
+          userActionRequired: true,
+          next: {
+            command: `pnpm exec genie-react tools ${tool}`,
+            argv: ['pnpm', 'exec', 'genie-react', 'tools', tool],
           },
-        ],
-      }),
-    )
-    app.send(encodeMessage({ kind: 'app/ready', sessionId: 'session-1' }))
-    await waitUntil(() => bridge.bridge.getStatus().ready)
+        })
+        expect(stderr.mock.calls.flat().join('')).toBe('')
+        stdout.mockClear()
+      }
+    },
+  )
 
-    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    const exitCode = await runTools('secret-selector-$(steal-secret)', { url, json, waitMs: 1_000 })
-
-    expect(exitCode).toBe(1)
-    expect(stderr.mock.calls.flat().join('')).toBe('')
-    expect(JSON.parse(stdout.mock.calls.flat().join(''))).toEqual({
-      schemaVersion: '2.0',
-      status: 'error',
-      reason: 'unknown_tool',
-      message:
-        'No advertised tool or group matches the selector. Run next to inspect available groups.',
-      userActionRequired: true,
-      next: {
-        command: 'pnpm exec genie-react tools',
-        argv: ['pnpm', 'exec', 'genie-react', 'tools'],
-      },
-    })
-    expect(stdout.mock.calls.flat().join('')).not.toContain('secret')
-  })
-
-  it.each([
-    undefined,
-    true,
-  ])('keeps projection input and app keys out of trusted recovery with json=%s', async (json) => {
-    const { url } = await fixture()
-    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    const secret = 'secret-selection-$(steal-secret)'
-    const cases = [
-      {
-        run: () => runCall('query_rows', '{}', { url, json, fields: [secret] }),
-        tool: 'query_rows',
-      },
-      {
-        run: () => runCall('query_rows', '{"secretKeys":true}', { url, json, fields: ['missing'] }),
-        tool: 'query_rows',
-      },
-      {
-        run: () =>
-          runCall('query_rows', '{"secretKeys":true}', { url, json, select: `/${secret}` }),
-        tool: 'query_rows',
-      },
-      { run: () => runStatus({ url, json, fields: [secret] }), tool: 'devtools_status' },
-      { run: () => runStatus({ url, json, select: `/${secret}` }), tool: 'devtools_status' },
-      {
-        run: () => runTools('query_rows', { url, json, select: `/${secret}` }),
-        tool: 'query_rows',
-      },
-    ]
-    for (const { run, tool } of cases) {
-      expect(await run()).toBe(1)
+  it.each([undefined, true])(
+    'rejects unknown batch keys without echoing them with json=%s',
+    async (json) => {
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+      expect(
+        await runBatch('[{"tool":"query_rows","secret-key-$(steal-secret)":true}]', { json }),
+      ).toBe(1)
       const output = stdout.mock.calls.flat().join('')
       expect(output).not.toContain('secret')
       expect(JSON.parse(output)).toMatchObject({
@@ -596,70 +629,45 @@ describe('agent CLI integration', () => {
         reason: 'invalid_input',
         userActionRequired: true,
         next: {
-          command: `pnpm exec genie-react tools ${tool}`,
-          argv: ['pnpm', 'exec', 'genie-react', 'tools', tool],
+          command: 'pnpm exec genie-react batch --help',
+          argv: ['pnpm', 'exec', 'genie-react', 'batch', '--help'],
         },
       })
       expect(stderr.mock.calls.flat().join('')).toBe('')
-      stdout.mockClear()
-    }
-  })
+    },
+  )
 
-  it.each([
-    undefined,
-    true,
-  ])('rejects unknown batch keys without echoing them with json=%s', async (json) => {
-    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    expect(
-      await runBatch('[{"tool":"query_rows","secret-key-$(steal-secret)":true}]', { json }),
-    ).toBe(1)
-    const output = stdout.mock.calls.flat().join('')
-    expect(output).not.toContain('secret')
-    expect(JSON.parse(output)).toMatchObject({
-      schemaVersion: '2.0',
-      status: 'error',
-      reason: 'invalid_input',
-      userActionRequired: true,
-      next: {
-        command: 'pnpm exec genie-react batch --help',
-        argv: ['pnpm', 'exec', 'genie-react', 'batch', '--help'],
-      },
-    })
-    expect(stderr.mock.calls.flat().join('')).toBe('')
-  })
-
-  it.each([
-    undefined,
-    true,
-  ])('keeps batch selection errors safe and actionable with json=%s', async (json) => {
-    const { url } = await fixture()
-    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    expect(
-      await runBatch('[{"tool":"query_rows","args":{"secretKeys":true}}]', {
-        url,
-        json,
-        select: '/secret-selection-$(steal-secret)',
-      }),
-    ).toBe(1)
-    const output = stdout.mock.calls.flat().join('')
-    expect(output).not.toContain('secret')
-    const parsed = JSON.parse(output)
-    expect(json ? parsed[0] : parsed).toMatchObject({
-      schemaVersion: '2.0',
-      tool: 'query_rows',
-      ok: false,
-      status: 'error',
-      reason: 'invalid_input',
-      userActionRequired: true,
-      next: {
-        command: 'pnpm exec genie-react tools query_rows',
-        argv: ['pnpm', 'exec', 'genie-react', 'tools', 'query_rows'],
-      },
-    })
-    expect(stderr.mock.calls.flat().join('')).toBe('')
-  })
+  it.each([undefined, true])(
+    'keeps batch selection errors safe and actionable with json=%s',
+    async (json) => {
+      const { url } = await fixture()
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+      expect(
+        await runBatch('[{"tool":"query_rows","args":{"secretKeys":true}}]', {
+          url,
+          json,
+          select: '/secret-selection-$(steal-secret)',
+        }),
+      ).toBe(1)
+      const output = stdout.mock.calls.flat().join('')
+      expect(output).not.toContain('secret')
+      const parsed = JSON.parse(output)
+      expect(json ? parsed[0] : parsed).toMatchObject({
+        schemaVersion: '2.0',
+        tool: 'query_rows',
+        ok: false,
+        status: 'error',
+        reason: 'invalid_input',
+        userActionRequired: true,
+        next: {
+          command: 'pnpm exec genie-react tools query_rows',
+          argv: ['pnpm', 'exec', 'genie-react', 'tools', 'query_rows'],
+        },
+      })
+      expect(stderr.mock.calls.flat().join('')).toBe('')
+    },
+  )
 
   it('applies nested projection to tool discovery and every successful batch item', async () => {
     const bridge = createStandaloneBridge({ agentToken: AGENT_TOKEN })
