@@ -440,7 +440,7 @@ export const devtoolsStatusContract = defineAgentToolContract({
   name: 'devtools_status',
   title: 'DevTools status',
   description:
-    'Check whether a Genie-instrumented React + TanStack app is connected and ready, and report its session, React/TanStack versions, available data domains, and tool count. `sessions` lists every connected tab; tool calls hit the `current` one unless a physical id, logical id, or unique session name is targeted explicitly (CLI: --session <target>).',
+    'Check whether a Genie-instrumented React + TanStack app is connected and ready, and report its session, React/TanStack versions, available data domains, and tool count. `sessions` lists one row per connected tab; untargeted calls hit the `current` one (the only tab, or the tab already targeted) and fail with unknown-session when several tabs leave the target ambiguous, so target a physical id, logical id, or unique session name explicitly (CLI: --session <target>).',
   group: 'meta',
   input: z.object({
     includeTools: z

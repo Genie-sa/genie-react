@@ -264,4 +264,59 @@ describe('GenieBridge interaction capture', () => {
     })
     expect((await inbox.wait(isResult(repeatId))).result).toEqual(stopped.result)
   })
+  it('reports a document that disconnects during settle instead of a missing tool', async () => {
+    const { ws: app } = await open(`${url}?role=app`)
+    let renderCalls = 0
+    app.on('message', (data) => {
+      const message = decodeFrame(data.toString()) as Frame
+      if (message.kind !== 'bridge/request') return
+      if (message.tool === 'react_get_renders' && ++renderCalls === 2) {
+        app.close()
+        return
+      }
+      send(app, {
+        kind: 'app/response',
+        id: message.id,
+        ok: true,
+        result: { tracking: false, renderCollection: 'available', documentCommitId: 1 },
+      })
+    })
+    send(app, {
+      kind: 'app/hello',
+      protocol: 1,
+      sessionId: 'reloading-session',
+      app: { name: 'reload fixture' },
+      capabilities: ['react'],
+      tools: ['react_clear_renders', 'react_profile_stop', 'react_get_renders'].map((name) => ({
+        name,
+        title: name,
+        description: name,
+        group: 'react.render',
+      })),
+    })
+    const { ws: agent, inbox } = await open(`${url}?role=agent`)
+    await inbox.wait((frame) => frame.kind === 'bridge/status' && frame.connected === true)
+    const beginId = newId()
+    send(agent, {
+      kind: 'agent/invoke',
+      id: beginId,
+      tool: 'devtools_interaction_begin',
+      args: { name: 'reload' },
+    })
+    const began = await inbox.wait(isResult(beginId))
+
+    const stopId = newId()
+    send(agent, {
+      kind: 'agent/invoke',
+      id: stopId,
+      tool: 'devtools_interaction_stop',
+      args: { interactionId: began.result.interactionId, domains: ['react'], timeoutMs: 2_000 },
+    })
+    const stopped = await inbox.wait(isResult(stopId), 3_000)
+    expect(stopped.result.settle).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining('app document disconnected'),
+    })
+    expect(stopped.session).toEqual({ sessionId: 'reloading-session' })
+  })
 })

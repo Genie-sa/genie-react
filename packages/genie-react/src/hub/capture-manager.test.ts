@@ -42,7 +42,10 @@ function manager(
 ): CaptureManager<CaptureSession> {
   return new CaptureManager({
     resolveSession: () => target,
-    unknownSessionError: (target) => `unknown ${target}`,
+    sessionUnavailable: (requested) => ({
+      errorCode: 'unknown-session',
+      error: `unknown ${requested}`,
+    }),
     isCurrentSession: () => true,
     request: async (_session, tool, args) => ({
       ok: true,
@@ -249,7 +252,10 @@ describe('capture manager artifacts', () => {
     let renderProbe = 0
     const captures = new CaptureManager({
       resolveSession: () => session,
-      unknownSessionError: (target) => `unknown ${target}`,
+      sessionUnavailable: (target) => ({
+        errorCode: 'unknown-session',
+        error: `unknown ${target}`,
+      }),
       isCurrentSession: () => true,
       request: async (_session, tool) => {
         if (tool === 'react_get_renders') {

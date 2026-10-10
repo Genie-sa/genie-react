@@ -22,6 +22,7 @@ import {
 } from '../protocol'
 import { compareCaptureCohorts } from './capture-comparison'
 import { withFullView } from './full-view'
+import type { SessionUnavailable } from './session-routing'
 import { recordOf, stringField } from './wire-guards'
 
 const MAX_RETAINED_CAPTURES = 20
@@ -53,21 +54,22 @@ export interface CaptureSession {
   tools: ToolDescriptor[]
 }
 
+/** `session` is the document the call ran against, when one was routed. */
 export type CaptureInvocation =
-  | { ok: true; result: unknown }
-  | {
+  | { ok: true; result: unknown; session?: CaptureSession }
+  | (Omit<SessionUnavailable, 'errorCode'> & {
       ok: false
-      error: string
       errorCode: Extract<
         AgentErrorCode,
         'invalid-args' | 'not-connected' | 'unknown-session' | 'tool-error'
       >
-      errorDetails?: ToolErrorDetails
-    }
+      session?: CaptureSession
+    })
 
 interface CaptureManagerOptions<TSession extends CaptureSession> {
   resolveSession: (target?: string) => TSession | null
-  unknownSessionError: (target: string) => string
+  /** Why `resolveSession(target)` found no document; untargeted calls can fail as ambiguous, not only as disconnected. */
+  sessionUnavailable: (target?: string) => SessionUnavailable
   isCurrentSession: (session: TSession) => boolean
   request: (session: TSession, tool: string, args: unknown) => Promise<CaptureRequestResult>
 }
@@ -212,10 +214,7 @@ export class CaptureManager<TSession extends CaptureSession> {
     if (!session) {
       return {
         ok: false,
-        error: sessionTarget
-          ? this.options.unknownSessionError(sessionTarget)
-          : 'No app connected. Start the dev server and open the app in a browser.',
-        errorCode: sessionTarget ? 'unknown-session' : 'not-connected',
+        ...this.options.sessionUnavailable(sessionTarget),
       }
     }
     try {
@@ -223,9 +222,10 @@ export class CaptureManager<TSession extends CaptureSession> {
       return {
         ok: true,
         result: parsed.data.view === 'full' ? capture : captureReadSummary(capture),
+        session,
       }
     } catch (error) {
-      return { ok: false, error: errorMessage(error), errorCode: 'tool-error' }
+      return { ok: false, error: errorMessage(error), errorCode: 'tool-error', session }
     }
   }
 

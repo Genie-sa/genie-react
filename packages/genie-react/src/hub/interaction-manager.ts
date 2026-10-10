@@ -15,6 +15,7 @@ import {
 } from '../protocol'
 import { withFullView } from './full-view'
 import { selectInteractionSections, summarizeInteraction } from './interaction-summary'
+import type { SessionUnavailable } from './session-routing'
 import { numberField, recordOf, stringField } from './wire-guards'
 
 const MAX_ACTIVE_INTERACTIONS = 20
@@ -53,21 +54,22 @@ export interface InteractionSettleResult {
   >
 }
 
+/** `session` is the document the call ran against, when one was routed. */
 export type InteractionInvocation =
-  | { ok: true; result: unknown }
-  | {
+  | { ok: true; result: unknown; session?: InteractionSession }
+  | (Omit<SessionUnavailable, 'errorCode'> & {
       ok: false
-      error: string
       errorCode: Extract<
         AgentErrorCode,
         'invalid-args' | 'not-connected' | 'unknown-session' | 'tool-error'
       >
-      errorDetails?: ToolErrorDetails
-    }
+      session?: InteractionSession
+    })
 
 interface InteractionManagerOptions<TSession extends InteractionSession> {
   resolveSession: (target?: string) => TSession | null
-  unknownSessionError: (target: string) => string
+  /** Why `resolveSession(target)` found no document; untargeted calls can fail as ambiguous, not only as disconnected. */
+  sessionUnavailable: (target?: string) => SessionUnavailable
   isCurrentSession: (session: TSession) => boolean
   request: (session: TSession, tool: string, args: unknown) => Promise<InteractionRequestResult>
   settle: (
@@ -185,7 +187,7 @@ export class InteractionManager<TSession extends InteractionSession> {
     const reservation = Symbol(session.sessionId)
     this.starting.set(session.sessionId, reservation)
     try {
-      return await this.beginReserved(input, session, reservation)
+      return { ...(await this.beginReserved(input, session, reservation)), session }
     } finally {
       if (this.starting.get(session.sessionId) === reservation) {
         this.starting.delete(session.sessionId)
@@ -266,6 +268,15 @@ export class InteractionManager<TSession extends InteractionSession> {
   }
 
   private async stop(
+    input: ReturnType<typeof devtoolsInteractionStopContract.input.parse>,
+    sessionTarget?: string,
+  ): Promise<InteractionInvocation> {
+    const active = this.active.get(input.interactionId)
+    const response = await this.stopActive(input, sessionTarget)
+    return active ? { ...response, session: active.session } : response
+  }
+
+  private async stopActive(
     input: ReturnType<typeof devtoolsInteractionStopContract.input.parse>,
     sessionTarget?: string,
   ): Promise<InteractionInvocation> {
@@ -464,10 +475,7 @@ export class InteractionManager<TSession extends InteractionSession> {
   private noSession(sessionTarget?: string): InteractionInvocation {
     return {
       ok: false,
-      error: sessionTarget
-        ? this.options.unknownSessionError(sessionTarget)
-        : 'No app connected. Start the dev server and open the app in a browser.',
-      errorCode: sessionTarget ? 'unknown-session' : 'not-connected',
+      ...this.options.sessionUnavailable(sessionTarget),
     }
   }
 }
