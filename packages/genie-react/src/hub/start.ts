@@ -17,6 +17,8 @@ export interface StartHubOptions {
   portAttempts?: number
   /** Browser origins allowed to connect as apps beyond loopback pages; `GENIE_ALLOWED_ORIGINS` (comma-separated) adds more. */
   allowedOrigins?: readonly string[]
+  /** Ports the app's loopback pages are served from; unset trusts loopback pages on any port. */
+  loopbackAppPorts?: readonly number[]
 }
 
 export type StartHubResult =
@@ -38,7 +40,11 @@ export async function startGenieHub(options: StartHubOptions = {}): Promise<Star
 
   for (let offset = 0; offset < attempts; offset++) {
     const port = preferred + offset
-    const handle = createStandaloneBridge({ rootDir, allowedOrigins })
+    const handle = createStandaloneBridge({
+      rootDir,
+      allowedOrigins,
+      loopbackAppPorts: options.loopbackAppPorts,
+    })
     try {
       const bound = await handle.listen(port)
       await writeDiscoveryFile(rootDir, {

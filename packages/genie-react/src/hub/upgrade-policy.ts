@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { type IncomingMessage, STATUS_CODES } from 'node:http'
-import { isIP } from 'node:net'
+import { BlockList, isIP, isIPv4 } from 'node:net'
 import type { Duplex } from 'node:stream'
 import { type ConnectionRole, ROLE_QUERY_PARAM } from '../protocol'
 
@@ -11,10 +11,19 @@ export interface UpgradePolicyOptions {
   allowedOrigins?: readonly string[]
   /** Vite-style `server.allowedHosts`: same-origin pages on these hostnames may connect as apps. */
   allowedHosts?: readonly string[] | true
+  /** Standalone hubs serve apps from another port: loopback pages on these ports (`true`: any port) may connect as apps. Unset trusts only the server's own origin. */
+  loopbackAppPorts?: readonly number[] | true
 }
 
 export type UpgradeVerdict =
-  | { ok: true; role: ConnectionRole }
+  | {
+      ok: true
+      role: ConnectionRole
+      /** The browser Origin an app connected from; absent for native and Node clients. */
+      origin?: string
+      /** Admitted only because the page is on loopback, so any local page on any port could be this session. */
+      originUnverified?: true
+    }
   | { ok: false; status: 400 | 401 | 403; reason: string }
 
 const BEARER = /^Bearer\s+(\S+)$/i
@@ -25,6 +34,7 @@ export class UpgradePolicy {
   private readonly agentTokenDigest: Buffer
   private readonly allowedOrigins: ReadonlySet<string>
   private readonly allowedHosts: readonly string[] | true
+  private readonly loopbackAppPorts: ReadonlySet<number> | true
 
   constructor(options: UpgradePolicyOptions = {}) {
     this.agentToken = options.agentToken ?? randomBytes(32).toString('base64url')
@@ -34,6 +44,8 @@ export class UpgradePolicy {
       options.allowedHosts === true
         ? true
         : (options.allowedHosts ?? []).map((host) => host.toLowerCase())
+    this.loopbackAppPorts =
+      options.loopbackAppPorts === true ? true : new Set(options.loopbackAppPorts ?? [])
   }
 
   authorize(request: IncomingMessage): UpgradeVerdict {
@@ -48,21 +60,37 @@ export class UpgradePolicy {
     if (request.headers.origin !== undefined) {
       return { ok: false, status: 403, reason: 'agent connections are not accepted from browsers' }
     }
+    // The token never leaves this machine, so a LAN peer holding one has stolen it.
+    if (!isLoopbackAddress(request.socket?.remoteAddress)) {
+      return { ok: false, status: 403, reason: 'agent connections must come from this machine' }
+    }
     const token = BEARER.exec(request.headers.authorization ?? '')?.[1]
-    if (token === undefined) return { ok: false, status: 401, reason: 'missing agent token' }
+    if (token === undefined)
+      return { ok: false, status: 401, reason: `missing agent token${CLI_SKEW_HINT}` }
     if (!timingSafeEqual(digest(token), this.agentTokenDigest)) {
-      return { ok: false, status: 401, reason: 'agent token mismatch' }
+      return { ok: false, status: 401, reason: `agent token mismatch${CLI_SKEW_HINT}` }
     }
     return { ok: true, role: 'agent' }
   }
 
-  // No Origin means a non-browser client (React Native, Node); only browsers can be driven cross-site.
   private authorizeApp(request: IncomingMessage): UpgradeVerdict {
     const origin = request.headers.origin
-    if (origin === undefined) return { ok: true, role: 'app' }
+    // Browsers always send Origin, so its absence means a native or Node client, which only a local process may be.
+    if (origin === undefined) {
+      return isLoopbackAddress(request.socket?.remoteAddress)
+        ? { ok: true, role: 'app' }
+        : {
+            ok: false,
+            status: 403,
+            reason: 'app connections without an Origin must come from this machine',
+          }
+    }
     const parsed = parseOrigin(origin)
-    if (parsed && this.isTrustedOrigin(parsed, request.headers.host)) {
-      return { ok: true, role: 'app' }
+    const trust = parsed && this.originTrust(parsed, request.headers.host)
+    if (parsed && trust) {
+      return trust === 'loopback'
+        ? { ok: true, role: 'app', origin: parsed.origin, originUnverified: true }
+        : { ok: true, role: 'app', origin: parsed.origin }
     }
     return {
       ok: false,
@@ -71,13 +99,17 @@ export class UpgradePolicy {
     }
   }
 
-  private isTrustedOrigin(origin: URL, hostHeader: string | undefined): boolean {
-    if (this.allowedOrigins.has(origin.origin)) return true
+  private originTrust(origin: URL, hostHeader: string | undefined): 'verified' | 'loopback' | null {
+    if (this.allowedOrigins.has(origin.origin)) return 'verified'
     const hostname = origin.hostname.toLowerCase()
-    if (isLoopbackHostname(hostname)) return true
-    if (!isSameHost(origin, hostHeader)) return false
-    // DNS rebinding can forge a same-origin hostname but never an IP-literal origin.
-    return isIP(unbracket(hostname)) !== 0 || this.isAllowedHost(hostname)
+    if (isSameHost(origin, hostHeader)) {
+      // DNS rebinding can forge a same-origin hostname but never an IP-literal or loopback-name origin.
+      const unforgeable = isIP(unbracket(hostname)) !== 0 || isLoopbackHostname(hostname)
+      if (unforgeable || this.isAllowedHost(hostname)) return 'verified'
+    }
+    if (!isLoopbackHostname(hostname)) return null
+    if (this.loopbackAppPorts === true) return 'loopback'
+    return this.loopbackAppPorts.has(portOf(origin)) ? 'verified' : null
   }
 
   private isAllowedHost(hostname: string): boolean {
@@ -104,6 +136,23 @@ export function rejectUpgrade(socket: Duplex, status: number, reason: string): v
       body,
     ].join('\r\n'),
   )
+}
+
+const CLI_SKEW_HINT = '; update @genie-react/cli to the same version as genie-react'
+
+const LOOPBACK = new BlockList()
+LOOPBACK.addSubnet('127.0.0.0', 8, 'ipv4')
+LOOPBACK.addAddress('::1', 'ipv6')
+
+/** True for 127.0.0.0/8, ::1 and their IPv4-mapped forms. */
+export function isLoopbackAddress(address: string | undefined): boolean {
+  if (!address || isIP(address) === 0) return false
+  return LOOPBACK.check(address, isIPv4(address) ? 'ipv4' : 'ipv6')
+}
+
+function portOf(origin: URL): number {
+  if (origin.port) return Number(origin.port)
+  return origin.protocol === 'https:' ? 443 : 80
 }
 
 function digest(value: string): Buffer {

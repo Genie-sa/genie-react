@@ -23,7 +23,11 @@ export interface StandaloneBridgeHandle {
 
 /** Runs the hub on its own HTTP server (`genie hub`, Next.js instrumentation, tests); Vite embeds it via `genie-react/vite` instead. */
 export function createStandaloneBridge(options?: StandaloneBridgeOptions): StandaloneBridgeHandle {
-  const bridge = new GenieBridge(options)
+  // Pages load the hub's client from another port, so loopback pages are trusted unless the caller names the app ports.
+  const bridge = new GenieBridge({
+    ...options,
+    loopbackAppPorts: options?.loopbackAppPorts ?? true,
+  })
   const clientBundlePath = options?.clientBundlePath ?? defaultClientBundlePath()
   const rootDir = options?.rootDir ?? process.cwd()
   const server = createServer((req, res) => {

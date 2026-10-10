@@ -5,7 +5,7 @@ export interface RegisterGenieOptions {
   port?: number
   /** Directory the discovery file is written to (defaults to the project cwd). */
   rootDir?: string
-  /** Browser origins allowed to connect as apps beyond loopback pages (e.g. a LAN or tunnel host). */
+  /** Browser origins allowed to connect as apps beyond the Next dev server's loopback pages (e.g. a LAN or tunnel host). */
   allowedOrigins?: readonly string[]
 }
 
@@ -20,10 +20,13 @@ export async function registerGenie(options: RegisterGenieOptions = {}): Promise
   holder[HUB_FLAG] = true
 
   const { startGenieHub } = await import('genie-react/hub')
+  // Next publishes its bound port as PORT before instrumentation runs; trusting only that port keeps other local pages out.
+  const appPort = positiveInteger(readEnv('PORT'))
   try {
     const result = await startGenieHub({
       rootDir: options.rootDir,
       allowedOrigins: options.allowedOrigins,
+      loopbackAppPorts: appPort === undefined ? undefined : [appPort],
       port: options.port ?? envPort() ?? GENIE_DEFAULT_HUB_PORT,
     })
     if (result.status === 'started') holder[HUB_FLAG] = result.handle
@@ -60,10 +63,13 @@ function log(message: string): void {
 }
 
 function envPort(): number | undefined {
-  const raw = readEnv('GENIE_HUB_PORT')
+  return positiveInteger(readEnv('GENIE_HUB_PORT'))
+}
+
+function positiveInteger(raw: string | undefined): number | undefined {
   if (!raw) return undefined
-  const port = Number(raw)
-  return Number.isInteger(port) && port > 0 ? port : undefined
+  const value = Number(raw)
+  return Number.isInteger(value) && value > 0 ? value : undefined
 }
 
 /** `process` is optional here so the module also evaluates cleanly in browser bundles. */

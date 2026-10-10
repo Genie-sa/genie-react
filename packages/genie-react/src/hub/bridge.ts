@@ -35,7 +35,12 @@ import {
   type InteractionSettleResult,
   isInteractionTool,
 } from './interaction-manager'
-import { rejectUpgrade, UpgradePolicy, type UpgradePolicyOptions } from './upgrade-policy'
+import {
+  rejectUpgrade,
+  UpgradePolicy,
+  type UpgradePolicyOptions,
+  type UpgradeVerdict,
+} from './upgrade-policy'
 import { matchesOf, parseQueryList, queryStateOf, routerStateOf } from './wire-guards'
 
 type BridgeLogLevel = 'info' | 'warn' | 'error'
@@ -225,6 +230,10 @@ export class GenieBridge {
   private readonly responsiveSockets = new WeakSet<WebSocket>()
   private readonly heartbeat: ReturnType<typeof setInterval>
   private readonly upgradePolicy: UpgradePolicy
+  private readonly appOrigins = new WeakMap<
+    WebSocket,
+    Pick<SessionSummary, 'origin' | 'originUnverified'>
+  >()
   private currentSessionId: string | null = null
 
   constructor(options: GenieBridgeOptions = {}) {
@@ -257,7 +266,7 @@ export class GenieBridge {
     unrefTimer(this.heartbeat)
   }
 
-  /** The secret agents present to connect; publish it only through the owner-readable discovery file. */
+  /** The secret agents present to connect; publish it only through the private token store. */
   get agentToken(): string {
     return this.upgradePolicy.agentToken
   }
@@ -271,7 +280,7 @@ export class GenieBridge {
       rejectUpgrade(socket, verdict.status, verdict.reason)
       return true
     }
-    this.wss.handleUpgrade(request, socket, head, (ws) => this.onConnection(ws, verdict.role))
+    this.wss.handleUpgrade(request, socket, head, (ws) => this.onConnection(ws, verdict))
     return true
   }
 
@@ -354,6 +363,7 @@ export class GenieBridge {
         ready: session.readyAt !== undefined,
         ...(session.readyAt === undefined ? {} : { readyAt: session.readyAt }),
         current: session.sessionId === current?.sessionId,
+        ...this.appOrigins.get(session.socket),
         ...(staleMs === null ? {} : { staleMs }),
       }
     })
@@ -403,16 +413,30 @@ export class GenieBridge {
       sessions.push(session.sessionId)
       collisions.set(session.logicalSessionId, sessions)
     }
-    return [...collisions]
+    const warnings = [...collisions]
       .filter(([, sessions]) => sessions.length > 1)
       .map(
         ([logicalSessionId, sessions]) =>
           `Logical session collision ${JSON.stringify(logicalSessionId)} across ${sessions.join(', ')}; implicit and logical-id routing is paused until the cloned document is auto-forked.`,
       )
+    const origins = [...this.apps.values()].map((session) => this.appOrigins.get(session.socket))
+    const distinctOrigins = new Set(origins.map((entry) => entry?.origin))
+    if (distinctOrigins.size > 1 && origins.some((entry) => entry?.originUnverified)) {
+      warnings.push(
+        `Sessions come from different origins (${[...distinctOrigins].map((origin) => origin ?? 'native').join(', ')}) and some were admitted only as loopback pages; check each session's origin and pass --session to target your app.`,
+      )
+    }
+    return warnings
   }
 
-  private onConnection(socket: WebSocket, role: ConnectionRole): void {
+  private onConnection(
+    socket: WebSocket,
+    { role, origin, originUnverified }: Extract<UpgradeVerdict, { ok: true }>,
+  ): void {
     const connection: Connection = { socket, role }
+    if (origin !== undefined) {
+      this.appOrigins.set(socket, originUnverified ? { origin, originUnverified } : { origin })
+    }
     this.connections.add(socket)
     this.responsiveSockets.add(socket)
     if (role === 'agent') this.registerAgent(socket)

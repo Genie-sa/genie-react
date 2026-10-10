@@ -89,23 +89,61 @@ describe('hub upgrade authentication', () => {
     await expectRejected(url, {}, 400)
   })
 
+  async function connectApp(sessionId: string, options: ClientOptions): Promise<void> {
+    const result = await attempt(`${url}?role=app`, options)
+    if (result.kind !== 'open') throw new Error(`app ${sessionId} was refused`)
+    sockets.push(result.ws)
+    result.ws.send(
+      encodeMessage({
+        kind: 'app/hello',
+        protocol: 1,
+        sessionId,
+        app: { name: 'demo' },
+        capabilities: [],
+        tools: [],
+      }),
+    )
+  }
+
   it('accepts an origin-less (React Native style) app and a loopback page app', async () => {
-    for (const options of [{}, { origin: 'http://localhost:3000' }]) {
-      const result = await attempt(`${url}?role=app`, options)
-      expect(result.kind).toBe('open')
-      if (result.kind !== 'open') continue
-      sockets.push(result.ws)
-      result.ws.send(
-        encodeMessage({
-          kind: 'app/hello',
-          protocol: 1,
-          sessionId: `s-${sockets.length}`,
-          app: { name: 'demo' },
-          capabilities: [],
-          tools: [],
-        }),
-      )
-    }
+    await connectApp('native', {})
+    await connectApp('page', { origin: 'http://localhost:3000' })
     await expect.poll(() => handle.bridge.getStatus().sessions.length, { timeout: 2_000 }).toBe(2)
+  })
+
+  it('records each session origin and flags mixed origins admitted only as loopback pages', async () => {
+    await connectApp('app', { origin: 'http://localhost:3000' })
+    await expect.poll(() => handle.bridge.getStatus().sessions.length, { timeout: 2_000 }).toBe(1)
+    expect(handle.bridge.getStatus().warnings).toEqual([])
+
+    await connectApp('other', { origin: 'http://127.0.0.1:8080' })
+    await expect.poll(() => handle.bridge.getStatus().sessions.length, { timeout: 2_000 }).toBe(2)
+    const { sessions, warnings } = handle.bridge.getStatus()
+    expect(sessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: 'app',
+          origin: 'http://localhost:3000',
+          originUnverified: true,
+        }),
+        expect.objectContaining({
+          sessionId: 'other',
+          origin: 'http://127.0.0.1:8080',
+          originUnverified: true,
+        }),
+      ]),
+    )
+    expect(warnings).toEqual([expect.stringContaining('different origins')])
+  })
+
+  it('leaves sessions on known app ports unflagged', async () => {
+    await handle.close()
+    handle = createTestBridge({ loopbackAppPorts: [3000] })
+    url = (await handle.listen()).url
+    await connectApp('app', { origin: 'http://localhost:3000' })
+    await expect.poll(() => handle.bridge.getStatus().sessions.length, { timeout: 2_000 }).toBe(1)
+    expect(handle.bridge.getStatus().sessions[0]).toMatchObject({ origin: 'http://localhost:3000' })
+    expect(handle.bridge.getStatus().sessions[0]).not.toHaveProperty('originUnverified')
+    await expectRejected(`${url}?role=app`, { origin: 'http://localhost:8080' }, 403)
   })
 })
