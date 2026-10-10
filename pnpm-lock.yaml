@@ -482,8 +482,8 @@ importers:
   packages/genie-react:
     dependencies:
       bippy:
-        specifier: 0.7.2
-        version: 0.7.2(@types/react@19.2.17)(react@19.2.7)
+        specifier: 0.7.3
+        version: 0.7.3(@types/react@19.2.17)(react@19.2.7)
       superjson:
         specifier: ^2.2.6
         version: 2.2.6
@@ -4088,10 +4088,10 @@ packages:
     resolution: {integrity: sha512-QxD8cf2eVqJOOz63z6JIN9BzvVs/dlySa5HGSBH5xtR8dPteIRQnBxxKqkNTiT6jbDTF6jAfrd4oMcND9RGbQg==}
     engines: {node: '>=0.6'}
 
-  bippy@0.7.2:
-    resolution: {integrity: sha512-h8NFpBuVix0iuih7o5eclUP7W3DJyRUQz4OojD/S1DhyBGk6TeDrICvsAc0VMdl8KrMCEAyT4JbkX9ON3cHejg==}
+  bippy@0.7.3:
+    resolution: {integrity: sha512-C3yYBkcthd9kMXJwwwR69+ICGruw+R/Mcoq1LqsoscEoPe1OshyhYjMtYmtpoDSiJX40a867qhG4TT7g4mMIdQ==}
     peerDependencies:
-      react: '>=17.0.1'
+      react: '>=16.0.0'
 
   birpc@4.0.0:
     resolution: {integrity: sha512-LShSxJP0KTmd101b6DRyGBj57LZxSDYWKitQNW/mi8GRMvZb078Uf9+pveax1DrVL89vm7mWe+TovdI/UDOuPw==}
@@ -12295,7 +12295,7 @@ snapshots:
 
   big-integer@1.6.52: {}
 
-  bippy@0.7.2(@types/react@19.2.17)(react@19.2.7):
+  bippy@0.7.3(@types/react@19.2.17)(react@19.2.7):
     dependencies:
       '@types/react-reconciler': 0.33.0(@types/react@19.2.17)
       react: 19.2.7

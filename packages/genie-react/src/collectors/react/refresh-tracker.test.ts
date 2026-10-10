@@ -278,6 +278,24 @@ describe('refresh tracking', () => {
     ).toMatchObject({ events: [] })
   })
 
+  it('reports the id a fiber had when the refresh was recorded, not one minted after unmount', async () => {
+    const remounted = fiber(1, 'Form', '/src/Form.tsx')
+    const update = refreshUpdate([], [remounted])
+    const renderer = {
+      scheduleRefresh() {
+        mocks.refreshHandler?.(update)
+      },
+    } as unknown as RefreshCapableRenderer
+    mocks.renderers.set(1, renderer)
+    tracker.startRefreshTracking()
+    renderer.scheduleRefresh?.({} as never, {} as never)
+    Object.assign(remounted, { id: 7 })
+
+    const report = await tracker.getRefreshEvents({ limit: 10, includeSource: false })
+
+    expect(report.events[0]?.remounted).toMatchObject([{ id: 1, name: 'Form' }])
+  })
+
   it('keeps the refresh transaction open for queued follow-up commits, then promptly closes it', async () => {
     const update = refreshUpdate([], [])
     const renderer = {
