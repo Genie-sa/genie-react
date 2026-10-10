@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeDiagnostic, writeJson } from './cli-output'
+import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 
 // The unpublished "local link" install path: symlinks a checkout into node_modules so `genie-react` and this CLI resolve normally.
 
@@ -25,7 +26,7 @@ export function runLink(opts: LinkOptions = {}): number {
   const fail = (reason: string, message: string): number => {
     writeJson(
       {
-        schemaVersion: '1.0',
+        schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: 'error',
         reason,
         message,
@@ -73,7 +74,7 @@ export function runLink(opts: LinkOptions = {}): number {
       })
     writeJson(
       {
-        schemaVersion: '1.0',
+        schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: 'ok',
         reason: 'packages_linked',
         message: 'Linked the local Genie packages.',

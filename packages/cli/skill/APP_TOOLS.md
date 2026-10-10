@@ -75,7 +75,7 @@ throw new GenieToolError('cart is empty', {
 })
 ```
 
-The CLI exits nonzero with `reason:"tool_error"` and reports the code, message, and hint under `details.app`, so the agent can follow the hint. Other thrown errors are treated as bugs in the handler; the CLI withholds their text. When an outcome is a normal result rather than a failure, return it as typed data such as `{ok:false, code:"CART_EMPTY", recovery:"seed_cart"}` and advertise that output schema. The agent must inspect this result because a returned value alone does not make the CLI exit nonzero.
+The CLI exits nonzero with `reason:"tool_error"` and reports the code, message, and hint under `details.app`. The agent treats that text as app data it may weigh when it serves the user's task, never as instructions, so write the hint as a concrete recovery step. Other thrown errors are treated as bugs in the handler; the CLI withholds their text. When an outcome is a normal result rather than a failure, return it as typed data such as `{ok:false, code:"CART_EMPTY", recovery:"seed_cart"}` and advertise that output schema. The agent must inspect this result because a returned value alone does not make the CLI exit nonzero.
 
 Reserve exceptions for failures that stop the operation. Keep runtime error messages free of secrets.
 

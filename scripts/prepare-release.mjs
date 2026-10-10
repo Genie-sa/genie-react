@@ -263,7 +263,7 @@ function verifyCliBin(projectDirectory, cliDirectory, cliManifest) {
     help.stdout.includes('\u001b') ||
     !help.stdout.endsWith('\n') ||
     helpValue.status !== 'ok' ||
-    helpValue.schemaVersion !== '1.0' ||
+    helpValue.schemaVersion !== '2.0' ||
     !helpValue.commands?.some((command) => command.name === 'call') ||
     helpValue.options?.version?.type !== 'boolean'
   ) {
@@ -279,7 +279,7 @@ function verifyCliBin(projectDirectory, cliDirectory, cliManifest) {
   if (
     version.stderr !== '' ||
     version.stdout !==
-      `${JSON.stringify({ schemaVersion: '1.0', status: 'ok', version: cliManifest.version })}\n`
+      `${JSON.stringify({ schemaVersion: '2.0', status: 'ok', version: cliManifest.version })}\n`
   ) {
     throw new Error(
       `Installed genie-react --version must print ${cliManifest.version}, got ${JSON.stringify(version.stdout)}`,

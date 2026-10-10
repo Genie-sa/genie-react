@@ -1,5 +1,6 @@
 import { CAPTURE_DOMAINS } from 'genie-react/protocol'
 import { DEFAULT_MAX_BYTES } from './cli-output'
+import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 
 export const CLI_OPTIONS = {
   help: { type: 'boolean', short: 'h' },
@@ -245,7 +246,7 @@ export function cliHelp(name?: string): unknown {
   const command = name === undefined ? undefined : COMMANDS[name]
   const optionNames = command ? [...GLOBAL_OPTIONS, ...command.options] : GLOBAL_OPTIONS
   return {
-    schemaVersion: '1.0',
+    schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
     status: 'ok',
     command: name ?? 'genie-react',
     description: command?.description ?? 'Live React and TanStack DevTools for coding agents',

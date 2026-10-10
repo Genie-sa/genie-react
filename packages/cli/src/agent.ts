@@ -26,6 +26,7 @@ import {
   formatAgentFailure,
   nextCommand,
   safeToolNames,
+  suggestionGuidance,
   toolHelpNext,
 } from './failure'
 import { isRecord, isRecordArray } from './guards'
@@ -141,17 +142,36 @@ async function emitCaughtFailure(
   emitFailure(opts, reason, `${operation} ${message}`, options)
 }
 
-/** Bridge lookups that let a failure name what is actually connected and advertised. */
-function failureContext(link: GenieAgentLink, opts: AgentOptions, tool?: string): FailureContext {
+type FailureLookups = Required<Pick<FailureContext, 'catalog' | 'sessions'>>
+
+/** Bridge lookups that let a failure name what is actually connected and advertised; each runs at most once per command. */
+function failureLookups(link: GenieAgentLink): FailureLookups {
   return {
-    tool,
-    session: resolveSession(opts.session),
-    catalog: async () =>
-      (await link.invoke(devtoolsStatusContract, { includeTools: true })).tools ?? [],
-    sessions: async () => {
+    catalog: once(async () => {
+      const { tools } = await link.invoke(devtoolsStatusContract, { includeTools: true })
+      return Array.isArray(tools) ? tools : null
+    }),
+    sessions: once(async () => {
       const status = await link.invoke(devtoolsStatusContract, { includeTools: false }, null)
-      return Array.isArray(status.sessions) ? status.sessions : []
-    },
+      return Array.isArray(status.sessions) ? status.sessions : null
+    }),
+  }
+}
+
+function failureContext(
+  lookups: FailureLookups,
+  opts: AgentOptions,
+  tool?: string,
+  args?: unknown,
+): FailureContext {
+  return { ...lookups, tool, args, session: resolveSession(opts.session) }
+}
+
+function once<T>(load: () => Promise<T>): () => Promise<T> {
+  let pending: Promise<T> | undefined
+  return () => {
+    pending ??= load()
+    return pending
   }
 }
 
@@ -516,7 +536,12 @@ export async function runCall(
       ? 1
       : 0
   } catch (error) {
-    await emitCaughtFailure(opts, 'Tool call failed.', error, failureContext(link, opts, tool))
+    await emitCaughtFailure(
+      opts,
+      'Tool call failed.',
+      error,
+      failureContext(failureLookups(link), opts, tool, args),
+    )
     return 1
   } finally {
     link.close()
@@ -582,12 +607,13 @@ export async function runCaptureExport(
 
   const { link } = await connect(opts)
   const temporaryPath = `${outputPath}.tmp-${process.pid}-${Date.now()}`
+  const readArgs = {
+    captureId,
+    view: 'full' as const,
+    ...(opts.sections === undefined ? {} : { sections: opts.sections }),
+  }
   try {
-    const result = await link.invoke(devtoolsCaptureReadContract, {
-      captureId,
-      view: 'full',
-      ...(opts.sections === undefined ? {} : { sections: opts.sections }),
-    })
+    const result = await link.invoke(devtoolsCaptureReadContract, readArgs)
     const capture = captureArtifactSchema.parse(result)
     if (!verifyCaptureIntegrity(capture)) {
       throw new Error(
@@ -616,7 +642,7 @@ export async function runCaptureExport(
     await rm(temporaryPath, { force: true }).catch(() => undefined)
     const { reason, message, ...options } = await describeFailure(
       error,
-      failureContext(link, opts, devtoolsCaptureReadContract.name),
+      failureContext(failureLookups(link), opts, devtoolsCaptureReadContract.name, readArgs),
     )
     emitFailure(opts, reason, `Capture export failed. ${message}`, {
       ...options,
@@ -706,6 +732,7 @@ export async function runBatch(
   }
 
   const { link } = await connect(opts)
+  const lookups = failureLookups(link)
   let anyFailed = false
   const results: VersionedBatchResult[] = []
   const emitBatchResult = (result: BatchResult): void => {
@@ -750,7 +777,10 @@ export async function runBatch(
         emitBatchResult({ tool: item.tool, ok: true, status: 'ok', result: projected })
       } catch (error) {
         anyFailed = true
-        const failure = await describeFailure(error, failureContext(link, opts, item.tool))
+        const failure = await describeFailure(
+          error,
+          failureContext(lookups, opts, item.tool, item.args),
+        )
         emitBatchResult({ tool: item.tool, ok: false, status: 'error', ...failure })
       }
     }
@@ -856,7 +886,7 @@ export async function runStatus(opts: AgentOptions = {}): Promise<number> {
       opts,
       'Status check failed.',
       error,
-      failureContext(link, opts, devtoolsStatusContract.name),
+      failureContext(failureLookups(link), opts, devtoolsStatusContract.name),
     )
     return 1
   } finally {
@@ -907,9 +937,7 @@ export async function runTools(
           emitFailure(
             opts,
             'unknown_tool',
-            `No advertised tool or group matches the selector.${
-              suggestions.length > 0 ? ` Did you mean: ${suggestions.join(', ')}?` : ''
-            } Run next to inspect available groups.`,
+            `No advertised tool or group matches the selector. ${suggestionGuidance(suggestions.length, 'groups')}`,
             {
               userActionRequired: true,
               next: (suggestion && toolHelpNext(suggestion, pinned)) || nextCommand('tools'),
@@ -933,7 +961,7 @@ export async function runTools(
       opts,
       'Tool discovery failed.',
       error,
-      failureContext(link, opts, selector),
+      failureContext(failureLookups(link), opts, selector),
     )
     return 1
   } finally {
