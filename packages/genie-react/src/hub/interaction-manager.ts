@@ -1,12 +1,15 @@
 import {
   type AgentErrorCode,
+  type AgentToolContract,
   type AppInfo,
   devtoolsInteractionBeginContract,
   devtoolsInteractionStopContract,
-  formatToolValidationError,
+  type HubErrorCode,
   INTERACTION_SCHEMA_VERSION,
   newId,
   type ToolDescriptor,
+  type ToolErrorDetails,
+  toolValidationFailure,
   type WaitDomain,
 } from '../protocol'
 
@@ -18,6 +21,7 @@ interface InteractionRequestResult {
   result?: unknown
   error?: string
   errorCode?: AgentErrorCode
+  errorDetails?: ToolErrorDetails
 }
 
 export interface InteractionSession {
@@ -54,6 +58,7 @@ export type InteractionInvocation =
         AgentErrorCode,
         'invalid-args' | 'not-connected' | 'unknown-session' | 'tool-error'
       >
+      errorDetails?: ToolErrorDetails
     }
 
 interface InteractionManagerOptions<TSession extends InteractionSession> {
@@ -120,12 +125,14 @@ export class InteractionManager<TSession extends InteractionSession> {
   ): Promise<InteractionInvocation> {
     if (tool === devtoolsInteractionBeginContract.name) {
       const parsed = devtoolsInteractionBeginContract.input.safeParse(args ?? {})
-      if (!parsed.success) return invalidArguments(tool, parsed.error)
+      if (!parsed.success)
+        return invalidArguments(devtoolsInteractionBeginContract, args, parsed.error)
       return this.begin(parsed.data, sessionTarget)
     }
     if (tool === devtoolsInteractionStopContract.name) {
       const parsed = devtoolsInteractionStopContract.input.safeParse(args ?? {})
-      if (!parsed.success) return invalidArguments(tool, parsed.error)
+      if (!parsed.success)
+        return invalidArguments(devtoolsInteractionStopContract, args, parsed.error)
       return this.stop(parsed.data, sessionTarget)
     }
     throw new Error(`InteractionManager cannot handle ${JSON.stringify(tool)}.`)
@@ -150,6 +157,7 @@ export class InteractionManager<TSession extends InteractionSession> {
         ok: false,
         error: `Session ${JSON.stringify(session.sessionId)} already has a starting or recording interaction. Stop it before beginning another; clearing now would invalidate its boundary.`,
         errorCode: 'invalid-args',
+        errorDetails: { hubCode: 'INTERACTION_ACTIVE' satisfies HubErrorCode },
       }
     }
     if (this.active.size + this.starting.size >= MAX_ACTIVE_INTERACTIONS) {
@@ -157,6 +165,7 @@ export class InteractionManager<TSession extends InteractionSession> {
         ok: false,
         error: `The bridge already has ${MAX_ACTIVE_INTERACTIONS} active interactions. Stop an existing interaction before starting another.`,
         errorCode: 'tool-error',
+        errorDetails: { hubCode: 'INTERACTION_LIMIT' satisfies HubErrorCode },
       }
     }
     if (!hasTool(session, 'react_clear_renders')) {
@@ -165,6 +174,7 @@ export class InteractionManager<TSession extends InteractionSession> {
         error:
           'The selected app does not advertise react_clear_renders; interaction capture requires the React collector.',
         errorCode: 'tool-error',
+        errorDetails: { hubCode: 'REACT_COLLECTOR_MISSING' satisfies HubErrorCode },
       }
     }
 
@@ -263,6 +273,16 @@ export class InteractionManager<TSession extends InteractionSession> {
         ok: false,
         error: `Unknown or expired interaction ${JSON.stringify(input.interactionId)}. Begin a new one with devtools_interaction_begin.`,
         errorCode: 'invalid-args',
+        errorDetails: {
+          hubCode: 'INTERACTION_UNKNOWN' satisfies HubErrorCode,
+          issues: [
+            {
+              path: '/interactionId',
+              message: 'No active or recently completed interaction has this ID.',
+              received: 'string',
+            },
+          ],
+        },
       }
     }
     if (sessionTarget) {
@@ -273,6 +293,16 @@ export class InteractionManager<TSession extends InteractionSession> {
           ok: false,
           error: `Interaction ${JSON.stringify(input.interactionId)} belongs to physical session ${JSON.stringify(active.session.sessionId)}, not ${JSON.stringify(targeted.sessionId)}.`,
           errorCode: 'invalid-args',
+          errorDetails: {
+            hubCode: 'INTERACTION_SESSION_MISMATCH' satisfies HubErrorCode,
+            issues: [
+              {
+                path: '/interactionId',
+                message: 'The interaction belongs to a different session than the one targeted.',
+                received: 'string',
+              },
+            ],
+          },
         }
       }
     }
@@ -512,12 +542,16 @@ function stringField(record: Record<string, unknown> | null, key: string): strin
 }
 
 function invalidArguments(
-  tool: string,
-  error: { issues: Parameters<typeof formatToolValidationError>[1] },
+  contract: AgentToolContract,
+  args: unknown,
+  error: { issues: Parameters<typeof toolValidationFailure>[1] },
 ): InteractionInvocation {
   return {
     ok: false,
-    error: formatToolValidationError(tool, error.issues),
+    ...toolValidationFailure(contract.name, error.issues, {
+      input: contract.input,
+      args: args ?? {},
+    }),
     errorCode: 'invalid-args',
   }
 }

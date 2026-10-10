@@ -50,6 +50,38 @@ async function createCapture(captures: CaptureManager<CaptureSession>, name: str
 }
 
 describe('capture manager artifacts', () => {
+  it('points every missing capture ID at the argument that named it', async () => {
+    const captures = manager()
+    const baseline = await createCapture(captures, 'baseline')
+    const candidate = await createCapture(captures, 'candidate')
+    const notRetained = (path: string) => ({
+      path,
+      message: 'No retained capture has this ID.',
+      received: 'string',
+    })
+
+    expect(await captures.invoke('devtools_capture_read', { captureId: 'cap_gone' })).toMatchObject(
+      {
+        ok: false,
+        errorCode: 'invalid-args',
+        errorDetails: { hubCode: 'CAPTURE_NOT_RETAINED', issues: [notRetained('/captureId')] },
+      },
+    )
+    expect(
+      await captures.invoke('devtools_capture_pin', { captureId: 'cap_gone', pinned: true }),
+    ).toMatchObject({ errorDetails: { issues: [notRetained('/captureId')] } })
+    expect(
+      await captures.invoke('devtools_capture_compare', {
+        baselineCaptureIds: [baseline.captureId],
+        candidateCaptureIds: [candidate.captureId, 'cap_gone'],
+      }),
+    ).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('"cap_gone"'),
+      errorDetails: { issues: [notRetained('/candidateCaptureIds/1')] },
+    })
+  })
+
   it('retains invocation args, content integrity, and a bounded summary-first read', async () => {
     const captures = manager()
     const created = await createCapture(captures, 'baseline')

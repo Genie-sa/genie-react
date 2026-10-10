@@ -123,7 +123,7 @@ async function readDiscoveryUpward(startDir: string): Promise<string | null> {
         // A SIGKILLed dev server/hub never cleans up; a dead pid means the URL is a lie — heal instead of failing weird.
         await unlink(path).catch(() => {})
         writeDiagnostic(
-          'stale-discovery',
+          'stale_discovery',
           'Removed a stale bridge discovery file because its process no longer exists.',
           { file: GENIE_DISCOVERY_FILE, pid: discovery.pid },
         )
@@ -191,7 +191,7 @@ async function readLiveDiscovery(file: string): Promise<BridgeDiscovery | null> 
   if (discovery.pid === undefined || isPidAlive(discovery.pid)) return discovery
   await unlink(file).catch(() => {})
   writeDiagnostic(
-    'stale-discovery',
+    'stale_discovery',
     'Removed a stale bridge discovery file because its process no longer exists.',
     { file: relative(process.cwd(), file) || file, pid: discovery.pid },
   )

@@ -10,6 +10,7 @@ import {
   errorMessage,
   newId,
   reactQuiesceContract,
+  type ToolErrorDetails,
   type ToolInput,
   type ToolOutput,
 } from 'genie-react/protocol'
@@ -34,6 +35,7 @@ export class BridgeCallError extends Error {
   readonly errorCode?: AgentErrorCode
   readonly retryInMs?: number
   readonly busyTelemetry?: BusyTelemetry
+  readonly details?: ToolErrorDetails
 
   constructor(
     message: string,
@@ -41,6 +43,7 @@ export class BridgeCallError extends Error {
       errorCode?: AgentErrorCode
       retryInMs?: number
       busyTelemetry?: BusyTelemetry
+      details?: ToolErrorDetails
     },
   ) {
     super(message)
@@ -48,6 +51,7 @@ export class BridgeCallError extends Error {
     this.errorCode = options?.errorCode
     this.retryInMs = options?.retryInMs
     this.busyTelemetry = options?.busyTelemetry
+    this.details = options?.details
   }
 }
 
@@ -230,6 +234,7 @@ export class GenieAgentLink {
             errorCode: message.errorCode,
             retryInMs: message.retryInMs,
             busyTelemetry: message.busyTelemetry,
+            details: message.errorDetails,
           }),
         )
     } else if (message.kind === 'bridge/status') {
