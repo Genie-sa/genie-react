@@ -1,0 +1,42 @@
+{
+  "id": "memo-object-prop-fix",
+  "split": "dev",
+  "mode": "fix",
+  "screen": "search",
+  "prompt": "On the Search screen, the \"Pager on call\" badge next to the heading re-renders on every keystroke when I type in the incident filter, even though nothing about the badge changes. Find out why and fix it.",
+  "truth": {
+    "components": ["StatusBadge", "SearchScreen"],
+    "files": ["src/screens/search/SearchScreen.tsx"],
+    "causePatterns": [
+      "appearance|object|prop",
+      "new|inline|literal|recreat|every render|each render|identity|referen|unstable|fresh"
+    ],
+    "summary": "SearchScreen passes an inline `appearance` object literal to the memoized StatusBadge, so its identity changes on every render and memo never bails out."
+  },
+  "referenceAnswer": {
+    "component": "StatusBadge",
+    "cause": "SearchScreen passes a new inline appearance object on every render, so memo's shallow prop comparison always fails.",
+    "file": "src/screens/search/SearchScreen.tsx"
+  },
+  "decoyAnswer": {
+    "component": "StatusBadge",
+    "cause": "The badge label string changes while typing.",
+    "file": "src/screens/search/StatusBadge.tsx"
+  },
+  "referenceFix": [
+    {
+      "file": "src/screens/search/SearchScreen.tsx",
+      "find": "import { StatusBadge } from './StatusBadge'\n",
+      "replace": "import { type BadgeAppearance, StatusBadge } from './StatusBadge'\n\nconst pagerBadgeAppearance: BadgeAppearance = { tone: 'success', size: 'sm' }\n"
+    },
+    {
+      "file": "src/screens/search/SearchScreen.tsx",
+      "find": "appearance={{ tone: 'success', size: 'sm' }}",
+      "replace": "appearance={pagerBadgeAppearance}"
+    }
+  ],
+  "probe": {
+    "steps": [["type", "input[aria-label=\"Filter incidents\"]", "cert"]],
+    "renders": { "component": "StatusBadge", "maxUpdates": 0 }
+  }
+}

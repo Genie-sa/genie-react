@@ -17,9 +17,10 @@
   "scripts": {
     "build": "pnpm -r --filter \"./packages/**\" build",
     "dev": "pnpm -r --parallel --filter \"./packages/**\" dev",
-    "typecheck": "pnpm -r --filter \"./packages/**\" typecheck",
+    "typecheck": "pnpm -r --filter \"./packages/**\" typecheck && tsc -p evals && pnpm --filter @genie-react/eval-fixture typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
+    "eval": "node evals/run.mjs",
     "lint": "biome check . && node scripts/check-comments.mjs && node scripts/check-cli-ux.mjs && node scripts/sync-skill.mjs --check",
     "sync:skill": "node scripts/sync-skill.mjs",
     "check:docs": "pnpm --filter @genie-react/docs check",

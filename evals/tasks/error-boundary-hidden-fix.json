@@ -1,0 +1,39 @@
+{
+  "id": "error-boundary-hidden-fix",
+  "split": "held-out",
+  "mode": "fix",
+  "screen": "account",
+  "prompt": "On the Account screen the Profile card is completely empty: no error message, no spinner, nothing. Find out what's going on and fix it so the profile shows up.",
+  "truth": {
+    "components": ["ProfileDetails", "SilentBoundary"],
+    "files": ["src/screens/account/ProfileDetails.tsx"],
+    "causePatterns": [
+      "address|city|undefined|TypeError|throw",
+      "boundary|swallow|null|fallback|catch"
+    ],
+    "summary": "ProfileDetails throws reading address.city because the profile has no address; SilentBoundary catches it and renders null."
+  },
+  "referenceAnswer": {
+    "component": "ProfileDetails",
+    "cause": "formatLocation reads address.city on a profile without an address, throwing a TypeError that SilentBoundary catches and replaces with null.",
+    "file": "src/screens/account/ProfileDetails.tsx"
+  },
+  "decoyAnswer": {
+    "component": "SilentBoundary",
+    "cause": "The boundary fallback is null.",
+    "file": "src/screens/account/SilentBoundary.tsx"
+  },
+  "referenceFix": [
+    {
+      "file": "src/screens/account/ProfileDetails.tsx",
+      "find": "function formatLocation(profile: Profile): string {\n  const address = profile.address as NonNullable<Profile['address']>\n  return `${address.city}, ${address.country}`\n}",
+      "replace": "function formatLocation({ address }: Profile): string {\n  return address ? `${address.city}, ${address.country}` : 'Not provided'\n}"
+    }
+  ],
+  "probe": {
+    "steps": [],
+    "settleMs": 1500,
+    "noCaughtErrors": true,
+    "text": { "selector": "main", "includes": "Dana Whitfield" }
+  }
+}

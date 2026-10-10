@@ -1,0 +1,30 @@
+{
+  "id": "query-key-mismatch",
+  "split": "dev",
+  "mode": "diagnose",
+  "screen": "tasks",
+  "prompt": "On the Tasks screen, when I add a task it says \"Saved\" but the new task doesn't show up in the list until I reload the page. Why?",
+  "truth": {
+    "components": ["AddTaskForm", "TaskList", "useAddTask"],
+    "files": ["src/screens/tasks/taskQueries.ts"],
+    "causePatterns": ["invalidat", "key", "match|differ|wrong|typo|singular|incorrect"],
+    "summary": "useAddTask invalidates ['task', 'list'] but the list query key is ['tasks', 'list'], so the list is never refetched."
+  },
+  "referenceAnswer": {
+    "component": "AddTaskForm",
+    "cause": "useAddTask invalidates the ['task', 'list'] query key, which does not match the list query key ['tasks', 'list'], so the list never refetches.",
+    "file": "src/screens/tasks/taskQueries.ts"
+  },
+  "decoyAnswer": {
+    "component": "TaskList",
+    "cause": "The API never persists the new task.",
+    "file": "src/api.ts"
+  },
+  "referenceFix": [
+    {
+      "file": "src/screens/tasks/taskQueries.ts",
+      "find": "queryKey: ['task', 'list']",
+      "replace": "queryKey: taskKeys.list()"
+    }
+  ]
+}

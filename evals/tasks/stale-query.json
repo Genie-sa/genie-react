@@ -1,0 +1,30 @@
+{
+  "id": "stale-query",
+  "split": "held-out",
+  "mode": "diagnose",
+  "screen": "overview",
+  "prompt": "The open orders number on the Overview screen never changes. The backend count goes up every few seconds, but even switching to the Inventory tab and back still shows the old number. Why?",
+  "truth": {
+    "components": ["OpenOrdersCard", "useOpenOrderCount"],
+    "files": ["src/screens/overview/orderQueries.ts"],
+    "causePatterns": ["stale", "infinit|never"],
+    "summary": "useOpenOrderCount sets staleTime to Infinity, so cached data is never stale and remounting OpenOrdersCard does not refetch."
+  },
+  "referenceAnswer": {
+    "component": "OpenOrdersCard",
+    "cause": "The open-count query uses staleTime: Infinity, so the cached value is never considered stale and remounting never refetches it.",
+    "file": "src/screens/overview/orderQueries.ts"
+  },
+  "decoyAnswer": {
+    "component": "OverviewScreen",
+    "cause": "The tab state resets on every render.",
+    "file": "src/screens/overview/OverviewScreen.tsx"
+  },
+  "referenceFix": [
+    {
+      "file": "src/screens/overview/orderQueries.ts",
+      "find": "    staleTime: Number.POSITIVE_INFINITY,\n",
+      "replace": ""
+    }
+  ]
+}

@@ -43,6 +43,9 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Validate agent eval tasks
+        run: pnpm eval --dry-run
+
       - name: Documentation
         run: pnpm check:docs
 
