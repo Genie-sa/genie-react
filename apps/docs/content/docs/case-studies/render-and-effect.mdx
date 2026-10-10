@@ -23,7 +23,7 @@ Open and bind the page:
 ```bash
 agent-browser --session docs-case-vite open \
   'http://localhost:3040/?_genie=docs-case-vite'
-export GENIE_BRIDGE_URL=ws://localhost:3040/__genie/ws
+export GENIE_BRIDGE_URL=ws://127.0.0.1:3040/__genie/ws
 export GENIE_SESSION=docs-case-vite
 npx @genie-react/cli call devtools_wait \
   '{"condition":"ready","timeoutMs":10000}'

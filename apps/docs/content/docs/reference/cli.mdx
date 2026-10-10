@@ -71,7 +71,8 @@ dev server or hub restart writes a new token, which the next command picks up.
 `.genie/bridge.json` publishes the address the dev server or hub actually bound, such as
 `ws://127.0.0.1:4390/__genie/ws` or `ws://[::1]:5173/__genie/ws`, never `localhost`. The name
 `localhost` can resolve to the other address family first, where another local process could listen
-on the same port and capture the token.
+on the same port and capture the token. A wildcard bind (`vite --host`) is published as `127.0.0.1`;
+on macOS another user's process can still shadow a wildcard bind with a more specific one.
 
 A discovered URL only ever uses its own hub's token. For a URL from `--url` or `GENIE_BRIDGE_URL`,
 `GENIE_BRIDGE_TOKEN` wins; without it the CLI uses the token of a discovered hub at that address.

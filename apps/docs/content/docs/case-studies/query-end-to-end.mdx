@@ -22,7 +22,7 @@ Open and bind the page:
 ```bash
 agent-browser --session docs-case-start open \
   'http://localhost:3000/?_genie=docs-case-start'
-export GENIE_BRIDGE_URL=ws://localhost:3000/__genie/ws
+export GENIE_BRIDGE_URL=ws://127.0.0.1:3000/__genie/ws
 export GENIE_SESSION=docs-case-start
 npx @genie-react/cli call devtools_wait \
   '{"condition":"query-settled","queryKey":["demo","greeting"],"timeoutMs":10000}'

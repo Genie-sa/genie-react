@@ -21,7 +21,7 @@ Open and bind the page in another shell:
 ```bash
 agent-browser --session docs-case-router open \
   'http://localhost:3030/?_genie=docs-case-router'
-export GENIE_BRIDGE_URL=ws://localhost:3030/__genie/ws
+export GENIE_BRIDGE_URL=ws://127.0.0.1:3030/__genie/ws
 export GENIE_SESSION=docs-case-router
 npx @genie-react/cli call devtools_wait '{"condition":"ready","timeoutMs":10000}'
 ```
