@@ -1,4 +1,4 @@
-// Helpers bippy removed, vendored (MIT, Aiden Bai) with identical semantics: didFiberCommit from 0.7.2, the rest from 0.6.1. Delete any bippy restores.
+// Helpers bippy removed, vendored (MIT, Aiden Bai) with identical semantics: didFiberCommit from 0.7.2, the rest from 0.6.1. Delete each one bippy restores.
 import { type Fiber, isHostFiber, MutationMask, ReactFiberFlags } from 'bippy'
 
 /** A hook effect entry on a fiber's `updateQueue`. */
