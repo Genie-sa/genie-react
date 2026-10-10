@@ -5,6 +5,7 @@ import {
   agentStateDirs,
   claudeBashRules,
   claudeSandboxSettings,
+  enclosingRoots,
   outsideRoots,
 } from './agents.mjs'
 
@@ -15,11 +16,13 @@ const options = {
   maxTurns: 10,
   maxBudgetUsd: 1,
   browserSession: 'genie-eval-run-task-1',
+  browserSocketDir: '/home/me/.agent-browser',
   toolDirs: ['/opt/node/bin', '/opt/tools/bin', '/opt/node/bin'],
   settingsPath: '/repo/evals/results/run/task-1.settings.json',
   appOrigin: 'http://127.0.0.1:5173',
   readableRoots: ['/tmp/deps'],
   deniedReadRoots: ['/repo', '/home/me/.claude/projects'],
+  runtimeDir: '/var/run/user/501',
 }
 
 describe('agentEnv', () => {
@@ -37,6 +40,8 @@ describe('agentEnv', () => {
         CLAUDECODE: '1',
         CLAUDE_CODE_ENTRYPOINT: 'cli',
         GENIE_BRIDGE_URL: 'ws://localhost:1',
+        GENIE_BRIDGE_TOKEN: 'leaked',
+        XDG_RUNTIME_DIR: '/run/user/other',
       },
       options,
     )
@@ -46,7 +51,9 @@ describe('agentEnv', () => {
       ANTHROPIC_API_KEY: 'key',
       CLAUDE_CODE_OAUTH_TOKEN: 'token',
       PATH: '/tmp/trial/node_modules/.bin:/opt/node/bin:/opt/tools/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+      XDG_RUNTIME_DIR: '/var/run/user/501',
       AGENT_BROWSER_SESSION: 'genie-eval-run-task-1',
+      AGENT_BROWSER_SOCKET_DIR: '/home/me/.agent-browser',
       AGENT_BROWSER_ALLOWED_DOMAINS: '127.0.0.1,localhost',
       npm_config_verify_deps_before_run: 'false',
       pnpm_config_verify_deps_before_run: 'false',
@@ -106,6 +113,17 @@ describe('outsideRoots', () => {
         ['/repo'],
       ),
     ).toEqual(['/repo-tools/bin', '/usr/local/bin'])
+  })
+})
+
+describe('enclosingRoots', () => {
+  it('flags tool roots that are or contain a denied path, not ones beside it', () => {
+    expect(
+      enclosingRoots(
+        ['/home/me', '/home/me/.nvm/versions/node/v22', '/usr', '/'],
+        ['/home/me', '/tmp/claude-501'],
+      ),
+    ).toEqual(['/home/me', '/'])
   })
 })
 

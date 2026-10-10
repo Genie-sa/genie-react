@@ -2,6 +2,7 @@ import { delimiter, isAbsolute, join, relative, sep } from 'node:path'
 
 export const AGENTS = /** @type {const} */ (['claude', 'codex'])
 
+export const GENIE_SESSION = 'eval'
 const GENIE_LAUNCHERS = ['genie-react', 'pnpm exec genie-react', 'npx genie-react']
 const GENIE_SUBCOMMANDS = ['status', 'tools', 'call', 'batch', 'doctor']
 const SHELL_HELPERS = ['sleep', 'echo', 'cat', 'head', 'tail', 'grep', 'jq', 'wc', 'ls']
@@ -89,11 +90,13 @@ const INHERITED_ENV_PREFIXES = ['ANTHROPIC_']
  *   maxTurns: number,
  *   maxBudgetUsd: number,
  *   browserSession: string,
+ *   browserSocketDir: string,
  *   toolDirs: string[],
  *   settingsPath: string,
  *   appOrigin: string,
  *   readableRoots: string[],
  *   deniedReadRoots: string[],
+ *   runtimeDir: string,
  * }} AgentRunOptions
  * @typedef {{ command: string, args: string[], env: NodeJS.ProcessEnv }} AgentCommand
  */
@@ -117,6 +120,15 @@ export function outsideRoots(dirs, roots) {
 }
 
 /**
+ * Returns the directories in `dirs` that are or contain one of `roots`, which a read grant on them would expose.
+ * @param {string[]} dirs
+ * @param {string[]} roots
+ */
+export function enclosingRoots(dirs, roots) {
+  return dirs.filter((dir) => roots.some((root) => isWithin(root, dir)))
+}
+
+/**
  * Where Claude and Codex keep transcripts, file snapshots, and prompt history, which can hold earlier trials' answers.
  * @param {NodeJS.ProcessEnv} env
  * @param {string} home
@@ -132,12 +144,14 @@ export function agentStateDirs(env, home) {
 /**
  * Builds the agent environment from an allowlist so nothing names the repository: auth and locale pass through,
  * PATH holds only the trial's bins, the required tool directories, and system directories.
+ * XDG_RUNTIME_DIR pins the CLI to the token store the trial's hub wrote to, whatever TMPDIR the sandbox sets, and
+ * AGENT_BROWSER_SOCKET_DIR keeps agent-browser on the harness daemon, which XDG_RUNTIME_DIR would otherwise move.
  * The skill suggests `pnpm exec`; disabling pnpm's pre-run install (npm_ prefix for pnpm 10, pnpm_ for 11+) keeps it off the linked node_modules.
  * @param {NodeJS.ProcessEnv} source
- * @param {{ dir: string, browserSession: string, toolDirs: string[] }} options
+ * @param {{ dir: string, browserSession: string, browserSocketDir: string, toolDirs: string[], runtimeDir: string }} options
  * @returns {NodeJS.ProcessEnv}
  */
-export function agentEnv(source, { dir, browserSession, toolDirs }) {
+export function agentEnv(source, { dir, browserSession, browserSocketDir, toolDirs, runtimeDir }) {
   /** @type {NodeJS.ProcessEnv} */
   const env = {}
   for (const [key, value] of Object.entries(source)) {
@@ -149,7 +163,9 @@ export function agentEnv(source, { dir, browserSession, toolDirs }) {
   return {
     ...env,
     PATH: [...new Set(path)].join(delimiter),
+    XDG_RUNTIME_DIR: runtimeDir,
     AGENT_BROWSER_SESSION: browserSession,
+    AGENT_BROWSER_SOCKET_DIR: browserSocketDir,
     AGENT_BROWSER_ALLOWED_DOMAINS: '127.0.0.1,localhost',
     npm_config_verify_deps_before_run: 'false',
     pnpm_config_verify_deps_before_run: 'false',
@@ -335,7 +351,7 @@ export function buildPrompt(task, url) {
       : 'Do not modify any files.'
   return `${task.prompt}
 
-The app is already running at ${url} (Vite dev server with hot reload). Start by opening that URL with \`agent-browser open\`; the session is already selected. Investigate it at runtime: use the \`genie-react\` CLI for React and TanStack Query introspection (the genie skill explains it) and \`agent-browser\` to drive the page. Both are on PATH. ${instructions}
+The app is already running at ${url} (Vite dev server with hot reload). Start by opening that URL with \`agent-browser open\`; its browser session is already selected, so leave out agent-browser's \`--session\`. The URL names the Genie session \`${GENIE_SESSION}\`. Investigate it at runtime: use the \`genie-react\` CLI for React and TanStack Query introspection (the genie skill explains it) and \`agent-browser\` to drive the page. Both are on PATH. ${instructions}
 
 End your final message with a fenced json block in exactly this shape:
 \`\`\`json

@@ -1,3 +1,5 @@
+import { rm } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { release, track } from './cleanup.mjs'
 import { delay, run } from './process.mjs'
@@ -10,6 +12,22 @@ import { delay, run } from './process.mjs'
 const READY_TIMEOUT_MS = 20_000
 const CLI_PATH = 'node_modules/@genie-react/cli/dist/cli.js'
 
+/** Where agent-browser keeps each session's socket and state files, resolved the way agent-browser resolves it. */
+export const BROWSER_SOCKET_DIR =
+  process.env.AGENT_BROWSER_SOCKET_DIR ||
+  (process.env.XDG_RUNTIME_DIR
+    ? join(process.env.XDG_RUNTIME_DIR, 'agent-browser')
+    : join(homedir(), '.agent-browser'))
+export const BROWSER_SESSION_FILES = [
+  'sock',
+  'pid',
+  'config',
+  'engine',
+  'version',
+  'stream',
+  'target',
+]
+
 /**
  * @param {string} session
  */
@@ -21,7 +39,7 @@ function browserEnv(session) {
  * @param {string} session
  * @param {string[]} args
  */
-export async function agentBrowser(session, args) {
+async function agentBrowser(session, args) {
   const result = await run('agent-browser', args, { env: browserEnv(session), timeoutMs: 60_000 })
   if (result.code !== 0) {
     throw new Error(`agent-browser ${args.join(' ')} failed: ${result.stderr || result.stdout}`)
@@ -30,14 +48,24 @@ export async function agentBrowser(session, args) {
 }
 
 /**
- * Opens `url` in a fresh agent-browser session that interrupts and `closeBrowserSession` close.
+ * Opens `url` in a fresh agent-browser session that interrupts and `closeBrowserSession` close, removing the state
+ * files `close` leaves behind.
  * @param {string} session
  * @param {string} url
  */
 export async function openBrowserSession(session, url) {
-  track(`browser:${session}`, () =>
-    run('agent-browser', ['close'], { env: browserEnv(session), timeoutMs: 30_000, cleanup: true }),
-  )
+  track(`browser:${session}`, async () => {
+    await run('agent-browser', ['close'], {
+      env: browserEnv(session),
+      timeoutMs: 30_000,
+      cleanup: true,
+    })
+    await Promise.all(
+      BROWSER_SESSION_FILES.map((suffix) =>
+        rm(join(BROWSER_SOCKET_DIR, `${session}.${suffix}`), { force: true }),
+      ),
+    )
+  })
   await agentBrowser(session, ['open', url])
 }
 

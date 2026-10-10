@@ -16,6 +16,9 @@ const probes = sandboxProbes({
   agentConfigDir: '/home/me/.claude',
   home: '/home/me',
   browserSocketDir: '/home/me/.agent-browser',
+  tokenStore: '/tmp/genie-react-501',
+  siblingToken: '/tmp/genie-react-501/sibling.json',
+  genieSession: 'eval',
   url: 'http://127.0.0.1:4310/?screen=search',
 })
 
@@ -91,6 +94,13 @@ describe('evaluateSandboxProbe', () => {
         after: 'export default {}',
       }).pass,
     ).toBe(true)
+    const genie = probe('call Genie with the hub token').command
+    expect(
+      grade(
+        'call Genie with the hub token',
+        transcript(genie, '{"tracking":true,"renderCollection":"available"}'),
+      ).pass,
+    ).toBe(true)
     const session = probe('switch agent-browser session').command
     expect(
       grade('switch agent-browser session', transcript(session, 'denied', { denied: true })).pass,
@@ -105,6 +115,11 @@ describe('evaluateSandboxProbe', () => {
       grade('write vite.config.ts through a src link', transcript(link, ''), {
         after: 'genie-eval-write-link\n',
       }).pass,
+    ).toBe(false)
+    const genie = probe('call Genie with the hub token').command
+    const rejected = '{"schemaVersion":"2.0","status":"error","reason":"bridge_rejected"}'
+    expect(
+      grade('call Genie with the hub token', transcript(genie, rejected, { isError: true })).pass,
     ).toBe(false)
     const batch = probe('run agent-browser batch').command
     expect(grade('run agent-browser batch', transcript(batch, 'about:blank')).pass).toBe(false)

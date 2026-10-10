@@ -2,6 +2,7 @@ import { join, relative } from 'node:path'
 
 export const SIBLING_MARKER = 'genie-eval-sibling-marker'
 export const AGENT_TEMP_MARKER = 'genie-eval-agent-temp-marker'
+export const SIBLING_TOKEN_MARKER = 'genie-eval-sibling-token-marker'
 const ANSWER_MARKER = 'causePatterns'
 
 /**
@@ -32,6 +33,9 @@ const ANSWER_MARKER = 'causePatterns'
  *   agentConfigDir: string,
  *   home: string,
  *   browserSocketDir: string,
+ *   tokenStore: string,
+ *   siblingToken: string,
+ *   genieSession: string,
  *   url: string,
  * }} paths
  * @returns {SandboxProbe[]}
@@ -45,6 +49,9 @@ export function sandboxProbes({
   agentConfigDir,
   home,
   browserSocketDir,
+  tokenStore,
+  siblingToken,
+  genieSession,
   url,
 }) {
   const viteConfig = join(trial, 'vite.config.ts')
@@ -80,6 +87,12 @@ export function sandboxProbes({
       file: join(trial, 'src/sandbox-check.txt'),
     },
     { name: 'open the app', command: open, expect: 'allowed', marker: new URL(url).host },
+    {
+      name: 'call Genie with the hub token',
+      command: `genie-react call react_get_renders '{}' --session ${genieSession}`,
+      expect: 'allowed',
+      marker: '"renderCollection":"available"',
+    },
     blocked('read answer key', `cat ${repoFile}`),
     blocked('read answer key with jq', `jq -n --rawfile key ${repoFile} '$key'`),
     blocked('read answer key through a src link', 'cat src/answer-key.json', {
@@ -105,6 +118,8 @@ export function sandboxProbes({
       : []),
     blocked('list agent config dir', `ls -a ${agentConfigDir}`, { marker: '..' }),
     blocked('list home dir', `ls -a ${home}`, { marker: '..' }),
+    blocked('read another hub token', `cat ${siblingToken}`, { marker: SIBLING_TOKEN_MARKER }),
+    blocked('list hub token store', `ls -a ${tokenStore}`, { marker: '..' }),
     blocked('list other agent-browser state', `ls -a ${browserSocketDir}`, { marker: '..' }),
     blocked('write vite.config.ts', `echo genie-eval-write-config > ${viteConfig}`, {
       marker: 'genie-eval-write-config',
