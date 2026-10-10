@@ -1,5 +1,96 @@
 # @genie-react/cli
 
+## 0.15.0
+
+### Minor Changes
+
+- c941b78: Make every CLI failure actionable instead of collapsing it to fixed text. `app/response` and `bridge/result` frames gain optional `errorDetails` (argument issues with JSON Pointer paths, required keys and the schema's example call, unknown keys, a `GenieToolError`'s code, message and hint, an unavailable tool's reason, and a `hubCode` for failures the hub authors, such as `CAPTURE_NOT_RETAINED`; the hub strips a `hubCode` from app responses); older peers ignore the field and a malformed shape is dropped rather than rejecting the frame. `GenieToolError` exposes the thrown message as `detail`, and result-cap and serialization failures become `GenieToolError`s with `RESULT_TOO_LARGE` and `RESULT_NOT_SERIALIZABLE` codes.
+
+  The CLI adds `details`, `errorCode` and `correctedExample` to failures. `message` is built only from what the caller typed (tool, session, the keys and JSON types of the arguments it sent) and fixed CLI text; everything the app or its schema reports stays in `details` as app data. `correctedExample` is a shape template: the caller's accepted arguments plus typed placeholders (`"<string>"`, `0`, `false`, `[]`, `{}`) for the other keys in the schema's example, never the app's values. A `hubCode` is honoured only for tools the hub answers itself and sets `userActionRequired: true`. Suggested tool names are labelled as app data. A missing tool is now `unknown_tool` with suggestions; an advertised but unmounted tool is `tool_unavailable` with its reason; an absent pinned session names itself and lists connected sessions in `details`; unknown `--fields` and an unmatched `--select` are named, with the available paths in `details`. `status` with no connected session adds a `hint` and `next`.
+
+  Breaking: CLI-owned envelopes now report `schemaVersion: "2.0"`. To migrate:
+
+  - Match `reason` in snake_case: `invalid-args` → `invalid_args`, `tool-error` → `tool_error`, `tool-unavailable` → `tool_unavailable` (or `unknown_tool` when the app advertises no such tool), `unknown-session` → `unknown_session`, `not-connected` → `not_connected`, and the diagnostic and record reasons `bridge-connect` → `bridge_connect`, `bridge-event` → `bridge_event`, `bridge-fallback` → `bridge_fallback`, `stale-discovery` → `stale_discovery`, `output-failure` → `output_failure` and `max-bytes` → `max_bytes`.
+  - Read the bridge's wire code, previously in `reason`, from the new `errorCode` field.
+  - Read a batch failure row's `message`; the duplicated `error` field is gone.
+
+  See docs/json-cli.md.
+
+- 3c28d60: Authenticate hub WebSocket connections. Any web page open in the developer's browser could previously connect to the hub as an agent and call every tool, or register a fake app session whose tool descriptions reached the coding agent.
+
+  - Agents must present the hub's per-run token as `Authorization: Bearer <token>`, connect from the same machine (a loopback peer address), and send no browser `Origin`. The hub keeps the token out of the project in a private per-user file (`genie-react-<uid>/<sha256 of the app root's real path>.json` under `$XDG_RUNTIME_DIR` or the system temp directory, directory `0700`, file `0600`), so no dev server rooted at the project can serve it. `.genie/bridge.json` keeps only the URL, port and pid, and its URL is now the bound IP literal (`ws://127.0.0.1:<port>` for `genie-react hub`, Next.js and wildcard binds, the address Vite bound for a specific loopback bind) instead of `ws://localhost:<port>`. For a specific loopback bind, a process listening on the other loopback family's port can no longer capture the token. On macOS, a wildcard bind (`vite --host`, `0.0.0.0`) can still be shadowed by a more specific bind from another user's process.
+  - The CLI pairs a discovered URL only with its own hub's token. For `--url` or `GENIE_BRIDGE_URL`, `GENIE_BRIDGE_TOKEN` wins, then the token of a discovered hub at that address. A `localhost` URL that matches a discovered hub connects to that hub's published address; otherwise the token goes only over `wss://` or to a loopback IP literal, and warns when a discovered hub published no token (an older, unauthenticated `genie-react`). A refused token now fails `call`, `batch` and `tools` at once with a fix, instead of waiting and reporting that no app is connected.
+  - App connections: the Vite bridge accepts pages from the dev server's own origin (including its IP address with `vite --host`), Vite's `server.allowedHosts`, and the new `allowedOrigins` option. The standalone hub also accepts loopback pages: on the Next.js port under `registerGenie()`, on any port under `genie-react hub`. `status` reports each session's `origin` and marks sessions admitted only as loopback pages with `originUnverified`. Clients without an `Origin` (Node) must connect from the same machine.
+  - The `genie()` Vite plugin adds `**/.genie/**` to `server.fs.deny` and answers `404` for any request into `.genie`, also when `server.fs.strict` is off.
+
+  Breaking:
+
+  - Upgrades without `?role=app` or `?role=agent` are refused with HTTP 400 instead of inferring the role from the first frame.
+  - `@genie-react/cli` older than this release gets HTTP 401 from this hub. Its commands retry for 11 to 14 seconds and then report that no app is connected. Upgrade the CLI and `genie-react` together.
+  - Custom agent clients must send the token from the private token file and run on the same machine as the hub.
+  - Pages served from a custom hostname, a tunnel, or a loopback port other than the app's need `allowedOrigins` (`genie()`, `registerGenie()`, `startGenieHub()`, or `GENIE_ALLOWED_ORIGINS` for `genie-react hub`).
+  - Discovery URLs, `startGenieHub()` results, the Cloudflare-mode client URL, `<GenieScript />` and the hub client's fallback use `127.0.0.1` (or the bound literal) instead of `localhost`. With `--url`/`GENIE_BRIDGE_URL` outside the app folder, use the IP address; the CLI no longer sends the token to a `localhost` name it cannot match to a discovered hub.
+  - The agent token is no longer in `.genie/bridge.json`; tools that read it there must use `readAgentToken(rootDir)` from `genie-react/hub` or `GENIE_BRIDGE_TOKEN`.
+  - The `genie()` plugin's `server.fs.deny` entry restates Vite's default deny list when the app sets none, and appends to the app's list otherwise.
+
+- 7e0f57d: Return compact summaries by default from the heaviest tools and make oversized CLI output recoverable.
+
+  **Breaking changes.** Pass `view:"full"` to restore the previous payloads.
+
+  - `react_get_renders` and `react_render_causes` take `view` and default to `"summary"`. The hub's own capture and interaction calls request `view:"full"` only from apps that advertise it, so older apps keep working. A summary omits null, zero, and default fields and the legacy summary aliases (`unstableComponents`, `unnecessaryComponents`, `topUnstableProps`). Changed values are dropped, and the source fields are collapsed into one `source: {location, ownership}`. A summary component record is usually under 500 bytes.
+  - `devtools_capture_create` returns the `devtools_capture_read` summary and warnings by default. Capture summaries add `renders` (render `comparable`, `notComparableReasons`, and coverage `complete`/`semantics`), and a capture is `complete` only when that render evidence is comparable with complete coverage.
+  - `devtools_interaction_stop` returns the following by default:
+    - the settle outcome and coverage
+    - render `semantics` and the top components, each with input evidence, non-zero memo counters, and its most frequent cause kind (ties listed, latest-render details labelled as such)
+    - the hottest effects
+    - the cohort results
+    - a `fullView` handle
+
+    Pass `view:"full"` to get the previous payload, now tagged `view:"full"`. Add `sections` with it to fetch only `renders`, `causes`, `effects`, or `cohorts`.
+
+  - Timeline coverage entries carry a stable `code`. The `detail` text is now returned only by `timeline_start`. The codes are documented at `/docs/tools/timeline#coverage-codes`.
+  - The CLI's default `--max-bytes` drops from 262,144 to 102,400. When a `call` or `tools` result is too large, the complete JSON is saved to `genie-react-<uid>/out` under `$XDG_RUNTIME_DIR` or the OS temp dir, beside the hub's agent tokens: both directories must be owned by you and are forced to 0700, files are 0600, and only the newest 20 spill files are kept. Suggestions use the project's package-manager prefix and keep `--session` and an explicit `--max-bytes`. The truncation envelope reports the file in `outputPath`, along with `largestPaths` and runnable `suggestions`: the summary view, a fitting `limit`, a `--select` branch, or a raised `--max-bytes`.
+  - `genie-react tools <name>` (and `tools --all`) replaces `outputJsonSchema` with `output: {kind:"outline", fields, next}`, a one-level outline whose `next` re-runs with `--output-schema` for the complete output JSON Schema; output schemas share repeated subschemas through `$defs`. Descriptors no longer print safe-integer `minimum`/`maximum` bounds.
+
+- c10d8d5: Make tab sessions reliable across navigations and multiple tabs.
+
+  - A new document generation of a tab supersedes the previous one: the old document stops receiving calls, its in-flight calls fail with `not_connected` instead of `busy`, it disappears from `status`, and its socket is closed unless it proves it is a live clone. An old document heard from within the last heartbeat keeps routing until it closes (a reload), stays silent (superseded), or beats again (a duplicated tab, which is forked). A prerendered page connects only when it activates. The browser client also releases its socket on `pagehide` and rejoins as a newer generation when restored from the back/forward cache. Previously, frozen documents kept their sockets open, so repeated navigations piled up stale sessions, forked identities and `busy` failures until the newest document became current.
+  - **Behavior change:** untargeted calls no longer follow the most recently connected tab. They use the only connected tab, or keep the tab untargeted calls already used, including across its reloads. While that tab reloads, a tab that connects meanwhile (a React Native app after a Metro reload, a fresh tab) becomes the default at once, and a single other open tab answers until it returns. When several tabs are connected and none was targeted yet, calls fail with `unknown_session` and list the tabs in `details.session.connected`. Pass `--session <target>` or set `GENIE_SESSION` to choose one; explicit targets behave as before.
+  - `bridge/result` frames carry an additive `session` field naming the document that answered. The CLI adds it to batch rows and reports the answering tab on stderr for raw `call` output when several tabs are connected.
+  - Session failures carry new hub codes (`SESSION_AMBIGUOUS`, `SESSION_RELOADING`, `SESSION_SUPERSEDED`, `SESSION_DISCONNECTED`) and `mayHaveCompleted` for an interrupted call that is not read-only. The CLI honours them only on the `not-connected` and `unknown-session` wire codes the hub alone sends, and turns them into retry guidance instead of "No app is connected", reports a session name shared by several tabs as ambiguous with the matching tabs, fails `tools` at once when the default is ambiguous, and writes a `session-retargeted` stderr diagnostic when another tab answers for a gone default.
+  - `devtools_interaction_stop`, `react_quiesce` and waits now poll one resolved document, report the document that answered, and say the document disconnected instead of naming a missing tool when it reloads during settle.
+
+### Patch Changes
+
+- e6f6bfd: Tighten the bundled agent skill. Step 1 opens the app with agent-browser or agent-device before checking status, every command passes `--session <name>` instead of exporting `GENIE_SESSION`, and evidence, comparison, and output semantics move to an on-demand `EVIDENCE.md` reference. The repository's `skills/genie` copy is now generated from the bundled skill, and lint fails when they differ.
+
+  Tool detail guidance now matches the live contract: `tools <name>` returns `inputJsonSchema` without an example, and an absent `available`, `destructiveHint`, or `idempotentHint` is read as the default. Step 1 retries an unavailable session once right after opening the page.
+
+- f37d8bf: Attribute render causes to individual props again. Plain-object props containers are diffed by own enumerable keys without running getters, and plain-object prop values are compared one level deep, so a `memo` child that receives a fresh but equal `{...}` literal reports a reference-only prop change. Class-instance and other exotic props containers stay unread and still report `propsNotEnumerated`. Objects with symbol keys and React elements passed as props are never called reference-only, and a prop that only appears or disappears now reports an `added` or `removed` change.
+
+  Prop changes are the render cause only for components that can skip a render on equal props: `memo` components and classes that extend `PureComponent` or define `shouldComponentUpdate`. Other components list their own state, context, store, or `children` changes first, otherwise `parent`, followed by changed props as observed inputs, and reference-only prop changes never mark a render `necessary`. `referenceOnlyPropRenders` now counts only those components and excludes truncated diffs and partial scans. Two new per-component counts cover the rest: `functionIdentityPropRenders` (every changed prop was reference-only or a function, and at least one function changed identity, usually an inline callback) and `undeterminedReferencePropRenders` (a partial scan or truncated diff could not classify the change). A custom `shouldComponentUpdate` is never called, so such classes are counted as if they compared props shallowly.
+
+  In development, Genie's hook now wraps the global `Proxy` constructor and `Proxy.revocable` to record every proxy created after it loads, and never reads the keys of a recorded proxy in props or prop values. The wrapper keeps the constructor's name, length, missing prototype, and errors, installs once per page, and never installs in production builds. In development, `Function.prototype.toString.call(Proxy)` returns `function () { [native code] }` without the name, so checks for `[native code]` still pass. A Proxy created before Genie's hook loaded cannot be detected and is still enumerated.
+
+  Render-input attribution now draws on its own per-commit and per-component budget. A wide commit that exhausts it reports truncated input coverage instead of skipping render recording.
+
+  `react.unnecessary` and the `unnecessary` counts rise after upgrading. Fresh props containers with no changed keys used to report `propsNotEnumerated`, which hid those renders; they are now computable.
+
+  `devtools_capture_compare` no longer refuses `react.commits`, `react.renders`, `react.updates`, or `react.selfTimeMs` when only render-cause attribution is incomplete. `react.unnecessary` is still gated on it. Each metric now adds `excludedCaptureIds`, which maps every post-warm-up capture that contributed no sample to the reasons it was dropped. `missingBaselineCaptureIds` and `missingCandidateCaptureIds` keep their existing shape.
+
+- e6f6bfd: `init` and `link` now install the agent skill where each agent looks for it. `.agents/skills/genie` stays the canonical copy for Codex, Cursor, and other Agent Skills clients, and `.claude/skills/genie` links to it for Claude Code, falling back to a copy where symlinks are unavailable. `init` writes only into an empty directory or one holding Genie's skill, never follows a symlink out of the project, and replaces files through a temporary file and rename. Any other file, directory, or symlink, including a dangling one, is left untouched and reported as a manual step with `reason: "skill_path_conflict"`. Its `path` names the blocking entry, such as a `.agents` file or a `.claude` symlink out of the project, rather than the skill directory behind it. `doctor` checks both locations, reports drift or the blocking `conflictPath` for each in `skill.locations`, and says to remove or replace that file, directory, or symlink instead of rerunning `init`.
+
+  The installed skill's commands, doctor remediation, the init receipt's `next`, and every command a CLI failure suggests in `next` or `message` now share one prefix from the detected package manager: `npx`, `pnpm exec`, `yarn` for Yarn 2+, `yarn --silent` for Yarn 1 so stdout stays pure JSON, or `bunx`. Projects without a lockfile now get npm commands, including install and dev hints that previously defaulted to pnpm.
+
+- fcc8f06: Refresh the bundled agent skill for JSON output, live schema discovery, bounded measurements, and verified app tool error handling.
+- Updated dependencies [c941b78]
+- Updated dependencies [3c28d60]
+- Updated dependencies [f37d8bf]
+- Updated dependencies [7e0f57d]
+- Updated dependencies [c10d8d5]
+- Updated dependencies [fb6f28c]
+  - genie-react@0.15.0
+
 ## 0.14.0
 
 ### Minor Changes
