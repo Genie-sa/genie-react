@@ -229,6 +229,16 @@ npx @genie-react/cli call react_get_renders \
 coverage explain the render. Compatibility counts such as `unnecessary` are not proof that a render
 is safe to remove.
 
+Props cause a render only for components that can skip it on equal props: `memo` components and
+classes that extend `PureComponent` or define `shouldComponentUpdate`. Any other component lists its
+own state, context, store, or `children` changes first, otherwise `parent`, and its changed props
+follow as observed inputs. With complete coverage, a render of those components whose changed props
+were all reference-only or new functions counts toward `functionIdentityPropRenders` when any function
+changed identity, usually an inline callback, and toward `referenceOnlyPropRenders` otherwise.
+`undeterminedReferencePropRenders` counts renders whose reference changes a partial scan or a
+truncated diff could not classify. Genie never calls a custom `shouldComponentUpdate`, so such a class
+is counted as if it compared props shallowly.
+
 ## `react_render_causes`
 
 Returns joinable render events and their observed causes.

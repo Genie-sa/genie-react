@@ -17,7 +17,7 @@ import {
   registerQuerySubscriber,
   setExternalStoreObservation,
 } from '../causal/external-store-registry'
-import { safeStructuredClone } from '../structured-clone'
+import { clonePlainData, safeStructuredClone } from '../structured-clone'
 import { getTimings } from './bippy-compat'
 import { type CommitWorkBudget, commitWorkExhaustions, consumeCommitWork } from './commit-budget'
 import { recordResultingEffectCommit } from './effect-events'
@@ -72,7 +72,14 @@ import {
   type RenderNecessity,
 } from './render-causes'
 import { type CommitAnalysisBudget, createCommitAnalysisBudget } from './render-commit-budget'
-import { childrenChanged, diffProps, diffStateChanges, type RenderChange } from './render-inputs'
+import {
+  childrenChanged,
+  diffProps,
+  diffStateChanges,
+  isFunctionIdentityChange,
+  type PropRenderChange,
+  type RenderChange,
+} from './render-inputs'
 import type {
   RenderRecord,
   RenderReport,
@@ -105,7 +112,7 @@ import {
 import { captureReportEpoch, reportAttribution, reportStateMatches } from './report-attribution'
 import { isSafeRenderer, supportedCommitHandler } from './safe-instrumentation'
 import { clearSourceCache } from './source'
-import { isHostTextFiber, isSuspenseFiber } from './work-tags'
+import { canBailOutOnProps, isHostTextFiber, isSuspenseFiber } from './work-tags'
 
 export type {
   RenderCause,
@@ -1013,7 +1020,14 @@ export function recordCommitFiber(
       noteSkippedCommitFiber(fiber)
       return false
     }
-    recordRender(fiber, phase, effectPreparation, work, budget.currentCommitEvidence)
+    recordRender(
+      fiber,
+      phase,
+      effectPreparation,
+      work,
+      budget.currentCommitEvidence,
+      targeted ? budget.targetAttributionWork : budget.attributionWork,
+    )
     if (consumeCommitWork(work, targeted ? 'target-error-state' : 'error-state')) {
       recordErrorState(fiber)
     }
@@ -1031,13 +1045,14 @@ export function recordRender(
   effectPreparation?: PreparedEffectObservation,
   commitWork?: CommitWorkBudget,
   commitEvidence?: CurrentCommitEvidence,
+  attributionWork?: CommitWorkBudget,
 ): void {
   if (!isCompositeFiber(fiber)) return
   const id = getFiberId(fiber)
   const previous = records.get(id)
   const checkpoint = previous ? { ...previous, causeCounts: { ...previous.causeCounts } } : null
   try {
-    recordRenderAtomic(fiber, phase, effectPreparation, commitWork, commitEvidence)
+    recordRenderAtomic(fiber, phase, effectPreparation, commitWork, commitEvidence, attributionWork)
     const recorded = records.get(id)
     if (recorded && recorded !== previous) recordMeasurementRender(recorded, previous)
   } catch (error) {
@@ -1053,6 +1068,7 @@ function recordRenderAtomic(
   effectPreparation?: PreparedEffectObservation,
   commitWork?: CommitWorkBudget,
   commitEvidence?: CurrentCommitEvidence,
+  attributionWork?: CommitWorkBudget,
 ): void {
   if (!isCompositeFiber(fiber)) return
 
@@ -1121,7 +1137,7 @@ function recordRenderAtomic(
   }
 
   const renderEventId = nextCausalEventId('render')
-  const evidenceBudget = createRenderEvidenceBudget(commitWork)
+  const evidenceBudget = createRenderEvidenceBudget(attributionWork, commitWork)
   const pendingQuerySubscribers: PendingQuerySubscriberRegistration[] = []
   const propChanges = diffProps(fiber, evidenceBudget)
   const stateChanges = diffStateChanges(fiber, evidenceBudget)
@@ -1135,24 +1151,23 @@ function recordRenderAtomic(
   )
   const childrenDidChange = childrenChanged(fiber, evidenceBudget)
   const coverage = inputCoverage(evidenceBudget)
-  const stateDidChange = stateChanges.length > 0
   const changes: RenderChange[] = [...propChanges, ...stateChanges]
-  const observableCauses: RenderCause[] = [
-    ...propChanges.map(
-      (change): RenderCause => ({
-        kind: 'props',
-        evidence: 'exact',
-        name: change.name,
-        referenceChanged: change.referenceChanged,
-        referenceOnly: change.referenceOnly,
-        unstable: change.unstable,
-        beforePresent: change.beforePresent,
-        afterPresent: change.afterPresent,
-        before: change.before,
-        after: change.after,
-        deepDiff: change.deepDiff,
-      }),
-    ),
+  const propCauses = propChanges.map(
+    (change): RenderCause => ({
+      kind: 'props',
+      evidence: 'exact',
+      name: change.name,
+      referenceChanged: change.referenceChanged,
+      referenceOnly: change.referenceOnly,
+      unstable: change.unstable,
+      beforePresent: change.beforePresent,
+      afterPresent: change.afterPresent,
+      before: change.before,
+      after: change.after,
+      deepDiff: change.deepDiff,
+    }),
+  )
+  const otherCauses: RenderCause[] = [
     ...stateChanges.map(
       (change): RenderCause => ({
         kind: 'state',
@@ -1168,24 +1183,30 @@ function recordRenderAtomic(
     ...contextChanges,
     ...externalStoreChanges,
   ]
+  // Only a fiber that can bail out on equal props renders because of them; any other fiber re-renders with its parent.
+  const bailsOutOnProps = canBailOutOnProps(fiber)
+  const propsCauseRender = bailsOutOnProps && propCauses.length > 0
   const parentResult =
-    observableCauses.length === 0
+    otherCauses.length === 0 && !propsCauseRender
       ? renderedParentCause(fiber, commitWork, commitEvidence?.renderedFibers)
       : { cause: null, complete: true }
   const parentCause = parentResult.cause
   const causalAnalysisComplete = coverage.complete && parentResult.complete
-  const causes: RenderCause[] =
-    observableCauses.length > 0
-      ? observableCauses
-      : parentCause
-        ? [parentCause]
-        : !causalAnalysisComplete
-          ? [{ kind: 'unknown', evidence: 'unknown', reason: 'causal-analysis-incomplete' }]
-          : [{ kind: 'unknown', evidence: 'unknown', reason: 'no-observable-fiber-input-change' }]
+  const observedCauses: RenderCause[] = propsCauseRender
+    ? [...propCauses, ...otherCauses]
+    : [...otherCauses, ...propCauses]
+  const causes: RenderCause[] = parentCause
+    ? [parentCause, ...observedCauses]
+    : observedCauses.length > 0
+      ? observedCauses
+      : !causalAnalysisComplete
+        ? [{ kind: 'unknown', evidence: 'unknown', reason: 'causal-analysis-incomplete' }]
+        : [{ kind: 'unknown', evidence: 'unknown', reason: 'no-observable-fiber-input-change' }]
+  const valuePropChanged = propsCauseRender && propChanges.some(hasObservedValueChange)
   const necessity: RenderNecessity =
-    observableCauses.length > 0
+    otherCauses.length > 0 || valuePropChanged
       ? 'necessary'
-      : !causalAnalysisComplete || parentCause
+      : !causalAnalysisComplete || parentCause || propChanges.length > 0
         ? 'unknown'
         : 'unnecessary'
   const effects: EffectScheduleObservation = effectPreparation?.observation ?? {
@@ -1230,18 +1251,8 @@ function recordRenderAtomic(
   ) {
     record.unnecessary += 1
   }
-  // Canonical allocation candidate: bounded deep evidence found reference-only props and no other React input cause.
-  if (
-    coverage.complete &&
-    propChanges.length > 0 &&
-    propChanges.every((change) => change.referenceOnly) &&
-    !stateDidChange &&
-    !childrenDidChange &&
-    contextChanges.length === 0 &&
-    externalStoreChanges.length === 0
-  ) {
-    record.referenceOnlyPropRenders += 1
-    record.unstableRenders += 1
+  if (bailsOutOnProps && otherCauses.length === 0) {
+    countPropOnlyMemoRender(record, fiber, propChanges, coverage.complete)
   }
   publishCauseEvent(record, retained, renderEventId)
   instancePreparation.publish()
@@ -1251,6 +1262,41 @@ function recordRenderAtomic(
   effectPreparation?.publish(instance)
   if (coverage.scanTruncated || coverage.omittedInputs > 0) truncatedInputFibers += 1
   if (coverage.propsNotEnumerated) propsNotEnumeratedFibers += 1
+}
+
+/** Classify a memo or pure render whose only input change was props; value changes are legitimate and not counted. */
+function countPropOnlyMemoRender(
+  record: RenderRecord,
+  fiber: Fiber,
+  propChanges: PropRenderChange[],
+  coverageComplete: boolean,
+): void {
+  if (propChanges.length === 0) return
+  if (coverageComplete) {
+    const notReferenceOnly = propChanges.filter((change) => !change.referenceOnly)
+    if (notReferenceOnly.every((change) => isFunctionIdentityChange(fiber, change))) {
+      // A new closure is the one change that cannot be proven equal, so it outranks reference-only siblings.
+      if (notReferenceOnly.length > 0) {
+        record.functionIdentityPropRenders += 1
+      } else {
+        record.referenceOnlyPropRenders += 1
+        record.unstableRenders += 1
+      }
+      return
+    }
+  }
+  if (propChanges.every((change) => change.referenceOnly || isUndeterminedReference(change))) {
+    record.undeterminedReferencePropRenders += 1
+  }
+}
+
+function hasObservedValueChange(change: PropRenderChange): boolean {
+  return change.deepDiff.changes.some((diff) => diff.kind !== 'reference-only')
+}
+
+/** A reference change whose bounded diff stopped before it could rule a value change in or out. */
+function isUndeterminedReference(change: PropRenderChange): boolean {
+  return change.referenceChanged && change.deepDiff.truncated && !hasObservedValueChange(change)
 }
 
 interface PreparedCauseEventEvidence {
@@ -1265,8 +1311,8 @@ function prepareCauseEventEvidence(
   coverage: RenderInputCoverage,
 ): PreparedCauseEventEvidence {
   return {
-    causes: safeStructuredClone(causes),
-    assessment: safeStructuredClone(assessment),
+    causes: clonePlainData(causes),
+    assessment: clonePlainData(assessment),
     inputCoverage: { ...coverage },
   }
 }

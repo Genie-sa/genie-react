@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createContext, runInContext } from 'node:vm'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PACKAGES_DIR = join(ROOT, 'packages')
@@ -170,6 +171,19 @@ function assertManifestTargets(manifest, packageDirectory) {
   assertTargetTree(manifest.name, packageDirectory, 'exports', manifest.exports)
   for (const field of ['main', 'module', 'types', 'bin']) {
     assertTargetTree(manifest.name, packageDirectory, field, manifest[field])
+  }
+}
+
+// The hub serves this bundle to dev pages only; a minifier folding NODE_ENV to "production" would silently compile out dev-only runtime.
+function assertScriptTagBundleTagsProxies(packageDirectory) {
+  const realm = createContext({})
+  runInContext(readFileSync(join(packageDirectory, 'dist/client.global.iife.js'), 'utf8'), realm)
+  const tagsProxies = runInContext(
+    `globalThis[Symbol.for('genie-react:proxy-registry')]?.has(new Proxy({}, {})) === true`,
+    realm,
+  )
+  if (!tagsProxies) {
+    throw new Error('genie-react dist/client.global.iife.js must install proxy tagging when loaded')
   }
 }
 
@@ -332,6 +346,7 @@ try {
     assertTrustedPublishingRepository(manifest)
     assertReadme(manifest.name, packageDirectory)
     assertManifestTargets(manifest, packageDirectory)
+    if (manifest.name === 'genie-react') assertScriptTagBundleTagsProxies(packageDirectory)
     return {
       name: manifest.name,
       version: manifest.version,

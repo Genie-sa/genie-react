@@ -23,6 +23,8 @@ export interface RenderRecord {
   referenceOnlyPropRenders: number
   /** Legacy alias for referenceOnlyPropRenders. */
   unstableRenders: number
+  functionIdentityPropRenders: number
+  undeterminedReferencePropRenders: number
   forget: boolean
   selfTime: number
   totalTime: number
@@ -121,6 +123,8 @@ export function draftRenderRecord(
         unnecessary: 0,
         referenceOnlyPropRenders: 0,
         unstableRenders: 0,
+        functionIdentityPropRenders: 0,
+        undeterminedReferencePropRenders: 0,
         forget: input.forget,
         selfTime: 0,
         totalTime: 0,
