@@ -74,7 +74,7 @@ describe('paths init does not own', () => {
       '---\nname: genie\n---\nsomeone else\n',
     )
     expect(inspectAgentSkill(cwd as string, FILES).claude).toMatchObject({
-      conflict: true,
+      conflictPath: claudePath(),
       current: false,
     })
   })
@@ -97,18 +97,21 @@ describe('paths init does not own', () => {
 
   it('never writes through a skill file symlinked outside the project', async () => {
     await mkdir(claudePath(), { recursive: true })
-    await symlink(join(outside, 'target.md'), join(claudePath(), 'SKILL.md'))
+    const linked = join(claudePath(), 'SKILL.md')
+    await symlink(join(outside, 'target.md'), linked)
 
-    expect(installAgentSkill(cwd as string, FILES, false)).toContainEqual(conflict(claudePath()))
+    expect(installAgentSkill(cwd as string, FILES, false)).toContainEqual(conflict(linked))
     expect(await readFile(join(outside, 'target.md'), 'utf8')).toBe('outside\n')
-    expect(inspectAgentSkill(cwd as string, FILES).claude.conflict).toBe(true)
+    expect(inspectAgentSkill(cwd as string, FILES).claude.conflictPath).toBe(linked)
   })
 
   it('never writes through a dangling skill file symlink', async () => {
     await mkdir(claudePath(), { recursive: true })
     await symlink(join(outside, 'created.md'), join(claudePath(), 'SKILL.md'))
 
-    expect(installAgentSkill(cwd as string, FILES, false)).toContainEqual(conflict(claudePath()))
+    expect(installAgentSkill(cwd as string, FILES, false)).toContainEqual(
+      conflict(join(claudePath(), 'SKILL.md')),
+    )
     expect(await readdir(outside)).toEqual(['target.md'])
   })
 
@@ -124,14 +127,25 @@ describe('paths init does not own', () => {
     expect(installAgentSkill(cwd as string, FILES, true)).toContainEqual(conflict(path()))
   })
 
-  it('refuses a parent directory symlinked outside the project', async () => {
-    await symlink(outside, join(cwd as string, '.claude'), 'dir')
+  it.each([
+    ['symlinked outside the project', (path: string) => symlink(outside, path, 'dir')],
+    ['a file', (path: string) => writeFile(path, 'not a directory\n')],
+  ])('names a .agents parent that is %s as the path to fix', async (_, occupy) => {
+    const parent = join(cwd as string, '.agents')
+    await occupy(parent)
 
-    expect(installAgentSkill(cwd as string, FILES, false)).toContainEqual(
-      expect.objectContaining({ path: claudePath(), reason: 'skill_path_conflict' }),
-    )
+    expect(installAgentSkill(cwd as string, FILES, false)).toContainEqual(conflict(parent))
     expect(await readdir(outside)).toEqual(['target.md'])
-    expect(inspectAgentSkill(cwd as string, FILES).claude.conflict).toBe(true)
+    expect(inspectAgentSkill(cwd as string, FILES).canonical.conflictPath).toBe(parent)
+  })
+
+  it('names a .claude parent symlinked outside the project as the path to fix', async () => {
+    const parent = join(cwd as string, '.claude')
+    await symlink(outside, parent, 'dir')
+
+    expect(installAgentSkill(cwd as string, FILES, false)).toContainEqual(conflict(parent))
+    expect(await readdir(outside)).toEqual(['target.md'])
+    expect(inspectAgentSkill(cwd as string, FILES).claude.conflictPath).toBe(parent)
   })
 
   it('reports a .claude/skills/genie symlink to another directory', async () => {
@@ -141,7 +155,7 @@ describe('paths init does not own', () => {
     expect(installAgentSkill(cwd as string, FILES, false)).toContainEqual(conflict(claudePath()))
     expect(inspectAgentSkill(cwd as string, FILES).claude).toMatchObject({
       symlink: true,
-      conflict: true,
+      conflictPath: claudePath(),
     })
   })
 })

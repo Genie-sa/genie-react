@@ -1,5 +1,6 @@
 import { CAPTURE_DOMAINS } from 'genie-react/protocol'
 import { DEFAULT_MAX_BYTES } from './cli-output'
+import { genieCommand } from './package-manager'
 
 export const CLI_OPTIONS = {
   help: { type: 'boolean', short: 'h' },
@@ -255,7 +256,7 @@ export function cliHelp(name?: string): unknown {
           commands: Object.entries(COMMANDS).map(([name, value]) => ({
             name,
             description: value.description,
-            help: ['genie-react', name, '--help'],
+            help: genieCommand([name, '--help']).argv,
           })),
           environment: {
             GENIE_BRIDGE_URL: 'Bridge URL override',
@@ -290,6 +291,6 @@ export function cliHelp(name?: string): unknown {
     },
     examples: (
       command?.examples ?? [['tools'], ['status'], ['call', 'react_get_renders', '{}']]
-    ).map((argv) => ({ argv: ['genie-react', ...argv] })),
+    ).map((argv) => ({ argv: genieCommand(argv).argv })),
   }
 }

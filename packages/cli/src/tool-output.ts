@@ -1,4 +1,4 @@
-import { type BridgeStatusMessage, minimalExampleArgs } from 'genie-react/protocol'
+import type { BridgeStatusMessage } from 'genie-react/protocol'
 import { isRecord } from './guards'
 
 export type ToolDescriptor = BridgeStatusMessage['tools'][number]
@@ -74,117 +74,6 @@ export function groupIndex(
   }
 }
 
-/** Layer 1 of tool discovery: groups, counts, and a short name preview. */
-export function formatGroupIndex(appName: string | undefined, tools: ToolDescriptor[]): string {
-  const groups = groupIndex(appName, tools).groups
-  const width = Math.max(0, ...groups.map((group) => group.group.length))
-  const lines = [`${tools.length} tools from ${appName ?? 'the app'} · ${groups.length} groups`, '']
-  let appMarkerShown = false
-  for (const group of groups) {
-    const preview =
-      group.tools.slice(0, 3).join(', ') +
-      (group.tools.length > 3 ? `, +${group.tools.length - 3} more` : '')
-    const isAppGroup = group.group === 'app' || group.group.startsWith('app.')
-    const marker =
-      isAppGroup && !appMarkerShown ? ' ← custom tools this app registered for you' : ''
-    if (isAppGroup) appMarkerShown = true
-    lines.push(
-      `  ${group.group.padEnd(width)} ${String(group.count).padStart(2)} — ${preview}${marker}`,
-    )
-  }
-  lines.push(
-    '',
-    'drill in: genie-react tools <group> · one tool: genie-react tools <tool> · everything: genie-react tools --all',
-  )
-  return lines.join('\n')
-}
-
-/** Layer 3 of tool discovery: one complete contract and a runnable example. */
-export function formatToolDetail(tool: ToolDescriptor): string {
-  const lines = [`${tool.name} — ${tool.title} [${tool.group}]${kindBadge(tool)}`]
-  if (tool.available === false) {
-    lines.push(
-      '',
-      `currently unavailable: ${tool.unavailableReason ?? 'the code that registers it is not running'}`,
-    )
-  }
-  lines.push('', tool.description, '', 'params:')
-  const object = objectSchema(tool.inputJsonSchema)
-  const properties = object && isRecord(object.properties) ? object.properties : {}
-  const required = new Set(Array.isArray(object?.required) ? object.required : [])
-  const names = Object.keys(properties)
-  if (names.length === 0) lines.push('  (none)')
-  for (const name of names) {
-    const property = properties[name]
-    appendSchemaProperty(lines, name, property, required.has(name), 2, 0)
-  }
-  lines.push(
-    '',
-    `example: genie-react call ${tool.name} ${shellSingleQuote(minimalExampleArgs(properties, required, tool.inputJsonSchema))}`,
-  )
-  return lines.join('\n')
-}
-
-/** POSIX-safe single quoting for generated examples — schema-derived strings must never break out of the quotes. */
-function shellSingleQuote(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`
-}
-
-function appendSchemaProperty(
-  lines: string[],
-  path: string,
-  schema: unknown,
-  required: boolean,
-  indent: number,
-  depth: number,
-): void {
-  const parts = [`${' '.repeat(indent)}${path}${required ? '' : '?'}: ${jsonSchemaType(schema)}`]
-  if (isRecord(schema)) {
-    const constraints = jsonSchemaConstraints(schema)
-    if (constraints) parts.push(constraints)
-    if (schema.default !== undefined) parts.push(`(default ${JSON.stringify(schema.default)})`)
-    if (typeof schema.description === 'string') parts.push(`— ${schema.description}`)
-  }
-  lines.push(parts.join(' '))
-  if (depth >= 5 || !isRecord(schema)) return
-
-  const nested = nestedObjectSchema(schema)
-  if (!nested || !isRecord(nested.properties)) return
-  const nestedRequired = new Set(Array.isArray(nested.required) ? nested.required : [])
-  const prefix = schema.type === 'array' ? `${path}[]` : path
-  for (const [name, child] of Object.entries(nested.properties)) {
-    appendSchemaProperty(
-      lines,
-      `${prefix}.${name}`,
-      child,
-      nestedRequired.has(name),
-      indent + 2,
-      depth + 1,
-    )
-  }
-}
-
-function nestedObjectSchema(schema: Record<string, unknown>): Record<string, unknown> | null {
-  if (schema.type === 'array' && isRecord(schema.items)) return objectSchema(schema.items)
-  const direct = objectSchema(schema)
-  if (direct?.properties !== schema.properties || isRecord(schema.properties)) return direct
-  if (Array.isArray(schema.anyOf)) {
-    for (const branch of schema.anyOf) {
-      const found = isRecord(branch) ? nestedObjectSchema(branch) : null
-      if (found) return found
-    }
-  }
-  return null
-}
-
-/** `(read-only)` / `(action)` / `(destructive)` from the advertised annotations, so intent is visible before calling; the `action` group implies mutation even without an explicit hint. */
-function kindBadge(tool: ToolDescriptor): string {
-  if (tool.annotations?.destructiveHint === true) return ' (destructive)'
-  if (tool.annotations?.readOnlyHint === true) return ' (read-only)'
-  if (tool.annotations?.readOnlyHint === false || tool.group === 'action') return ' (action)'
-  return ''
-}
-
 export function slimDescriptor(tool: ToolDescriptor): {
   name: string
   title: string
@@ -197,32 +86,6 @@ export function slimDescriptor(tool: ToolDescriptor): {
     params: describeToolParams(tool.inputJsonSchema),
     ...(tool.available === false ? { available: false } : {}),
   }
-}
-
-/** Renders the complete catalog grouped by domain; optional params carry a question mark. */
-export function formatToolsListing(status: {
-  app?: { name?: string } | null
-  tools: ToolDescriptor[]
-}): string {
-  const lines: string[] = [`${status.tools.length} tools from ${status.app?.name ?? 'the app'}:`]
-  const groups = new Map<string, ToolDescriptor[]>()
-  for (const tool of status.tools) {
-    const list = groups.get(tool.group) ?? []
-    list.push(tool)
-    groups.set(tool.group, list)
-  }
-  for (const [group, tools] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
-    lines.push('', `  ${group}`)
-    for (const tool of tools.sort((a, b) => a.name.localeCompare(b.name))) {
-      const unavailable =
-        tool.available === false ? ' · ✗ unavailable (genie-react tools <tool> explains)' : ''
-      lines.push(
-        `    ${tool.name} — ${tool.title}${kindBadge(tool)}${unavailable}`,
-        `      ${describeToolParams(tool.inputJsonSchema)}`,
-      )
-    }
-  }
-  return lines.join('\n')
 }
 
 function describeToolParams(schema: unknown): string {

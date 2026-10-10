@@ -38,8 +38,8 @@ export interface SkillArtifact {
 export interface SkillLocation {
   path: string
   symlink: boolean
-  /** Something other than Genie's skill occupies the path, so init leaves it alone. */
-  conflict: boolean
+  /** The file, directory, or symlink that keeps init from owning this location; remove or replace it, not `path`. */
+  conflictPath: string | null
   version: string | null
   hash: string | null
   current: boolean
@@ -82,7 +82,7 @@ export function inspectAgentSkill(cwd: string, expected: SkillFiles | null) {
   const root = findSkillRoot(cwd) ?? cwd
   const project = { cwd: root, real: realpathSafe(root) ?? root }
   const expectedHash = expected ? hashSkill(expected) : null
-  const inspect = (path: string, conflict: boolean): SkillLocation => {
+  const inspect = (path: string, conflictPath: string | null): SkillLocation => {
     const installed = SKILL_FILE_NAMES.map(
       (name) => [name, readFileSafe(join(path, name))] as const,
     )
@@ -91,18 +91,21 @@ export function inspectAgentSkill(cwd: string, expected: SkillFiles | null) {
     return {
       path,
       symlink: lstatSafe(path)?.isSymbolicLink() ?? false,
-      conflict,
+      conflictPath,
       version: skillVersion(installed),
       hash,
-      current: !conflict && expectedHash !== null && hash === expectedHash,
+      current: conflictPath === null && expectedHash !== null && hash === expectedHash,
     }
   }
   const canonicalPath = join(root, CANONICAL_SKILL_DIRECTORY)
   const claudePath = join(root, CLAUDE_SKILL_DIRECTORY)
-  const canonical = inspect(canonicalPath, occupant(project, canonicalPath) === 'foreign')
-  const claudeConflict = lstatSafe(claudePath)?.isSymbolicLink()
-    ? canonical.conflict || !linksTo(claudePath, canonicalPath)
-    : occupant(project, claudePath) === 'foreign'
+  const canonical = inspect(canonicalPath, blockingPath(project, canonicalPath))
+  const claudeConflict = mirrorBlockingPath(
+    project,
+    claudePath,
+    canonicalPath,
+    canonical.conflictPath === null,
+  )
   return { expectedHash, canonical, claude: inspect(claudePath, claudeConflict) }
 }
 
@@ -114,7 +117,8 @@ function placeSkillDirectory(
   dryRun: boolean,
   link?: SkillLink,
 ): SkillArtifact[] {
-  if (occupant(project, directory) === 'foreign') return [conflictArtifact(directory, link)]
+  const blocking = blockingPath(project, directory)
+  if (blocking) return [conflictArtifact(blocking, link)]
   const artifacts = files.map(
     ([name, contents]): SkillArtifact => ({
       kind: 'agent_skill',
@@ -146,22 +150,38 @@ function mirrorSkill(
   files: SkillFiles,
   dryRun: boolean,
 ): SkillArtifact[] {
+  const blocking = mirrorBlockingPath(project, path, canonical, canonicalOwned)
+  if (blocking) return [conflictArtifact(blocking)]
   const entry = lstatSafe(path)
-  if (entry?.isSymbolicLink()) {
-    return [
-      canonicalOwned && linksTo(path, canonical)
-        ? { kind: 'agent_skill', path, status: 'already', link: 'symlink' }
-        : conflictArtifact(path, 'symlink'),
-    ]
-  }
+  if (entry?.isSymbolicLink())
+    return [{ kind: 'agent_skill', path, status: 'already', link: 'symlink' }]
   if (entry || !canonicalOwned) return placeSkillDirectory(project, path, files, dryRun, 'copy')
-  if (escapesProject(project, dirname(path))) return [conflictArtifact(path, 'symlink')]
   if (dryRun) return [{ kind: 'agent_skill', path, status: 'planned', link: 'symlink' }]
   mkdirSync(dirname(path), { recursive: true })
   if (trySymlink(relative(dirname(path), canonical), path)) {
     return [{ kind: 'agent_skill', path, status: 'applied', link: 'symlink' }]
   }
   return placeSkillDirectory(project, path, files, false, 'copy')
+}
+
+/** Like `blockingPath`, but a symlink to the Genie-owned canonical copy is the expected mirror. */
+function mirrorBlockingPath(
+  project: Project,
+  path: string,
+  canonical: string,
+  canonicalOwned: boolean,
+): string | null {
+  const parent = blockingComponent(project, dirname(path))
+  if (parent) return parent
+  if (!lstatSafe(path)?.isSymbolicLink()) return blockingPath(project, path)
+  return canonicalOwned && linksTo(path, canonical) ? null : path
+}
+
+/** Names only the blocking entry, so following the advice never recurses through a symlink. */
+export function conflictRemedy(path: string, display = path): string {
+  const entry = lstatSafe(path)
+  const kind = entry?.isSymbolicLink() ? 'symlink' : entry?.isDirectory() ? 'directory' : 'file'
+  return `Remove or replace the ${kind} at ${display}`
 }
 
 function conflictArtifact(path: string, link?: SkillLink): SkillArtifact {
@@ -174,33 +194,34 @@ function conflictArtifact(path: string, link?: SkillLink): SkillArtifact {
   }
 }
 
-/** `foreign`: a symlinked or non-directory path or skill file, a parent leaving the project, or another skill. */
-function occupant(project: Project, directory: string): 'empty' | 'genie' | 'foreign' {
-  if (escapesProject(project, dirname(directory))) return 'foreign'
+/** The entry that stops init from owning `directory`: a blocking parent, the path itself, a symlinked skill file, or a directory holding another skill. */
+function blockingPath(project: Project, directory: string): string | null {
+  const parent = blockingComponent(project, dirname(directory))
+  if (parent) return parent
   const entry = lstatSafe(directory)
-  if (!entry) return 'empty'
-  if (!entry.isDirectory()) return 'foreign'
-  const skillFiles = SKILL_FILE_NAMES.map((name) => lstatSafe(join(directory, name)))
-  if (skillFiles.some((file) => file && !file.isFile())) return 'foreign'
-  if (isGenieSkill(readFileSafe(join(directory, 'SKILL.md')))) return 'genie'
-  return readdirSync(directory).length === 0 ? 'empty' : 'foreign'
+  if (!entry) return null
+  if (!entry.isDirectory()) return directory
+  const linkedFile = SKILL_FILE_NAMES.map((name) => join(directory, name)).find(
+    (path) => lstatSafe(path)?.isFile() === false,
+  )
+  if (linkedFile) return linkedFile
+  if (isGenieSkill(readFileSafe(join(directory, 'SKILL.md')))) return null
+  return readdirSync(directory).length === 0 ? null : directory
 }
 
-/** True when an existing component between the project and `path` is a file, or a symlink that dangles or leaves the project. */
-function escapesProject(project: Project, path: string): boolean {
+/** The first existing component between the project and `path` that is a file, or a symlink that dangles or leaves the project. */
+function blockingComponent(project: Project, path: string): string | null {
   let current = project.cwd
   for (const segment of relative(project.cwd, path).split(sep).filter(Boolean)) {
     current = join(current, segment)
     const entry = lstatSafe(current)
-    if (!entry) return false
-    if (entry.isSymbolicLink()) {
-      const target = realpathSafe(current)
-      if (!target || !isInside(project.real, target)) return true
-    } else if (!entry.isDirectory()) {
-      return true
-    }
+    if (!entry) return null
+    const blocks = entry.isSymbolicLink()
+      ? !isInside(project.real, realpathSafe(current) ?? '')
+      : !entry.isDirectory()
+    if (blocks) return current
   }
-  return false
+  return null
 }
 
 function isInside(root: string, path: string): boolean {

@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   CANONICAL_SKILL_DIRECTORY,
+  conflictRemedy,
   installAgentSkill,
   readSkillFiles,
   renderSkillFiles,
@@ -107,7 +108,7 @@ function linkAgentSkill(cwd: string, packagesDir: string): string[] | null {
   const artifacts = installAgentSkill(cwd, renderSkillFiles(files, cwd), false)
   for (const { path, reason } of artifacts) {
     if (reason === SKILL_PATH_CONFLICT)
-      writeDiagnostic(reason, "This path is not Genie's skill; remove it, then rerun link.", {
+      writeDiagnostic(reason, `${conflictRemedy(path)}, then rerun link.`, {
         path,
       })
   }

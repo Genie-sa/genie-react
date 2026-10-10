@@ -106,8 +106,8 @@ it('turns a skill path it cannot own into a manual step that names the path', as
   expect(receipt.userActionRequired).toBe(true)
   expect(receipt.data.manualSteps).toContainEqual({
     kind: 'agent_skill',
-    path: join(cwd, '.agents/skills/genie'),
-    placement: 'Remove the conflicting path, then rerun init',
+    path: join(cwd, '.agents'),
+    placement: `Remove or replace the file at ${join(cwd, '.agents')}, then rerun init`,
   })
   expect(await readFile(join(cwd, '.agents'), 'utf8')).toBe('blocked path')
 })

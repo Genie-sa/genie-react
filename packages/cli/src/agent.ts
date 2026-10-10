@@ -34,13 +34,7 @@ export {
 } from './capture-output'
 export * from './react-output'
 export { summarizeSessionsOnly, summarizeStatus } from './session-output'
-export {
-  formatGroupIndex,
-  formatToolDetail,
-  formatToolsListing,
-  relatedActions,
-  resolveToolsSelector,
-} from './tool-output'
+export { relatedActions, resolveToolsSelector } from './tool-output'
 
 // The CLI's tool-calling surface: connects to the bridge as the `agent` role — straight from a shell, no separate server.
 

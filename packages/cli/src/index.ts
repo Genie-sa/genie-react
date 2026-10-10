@@ -12,6 +12,7 @@ import { GenieAgentLink } from './agent-link'
 import {
   CANONICAL_SKILL_DIRECTORY,
   CLAUDE_SKILL_DIRECTORY,
+  conflictRemedy,
   inspectAgentSkill,
   installAgentSkill,
   readSkillFiles,
@@ -186,7 +187,7 @@ export function runInit(options: InitOptions = {}): InitResult {
 
   // No Vite, no Next: the hub + script-tag path IS the setup, so don't fail or print Vite-only guidance.
   if (framework === 'unknown' && viteConfig.action === 'missing') {
-    printUniversalSetup(log, cwd)
+    printUniversalSetup(log)
     const artifacts = [...ensureGenieIgnored(ctx), ...ensureAgentSkill(ctx)]
     printUniversalNextSteps(log, cwd)
     return {
@@ -246,7 +247,7 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
           label: `universal setup: hub discovery file (${GENIE_DISCOVERY_FILE})`,
           ok: discovered,
           critical: true,
-          detail: discovered ? undefined : `not found — run: ${genieCommand(['hub'], cwd).command}`,
+          detail: discovered ? undefined : `not found — run: npx ${CLI_PACKAGE} hub`,
         })
       } else {
         checks.push({
@@ -349,6 +350,7 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
       locations: [skill.canonical, skill.claude].map((location) => ({
         ...location,
         path: relative(cwd, location.path),
+        conflictPath: location.conflictPath && relative(cwd, location.conflictPath),
       })),
     },
     bridgeCandidates: bridge ? [bridge] : [],
@@ -1049,9 +1051,10 @@ function printNextStepsForNext(log: Logger, cwd: string): void {
   printLiveToolCommands(log, cwd, step)
 }
 
-function printUniversalSetup(log: Logger, cwd: string): void {
+/** Runs before Genie is installed, so it names the CLI package rather than the project's local bin. */
+function printUniversalSetup(log: Logger): void {
   log.info(`${PREVIEW}No Vite config or Next.js detected — universal setup for any React app:`)
-  log.info(`  1. run the hub: ${genieCommand(['hub'], cwd).command}`)
+  log.info(`  1. run the hub: npx ${CLI_PACKAGE} hub`)
   log.info(
     `  2. add first in <head>: <script src="http://localhost:${GENIE_DEFAULT_HUB_PORT}${GENIE_CLIENT_PATH}"></script>`,
   )
@@ -1135,14 +1138,18 @@ function ensureAgentSkill(ctx: ApplyContext): InitArtifact[] {
     ]
   }
   const artifacts = installAgentSkill(ctx.cwd, files, ctx.dryRun)
+  for (const { path, reason } of artifacts) {
+    if (reason === SKILL_PATH_CONFLICT)
+      ctx.log.info(
+        `${WARN} ${rel(ctx, path)} blocks the agent skill. ${conflictRemedy(path, rel(ctx, path))}, then rerun init`,
+      )
+  }
   for (const directory of [CANONICAL_SKILL_DIRECTORY, CLAUDE_SKILL_DIRECTORY]) {
     const changed = artifacts.filter(({ path }) => path.startsWith(join(ctx.cwd, directory)))
     const via = changed.some(({ link }) => link === 'symlink')
       ? ` (symlink to ${CANONICAL_SKILL_DIRECTORY})`
       : ''
-    if (changed.some(({ status }) => status === 'manual')) {
-      ctx.log.info(`${WARN} ${directory} is not Genie's skill; remove it, then rerun init`)
-    } else if (changed.some(({ status }) => status === 'planned')) {
+    if (changed.some(({ status }) => status === 'planned')) {
       ctx.log.info(`${PREVIEW}Would install the agent skill at ${directory}${via}`)
     } else if (changed.some(({ status }) => status === 'applied')) {
       ctx.log.info(`${OK} installed the agent skill at ${directory}${via}`)
@@ -1167,8 +1174,8 @@ function skillCheck(label: string, location: SkillLocation, cwd: string): Doctor
     critical: true,
     detail: location.current
       ? `${path}${via} · sha256 ${location.hash?.slice(0, 12)}`
-      : location.conflict
-        ? `${SKILL_PATH_CONFLICT}: ${path}${via} is not Genie's skill; remove ${path}, then run: ${init}`
+      : location.conflictPath
+        ? `${SKILL_PATH_CONFLICT}: ${relative(cwd, location.conflictPath)} blocks ${path}. ${conflictRemedy(location.conflictPath, relative(cwd, location.conflictPath))}, then run: ${init}`
         : location.hash
           ? `${path}${via} drifted: ${location.version ?? 'unversioned'} / ${location.hash.slice(0, 12)}; run: ${init}`
           : `${path} missing; run: ${init}`,

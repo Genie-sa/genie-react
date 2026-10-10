@@ -580,31 +580,55 @@ describe('runInit — agent skill locations', () => {
 
   it.each([
     [
-      'a foreign directory',
-      async (path: string) => {
-        await mkdir(path, { recursive: true })
-        await writeFile(join(path, 'SKILL.md'), 'another skill\n')
+      'a foreign skill directory',
+      '.claude/skills/genie',
+      'directory',
+      async (dir: string) => {
+        await mkdir(join(dir, '.claude/skills/genie'), { recursive: true })
+        await writeFile(join(dir, '.claude/skills/genie/SKILL.md'), 'another skill\n')
       },
     ],
     [
-      'a dangling symlink',
-      async (path: string) => {
-        await mkdir(dirname(path), { recursive: true })
-        await symlink(join(path, '..', 'missing'), path, 'dir')
+      'a dangling skill symlink',
+      '.claude/skills/genie',
+      'symlink',
+      async (dir: string) => {
+        await mkdir(join(dir, '.claude/skills'), { recursive: true })
+        await symlink(join(dir, 'missing'), join(dir, '.claude/skills/genie'), 'dir')
       },
     ],
-  ])('has doctor name %s as a path conflict to remove, not an init loop', async (_, occupy) => {
+    [
+      'a .agents file',
+      '.agents',
+      'file',
+      (dir: string) => writeFile(join(dir, '.agents'), 'not a directory\n'),
+    ],
+    [
+      'a .agents symlink out of the project',
+      '.agents',
+      'symlink',
+      (dir: string) => symlink(dirname(dir), join(dir, '.agents'), 'dir'),
+    ],
+  ])('has init and doctor name %s as the entry to fix', async (_, blocking, kind, occupy) => {
     const dir = await project(VITE_APP)
-    await occupy(join(dir, '.claude/skills/genie'))
+    await occupy(dir)
 
     expect(runInit({ cwd: dir, logger: silent }).artifacts).toContainEqual(
-      expect.objectContaining({ status: 'manual', reason: 'skill_path_conflict' }),
+      expect.objectContaining({
+        path: join(dir, blocking),
+        status: 'manual',
+        reason: 'skill_path_conflict',
+      }),
     )
     const doctor = runDoctor({ cwd: dir, logger: silent })
-    expect(doctor.skill.locations[1]).toMatchObject({ conflict: true, current: false })
-    const remediation = doctor.remediation.join('\n')
-    expect(remediation).toMatch(/^skill_path_conflict: \.claude\/skills\/genie\b/m)
-    expect(remediation).toContain('remove .claude/skills/genie, then run: npx genie-react init')
+    expect(doctor.skill.locations.map(({ conflictPath }) => conflictPath)).toContain(blocking)
+    expect(doctor.remediation).toContainEqual(
+      expect.stringMatching(
+        new RegExp(
+          `^skill_path_conflict: ${blocking.replaceAll('.', '\\.')} blocks .*\\. Remove or replace the ${kind} at ${blocking.replaceAll('.', '\\.')}, then run: npx genie-react init$`,
+        ),
+      ),
+    )
   })
 })
 

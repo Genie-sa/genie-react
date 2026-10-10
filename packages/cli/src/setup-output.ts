@@ -1,5 +1,5 @@
 import { GENIE_CLIENT_PATH, GENIE_DEFAULT_HUB_PORT } from 'genie-react/protocol'
-import { SKILL_PATH_CONFLICT } from './agent-skill'
+import { conflictRemedy, SKILL_PATH_CONFLICT } from './agent-skill'
 import { writeJson } from './cli-output'
 import { type InitOptions, initNextCommands, type RootRouteOutcome, runInit } from './index'
 import { genieCommand, packageManagerCommands } from './package-manager'
@@ -76,8 +76,8 @@ export function runInitCommand(options: InitCommandOptions = {}): number {
         ...(kind === 'agent_skill' && reason === 'bundled_skill_missing'
           ? { next: installCliCommand(cwd) }
           : {}),
-        ...(kind === 'agent_skill' && reason === SKILL_PATH_CONFLICT
-          ? { placement: 'Remove the conflicting path, then rerun init' }
+        ...(kind === 'agent_skill' && reason === SKILL_PATH_CONFLICT && path
+          ? { placement: `${conflictRemedy(path)}, then rerun init` }
           : {}),
       }))
     writeJson(
