@@ -2,10 +2,12 @@ import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { removeAgentToken, writeAgentToken } from 'genie-react/hub'
 import { GENIE_DISCOVERY_FILE, GENIE_WS_PATH } from 'genie-react/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   isPidAlive,
+  isTokenTransportSafe,
   normalizeBridgeUrl,
   resolveBridge,
   resolveBridgeToken,
@@ -121,21 +123,23 @@ describe('resolveBridgeUrl', () => {
     expect((await resolveBridge(cwd)).source).toBe('fallback')
   })
 
-  it('carries the agent token published alongside the discovered url', async () => {
-    await writeDiscovery(
-      JSON.stringify({ url: 'ws://localhost:4321/__genie/ws', port: 4321, token: 'file-token' }),
-    )
+  it("pairs a discovered url with its own root's private token, never GENIE_BRIDGE_TOKEN", async () => {
+    await writeDiscovery(JSON.stringify({ url: 'ws://localhost:4321/__genie/ws', port: 4321 }))
+    await writeAgentToken(cwd, 'file-token')
+    process.env.GENIE_BRIDGE_TOKEN = 'env-token'
+
     expect(await resolveBridge(cwd)).toEqual({
       url: 'ws://localhost:4321/__genie/ws',
       token: 'file-token',
       source: 'file',
     })
+    await removeAgentToken(cwd)
+    expect((await resolveBridge(cwd)).token).toBeUndefined()
   })
 
-  it('pairs an explicit url with the token of the discovery file publishing that endpoint', async () => {
-    await writeDiscovery(
-      JSON.stringify({ url: 'ws://localhost:4321/__genie/ws', port: 4321, token: 'file-token' }),
-    )
+  it('pairs an explicit url with GENIE_BRIDGE_TOKEN first, else the hub publishing that endpoint', async () => {
+    await writeDiscovery(JSON.stringify({ url: 'ws://localhost:4321/__genie/ws', port: 4321 }))
+    await writeAgentToken(cwd, 'file-token')
     expect(await resolveBridgeToken('ws://127.0.0.1:4321/__genie/ws', cwd)).toBe('file-token')
     expect(await resolveBridgeToken('ws://localhost:9999/__genie/ws', cwd)).toBeUndefined()
     expect(await resolveBridgeToken('ws://remote.example:4321/__genie/ws', cwd)).toBeUndefined()
@@ -153,16 +157,14 @@ describe('resolveBridgeUrl', () => {
       ['admin', 4321],
       ['shop', 4322],
     ] as const) {
-      const file = join(cwd, 'apps', name, GENIE_DISCOVERY_FILE)
+      const appRoot = join(cwd, 'apps', name)
+      const file = join(appRoot, GENIE_DISCOVERY_FILE)
       await mkdir(dirname(file), { recursive: true })
       await writeFile(
         file,
-        JSON.stringify({
-          url: `ws://localhost:${port}/__genie/ws`,
-          pid: process.pid,
-          token: `${name}-token`,
-        }),
+        JSON.stringify({ url: `ws://localhost:${port}/__genie/ws`, pid: process.pid }),
       )
+      await writeAgentToken(appRoot, `${name}-token`)
     }
 
     expect(await resolveBridgeToken('ws://localhost:4322/__genie/ws', cwd)).toBe('shop-token')
@@ -170,22 +172,27 @@ describe('resolveBridgeUrl', () => {
 
   it('discovers one live descendant bridge when invoked from a monorepo root', async () => {
     await mkdir(join(cwd, '.git'))
-    const appFile = join(cwd, 'apps', 'shop', GENIE_DISCOVERY_FILE)
+    const appRoot = join(cwd, 'apps', 'shop')
+    const appFile = join(appRoot, GENIE_DISCOVERY_FILE)
     await mkdir(dirname(appFile), { recursive: true })
     await writeFile(
       appFile,
-      JSON.stringify({
-        url: 'ws://127.0.0.1:4321/__genie/ws',
-        pid: process.pid,
-        token: 'shop-token',
-      }),
+      JSON.stringify({ url: 'ws://127.0.0.1:4321/__genie/ws', pid: process.pid }),
     )
+    await writeAgentToken(appRoot, 'shop-token')
 
     expect(await resolveBridge(cwd)).toEqual({
       url: 'ws://127.0.0.1:4321/__genie/ws',
       token: 'shop-token',
       source: 'workspace',
     })
+  })
+
+  it('ignores a token left in the web-served discovery file', async () => {
+    await writeDiscovery(
+      JSON.stringify({ url: 'ws://localhost:4321/__genie/ws', token: 'legacy-token' }),
+    )
+    expect((await resolveBridge(cwd)).token).toBeUndefined()
   })
 
   it('fails with every choice when multiple descendant bridges are live', async () => {
@@ -237,5 +244,27 @@ describe('normalizeBridgeUrl', () => {
     expect(() => normalizeBridgeUrl('https://example.com')).toThrow(/ws:\/\/ or wss:\/\//)
     expect(() => normalizeBridgeUrl('ws://user:secret@localhost/socket')).toThrow(/credentials/)
     expect(() => normalizeBridgeUrl('ws://localhost/socket?role=app')).toThrow(/query or fragment/)
+  })
+})
+
+describe('isTokenTransportSafe', () => {
+  it('allows the token over wss:// anywhere and over ws:// only to loopback', () => {
+    for (const url of [
+      'ws://localhost:5173/__genie/ws',
+      'ws://127.0.0.1:4390/__genie/ws',
+      'ws://127.1.2.3:4390/__genie/ws',
+      'ws://[::1]:4390/__genie/ws',
+      'ws://app.localhost:5173/__genie/ws',
+      'wss://dev.example.test/__genie/ws',
+    ]) {
+      expect(isTokenTransportSafe(url)).toBe(true)
+    }
+    for (const url of [
+      'ws://192.168.1.20:5173/__genie/ws',
+      'ws://dev.example.test/__genie/ws',
+      'ws://localhost.evil.example/__genie/ws',
+    ]) {
+      expect(isTokenTransportSafe(url)).toBe(false)
+    }
   })
 })

@@ -19,7 +19,7 @@ import { WebSocket } from 'ws'
 export interface GenieAgentLinkOptions {
   /** Bridge URL, or a resolver re-invoked on every (re)connect so the link self-heals when the URL changes. */
   url: string | (() => string | Promise<string>)
-  /** Agent token from the hub's discovery file, sent as a bearer header on every (re)connect. */
+  /** Agent token the hub published, sent as a bearer header on every (re)connect. */
   token?: string
   logger?: (message: string) => void
   connectTimeoutMs?: number
@@ -82,10 +82,10 @@ export class BridgeRejectedError extends Error {
 /** Fixed remediation per refusal status; the hub's own text is not echoed into agent-facing output. */
 export function bridgeRejectionHint(error: BridgeRejectedError): string {
   if (error.status === 401) {
-    return 'The hub rejected the agent token: it restarted or a different hub answered. Re-run from the app directory so .genie/bridge.json is re-read; with --url or GENIE_BRIDGE_URL, also set GENIE_BRIDGE_TOKEN to the token in that file.'
+    return 'The hub rejected the agent token: it restarted, a different hub answered, or genie-react and @genie-react/cli versions differ. Re-run from the app directory so the hub is rediscovered; with --url or GENIE_BRIDGE_URL for a hub outside this directory tree, also set GENIE_BRIDGE_TOKEN.'
   }
   if (error.status === 403) {
-    return 'The hub refused this connection origin. Agent connections must come from a local process without a browser Origin header.'
+    return 'The hub refused this connection. Agents must run on the same machine as the hub, as a process without a browser Origin header.'
   }
   return `The hub refused the connection (HTTP ${error.status}). Update genie-react and @genie-react/cli to matching versions.`
 }

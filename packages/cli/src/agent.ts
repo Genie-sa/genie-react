@@ -13,9 +13,14 @@ import {
   devtoolsWaitContract,
   reactQuiesceContract,
 } from 'genie-react/protocol'
-import { GenieAgentLink, INVOKE_GRACE_MS } from './agent-link'
+import { BridgeRejectedError, GenieAgentLink, INVOKE_GRACE_MS } from './agent-link'
 import { DEFAULT_MAX_BYTES, writeDiagnostic, writeJson } from './cli-output'
-import { normalizeBridgeUrl, resolveBridge, resolveBridgeToken } from './discovery'
+import {
+  isTokenTransportSafe,
+  normalizeBridgeUrl,
+  resolveBridge,
+  resolveBridgeToken,
+} from './discovery'
 import {
   CLI_OUTPUT_SCHEMA_VERSION,
   describeFailure,
@@ -61,7 +66,7 @@ export interface AgentOptions {
   cwd?: string
   /** Override the bridge URL (else resolved from GENIE_BRIDGE_URL → .genie/bridge.json → default). */
   url?: string
-  /** Agent token for `url` (else GENIE_BRIDGE_TOKEN → the discovery file publishing that URL). */
+  /** Agent token; else GENIE_BRIDGE_TOKEN for an explicit url, then the discovered hub's private token. */
   token?: string
   /** How long to wait for the bridge WebSocket itself to open, in ms. */
   connectTimeoutMs?: number
@@ -179,13 +184,17 @@ function once<T>(load: () => Promise<T>): () => Promise<T> {
 
 async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url: string }> {
   const cwd = opts.cwd ?? process.cwd()
-  let url = opts.url
-  let token = opts.token
-  let source = 'flag'
-  if (!url) {
+  let url: string
+  let token: string | undefined
+  let source: string
+  if (opts.url) {
+    url = normalizeBridgeUrl(opts.url)
+    token = opts.token ?? (await resolveBridgeToken(url, cwd))
+    source = 'flag'
+  } else {
     const bridge = await resolveBridge(cwd)
     url = bridge.url
-    token ??= bridge.token
+    token = opts.token ?? bridge.token
     source = bridge.source
     if (bridge.source === 'fallback') {
       writeDiagnostic(
@@ -194,8 +203,18 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
       )
     }
   }
-  url = normalizeBridgeUrl(url)
-  token ??= await resolveBridgeToken(url, cwd)
+  if (token !== undefined && !isTokenTransportSafe(url)) {
+    token = undefined
+    writeDiagnostic(
+      'insecure-bridge-url',
+      'The agent token is only sent over wss:// or to a localhost bridge. Forward the hub to localhost (for example ssh -L) or put it behind wss://.',
+    )
+  } else if (token === undefined && (source === 'file' || source === 'workspace')) {
+    writeDiagnostic(
+      'unauthenticated-bridge',
+      'The discovered hub published no agent token, so it is an older genie-react that accepts any local page as an agent. Update genie-react to the same version as @genie-react/cli.',
+    )
+  }
   const connectTimeoutMs = opts.connectTimeoutMs ?? 8_000
   if (opts.verbose) {
     writeDiagnostic('bridge_connect', 'Connecting to the selected bridge.', {
@@ -517,7 +536,7 @@ export async function runCall(
         .invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs: waitMs }, null, {
           timeoutMs: waitMs,
         })
-        .catch(() => null)
+        .catch(nullUnlessRejected)
       if (!ready?.ok) {
         emitFailure(
           opts,
@@ -755,7 +774,7 @@ export async function runBatch(
       .invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs: waitMs }, null, {
         timeoutMs: waitMs,
       })
-      .catch(() => null)
+      .catch(nullUnlessRejected)
     if (!ready?.ok) {
       emitFailure(
         opts,
@@ -800,6 +819,10 @@ export async function runBatch(
       )
     }
     return anyFailed ? 1 : 0
+  } catch (error) {
+    if (!(error instanceof BridgeRejectedError)) throw error
+    await emitCaughtFailure(opts, 'Batch failed.', error, {})
+    return 1
   } finally {
     link.close()
   }
@@ -880,6 +903,8 @@ export async function runStatus(opts: AgentOptions = {}): Promise<number> {
             ready: session.ready,
             ...(session.readyAt === undefined ? {} : { readyAt: session.readyAt }),
             current: session.current,
+            ...(session.origin === undefined ? {} : { origin: session.origin }),
+            ...(session.originUnverified ? { originUnverified: true } : {}),
             ...(session.staleMs === undefined ? {} : { staleMs: session.staleMs }),
           })),
           warnings: status.warnings,
@@ -986,7 +1011,7 @@ function waitForTools(
 ): Promise<BridgeStatusMessage | null> {
   const current = link.getStatus()
   if (current?.ready && current.tools.length > 0) return Promise.resolve(current)
-  return new Promise((resolveStatus) => {
+  return new Promise((resolveStatus, reject) => {
     const timer = setTimeout(() => {
       link.onStatus = null
       resolveStatus(link.getStatus())
@@ -999,6 +1024,17 @@ function waitForTools(
       }
     }
     // Nudge the bridge to surface a connected app (and rebroadcast its catalog).
-    void link.invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs }).catch(() => {})
+    void link.invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs }).catch((error) => {
+      if (!(error instanceof BridgeRejectedError)) return
+      clearTimeout(timer)
+      link.onStatus = null
+      reject(error)
+    })
   })
+}
+
+// A refused upgrade cannot heal by waiting, so it surfaces as its own failure instead of "no app connected".
+function nullUnlessRejected(error: unknown): null {
+  if (error instanceof BridgeRejectedError) throw error
+  return null
 }

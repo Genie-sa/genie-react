@@ -9,7 +9,13 @@ import {
   GENIE_INFO_PATH,
 } from 'genie-react/protocol'
 import { BridgeRejectedError, bridgeRejectionHint, GenieAgentLink } from './agent-link'
-import { type BridgeDiscovery, isPidAlive, parseBridgeDiscovery, resolveBridge } from './discovery'
+import {
+  type BridgeDiscovery,
+  isPidAlive,
+  isTokenTransportSafe,
+  parseBridgeDiscovery,
+  resolveBridge,
+} from './discovery'
 import { isRecord } from './guards'
 
 export interface Logger {
@@ -123,9 +129,6 @@ export interface DoctorOptions {
   logger?: Logger
 }
 
-/** Discovery as doctor reports it: the agent token stays in the owner-only file, never in printed output. */
-export type PublicBridgeDiscovery = Omit<BridgeDiscovery, 'token'>
-
 export interface DoctorCheck {
   label: string
   ok: boolean
@@ -137,7 +140,7 @@ export interface DoctorResult {
   ok: boolean
   framework: Framework
   checks: DoctorCheck[]
-  bridge: PublicBridgeDiscovery | null
+  bridge: BridgeDiscovery | null
   versions: {
     cli: string
     runtime: string | null
@@ -150,7 +153,7 @@ export interface DoctorResult {
     activeHash: string | null
     current: boolean
   }
-  bridgeCandidates: PublicBridgeDiscovery[]
+  bridgeCandidates: BridgeDiscovery[]
   remediation: string[]
   live?: {
     sessionHealth: SessionProbe | null
@@ -412,7 +415,16 @@ export async function runLiveDoctor(options: LiveDoctorOptions = {}): Promise<Do
     }
 
     if (hub.kind !== 'unreachable') {
-      const probe = await probeSession(url, token, timeoutMs)
+      if (token === undefined && (source === 'file' || source === 'workspace')) {
+        checks.push({
+          label: 'hub publishes an agent token',
+          ok: false,
+          critical: false,
+          detail: 'Older genie-react hubs accept unauthenticated agents; update genie-react.',
+        })
+      }
+      const sendableToken = token !== undefined && isTokenTransportSafe(url) ? token : undefined
+      const probe = await probeSession(url, sendableToken, timeoutMs)
       const session = 'error' in probe ? null : probe
       sessionHealth = session
       checks.push({
@@ -1093,11 +1105,10 @@ function isCommonJs(code: string): boolean {
   return /\bmodule\.exports\b|\brequire\s*\(/.test(code)
 }
 
-function readBridgeDiscovery(cwd: string): PublicBridgeDiscovery | null {
+function readBridgeDiscovery(cwd: string): BridgeDiscovery | null {
   const path = join(cwd, GENIE_DISCOVERY_FILE)
   if (!existsSync(path)) return null
-  const discovery = parseBridgeDiscovery(readFileSafe(path))
-  return discovery && { url: discovery.url, pid: discovery.pid }
+  return parseBridgeDiscovery(readFileSafe(path))
 }
 
 function findPackageDir(cwd: string, name: string): string | null {

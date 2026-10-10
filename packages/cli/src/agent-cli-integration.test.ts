@@ -187,6 +187,24 @@ describe('agent CLI integration', () => {
     expect(failure.message).toContain('GENIE_BRIDGE_TOKEN')
   })
 
+  it.each([
+    ['call', (url: string) => runCall('query_rows', '{}', { url, waitMs: 12_000 })],
+    ['batch', (url: string) => runBatch('[{"tool":"query_rows"}]', { url, waitMs: 12_000 })],
+    ['tools', (url: string) => runTools(undefined, { url, waitMs: 12_000 })],
+  ] as const)('surfaces a refused token from %s at once instead of waiting for an app', async (_command, run) => {
+    const { url } = await fixture()
+    vi.stubEnv('GENIE_BRIDGE_TOKEN', 'stale-token')
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+
+    const startedAt = Date.now()
+    expect(await run(url)).toBe(1)
+    expect(Date.now() - startedAt).toBeLessThan(3_000)
+    const output = stdout.mock.calls.flat().join('')
+    expect(output).toContain('rejected the agent token')
+    expect(output).not.toContain('not_connected')
+  })
+
   it('keeps upstream instructions and unsafe session values out of trusted errors and diagnostics', async () => {
     const session = 'secret-session-$(steal-secret)'
     const { url } = await fixture(session)
