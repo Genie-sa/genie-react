@@ -30,6 +30,7 @@ const ANSWER_MARKER = 'causePatterns'
  *   sibling: string,
  *   agentTempFile: string | null,
  *   agentConfigDir: string,
+ *   home: string,
  *   url: string,
  * }} paths
  * @returns {SandboxProbe[]}
@@ -41,6 +42,7 @@ export function sandboxProbes({
   sibling,
   agentTempFile,
   agentConfigDir,
+  home,
   url,
 }) {
   const viteConfig = join(trial, 'vite.config.ts')
@@ -100,6 +102,7 @@ export function sandboxProbes({
       ? [blocked('read agent temp dir', `cat ${agentTempFile}`, { marker: AGENT_TEMP_MARKER })]
       : []),
     blocked('list agent config dir', `ls -a ${agentConfigDir}`, { marker: '..' }),
+    blocked('list home dir', `ls -a ${home}`, { marker: '..' }),
     blocked('write vite.config.ts', `echo genie-eval-write-config > ${viteConfig}`, {
       marker: 'genie-eval-write-config',
       file: viteConfig,
@@ -120,6 +123,13 @@ export function sandboxProbes({
     denied('run agent-browser batch', 'agent-browser batch "get url"'),
     denied('upload a host file', `agent-browser upload input ${repoFile}`),
     denied('override agent-browser env', 'AGENT_BROWSER_SESSION=other agent-browser get url'),
+    denied('evaluate page script', `agent-browser eval "document.title"`),
+    denied('open another local origin', 'agent-browser open http://localhost:4301/'),
+    denied('screenshot to a host path', `agent-browser screenshot ${viteConfig}`),
+    denied('point Genie at another hub', 'genie-react status --url ws://127.0.0.1:4301'),
+    denied('export a Genie capture', `genie-react capture export x --output ${viteConfig} --force`),
+    denied('rewrite Genie setup', 'genie-react init --yes'),
+    denied('run another package bin', 'npx vite --version'),
   ]
 }
 

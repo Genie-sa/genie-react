@@ -2,10 +2,10 @@ import { delimiter, isAbsolute, join, relative, sep } from 'node:path'
 
 export const AGENTS = /** @type {const} */ (['claude', 'codex'])
 
-const GENIE_COMMANDS = ['genie-react', 'pnpm exec genie-react', 'npx genie-react']
+const GENIE_LAUNCHERS = ['genie-react', 'pnpm exec genie-react', 'npx genie-react']
+const GENIE_SUBCOMMANDS = ['status', 'tools', 'call', 'batch', 'doctor']
 const SHELL_HELPERS = ['sleep', 'echo', 'cat', 'head', 'tail', 'grep', 'jq', 'wc', 'ls']
 const BROWSER_COMMANDS = [
-  'open',
   'snapshot',
   'click',
   'dblclick',
@@ -22,12 +22,10 @@ const BROWSER_COMMANDS = [
   'scroll',
   'scrollintoview',
   'wait',
-  'eval',
   'get',
   'is',
   'find',
   'mouse',
-  'tab',
   'react',
 ]
 const BROWSER_BARE_COMMANDS = [
@@ -64,8 +62,9 @@ const BROWSER_DENIED_FLAGS = [
   '--headed',
   '--engine',
   '--config',
-  '--download-path',
+  '--download',
   '--screenshot-dir',
+  '--fn',
 ]
 const PROTECTED_PATHS = [
   'vite.config.ts',
@@ -121,6 +120,7 @@ const INHERITED_ENV_PREFIXES = ['ANTHROPIC_']
  *   browserSession: string,
  *   toolDirs: string[],
  *   settingsPath: string,
+ *   appOrigin: string,
  *   readableRoots: string[],
  *   deniedReadRoots: string[],
  * }} AgentRunOptions
@@ -223,9 +223,40 @@ export function claudeSandboxSettings({
 }
 
 /**
- * Restricts Claude to the Genie CLI, agent-browser, a few shell helpers, and file tools scoped to the trial directory.
- * The agent-browser daemon runs outside the sandbox, so only page-level subcommands are allowed, and flags that switch
- * sessions, relaunch the browser, or point it at host files or other endpoints are denied wherever they appear.
+ * Bash permission rules for Claude. Each allowed command is a fixed subcommand: Genie's read-only `status`, `tools`,
+ * `call`, `batch`, and `doctor` without `--url` (flags go after the subcommand), page-level agent-browser commands,
+ * `open` only for the trial's own origin, and read-only shell helpers. The agent-browser daemon runs outside the
+ * sandbox, so flags that switch sessions, relaunch the browser, evaluate script, or save files are denied wherever
+ * they appear. Claude splits compound commands and checks each part.
+ * @param {string} appOrigin
+ */
+export function claudeBashRules(appOrigin) {
+  const opens = ['', "'", '"'].flatMap((quote) => [
+    `agent-browser open ${quote}${appOrigin}/*`,
+    `agent-browser open ${quote}${appOrigin}${quote}`,
+  ])
+  const allow = [
+    ...GENIE_LAUNCHERS.flatMap((launcher) =>
+      GENIE_SUBCOMMANDS.flatMap((subcommand) => [
+        `${launcher} ${subcommand}`,
+        `${launcher} ${subcommand} *`,
+      ]),
+    ),
+    ...opens,
+    ...BROWSER_COMMANDS.map((command) => `agent-browser ${command} *`),
+    ...BROWSER_BARE_COMMANDS.map((command) => `agent-browser ${command}`),
+    ...SHELL_HELPERS.map((command) => `${command} *`),
+  ]
+  const deny = [
+    ...GENIE_LAUNCHERS.map((launcher) => `${launcher} *--url*`),
+    ...BROWSER_DENIED_FLAGS.map((flag) => `agent-browser *${flag}*`),
+    'agent-browser * -p *',
+  ]
+  return { allow, deny }
+}
+
+/**
+ * Restricts Claude to the Bash rules above and file tools scoped to the trial directory and the shared install.
  * Read rules also govern Grep and Glob; the prompt is sent on stdin.
  * @param {AgentRunOptions} options
  * @returns {AgentCommand}
@@ -233,11 +264,9 @@ export function claudeSandboxSettings({
 function claudeCommand(options) {
   const fileTools =
     options.mode === 'fix' ? ['Read', 'Edit', 'Grep', 'Glob'] : ['Read', 'Grep', 'Glob']
+  const bash = claudeBashRules(options.appOrigin)
   const allowed = [
-    ...GENIE_COMMANDS.map((command) => `Bash(${command} *)`),
-    ...BROWSER_COMMANDS.map((command) => `Bash(agent-browser ${command} *)`),
-    ...BROWSER_BARE_COMMANDS.map((command) => `Bash(agent-browser ${command})`),
-    ...SHELL_HELPERS.map((command) => `Bash(${command} *)`),
+    ...bash.allow.map((rule) => `Bash(${rule})`),
     'Read(./**)',
     ...options.readableRoots.map((root) => `Read(/${root}/**)`),
     ...(options.mode === 'fix' ? ['Edit(./src/**)'] : []),
@@ -269,8 +298,7 @@ function claudeCommand(options) {
       ...allowed,
       '--disallowedTools',
       ...options.deniedReadRoots.map((root) => `Read(/${root}/**)`),
-      ...BROWSER_DENIED_FLAGS.map((flag) => `Bash(agent-browser *${flag}*)`),
-      'Bash(agent-browser * -p *)',
+      ...bash.deny.map((rule) => `Bash(${rule})`),
     ],
     env: agentEnv(process.env, options),
   }

@@ -14,6 +14,7 @@ const probes = sandboxProbes({
   sibling: '/tmp/genie-eval-sibling',
   agentTempFile: '/tmp/claude-501/marker.txt',
   agentConfigDir: '/home/me/.claude',
+  home: '/home/me',
   url: 'http://127.0.0.1:4310/?screen=search',
 })
 

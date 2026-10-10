@@ -373,8 +373,13 @@ async function withTrial({ label, mode, screen }, options, context, body) {
     const settings = claudeSandboxSettings({
       dir: workspace.dir,
       mode,
-      readableRoots: [consumer.root, ...claudeTrialTemp(workspace.dir)],
-      deniedReadRoots: [...context.deniedReadRoots, TEMP_ROOT],
+      readableRoots: [
+        consumer.root,
+        ...claudeTrialTemp(workspace.dir),
+        ...withRealpaths(context.toolDirs.map((dir) => dirname(dir))),
+        BROWSER_SOCKET_DIR,
+      ],
+      deniedReadRoots: [...context.deniedReadRoots, TEMP_ROOT, ...withRealpaths([homedir()])],
       browserSocketDir: BROWSER_SOCKET_DIR,
     })
     await writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`)
@@ -389,6 +394,7 @@ async function withTrial({ label, mode, screen }, options, context, body) {
       browserSession,
       toolDirs: context.toolDirs,
       settingsPath,
+      appOrigin: new URL(server.url).origin,
       readableRoots: [consumer.root],
       deniedReadRoots: context.deniedReadRoots,
     })
@@ -612,6 +618,7 @@ async function sandboxCheck(tasks, options) {
         sibling,
         agentTempFile,
         agentConfigDir: process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'),
+        home: homedir(),
         url: trial.url,
       })
       for (const { link } of probes) if (link) await symlink(link.target, link.path)

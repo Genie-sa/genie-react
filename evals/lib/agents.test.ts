@@ -3,6 +3,7 @@ import {
   agentCommand,
   agentEnv,
   agentStateDirs,
+  claudeBashRules,
   claudeSandboxSettings,
   outsideRoots,
 } from './agents.mjs'
@@ -16,6 +17,7 @@ const options = {
   browserSession: 'genie-eval-run-task-1',
   toolDirs: ['/opt/node/bin', '/opt/tools/bin', '/opt/node/bin'],
   settingsPath: '/repo/evals/results/run/task-1.settings.json',
+  appOrigin: 'http://127.0.0.1:5173',
   readableRoots: ['/tmp/deps'],
   deniedReadRoots: ['/repo', '/home/me/.claude/projects'],
 }
@@ -141,37 +143,6 @@ describe('agentCommand', () => {
     expect(fix.args).not.toContain('Edit')
   })
 
-  it('allows only page-level agent-browser subcommands and denies session or launch flags anywhere', () => {
-    const { args } = agentCommand({ ...options, agent: 'claude', mode: 'fix' })
-    expect(args).not.toContain('Bash(agent-browser *)')
-    expect(args).toEqual(
-      expect.arrayContaining([
-        'Bash(agent-browser open *)',
-        'Bash(agent-browser eval *)',
-        'Bash(agent-browser snapshot)',
-        'Bash(agent-browser screenshot)',
-        'Bash(agent-browser *--session*)',
-        'Bash(agent-browser *--executable-path*)',
-        'Bash(agent-browser *--allow-file-access*)',
-        'Bash(agent-browser *--cdp*)',
-        'Bash(agent-browser * -p *)',
-      ]),
-    )
-    for (const command of [
-      'upload',
-      'download',
-      'batch',
-      'plugin',
-      'connect',
-      'read',
-      'pdf',
-      'state',
-    ]) {
-      expect(args.some((arg) => arg.startsWith(`Bash(agent-browser ${command}`))).toBe(false)
-    }
-    expect(args).not.toContain('Bash(agent-browser screenshot *)')
-  })
-
   it('runs Codex without user config or rules and without temp-dir write access', () => {
     const codex = agentCommand({ ...options, agent: 'codex', mode: 'diagnose' })
     expect(codex.args).toEqual(
@@ -183,5 +154,96 @@ describe('agentCommand', () => {
       ]),
     )
     expect(codex.env.PATH?.startsWith('/tmp/trial/node_modules/.bin:')).toBe(true)
+  })
+})
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+function matchesRule(command: string, rule: string) {
+  const pattern = rule.split('*').map(escapeRegExp).join('.*')
+  const bare = rule.endsWith(' *') ? `|${escapeRegExp(rule.slice(0, -2))}` : ''
+  return new RegExp(`^(?:${pattern}${bare})$`, 's').test(command)
+}
+
+describe('claudeBashRules', () => {
+  const { allow, deny } = claudeBashRules('http://127.0.0.1:5173')
+  const permitted = (command: string) =>
+    allow.some((rule) => matchesRule(command, rule)) &&
+    !deny.some((rule) => matchesRule(command, rule))
+
+  it.each([
+    'genie-react status',
+    'genie-react tools',
+    "genie-react call react_get_renders '{}'",
+    'genie-react call react_get_renders {} --max-bytes 9000',
+    'pnpm exec genie-react doctor',
+    `genie-react batch '[{"tool":"react_error_state"}]'`,
+    'pnpm exec genie-react status --sessions-only',
+    "npx genie-react call react_render_causes '{}'",
+    'agent-browser open http://127.0.0.1:5173/?screen=search',
+    "agent-browser open 'http://127.0.0.1:5173/?screen=search'",
+    'agent-browser open "http://127.0.0.1:5173/"',
+    'agent-browser snapshot',
+    'agent-browser snapshot -i',
+    'agent-browser click @e3',
+    'agent-browser type "#q" cert',
+    'agent-browser get url',
+    'agent-browser react tree',
+    'agent-browser wait 500',
+    'agent-browser screenshot',
+    'cat src/App.tsx',
+    'grep -rn useMemo src',
+    'jq .status out.json',
+    'ls src',
+  ])('allows %s', (command) => {
+    expect(permitted(command)).toBe(true)
+  })
+
+  it.each([
+    'genie-react init --yes',
+    'genie-react link /repo',
+    'genie-react hub',
+    'genie-react --max-bytes 9000 init --yes',
+    'genie-react capture export abc --output vite.config.ts --force',
+    "genie-react call react_get_renders '{}' --url ws://127.0.0.1:4301",
+    'genie-react --url ws://127.0.0.1:4301 status',
+    'npx vite build',
+    'npx -p evil genie-react status',
+    'pnpm exec vite --config /tmp/evil.mjs',
+    'pnpm genie-react status',
+    'agent-browser open http://localhost:4301/',
+    'agent-browser open http://127.0.0.1:51730/',
+    'agent-browser open http://127.0.0.1:5173@localhost:4301/',
+    'agent-browser open file:///etc/hosts',
+    'agent-browser eval "fetch(\'/@fs/etc/hosts\')"',
+    'agent-browser tab new http://localhost:4301/',
+    'agent-browser read http://127.0.0.1:5173/@fs/etc/hosts',
+    'agent-browser screenshot /Users/me/.zshrc',
+    'agent-browser pdf vite.config.ts',
+    'agent-browser download a ./vite.config.ts',
+    'agent-browser upload input /etc/hosts',
+    'agent-browser batch "get url"',
+    'agent-browser plugin add evil',
+    'agent-browser connect 9222',
+    'agent-browser --session other get url',
+    'agent-browser get url --executable-path /bin/sh',
+    'agent-browser click @e1 --allow-file-access',
+    'agent-browser wait --fn "fetch(1)"',
+    'agent-browser wait --download ./vite.config.ts',
+    'agent-browser snapshot --screenshot-dir /Users/me',
+    'agent-browser -p browserbase snapshot -i',
+    'sort -o vite.config.ts src/a.ts',
+    'find . -delete',
+    "sed -i '' s/a/b/ vite.config.ts",
+    'awk \'BEGIN { system("id") }\'',
+    'xargs rm',
+    'env FOO=1 genie-react status',
+    "node -e 'process.exit()'",
+    'git -c core.pager=sh log',
+    'tee vite.config.ts',
+    'cp src/a.ts vite.config.ts',
+    'mv src/a.ts vite.config.ts',
+  ])('denies %s', (command) => {
+    expect(permitted(command)).toBe(false)
   })
 })
