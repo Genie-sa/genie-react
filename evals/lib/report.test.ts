@@ -8,6 +8,7 @@ function trial(pass: boolean, overrides: Record<string, unknown> = {}) {
     mode: 'diagnose',
     pass,
     runtimeEvidence: pass,
+    deniedBeforeGenie: false,
     failure: null,
     genieCalls: 4,
     browserCalls: 2,
@@ -23,7 +24,13 @@ describe('summarizeTasks', () => {
   it('aggregates pass rates, means and error reasons per task', () => {
     const [summary] = summarizeTasks([
       trial(true),
-      trial(false, { genieCalls: 8, tokens: 3000, costUsd: null, failure: 'timeout' }),
+      trial(false, {
+        genieCalls: 8,
+        tokens: 3000,
+        costUsd: null,
+        failure: 'timeout',
+        deniedBeforeGenie: true,
+      }),
       trial(true, { genieErrorReasons: {} }),
     ])
     expect(summary).toMatchObject({
@@ -37,6 +44,7 @@ describe('summarizeTasks', () => {
       meanCostUsd: 0.5,
       meanWallSeconds: 30,
       runtimeEvidenceRate: 2 / 3,
+      deniedBeforeGenie: 1,
       genieErrorReasons: { busy: 2 },
       failures: ['timeout'],
     })
@@ -57,10 +65,10 @@ describe('renderMarkdown', () => {
       summarizeTasks([trial(true), trial(true, { tokens: 30_000 })]),
     )
     expect(markdown).toContain(
-      '| Task | Split | Mode | Passed | pass@1 | pass@2 | pass^2 | Runtime evidence | Genie calls |',
+      '| Task | Split | Mode | Passed | pass@1 | pass@2 | pass^2 | Runtime evidence | Denied before Genie | Genie calls |',
     )
     expect(markdown).toContain(
-      '| memo-object-prop | dev | diagnose | 2/2 | 100% | 100% | 100% | 100% | 4 | 2 | 16k | $0.50 | 30 | busy×2 |',
+      '| memo-object-prop | dev | diagnose | 2/2 | 100% | 100% | 100% | 100% | 0/2 | 4 | 2 | 16k | $0.50 | 30 | busy×2 |',
     )
   })
 
@@ -76,9 +84,11 @@ describe('renderMarkdown', () => {
       summarizeTasks([trial(false, { costUsd: null, genieErrorReasons: {} })]),
     )
     expect(markdown).toContain('isolation: reads not sandboxed')
-    expect(markdown).toContain('| Task | Split | Mode | Passed | pass@1 | Runtime evidence |')
     expect(markdown).toContain(
-      '| memo-object-prop | dev | diagnose | 0/1 | 0% | 0% | 4 | 2 | 1000 | n/a | 30 | - |',
+      '| Task | Split | Mode | Passed | pass@1 | Runtime evidence | Denied before Genie |',
+    )
+    expect(markdown).toContain(
+      '| memo-object-prop | dev | diagnose | 0/1 | 0% | 0% | 0/1 | 4 | 2 | 1000 | n/a | 30 | - |',
     )
   })
 })

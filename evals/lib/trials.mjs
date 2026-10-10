@@ -21,6 +21,7 @@ export async function isolateTrial(identity, execute) {
       failure: `harness: ${error instanceof Error ? error.message : String(error)}`,
       checks: [],
       runtimeEvidence: false,
+      deniedBeforeGenie: false,
       genieCalls: 0,
       browserCalls: 0,
       genieErrorReasons: {},

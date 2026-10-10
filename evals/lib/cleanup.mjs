@@ -38,6 +38,13 @@ export async function release(key) {
 }
 
 /**
+ * Whether shutdown has begun, after which a trial's outcome reflects the interrupt rather than the agent.
+ */
+export function interrupted() {
+  return closed
+}
+
+/**
  * Releases every tracked resource, including releases already in flight, before the process exits.
  */
 export async function releaseAll() {

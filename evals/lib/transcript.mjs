@@ -29,6 +29,7 @@ import { basename, programWords, splitShellCommands, unwrapShellInvocation } fro
  *   genieToolCalls: number,
  *   genieSuccessfulToolCalls: number,
  *   genieErrorReasons: Record<string, number>,
+ *   deniedBeforeGenieSuccess: boolean,
  * }} CommandMetrics
  */
 
@@ -335,7 +336,9 @@ function batchSize(words) {
  */
 
 /**
- * Classifies the JSON values a command printed: batch items carry `tool` and `status`, and error envelopes carry `status: "error"`.
+ * Classifies the JSON values a command printed: batch items carry `tool` and `status`, and error envelopes carry
+ * `status: "error"` with a string `reason` and either `schemaVersion` or a batch item's `tool`, so app data that
+ * happens to hold `status: "error"` (a failed query, say) is not miscounted.
  * @param {string} output
  * @returns {GenieOutcomes}
  */
@@ -350,8 +353,10 @@ function genieOutcomes(output) {
     if (!isRecord(value)) return
     const isBatchItem = typeof value.tool === 'string' && typeof value.status === 'string'
     if (isBatchItem) outcomes.sawBatchItems = true
-    if (value.status === 'error') outcomes.errors.push(String(value.reason ?? 'unknown'))
-    else if (isBatchItem && value.status === 'ok') outcomes.ok += 1
+    const isEnvelope = typeof value.schemaVersion === 'string' || isBatchItem
+    if (value.status === 'error' && typeof value.reason === 'string' && isEnvelope) {
+      outcomes.errors.push(value.reason)
+    } else if (isBatchItem && value.status === 'ok') outcomes.ok += 1
   }
   for (const value of parseJsonValues(output)) visit(value)
   return outcomes
@@ -376,10 +381,12 @@ export function commandMetrics(commands) {
     genieToolCalls: 0,
     genieSuccessfulToolCalls: 0,
     genieErrorReasons: {},
+    deniedBeforeGenieSuccess: false,
   }
   for (const { command, output, isError, denied } of commands) {
     if (denied) {
       metrics.deniedCommands += 1
+      if (metrics.genieSuccessfulToolCalls === 0) metrics.deniedBeforeGenieSuccess = true
       continue
     }
     if (isError) metrics.failedCommands += 1

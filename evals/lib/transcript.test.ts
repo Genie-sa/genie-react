@@ -194,7 +194,7 @@ describe('commandMetrics', () => {
       {
         command: `agent-browser open x && genie-react call react_clear_renders '{}' && genie-react --max-bytes 9000 call react_get_renders '{}'`,
         output:
-          '{"status":"error","reason":"session-not-ready"}\n{"status":"error","reason":"busy"}',
+          '{"schemaVersion":"1.0","status":"error","reason":"session-not-ready"}\n{"schemaVersion":"1.0","status":"error","reason":"busy"}',
         isError: false,
         denied: false,
       },
@@ -323,6 +323,35 @@ describe('permission denials', () => {
 })
 
 describe('runtime evidence', () => {
+  it('ignores app data that only looks like an error envelope', () => {
+    const metrics = commandMetrics([
+      {
+        command: "genie-react call tanstack_queries '{}'",
+        output: [
+          '[{"queryKey":["tasks"],"status":"error","error":"boom"}]',
+          '{"status":"error","reason":"from app state"}',
+        ].join('\n'),
+        isError: false,
+        denied: false,
+      },
+    ])
+    expect(metrics.genieErrorReasons).toEqual({})
+    expect(metrics.genieSuccessfulToolCalls).toBe(1)
+  })
+
+  it('flags denials that happen before the first successful Genie call', () => {
+    const denied = { command: 'npx genie-react status', output: '', isError: true, denied: true }
+    const success = {
+      command: "genie-react call react_error_state '{}'",
+      output: '{"caughtErrors":[]}',
+      isError: false,
+      denied: false,
+    }
+    expect(commandMetrics([denied, success]).deniedBeforeGenieSuccess).toBe(true)
+    expect(commandMetrics([success, denied]).deniedBeforeGenieSuccess).toBe(false)
+    expect(commandMetrics([success]).deniedBeforeGenieSuccess).toBe(false)
+  })
+
   it('counts batch items from JSONL output, including failed items', () => {
     const metrics = commandMetrics([
       {

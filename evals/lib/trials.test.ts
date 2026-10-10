@@ -27,6 +27,7 @@ describe('isolateTrial', () => {
       pass: false,
       failure: 'harness: vite exited',
       runtimeEvidence: false,
+      deniedBeforeGenie: false,
       genieCalls: 0,
       browserCalls: 0,
       tokens: 0,
