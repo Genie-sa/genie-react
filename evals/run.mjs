@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-import { createWriteStream, constants as fsConstants, realpathSync } from 'node:fs'
-import { access, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { createWriteStream, existsSync, constants as fsConstants, realpathSync } from 'node:fs'
+import { access, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir, constants as osConstants, tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
   AGENTS,
   agentCommand,
-  agentHistoryDirs,
+  agentStateDirs,
   buildPrompt,
   claudeSandboxSettings,
   isolationLabel,
@@ -19,7 +19,8 @@ import { closeBrowserSession, openBrowserSession, runProbe } from './lib/probe.m
 import { killAllChildren, run } from './lib/process.mjs'
 import { renderMarkdown, summarizeTasks } from './lib/report.mjs'
 import {
-  evaluateSandboxProbes,
+  AGENT_TEMP_MARKER,
+  evaluateSandboxProbe,
   SIBLING_MARKER,
   sandboxProbes,
   sandboxPrompt,
@@ -63,8 +64,8 @@ Options:
   --timeout-ms <n>        Wall-clock cap per trial (default: 900000)
   --dry-run               Validate tasks, graders, and reference fixes without a model
   --runtime               With --dry-run, also run each probe against buggy and fixed apps
-  --sandbox-check         Run Claude once with a trial's sandbox settings and assert what it can read,
-                          write, and reach
+  --sandbox-check         Run fixed commands through Claude in a trial and assert what it can read,
+                          write, and run
   --skip-build            Reuse existing package builds
   --keep                  Keep trial workspaces for inspection
   -h, --help              Show this help
@@ -78,6 +79,32 @@ const BROWSER_SOCKET_DIR = join(homedir(), '.agent-browser')
 const OPTIONAL_TOOLS = ['pnpm', 'jq']
 const TEMP_ROOT = realpathSync(tmpdir())
 const CLAUDE_SANDBOX_TEMP = process.env.CLAUDE_TMPDIR ?? `/tmp/claude-${process.getuid?.() ?? 0}`
+
+/**
+ * Claude captures each sandboxed command's output under its temp directory in a folder named after the working
+ * directory; the trial may read only that folder, not the rest of Claude's temp files.
+ * @param {string} dir
+ */
+function claudeTrialTemp(dir) {
+  const folder = dir.replace(/[^a-zA-Z0-9]/g, '-')
+  return withRealpaths([CLAUDE_SANDBOX_TEMP]).map((base) => join(base, folder))
+}
+
+/**
+ * Lists each path and, when it exists and differs, its real path, since the sandbox may match either form
+ * (`/tmp` and `/private/tmp` on macOS).
+ * @param {string[]} paths
+ */
+function withRealpaths(paths) {
+  const forms = paths.flatMap((path) => {
+    try {
+      return [path, realpathSync(path)]
+    } catch {
+      return [path]
+    }
+  })
+  return [...new Set(forms)]
+}
 
 /**
  * @param {string} name
@@ -311,7 +338,11 @@ async function agentContext(options) {
       tools.map((path) => dirname(path)),
       roots,
     ),
-    deniedReadRoots: [...roots, ...agentHistoryDirs(process.env, homedir())],
+    deniedReadRoots: withRealpaths([
+      ...roots,
+      ...agentStateDirs(process.env, homedir()),
+      CLAUDE_SANDBOX_TEMP,
+    ]),
   }
 }
 
@@ -342,7 +373,7 @@ async function withTrial({ label, mode, screen }, options, context, body) {
     const settings = claudeSandboxSettings({
       dir: workspace.dir,
       mode,
-      readableRoots: [consumer.root, CLAUDE_SANDBOX_TEMP],
+      readableRoots: [consumer.root, ...claudeTrialTemp(workspace.dir)],
       deniedReadRoots: [...context.deniedReadRoots, TEMP_ROOT],
       browserSocketDir: BROWSER_SOCKET_DIR,
     })
@@ -371,22 +402,20 @@ async function withTrial({ label, mode, screen }, options, context, body) {
 }
 
 /**
- * Runs the agent with `prompt`, streaming its output to the transcript file.
- * @param {Trial} trial
- * @param {string} prompt
+ * Runs the agent with `prompt` in the trial, streaming its output to `transcriptPath`.
+ * @param {{ dir: string, command: import('./lib/agents.mjs').AgentCommand, prompt: string, transcriptPath: string }} invocation
  * @param {Options} options
  */
-async function runAgent({ workspace, command, transcriptPath, browserSession }, prompt, options) {
+async function runAgent({ dir, command, prompt, transcriptPath }, options) {
   const transcriptFile = createWriteStream(transcriptPath)
   const result = await run(command.command, command.args, {
-    cwd: workspace.dir,
+    cwd: dir,
     env: command.env,
     input: prompt,
     timeoutMs: options.timeoutMs,
     onStdout: (chunk) => transcriptFile.write(chunk),
   })
   await new Promise((resolve) => transcriptFile.end(resolve))
-  await closeBrowserSession(browserSession)
   const transcript = parseTranscript(options.agent, await readFile(transcriptPath, 'utf8'))
   return { result, transcript }
 }
@@ -401,8 +430,13 @@ async function executeTrial(task, trial, options, context) {
   const label = `${task.id}-${trial}`
   const spec = { label, mode: task.mode, screen: task.screen }
   return withTrial(spec, options, context, async (current) => {
-    const { workspace, server, url, browserSession, transcriptPath } = current
-    const { result, transcript } = await runAgent(current, buildPrompt(task, url), options)
+    const { workspace, server, url, browserSession, transcriptPath, command } = current
+    const prompt = buildPrompt(task, url)
+    const { result, transcript } = await runAgent(
+      { dir: workspace.dir, command, prompt, transcriptPath },
+      options,
+    )
+    await closeBrowserSession(browserSession)
     const metrics = commandMetrics(transcript.commands)
     const grade = gradeAnswer(extractAnswer(transcript.finalText), task.truth, {
       projectRoot: workspace.dir,
@@ -548,8 +582,8 @@ async function liveRun(tasks, options) {
 }
 
 /**
- * Runs Claude once with a trial's generated settings and a fixed command list, then checks each command's
- * outcome against the intended sandbox boundary.
+ * Runs each fixed probe command through Claude in a fresh fix-mode trial built by the same code as real trials, then
+ * checks its effect. Blocked probes also run with permission checks bypassed, so the OS sandbox alone must stop them.
  * @param {Task[]} tasks
  * @param {Options} options
  */
@@ -563,30 +597,66 @@ async function sandboxCheck(tasks, options) {
   await mkdir(transcriptDir, { recursive: true })
   const sibling = await temporaryDirectory('genie-eval-sibling-')
   await writeFile(join(sibling, 'marker.txt'), `${SIBLING_MARKER}\n`)
+  const agentTempFile = existsSync(CLAUDE_SANDBOX_TEMP)
+    ? join(CLAUDE_SANDBOX_TEMP, `genie-eval-sandbox-check-${process.pid}.txt`)
+    : null
+  if (agentTempFile) await writeFile(agentTempFile, `${AGENT_TEMP_MARKER}\n`)
   try {
     const context = { ...agent, runId, transcriptDir, consumer }
     const spec = { label: 'sandbox', mode: /** @type {const} */ ('fix'), screen: task.screen }
     const results = await withTrial(spec, options, context, async (trial) => {
       const probes = sandboxProbes({
         trial: trial.workspace.dir,
+        consumerModules: consumer.modules,
         repoFile: task.path,
         sibling,
+        agentTempFile,
+        agentConfigDir: process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'),
         url: trial.url,
       })
       for (const { link } of probes) if (link) await symlink(link.target, link.path)
-      const { transcript } = await runAgent(trial, sandboxPrompt(probes), options)
-      /** @type {Record<string, string>} */
-      const files = {}
-      for (const probe of probes) {
-        if (probe.file) files[probe.file] = await readFile(probe.file, 'utf8').catch(() => '')
+      const sandboxOnly = trial.command.args.map((arg) =>
+        arg === 'dontAsk' ? 'bypassPermissions' : arg,
+      )
+      const runs = probes.flatMap((probe, index) => [
+        { probe, index, layer: 'permissions + sandbox', args: trial.command.args },
+        ...(probe.expect === 'blocked'
+          ? [{ probe, index, layer: 'sandbox only', args: sandboxOnly }]
+          : []),
+      ])
+      /** @type {import('./lib/sandbox-check.mjs').SandboxResult[]} */
+      const results = []
+      for (const { probe, index, layer, args } of runs) {
+        const read = () => (probe.file ? readFile(probe.file, 'utf8').catch(() => '') : '')
+        const before = await read()
+        const { transcript } = await runAgent(
+          {
+            dir: trial.workspace.dir,
+            command: { ...trial.command, args },
+            prompt: sandboxPrompt(probe),
+            transcriptPath: join(
+              transcriptDir,
+              `probe-${index}-${layer.replace(/\W+/g, '-')}.jsonl`,
+            ),
+          },
+          options,
+        )
+        const result = evaluateSandboxProbe(probe, {
+          layer,
+          transcript,
+          before,
+          after: await read(),
+        })
+        log(`${result.pass ? '✓' : '✗'} ${result.name} [${layer}]: ${result.detail}`)
+        results.push(result)
       }
-      return evaluateSandboxProbes(probes, transcript.commands, files)
+      return results
     })
-    for (const result of results) log(`${result.pass ? '✓' : '✗'} ${result.name}: ${result.detail}`)
     const failed = results.filter((result) => !result.pass)
-    if (failed.length > 0) throw new Error(`sandbox check failed ${failed.length} probe(s)`)
-    log(`✓ sandbox check passed (transcript: ${transcriptDir})`)
+    if (failed.length > 0) throw new Error(`sandbox check failed ${failed.length} probe run(s)`)
+    log(`✓ sandbox check passed (transcripts: ${transcriptDir})`)
   } finally {
+    if (agentTempFile) await rm(agentTempFile, { force: true })
     await removeWorkspace(sibling)
     await removeWorkspace(consumer.root)
   }
