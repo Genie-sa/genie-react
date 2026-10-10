@@ -1,5 +1,4 @@
 import {
-  didFiberCommit,
   type Fiber,
   type FiberRoot,
   getFiberId,
@@ -9,6 +8,7 @@ import {
   isCompositeFiber,
   isHostFiber,
   type RenderPhase,
+  setFiberId,
   traverseRenderedFibers,
   type Unsubscribe,
 } from 'bippy'
@@ -18,7 +18,7 @@ import {
   setExternalStoreObservation,
 } from '../causal/external-store-registry'
 import { clonePlainData, safeStructuredClone } from '../structured-clone'
-import { getTimings } from './bippy-compat'
+import { didFiberCommit, getTimings } from './bippy-compat'
 import { type CommitWorkBudget, commitWorkExhaustions, consumeCommitWork } from './commit-budget'
 import { recordResultingEffectCommit } from './effect-events'
 import {
@@ -222,7 +222,13 @@ const ADAPTIVE_TIME_CEILING_MS = 500
 
 const DID_CAPTURE = 0b1000_0000
 const RECENT_CAUSE_EVENT_LIMIT = 1_000
-const pendingUnmounts: { rendererId: number; fiber: Fiber; targeted: boolean }[] = []
+interface PendingUnmount {
+  rendererId: number
+  fiber: Fiber
+  fiberId: number
+  targeted: boolean
+}
+const pendingUnmounts: PendingUnmount[] = []
 const pendingHostUnmountRenderers = new Set<number>()
 let uncertainTraversalRoots = new WeakMap<FiberRoot, string | null>()
 
@@ -399,7 +405,7 @@ export function disposeRenderTracking(): void {
   clearMeasurementSpans()
   renderPages = new Map()
   noteAnalysisInvalidation()
-  for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(pending.fiber)
+  for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(restoreFiberId(pending))
   pendingUnmounts.length = 0
   invalidateLiveInstancesForRefresh()
   instrumentation?.()
@@ -501,7 +507,7 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   targetedFibersSkipped = 0
   droppedTargetUnmountFibers = 0
   adaptiveBudgetScale = 1
-  for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(pending.fiber)
+  for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(restoreFiberId(pending))
   pendingUnmounts.length = 0
   clears++
   clearEffects()
@@ -1318,7 +1324,7 @@ function prepareCauseEventEvidence(
 }
 
 function recordPendingUnmounts(rendererId: number, budget: CommitAnalysisBudget): void {
-  const retained: { rendererId: number; fiber: Fiber; targeted: boolean }[] = []
+  const retained: PendingUnmount[] = []
   for (const pending of pendingUnmounts) {
     if (pending.rendererId !== rendererId) {
       retained.push(pending)
@@ -1337,7 +1343,7 @@ function recordPendingUnmounts(rendererId: number, budget: CommitAnalysisBudget)
     }
     if (!isCompositeFiber(pending.fiber)) continue
     const instance = noteInstanceRender(
-      pending.fiber,
+      restoreFiberId(pending),
       'unmount',
       commits,
       getDocumentCommitId(),
@@ -1354,7 +1360,7 @@ function recordPendingUnmounts(rendererId: number, budget: CommitAnalysisBudget)
 export function queuePendingUnmount(rendererId: number, fiber: Fiber): void {
   if (!isCompositeFiber(fiber)) return
   const targeted = isObservationTarget(fiber)
-  pendingUnmounts.push({ rendererId, fiber, targeted })
+  pendingUnmounts.push({ rendererId, fiber, fiberId: getFiberId(fiber), targeted })
   if (pendingUnmounts.length <= observationConfiguration.lifecycle.bufferLimit) return
   const protectedTargetIndices = new Set<number>()
   let remainingReservation = observationConfiguration.lifecycle.targetReserve
@@ -1372,10 +1378,16 @@ export function queuePendingUnmount(rendererId: number, fiber: Fiber): void {
   droppedPendingUnmountFibers += 1
 }
 
+/** Bippy 0.7.3+ forgets a fiber's id once its unmount callbacks return; the deferred lifecycle needs the mounted id. */
+function restoreFiberId({ fiber, fiberId }: PendingUnmount): Fiber {
+  setFiberId(fiber, fiberId)
+  return fiber
+}
+
 function discardPendingUnmounts(rendererId: number): void {
-  const retained: { rendererId: number; fiber: Fiber; targeted: boolean }[] = []
+  const retained: PendingUnmount[] = []
   for (const pending of pendingUnmounts) {
-    if (pending.rendererId === rendererId) discardExcludedInstanceUnmount(pending.fiber)
+    if (pending.rendererId === rendererId) discardExcludedInstanceUnmount(restoreFiberId(pending))
     else retained.push(pending)
   }
   pendingUnmounts.length = 0

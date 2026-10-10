@@ -1,6 +1,6 @@
-import type { Fiber } from 'bippy'
+import { type Fiber, ReactFiberFlags } from 'bippy'
 import { describe, expect, it } from 'vitest'
-import { getNearestHostFibers, getTimings } from './bippy-compat'
+import { didFiberCommit, getNearestHostFibers, getTimings } from './bippy-compat'
 import { defaultWorkTags } from './work-tags'
 
 const { FunctionComponent, HostComponent } = defaultWorkTags
@@ -13,8 +13,27 @@ const fiber = (props: Record<string, unknown>): Fiber =>
     sibling: null,
     alternate: null,
     flags: 0,
+    subtreeFlags: 0,
     ...props,
   }) as unknown as Fiber
+
+describe('didFiberCommit', () => {
+  const { ChildDeletion, Cloned, PerformedWork, Placement, Update } = ReactFiberFlags
+
+  it.each([
+    { flags: Placement, subtreeFlags: 0 },
+    { flags: Cloned, subtreeFlags: 0 },
+    { flags: 0, subtreeFlags: Update },
+    { flags: 0, subtreeFlags: ChildDeletion | Cloned },
+  ])('detects commit work in flags $flags / subtreeFlags $subtreeFlags', (flags) => {
+    expect(didFiberCommit(fiber({ tag: FunctionComponent, ...flags }))).toBe(true)
+  })
+
+  it('ignores render-only work that never reaches the commit phase', () => {
+    expect(didFiberCommit(fiber({ tag: FunctionComponent, flags: PerformedWork }))).toBe(false)
+    expect(didFiberCommit(fiber({ tag: FunctionComponent }))).toBe(false)
+  })
+})
 
 describe('getNearestHostFibers', () => {
   it('returns the fiber itself when it is already a host fiber', () => {

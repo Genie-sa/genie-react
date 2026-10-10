@@ -51,6 +51,7 @@ const hookNode = (
   name,
   value: null,
   subHooks,
+  debugInfo: null,
   hookSource: fileName ? { fileName, lineNumber: line, columnNumber: 0, functionName: null } : null,
 })
 
