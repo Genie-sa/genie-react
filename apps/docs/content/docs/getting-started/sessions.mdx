@@ -34,9 +34,31 @@ npx @genie-react/cli status --sessions-only
 ```
 
 Run the command from the app folder. Genie uses the local bridge discovery file. Several matching
-bridges are an error. When several sessions are connected and no session is pinned, the CLI selects
-the most recent one and prints a warning. Pass `--session` with a unique name, logical ID,
-or physical ID before any mutation. Repeated session names remain ambiguous and fail.
+bridges are an error. Pass `--session` (or set `GENIE_SESSION`) with a unique name, logical ID, or
+physical ID before any mutation. A name shared by several tabs fails as ambiguous and lists the
+matching tabs.
+
+## How tabs are tracked
+
+- **Logical session.** Each tab keeps one logical ID across reloads, navigations, and back/forward
+  cache restores. Every page load in the tab is a new document with a higher generation. `status`
+  shows one row per tab: its current document.
+- **Default tab.** A call without `--session` goes to the only connected tab. Once a call has used a
+  tab, later untargeted calls stay on it, even after you open other tabs. When several tabs are
+  connected and none has been used yet, the call fails with reason `unknown_session` and hub code
+  `SESSION_AMBIGUOUS`, and `details.session.connected` lists the tabs.
+- **Reload grace.** When the default tab's document disconnects, the hub waits up to 5 seconds for
+  it to come back. A tab that connects during that wait, such as a React Native app after a Metro
+  reload, becomes the default at once. If exactly one other tab is open, it answers in the
+  meantime. With several other tabs open, calls fail with `SESSION_RELOADING` and `retryInMs`
+  until the tab returns or the wait ends. Whenever another tab answers for the default, the CLI names it in a stderr
+  `session-retargeted` diagnostic.
+- **Supersession.** A new page load in a tab replaces the previous document. Calls still pending
+  on the old document fail at once with `SESSION_SUPERSEDED`. If the tool is not read-only,
+  `details.mayHaveCompleted` is `true` and the message says the call may have completed, so check
+  app state before you retry. If the old document was active within the last heartbeat, the hub first gives it a moment to prove it is still running. A duplicated tab
+  (`window.open`, tab duplication) proves this and keeps the identity, and the copy gets a new
+  logical ID. A prerendered page joins only when it is shown.
 
 Use a direct bridge only when discovery is not enough:
 

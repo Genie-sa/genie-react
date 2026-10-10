@@ -25,6 +25,8 @@ Use the app's real URL, appending `&_genie=my-agent` when it already has a query
 
 Pass `--session <name>` to every `status`, `tools`, `call`, `batch`, and `capture` command. This step is complete when status reports `ready: true` and `app.url` is the intended app. If status says the session is unavailable right after opening the page, retry it once. Otherwise run `npx genie-react doctor` and follow its `remediation`; it also reports a stale skill, which `init` refreshes. Exclude `genie-react:*` sessionStorage keys from saved browser state.
 
+Untargeted calls stay on the first tab they used. With several tabs and none targeted yet, they fail with `unknown_session` and list the tabs in `details.session.connected`.
+
 ## 2. Discover the smallest useful tool
 
 ```bash

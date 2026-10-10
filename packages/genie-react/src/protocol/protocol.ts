@@ -71,7 +71,7 @@ export function normalizeSessionName(value: string | undefined): string | undefi
   return parsed.success ? parsed.data : undefined
 }
 
-/** One connected app session (a browser tab); the bridge routes to the most recent unless `agent/invoke.sessionId` targets one. */
+/** One browser tab's current app document; superseded documents of the same tab are never listed. */
 export const sessionSummarySchema = z.object({
   sessionId: z.string(),
   /** Reload-stable browser-tab identity. `--session` accepts this value as well as the physical session id. */
@@ -153,7 +153,7 @@ export const toolErrorIssueSchema = z.object({
 })
 export type ToolErrorIssue = z.infer<typeof toolErrorIssueSchema>
 
-/** Failures the hub reports for its own tools; agents map each to fixed recovery guidance. */
+/** Failures the hub authors itself; agents map each to fixed recovery guidance. */
 export const HUB_ERROR_CODES = [
   'CAPTURE_NOT_RETAINED',
   'INTERACTION_ACTIVE',
@@ -161,6 +161,14 @@ export const HUB_ERROR_CODES = [
   'INTERACTION_SESSION_MISMATCH',
   'INTERACTION_UNKNOWN',
   'REACT_COLLECTOR_MISSING',
+  /** The target matches several tabs: an untargeted call with no default, or a shared session name. */
+  'SESSION_AMBIGUOUS',
+  /** The document closed (reload, navigation, closed tab) before answering. */
+  'SESSION_DISCONNECTED',
+  /** The default tab is reloading; a retry shortly reaches its next document. */
+  'SESSION_RELOADING',
+  /** A newer page load in the same tab replaced the document before it answered. */
+  'SESSION_SUPERSEDED',
 ] as const
 export type HubErrorCode = (typeof HUB_ERROR_CODES)[number]
 
@@ -183,14 +191,16 @@ export const toolErrorDetailsSchema = z.object({
   unavailableReason: z.string().optional(),
   /** A `HubErrorCode` for a failure the hub authored; agents ignore codes they do not recognize. */
   hubCode: z.string().optional(),
+  /** The call was not read-only and its document vanished before answering, so its side effects may have happened. */
+  mayHaveCompleted: z.boolean().optional(),
 })
 export type ToolErrorDetails = z.infer<typeof toolErrorDetailsSchema>
 
 // Details are advisory: a malformed or newer shape degrades to absent instead of rejecting the whole frame.
 const errorDetailsField = toolErrorDetailsSchema.optional().catch(undefined)
-/** Only the hub authors `hubCode`, so parsing an app frame strips one an app tries to forge. */
+/** Only the hub authors `hubCode` and `mayHaveCompleted`, so parsing an app frame strips ones an app tries to forge. */
 const appErrorDetailsField = toolErrorDetailsSchema
-  .omit({ hubCode: true })
+  .omit({ hubCode: true, mayHaveCompleted: true })
   .optional()
   .catch(undefined)
 
@@ -261,7 +271,9 @@ export const agentInvokeSchema = z.object({
   sessionId: z
     .string()
     .optional()
-    .describe('Target app session; defaults to the most recently connected.'),
+    .describe(
+      'Target app session; defaults to the only connected tab, or the tab the bridge already targeted.',
+    ),
   timeoutMs: z
     .number()
     .optional()
@@ -291,6 +303,14 @@ export const agentErrorCodeSchema = z.enum([
 export type AgentErrorCode = z.infer<typeof agentErrorCodeSchema>
 export const AGENT_ERROR_CODES = agentErrorCodeSchema.options
 
+/** The app document a call was routed to, so a multi-tab agent can see which tab answered. */
+export const answeringSessionSchema = z.object({
+  sessionId: z.string(),
+  logicalSessionId: z.string().optional(),
+  sessionName: sessionNameSchema.optional(),
+})
+export type AnsweringSession = z.infer<typeof answeringSessionSchema>
+
 export const bridgeResultSchema = z.object({
   kind: z.literal('bridge/result'),
   id: z.string(),
@@ -300,6 +320,9 @@ export const bridgeResultSchema = z.object({
   errorCode: agentErrorCodeSchema.optional(),
   errorDetails: errorDetailsField,
   retryInMs: z.number().optional(),
+  session: answeringSessionSchema.optional(),
+  /** The untargeted call's default tab was gone or unresponsive, so another tab answered. */
+  retargeted: z.boolean().optional(),
   busyTelemetry: z
     .object({
       lastHeartbeatAgeMs: z.number().nonnegative(),

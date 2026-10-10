@@ -2,6 +2,7 @@ import { access, link as linkFile, rename, rm, writeFile } from 'node:fs/promise
 import { resolve } from 'node:path'
 import { verifyCaptureIntegrity } from 'genie-react/hub'
 import {
+  type AnsweringSession,
   type BridgeStatusMessage,
   type CaptureDomain,
   captureArtifactSchema,
@@ -13,7 +14,13 @@ import {
   devtoolsWaitContract,
   reactQuiesceContract,
 } from 'genie-react/protocol'
-import { BridgeRejectedError, GenieAgentLink, INVOKE_GRACE_MS } from './agent-link'
+import {
+  type AnsweredResult,
+  BridgeCallError,
+  BridgeRejectedError,
+  GenieAgentLink,
+  INVOKE_GRACE_MS,
+} from './agent-link'
 import { DEFAULT_MAX_BYTES, writeDiagnostic, writeJson } from './cli-output'
 import {
   isTokenTransportSafe,
@@ -30,6 +37,7 @@ import {
   type FailureReason,
   formatAgentFailure,
   nextCommand,
+  safeAnsweringSession,
   safeToolNames,
   suggestionGuidance,
   toolHelpNext,
@@ -546,7 +554,11 @@ export async function runCall(
         return 1
       }
     }
-    const result = await link.invoke(tool, args, undefined, { timeoutMs: opts.timeoutMs })
+    const answered = await link.invokeAnswered(tool, args, undefined, {
+      timeoutMs: opts.timeoutMs,
+    })
+    const { result } = answered
+    reportAnsweringTab(link, answered)
     const operationId = operationIdOf(result)
     if (operationId) setOutputContext({ operation: `call ${tool}`, operationId })
     const rendered = renderResult(tool, result, opts.json, opts.fields, opts.select, opts.maxBytes)
@@ -725,7 +737,7 @@ export function parseBatchItems(raw: string): { items: BatchItem[] } | { error: 
 }
 
 type BatchResult =
-  | { tool: string; ok: true; status: 'ok'; result: unknown }
+  | { tool: string; ok: true; status: 'ok'; result: unknown; session?: AnsweringSession }
   | ({ tool: string; ok: false; status: 'error' } & Failure)
 
 type VersionedBatchResult = BatchResult & { schemaVersion: typeof CLI_OUTPUT_SCHEMA_VERSION }
@@ -786,16 +798,24 @@ export async function runBatch(
     for (const item of parsed.items) {
       setOutputContext({ operation: `batch ${item.tool}` })
       try {
-        const result = await link.invoke(item.tool, item.args, undefined, {
+        const answered = await link.invokeAnswered(item.tool, item.args, undefined, {
           timeoutMs: opts.timeoutMs,
         })
+        const { result, session } = answered
+        if (answered.retargeted) reportAnsweringTab(link, answered)
         const operationId = operationIdOf(result)
         setOutputContext({
           operation: `batch ${item.tool}`,
           ...(operationId ? { operationId } : {}),
         })
         const projected = opts.select === undefined ? result : selectResult(result, opts.select)
-        emitBatchResult({ tool: item.tool, ok: true, status: 'ok', result: projected })
+        emitBatchResult({
+          tool: item.tool,
+          ok: true,
+          status: 'ok',
+          result: projected,
+          session: safeAnsweringSession(session),
+        })
       } catch (error) {
         anyFailed = true
         const failure = await describeFailure(
@@ -933,6 +953,18 @@ export async function runTools(
     const status = pinned
       ? await link.invoke(devtoolsStatusContract, { includeTools: true })
       : await waitForTools(link, opts.waitMs ?? 12_000)
+    if (!pinned && status && hasAmbiguousDefault(status)) {
+      await emitCaughtFailure(
+        opts,
+        'Tool discovery failed.',
+        new BridgeCallError('ambiguous default tab', {
+          errorCode: 'unknown-session',
+          details: { hubCode: 'SESSION_AMBIGUOUS' },
+        }),
+        { sessions: async () => status.sessions },
+      )
+      return 1
+    }
     const tools = status?.tools ?? []
     if (!status || tools.length === 0) {
       emitFailure(
@@ -1001,19 +1033,45 @@ function emitToolsResult(opts: AgentOptions, value: unknown): void {
   writeJson(selected, opts.maxBytes)
 }
 
+/** Raw tool output has no envelope, so with several tabs open, or when the default tab was replaced, the answering tab is reported on stderr. */
+function reportAnsweringTab(link: GenieAgentLink, { session, retargeted }: AnsweredResult): void {
+  const answering = safeAnsweringSession(session)
+  if (!answering) return
+  if (retargeted) {
+    writeDiagnostic(
+      'session-retargeted',
+      'The default app tab is gone or unresponsive, so another tab answered this call. Pass --session <target> to choose a tab explicitly.',
+      answering,
+    )
+  } else if ((link.getStatus()?.sessions.length ?? 0) > 1) {
+    writeDiagnostic('session', 'The call was answered by this app session.', answering)
+  }
+}
+
+/** The broadcast catalog is the default tab's; with several tabs and no default there is none to wait for. */
+function hasAmbiguousDefault(status: Pick<BridgeStatusMessage, 'sessionId' | 'sessions'>): boolean {
+  return (
+    status.sessionId === null &&
+    status.sessions.length > 1 &&
+    status.sessions.some((session) => session.ready)
+  )
+}
+
 function waitForTools(
   link: GenieAgentLink,
   timeoutMs: number,
 ): Promise<BridgeStatusMessage | null> {
+  const settled = (status: BridgeStatusMessage | null): status is BridgeStatusMessage =>
+    status !== null && ((status.ready && status.tools.length > 0) || hasAmbiguousDefault(status))
   const current = link.getStatus()
-  if (current?.ready && current.tools.length > 0) return Promise.resolve(current)
+  if (settled(current)) return Promise.resolve(current)
   return new Promise((resolveStatus, reject) => {
     const timer = setTimeout(() => {
       link.onStatus = null
       resolveStatus(link.getStatus())
     }, timeoutMs)
     link.onStatus = (status) => {
-      if (status.ready && status.tools.length > 0) {
+      if (settled(status)) {
         clearTimeout(timer)
         link.onStatus = null
         resolveStatus(status)

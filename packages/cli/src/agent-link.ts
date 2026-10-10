@@ -3,6 +3,7 @@ import {
   type AgentBoundMessage,
   type AgentErrorCode,
   type AgentToolContract,
+  type AnsweringSession,
   type BridgeStatusMessage,
   type BusyTelemetry,
   decodeAgentBoundMessage,
@@ -26,7 +27,7 @@ export interface GenieAgentLinkOptions {
   connectTimeoutMs?: number
   invokeTimeoutMs?: number
   reconnectDelayMs?: number
-  /** Target a specific app session when several tabs are connected (default: most recent). */
+  /** Target a specific app session when several tabs are connected (default: the only or already-targeted tab). */
   sessionId?: string
 }
 
@@ -38,6 +39,7 @@ export class BridgeCallError extends Error {
   readonly errorCode?: AgentErrorCode
   readonly retryInMs?: number
   readonly busyTelemetry?: BusyTelemetry
+  readonly session?: AnsweringSession
   readonly details?: ToolErrorDetails
 
   constructor(
@@ -46,6 +48,7 @@ export class BridgeCallError extends Error {
       errorCode?: AgentErrorCode
       retryInMs?: number
       busyTelemetry?: BusyTelemetry
+      session?: AnsweringSession
       details?: ToolErrorDetails
     },
   ) {
@@ -54,12 +57,21 @@ export class BridgeCallError extends Error {
     this.errorCode = options?.errorCode
     this.retryInMs = options?.retryInMs
     this.busyTelemetry = options?.busyTelemetry
+    this.session = options?.session
     this.details = options?.details
   }
 }
 
+/** A tool result with the app document that answered it, when the call reached one. */
+export interface AnsweredResult {
+  result: unknown
+  session?: AnsweringSession
+  /** The untargeted default tab was gone or unresponsive, so another tab answered. */
+  retargeted?: boolean
+}
+
 interface Pending {
-  resolve: (value: unknown) => void
+  resolve: (value: AnsweredResult) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
 }
@@ -154,6 +166,16 @@ export class GenieAgentLink {
     options: InvokeOptions = {},
   ): Promise<unknown> {
     const tool = typeof toolOrContract === 'string' ? toolOrContract : toolOrContract.name
+    return (await this.invokeAnswered(tool, args, sessionId, options)).result
+  }
+
+  /** Like {@link invoke}, but also reports which app document answered, so multi-tab callers can show it. */
+  async invokeAnswered(
+    tool: string,
+    args: unknown,
+    sessionId: string | null | undefined = this.sessionId,
+    options: InvokeOptions = {},
+  ): Promise<AnsweredResult> {
     const ws = await this.ensureConnection()
     const id = newId()
     // Give the bridge its per-call budget plus a grace window, so its typed timeout/busy result arrives before this local guard fires.
@@ -163,7 +185,7 @@ export class GenieAgentLink {
       options.timeoutMs ?? (quiesce?.success ? quiesce.data.timeoutMs : undefined)
     const localTimeoutMs =
       callTimeoutMs === undefined ? this.invokeTimeoutMs : callTimeoutMs + INVOKE_GRACE_MS
-    return new Promise<unknown>((resolve, reject) => {
+    return new Promise<AnsweredResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
         reject(
@@ -269,16 +291,23 @@ export class GenieAgentLink {
       if (!pending) return
       clearTimeout(pending.timer)
       this.pending.delete(message.id)
-      if (message.ok) pending.resolve(message.result)
-      else
+      if (message.ok) {
+        pending.resolve({
+          result: message.result,
+          session: message.session,
+          retargeted: message.retargeted,
+        })
+      } else {
         pending.reject(
           new BridgeCallError(message.error ?? 'tool failed', {
             errorCode: message.errorCode,
             retryInMs: message.retryInMs,
             busyTelemetry: message.busyTelemetry,
+            session: message.session,
             details: message.errorDetails,
           }),
         )
+      }
     } else if (message.kind === 'bridge/status') {
       this.status = message
       this.onStatus?.(message)

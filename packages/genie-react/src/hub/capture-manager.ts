@@ -19,6 +19,7 @@ import {
   toolValidationFailure,
 } from '../protocol'
 import { compareCaptureCohorts } from './capture-comparison'
+import type { SessionUnavailable } from './session-routing'
 
 const MAX_RETAINED_CAPTURES = 20
 const MAX_CAPTURE_BYTES = 2_000_000
@@ -48,21 +49,22 @@ export interface CaptureSession {
   tools: ToolDescriptor[]
 }
 
+/** `session` is the document the call ran against, when one was routed. */
 export type CaptureInvocation =
-  | { ok: true; result: unknown }
-  | {
+  | { ok: true; result: unknown; session?: CaptureSession }
+  | (Omit<SessionUnavailable, 'errorCode'> & {
       ok: false
-      error: string
       errorCode: Extract<
         AgentErrorCode,
         'invalid-args' | 'not-connected' | 'unknown-session' | 'tool-error'
       >
-      errorDetails?: ToolErrorDetails
-    }
+      session?: CaptureSession
+    })
 
 interface CaptureManagerOptions<TSession extends CaptureSession> {
   resolveSession: (target?: string) => TSession | null
-  unknownSessionError: (target: string) => string
+  /** Why `resolveSession(target)` found no document; untargeted calls can fail as ambiguous, not only as disconnected. */
+  sessionUnavailable: (target?: string) => SessionUnavailable
   isCurrentSession: (session: TSession) => boolean
   request: (session: TSession, tool: string, args: unknown) => Promise<CaptureRequestResult>
 }
@@ -207,16 +209,13 @@ export class CaptureManager<TSession extends CaptureSession> {
     if (!session) {
       return {
         ok: false,
-        error: sessionTarget
-          ? this.options.unknownSessionError(sessionTarget)
-          : 'No app connected. Start the dev server and open the app in a browser.',
-        errorCode: sessionTarget ? 'unknown-session' : 'not-connected',
+        ...this.options.sessionUnavailable(sessionTarget),
       }
     }
     try {
-      return { ok: true, result: await this.create(session, parsed.data) }
+      return { ok: true, result: await this.create(session, parsed.data), session }
     } catch (error) {
-      return { ok: false, error: errorMessage(error), errorCode: 'tool-error' }
+      return { ok: false, error: errorMessage(error), errorCode: 'tool-error', session }
     }
   }
 

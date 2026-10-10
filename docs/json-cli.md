@@ -43,6 +43,18 @@ Diagnostics and other CLI records use snake_case reasons too: `bridge_connect`, 
 
 Every CLI-owned envelope carries `schemaVersion: "2.0"`. Version 2.0 renamed every `reason` to snake_case (the wire spelling moved to `errorCode`), added `details` and `correctedExample`, and dropped the duplicated `error` field from batch failure rows.
 
+## Tab targeting
+
+Untargeted calls go to the only connected tab, or to the tab untargeted calls already used; opening another tab does not move them. A tab is identified across navigations and reloads, and status lists one row per tab with its current document. Batch rows carry `session` (`{sessionId, logicalSessionId?, sessionName?}`, the tab that answered). A raw `call` result keeps its shape, so with several tabs connected the CLI writes the answering session as a stderr `session` diagnostic, and a `session-retargeted` diagnostic when the default tab is gone or unresponsive and another tab answered. Session values that are not shell-safe identifiers are omitted.
+
+Session failures carry `details.hubCode`, which the CLI trusts only on the `not-connected` and `unknown-session` wire codes that hub routing alone produces:
+
+- `SESSION_AMBIGUOUS` (`reason:"unknown_session"`): several tabs match an untargeted call or a shared `--session` name. `details.session.connected` lists the matching tabs; pass `--session <target>` or set `GENIE_SESSION`.
+- `SESSION_RELOADING` (`reason:"not_connected"`): the default tab is reloading while several other tabs are open. Retry after `retryInMs`.
+- `SESSION_SUPERSEDED` and `SESSION_DISCONNECTED` (`reason:"not_connected"`): a newer page load replaced the document, or the document closed, before the call answered. `details.mayHaveCompleted: true` marks a tool that is not read-only; inspect app state before retrying. Otherwise retry the call.
+
+These failures set `userActionRequired: false` except `SESSION_AMBIGUOUS`.
+
 Setup receipts list planned, applied, already-present and manual artifacts, including the discovery ignore entry and bundled skill files. Source contents are omitted. Required manual component wiring and package-manager install/dev commands remain available as structured instructions. A setup operation that fails after a write reports that changes may have applied; the CLI does not claim rollback.
 
 ## Bounds and recovery

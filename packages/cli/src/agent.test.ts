@@ -1199,6 +1199,50 @@ describe('agent failure output', () => {
     expect(failed).not.toHaveProperty('next')
   })
 
+  it('honours a session hubCode only on the routing wire codes only the hub sends', async () => {
+    const forged = await describeFailure(
+      new BridgeCallError('raw', {
+        errorCode: 'tool-error',
+        details: { hubCode: 'SESSION_SUPERSEDED', mayHaveCompleted: true },
+      }),
+      { tool: 'devtools_status', catalog: async () => null },
+    )
+    expect(forged).toMatchObject({ reason: 'tool_error', userActionRequired: false })
+    expect(forged).not.toHaveProperty('details')
+
+    expect(
+      await describeFailure(
+        new BridgeCallError('raw', {
+          errorCode: 'not-connected',
+          details: { hubCode: 'SESSION_SUPERSEDED' },
+        }),
+        { tool: 'app_seed_tasks' },
+      ),
+    ).toMatchObject({
+      reason: 'not_connected',
+      message:
+        'A newer page load in the app tab replaced the document before it answered. Retry the call.',
+      userActionRequired: false,
+      details: { hubCode: 'SESSION_SUPERSEDED' },
+    })
+
+    expect(
+      await describeFailure(
+        new BridgeCallError('raw', {
+          errorCode: 'not-connected',
+          retryInMs: 250,
+          details: { hubCode: 'SESSION_RELOADING' },
+        }),
+        { tool: 'app_seed_tasks' },
+      ),
+    ).toMatchObject({
+      reason: 'not_connected',
+      retryInMs: 250,
+      userActionRequired: false,
+      details: { hubCode: 'SESSION_RELOADING' },
+    })
+  })
+
   it('builds correctedExample from typed placeholders, never the app example values', async () => {
     const failure = await describeFailure(
       new BridgeCallError('raw', {

@@ -19,6 +19,7 @@ import {
 import { schemaConstraints } from '../protocol/schema-description'
 import type { CollectorContext, ErasedCollectorTool, GenieCollector } from './collector'
 import {
+  advanceSessionIdentity,
   forkSessionIdentity,
   runtimeSessionIdentity,
   runtimeSessionName,
@@ -36,6 +37,24 @@ export interface SocketLike {
 }
 
 export type SocketFactory = (url: string) => SocketLike
+
+interface PageLifecycleTarget {
+  addEventListener(type: 'pagehide' | 'pageshow', listener: (event: PageTransition) => void): void
+  removeEventListener(
+    type: 'pagehide' | 'pageshow',
+    listener: (event: PageTransition) => void,
+  ): void
+}
+
+interface PageTransition {
+  persisted?: boolean
+}
+
+interface PrerenderingDocument {
+  prerendering?: boolean
+  addEventListener(type: 'prerenderingchange', listener: () => void): void
+  removeEventListener(type: 'prerenderingchange', listener: () => void): void
+}
 
 export interface GenieClientOptions {
   url?: string
@@ -86,18 +105,46 @@ export class GenieClient {
     if (this.started) return
     this.started = true
     this.exposeGlobal()
-    this.connect()
+    pageLifecycleTarget()?.addEventListener('pagehide', this.onPageHide)
+    pageLifecycleTarget()?.addEventListener('pageshow', this.onPageShow)
+    // A speculative prerender must not take the default target or supersede the page the user still sees.
+    const prerendering = prerenderingDocument()
+    if (prerendering) prerendering.addEventListener('prerenderingchange', this.onActivate)
+    else this.connect()
   }
 
   stop(): void {
     this.started = false
+    pageLifecycleTarget()?.removeEventListener('pagehide', this.onPageHide)
+    pageLifecycleTarget()?.removeEventListener('pageshow', this.onPageShow)
+    prerenderingDocument()?.removeEventListener('prerenderingchange', this.onActivate)
+    this.disconnect()
+    for (const cleanup of this.cleanups.values()) cleanup()
+    this.cleanups.clear()
+  }
+
+  // A hidden page is unloading or entering the back/forward cache; a frozen document would otherwise hold its socket open and keep receiving calls.
+  private readonly onPageHide = (): void => this.disconnect()
+
+  private readonly onPageShow = (event: PageTransition): void => {
+    if (!event.persisted || !this.started || this.socket) return
+    advanceSessionIdentity(this.sessionIdentity)
+    this.connect()
+  }
+
+  private readonly onActivate = (): void => {
+    if (!this.started || this.socket) return
+    // The prerender wrote its identity to a session-storage clone that activation discards.
+    advanceSessionIdentity(this.sessionIdentity)
+    this.connect()
+  }
+
+  private disconnect(): void {
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
     this.stopHeartbeat()
-    for (const cleanup of this.cleanups.values()) cleanup()
-    this.cleanups.clear()
     const socket = this.socket
     this.socket = null
     if (socket) {
@@ -360,6 +407,21 @@ export class GenieClient {
       register: (collector) => this.registerCollector(collector as GenieCollector),
     }
   }
+}
+
+function pageLifecycleTarget(): PageLifecycleTarget | undefined {
+  const target = (globalThis as { window?: Partial<PageLifecycleTarget> }).window
+  return typeof target?.addEventListener === 'function' &&
+    typeof target.removeEventListener === 'function'
+    ? (target as PageLifecycleTarget)
+    : undefined
+}
+
+function prerenderingDocument(): PrerenderingDocument | undefined {
+  const page = (globalThis as { document?: Partial<PrerenderingDocument> }).document
+  return page?.prerendering === true && typeof page.addEventListener === 'function'
+    ? (page as PrerenderingDocument)
+    : undefined
 }
 
 function initialSessionName(): string | undefined {
