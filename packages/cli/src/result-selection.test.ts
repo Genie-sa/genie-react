@@ -46,7 +46,7 @@ describe('nested result selection', () => {
     expect(JSON.parse(output)).toMatchObject({
       schemaVersion: '1.0',
       status: 'truncated',
-      reason: 'max-bytes',
+      reason: 'max_bytes',
       maxBytes: 512,
     })
   })

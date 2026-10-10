@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import {
   type AgentErrorCode,
+  type AgentToolContract,
   type AppInfo,
   CAPTURE_SCHEMA_VERSION,
   type CaptureArtifact,
@@ -11,9 +12,10 @@ import {
   devtoolsCaptureListContract,
   devtoolsCapturePinContract,
   devtoolsCaptureReadContract,
-  formatToolValidationError,
   newId,
   type ToolDescriptor,
+  type ToolErrorDetails,
+  toolValidationFailure,
 } from '../protocol'
 import { compareCaptureCohorts } from './capture-comparison'
 
@@ -33,6 +35,7 @@ interface CaptureRequestResult {
   result?: unknown
   error?: string
   errorCode?: AgentErrorCode
+  errorDetails?: ToolErrorDetails
 }
 
 export interface CaptureSession {
@@ -53,6 +56,7 @@ export type CaptureInvocation =
         AgentErrorCode,
         'invalid-args' | 'not-connected' | 'unknown-session' | 'tool-error'
       >
+      errorDetails?: ToolErrorDetails
     }
 
 interface CaptureManagerOptions<TSession extends CaptureSession> {
@@ -122,7 +126,7 @@ export class CaptureManager<TSession extends CaptureSession> {
   async invoke(tool: string, args: unknown, sessionTarget?: string): Promise<CaptureInvocation> {
     if (tool === devtoolsCaptureListContract.name) {
       const parsed = devtoolsCaptureListContract.input.safeParse(args ?? {})
-      if (!parsed.success) return invalidArguments(tool, parsed.error)
+      if (!parsed.success) return invalidArguments(devtoolsCaptureListContract, args, parsed.error)
       const captures = [...this.captures.values()]
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
         .map(captureSummary)
@@ -141,7 +145,7 @@ export class CaptureManager<TSession extends CaptureSession> {
 
     if (tool === devtoolsCaptureReadContract.name) {
       const parsed = devtoolsCaptureReadContract.input.safeParse(args ?? {})
-      if (!parsed.success) return invalidArguments(tool, parsed.error)
+      if (!parsed.success) return invalidArguments(devtoolsCaptureReadContract, args, parsed.error)
       const capture = this.captures.get(parsed.data.captureId)
       return capture
         ? {
@@ -160,7 +164,7 @@ export class CaptureManager<TSession extends CaptureSession> {
 
     if (tool === devtoolsCapturePinContract.name) {
       const parsed = devtoolsCapturePinContract.input.safeParse(args ?? {})
-      if (!parsed.success) return invalidArguments(tool, parsed.error)
+      if (!parsed.success) return invalidArguments(devtoolsCapturePinContract, args, parsed.error)
       const capture = this.captures.get(parsed.data.captureId)
       if (!capture) {
         return {
@@ -176,7 +180,8 @@ export class CaptureManager<TSession extends CaptureSession> {
 
     if (tool === devtoolsCaptureCompareContract.name) {
       const parsed = devtoolsCaptureCompareContract.input.safeParse(args ?? {})
-      if (!parsed.success) return invalidArguments(tool, parsed.error)
+      if (!parsed.success)
+        return invalidArguments(devtoolsCaptureCompareContract, args, parsed.error)
       const requestedIds = [...parsed.data.baselineCaptureIds, ...parsed.data.candidateCaptureIds]
       const missing = requestedIds.filter((captureId) => !this.captures.has(captureId))
       if (missing.length > 0) {
@@ -206,7 +211,7 @@ export class CaptureManager<TSession extends CaptureSession> {
       throw new Error(`CaptureManager cannot handle ${JSON.stringify(tool)}.`)
     }
     const parsed = devtoolsCaptureCreateContract.input.safeParse(args ?? {})
-    if (!parsed.success) return invalidArguments(tool, parsed.error)
+    if (!parsed.success) return invalidArguments(devtoolsCaptureCreateContract, args, parsed.error)
     const session = this.options.resolveSession(sessionTarget)
     if (!session) {
       return {
@@ -430,12 +435,16 @@ export class CaptureManager<TSession extends CaptureSession> {
 }
 
 function invalidArguments(
-  tool: string,
-  error: { issues: readonly { path: readonly PropertyKey[]; message: string }[] },
+  contract: AgentToolContract,
+  args: unknown,
+  error: { issues: Parameters<typeof toolValidationFailure>[1] },
 ): CaptureInvocation {
   return {
     ok: false,
-    error: formatToolValidationError(tool, error.issues),
+    ...toolValidationFailure(contract.name, error.issues, {
+      input: contract.input,
+      args: args ?? {},
+    }),
     errorCode: 'invalid-args',
   }
 }

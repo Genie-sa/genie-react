@@ -1,3 +1,4 @@
+import { AGENT_ERROR_CODES } from 'genie-react/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   formatAgentFailure,
@@ -25,6 +26,9 @@ import {
   summarizeStatus,
   summarizeTree,
 } from './agent'
+import { BridgeCallError } from './agent-link'
+import { describeFailure } from './failure'
+import { suggestToolNames } from './tool-output'
 
 const rendersPayload = {
   tracking: true,
@@ -380,7 +384,7 @@ describe('renderResult', () => {
     expect(Buffer.byteLength(`${rendered}\n`)).toBeLessThanOrEqual(262_144)
     expect(JSON.parse(rendered)).toMatchObject({
       status: 'truncated',
-      reason: 'max-bytes',
+      reason: 'max_bytes',
       maxBytes: 262_144,
     })
   })
@@ -1006,6 +1010,87 @@ describe('agent failure output', () => {
       next: { command: 'genie-react status', argv: ['genie-react', 'status'] },
     })
     expect(text).not.toContain(String.fromCharCode(27))
+  })
+
+  it('spells every bridge code as a snake_case reason and keeps the wire code', async () => {
+    const reasons = await Promise.all(
+      AGENT_ERROR_CODES.map(async (errorCode) => {
+        const failure = await describeFailure(new BridgeCallError('raw', { errorCode }), {
+          tool: 'query_list',
+        })
+        expect(failure.errorCode).toBe(errorCode)
+        expect(failure.message).not.toContain('raw')
+        return failure.reason
+      }),
+    )
+    for (const reason of reasons) expect(reason).toMatch(/^[a-z]+(?:_[a-z]+)*$/)
+  })
+
+  it('falls back to safe generic guidance when an older bridge sends no details', async () => {
+    expect(
+      await describeFailure(new BridgeCallError('raw', { errorCode: 'invalid-args' }), {
+        tool: 'devtools_wait',
+      }),
+    ).toMatchObject({
+      reason: 'invalid_args',
+      message:
+        'Tool devtools_wait rejected its arguments. Inspect the tool schema with next and correct the arguments.',
+      correctedExample: { tool: 'devtools_wait', args: { condition: 'ready', timeoutMs: 10_000 } },
+    })
+    expect(
+      await describeFailure(new BridgeCallError('raw', { errorCode: 'tool-unavailable' }), {
+        tool: 'app_cart',
+      }),
+    ).toMatchObject({
+      reason: 'tool_unavailable',
+      message: expect.stringContaining('usually because the UI that registers it is unmounted'),
+    })
+    expect(await describeFailure(new Error('socket hang up'), {})).toEqual({
+      reason: 'operational_failure',
+      message: 'Run genie-react doctor --live to inspect connectivity and app state.',
+      userActionRequired: true,
+      next: { command: 'genie-react doctor --live', argv: ['genie-react', 'doctor', '--live'] },
+    })
+  })
+
+  it('omits an unsafe requested session and unsafe connected ids', async () => {
+    const failure = await describeFailure(
+      new BridgeCallError('raw', { errorCode: 'unknown-session' }),
+      {
+        session: 'tab $(steal)',
+        sessions: async () => [
+          {
+            sessionId: 'tab $(steal)',
+            app: {},
+            domains: [],
+            toolCount: 0,
+            connectedAt: 0,
+            ready: true,
+            current: true,
+            logicalSessionCollision: false,
+            collisionWithSessionIds: [],
+          },
+        ],
+      },
+    )
+    expect(JSON.stringify(failure)).not.toContain('steal')
+    expect(failure.message).toBe(
+      'The requested session is not connected. Other sessions are connected; next lists them. Choose one with --session or GENIE_SESSION, or unset both to use the current session.',
+    )
+  })
+})
+
+describe('suggestToolNames', () => {
+  const names = ['app_seed_tasks', 'app_reset_tasks', 'react_get_renders', 'query_list']
+
+  it('ranks substring matches before near spellings', () => {
+    expect(suggestToolNames(names, 'renders')).toEqual(['react_get_renders'])
+    expect(suggestToolNames(names, 'app_seed_taks')).toEqual(['app_seed_tasks'])
+    expect(suggestToolNames(names, 'quer_list')).toEqual(['query_list'])
+  })
+
+  it('suggests nothing for an unrelated name', () => {
+    expect(suggestToolNames(names, 'app_does_not_exist')).toEqual([])
   })
 })
 

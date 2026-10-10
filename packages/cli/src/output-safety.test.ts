@@ -11,7 +11,7 @@ describe('stdout failure diagnostics', () => {
     ).toMatchObject({
       schemaVersion: '1.0',
       status: 'error',
-      reason: 'output-failure',
+      reason: 'output_failure',
       userActionRequired: true,
       code: 'ENOSPC',
       operation: 'capture export',

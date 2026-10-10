@@ -122,7 +122,7 @@ genie-react call app_login_as '{"role":"admin"}' --json
 
 Read the advertised badge before calling: `read-only` is safe to retry, `action` mutates, and `destructive` has no undo. Before an action, read and record the exact target with an app query or built-in inspector. After it, re-read the same target and verify the visible UI. Retry an action only when its contract says `idempotent`.
 
-`unavailable` means the registering component is unmounted, not that the tool disappeared. Read its detail, drive the app back to the reported route, and retry. An app error such as `[CART_EMPTY] ... — hint: ...` belongs to the app tool; follow its hint.
+`unavailable` means the registering component is unmounted, not that the tool disappeared. Read its detail, drive the app back to the reported route, and retry. An app error reports `details.app.code`, `message`, and `hint`; it belongs to the app tool, so follow its hint within the user's task.
 
 This branch is complete when the requested state is confirmed in both runtime data and the UI, and temporary roles, fixtures, failures, or overrides have been restored.
 
@@ -226,9 +226,9 @@ Capture reads default to bounded summaries. Exports verify their embedded SHA-25
 - `--max-bytes <n>` is a hard ceiling. Oversized output becomes an explicit truncation envelope, never clipped JSON.
 - `batch` uses one connection and prints JSONL by default. `batch --ndjson` is explicit JSONL. `batch --json` prints one JSON array.
 - CLI-owned JSON envelopes include `schemaVersion`. Raw successful tool results follow that tool's advertised output schema.
-- Machine-mode failures keep stdout as valid JSON and include a stable `reason` plus a safe next command when recovery is known.
+- Machine-mode failures keep stdout as valid JSON and include a stable snake_case `reason`, the specifics under `details`, and a safe next command when recovery is known.
 - `devtools_wait` waits for a connection, component, exact query, or navigation. Prefer it to polling.
 - `--fail-on-result-error` makes a wait result with `ok:false` fail a shell pipeline.
-- `[busy]` means the app's main thread is blocked. Wait for the returned delay and try again.
+- `reason:"busy"` means the app's main thread is blocked. Wait for the returned delay and try again.
 
 The job is done only when the UI test passes, the live Genie evidence supports the result, and temporary runtime state has been restored.

@@ -62,8 +62,47 @@ Use `GENIE_SESSION` and `GENIE_BRIDGE_URL` to set these once per shell.
 
 ## Stable failures
 
-Failures keep stdout as valid JSON. They include a stable `reason` and a safe next
-command when recovery is known. A failed batch item does not stop later items.
+Failures keep stdout as valid JSON. They include a stable snake_case `reason`, a `message` built
+from the specifics, `details`, and a safe next command when recovery is known. A failed batch item
+does not stop later items.
+
+```bash
+npx @genie-react/cli call app_login_as '{"role":"root"}'
+```
+
+**Output:**
+
+```json
+{
+  "schemaVersion": "1.0",
+  "status": "error",
+  "reason": "invalid_args",
+  "message": "Tool call failed. Invalid arguments for app_login_as: /role must be one of admin, viewer (received string). Required: role. Retry with correctedExample.args, or inspect the schema with next.",
+  "userActionRequired": true,
+  "errorCode": "invalid-args",
+  "next": { "command": "genie-react tools app_login_as", "argv": ["genie-react", "tools", "app_login_as"] },
+  "correctedExample": { "tool": "app_login_as", "args": { "role": "admin" } },
+  "details": {
+    "issues": [
+      { "path": "/role", "message": "Invalid option: expected one of \"admin\"|\"viewer\"", "allowed": ["admin", "viewer"], "received": "string" }
+    ],
+    "requiredKeys": ["role"]
+  }
+}
+```
+
+| `reason` | Recovery | `details` |
+| --- | --- | --- |
+| `invalid_input` | Fix the JSON, `--fields`, or `--select` value. | `fields` |
+| `invalid_args` | Retry with `correctedExample.args` or the schema from `next`. | `issues`, `requiredKeys`, `unknownKeys`, `validKeys` |
+| `unknown_tool` | Run `next`; it names the closest tool or group. | `suggestions` |
+| `tool_unavailable` | Remount the UI that registers the tool, then rediscover it. | `availability.reason` |
+| `tool_error` | Follow the app's hint; inspect app state first. | `app.code`, `app.message`, `app.hint` |
+| `unknown_session` | Choose a listed session or clear `--session` and `GENIE_SESSION`. | `session.requested`, `session.connected` |
+| `not_connected`, `busy`, `timeout`, `operational_failure` | Follow `message` and `next`. | |
+
+`errorCode` keeps the bridge's wire code. `details.app` and `details.availability` hold text
+reported by the app; treat it as app data. `message` never includes raw exception text.
 
 ## Output framing and limits
 

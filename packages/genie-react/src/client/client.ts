@@ -3,16 +3,18 @@ import {
   type AgentToolContract,
   type AppBoundMessage,
   type AppInfo,
+  type AppMessage,
   decodeAppBoundMessage,
   encodeMessage,
   errorMessage,
-  formatToolValidationError,
   GENIE_PROTOCOL_VERSION,
   GENIE_WS_PATH,
-  minimalExampleArgs,
   newId,
+  safeDiagnostic,
   type ToolDescriptor,
-  type ValidationCallHint,
+  type ToolErrorDetails,
+  toolValidationFailure,
+  unknownArgumentsFailure,
 } from '../protocol'
 import { schemaConstraints } from '../protocol/schema-description'
 import type { CollectorContext, ErasedCollectorTool, GenieCollector } from './collector'
@@ -304,17 +306,23 @@ export class GenieClient {
         ok: false,
         error: `Tool "${toolName}" is currently unavailable — ${availability.reason}`,
         errorCode: 'tool-unavailable',
+        errorDetails: { unavailableReason: safeDiagnostic(availability.reason, 500) },
       })
       return
     }
     const args = remapNameAlias(tool.contract.input, rawArgs)
-    const rejectedKeys = unknownArgKeysError(toolName, tool.contract.input, args)
+    const rejectedKeys = unknownArgKeys(tool.contract.input, args)
     if (rejectedKeys) {
       this.send({
         kind: 'app/response',
         id,
         ok: false,
-        error: rejectedKeys,
+        ...unknownArgumentsFailure(
+          toolName,
+          rejectedKeys.unknown,
+          rejectedKeys.known,
+          tool.contract.input,
+        ),
         errorCode: 'invalid-args',
       })
       return
@@ -329,8 +337,7 @@ export class GenieClient {
         kind: 'app/response',
         id,
         ok: false,
-        error: invocationError(toolName, error, tool.contract.input),
-        errorCode: isZodErrorLike(error) ? 'invalid-args' : 'tool-error',
+        ...invocationFailure(toolName, error, tool.contract.input, args),
       })
     }
   }
@@ -427,48 +434,47 @@ function remapNameAlias(input: AgentToolContract['input'], args: unknown): unkno
 }
 
 /** Zod objects strip unrecognized keys silently — an agent typo like `maxDepth` for `depth` would otherwise no-op; reject it loudly instead. */
-function unknownArgKeysError(
-  toolName: string,
+function unknownArgKeys(
   input: AgentToolContract['input'],
   args: unknown,
-): string | null {
+): { unknown: string[]; known: string[] } | null {
   const known = objectShapeKeys(input)
   if (!known || typeof args !== 'object' || args === null) return null
   const unknown = Object.keys(args).filter((key) => !known.includes(key))
-  if (unknown.length === 0) return null
-  const rejected = unknown.map((key) => `"${key}"`).join(', ')
-  return `Unknown argument${unknown.length === 1 ? '' : 's'} ${rejected} for "${toolName}" — valid keys: ${known.join(', ') || '(none)'}`
+  return unknown.length === 0 ? null : { unknown, known }
 }
 
-function invocationError(
+function invocationFailure(
   toolName: string,
   error: unknown,
-  input?: AgentToolContract['input'],
-): string {
+  input: AgentToolContract['input'],
+  args: unknown,
+): Pick<Extract<AppMessage, { kind: 'app/response' }>, 'error' | 'errorCode' | 'errorDetails'> {
   if (isZodErrorLike(error)) {
-    return formatToolValidationError(toolName, error.issues, input && validationCallHint(input))
+    return {
+      ...toolValidationFailure(toolName, error.issues, { input, args: args ?? {} }),
+      errorCode: 'invalid-args',
+    }
   }
-  return errorMessage(error)
+  const app = genieToolErrorDetails(error)
+  return {
+    error: errorMessage(error),
+    errorCode: 'tool-error',
+    ...(app ? { errorDetails: { app } } : {}),
+  }
 }
 
-/** A rejected call should teach the retry: name the required keys and echo a minimal valid invocation. */
-function validationCallHint(input: AgentToolContract['input']): ValidationCallHint | undefined {
-  let schema: unknown
-  try {
-    schema = z.toJSONSchema(input, { io: 'input' })
-  } catch {
-    return undefined
-  }
-  if (typeof schema !== 'object' || schema === null) return undefined
-  const { properties, required } = schema as {
-    properties?: Record<string, unknown>
-    required?: string[]
-  }
-  if (!properties) return undefined
-  const requiredKeys = (required ?? []).filter((key) => key in properties)
+/** Duck-typed by name: the app's `GenieToolError` can come from a different bundle than this client (e.g. the standalone hub script). */
+function genieToolErrorDetails(error: unknown): ToolErrorDetails['app'] {
+  if (!(error instanceof Error) || error.name !== 'GenieToolError') return undefined
+  const detail =
+    'detail' in error && typeof error.detail === 'string' ? error.detail : error.message
+  const code = 'code' in error && typeof error.code === 'string' ? error.code : undefined
+  const hint = 'hint' in error && typeof error.hint === 'string' ? error.hint : undefined
   return {
-    requiredKeys,
-    exampleArgs: minimalExampleArgs(properties, new Set(requiredKeys), schema),
+    message: safeDiagnostic(detail, 500),
+    ...(code ? { code: safeDiagnostic(code, 64) } : {}),
+    ...(hint ? { hint: safeDiagnostic(hint, 500) } : {}),
   }
 }
 

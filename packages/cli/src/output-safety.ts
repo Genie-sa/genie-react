@@ -17,7 +17,7 @@ export function formatOutputFailureDiagnostic(error: NodeJS.ErrnoException): str
   return JSON.stringify({
     schemaVersion: '1.0',
     status: 'error',
-    reason: 'output-failure',
+    reason: 'output_failure',
     userActionRequired: true,
     code: error.code ?? 'UNKNOWN',
     operation: context.operation,

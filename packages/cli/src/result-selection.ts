@@ -21,6 +21,21 @@ export class ResultSelectionError extends Error {
   }
 }
 
+export class FieldSelectionError extends Error {
+  readonly unknown: readonly string[]
+  readonly available: readonly string[]
+
+  constructor(unknown: string[], available: string[]) {
+    const fieldLabel = unknown.length === 1 ? 'field' : 'fields'
+    const names = unknown.map((field) => JSON.stringify(field)).join(', ')
+    const choices = available.length > 0 ? available.join(', ') : '(none)'
+    super(`Unknown ${fieldLabel} ${names}. Available fields: ${choices}.`)
+    this.name = 'FieldSelectionError'
+    this.unknown = unknown
+    this.available = available
+  }
+}
+
 interface Match {
   path: string
   value: unknown
@@ -72,7 +87,7 @@ export function renderBoundedJson(value: unknown, maxBytes?: number): string {
   const envelope = {
     schemaVersion: '1.0',
     status: 'truncated',
-    reason: 'max-bytes',
+    reason: 'max_bytes',
     maxBytes,
     originalBytes,
     omittedPathCount: countLeafPaths(value),

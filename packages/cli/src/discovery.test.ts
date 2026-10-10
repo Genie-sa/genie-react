@@ -81,7 +81,7 @@ describe('resolveBridgeUrl', () => {
     expect(existsSync(join(cwd, GENIE_DISCOVERY_FILE))).toBe(false)
     expect(JSON.parse(stderrSpy.mock.calls.flat().join(''))).toMatchObject({
       status: 'diagnostic',
-      reason: 'stale-discovery',
+      reason: 'stale_discovery',
       data: { pid: 999999 },
     })
     stderrSpy.mockRestore()

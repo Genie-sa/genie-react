@@ -1,12 +1,14 @@
 import {
   type AgentErrorCode,
+  type AgentToolContract,
   type AppInfo,
   devtoolsInteractionBeginContract,
   devtoolsInteractionStopContract,
-  formatToolValidationError,
   INTERACTION_SCHEMA_VERSION,
   newId,
   type ToolDescriptor,
+  type ToolErrorDetails,
+  toolValidationFailure,
   type WaitDomain,
 } from '../protocol'
 
@@ -18,6 +20,7 @@ interface InteractionRequestResult {
   result?: unknown
   error?: string
   errorCode?: AgentErrorCode
+  errorDetails?: ToolErrorDetails
 }
 
 export interface InteractionSession {
@@ -54,6 +57,7 @@ export type InteractionInvocation =
         AgentErrorCode,
         'invalid-args' | 'not-connected' | 'unknown-session' | 'tool-error'
       >
+      errorDetails?: ToolErrorDetails
     }
 
 interface InteractionManagerOptions<TSession extends InteractionSession> {
@@ -120,12 +124,14 @@ export class InteractionManager<TSession extends InteractionSession> {
   ): Promise<InteractionInvocation> {
     if (tool === devtoolsInteractionBeginContract.name) {
       const parsed = devtoolsInteractionBeginContract.input.safeParse(args ?? {})
-      if (!parsed.success) return invalidArguments(tool, parsed.error)
+      if (!parsed.success)
+        return invalidArguments(devtoolsInteractionBeginContract, args, parsed.error)
       return this.begin(parsed.data, sessionTarget)
     }
     if (tool === devtoolsInteractionStopContract.name) {
       const parsed = devtoolsInteractionStopContract.input.safeParse(args ?? {})
-      if (!parsed.success) return invalidArguments(tool, parsed.error)
+      if (!parsed.success)
+        return invalidArguments(devtoolsInteractionStopContract, args, parsed.error)
       return this.stop(parsed.data, sessionTarget)
     }
     throw new Error(`InteractionManager cannot handle ${JSON.stringify(tool)}.`)
@@ -512,12 +518,16 @@ function stringField(record: Record<string, unknown> | null, key: string): strin
 }
 
 function invalidArguments(
-  tool: string,
-  error: { issues: Parameters<typeof formatToolValidationError>[1] },
+  contract: AgentToolContract,
+  args: unknown,
+  error: { issues: Parameters<typeof toolValidationFailure>[1] },
 ): InteractionInvocation {
   return {
     ok: false,
-    error: formatToolValidationError(tool, error.issues),
+    ...toolValidationFailure(contract.name, error.issues, {
+      input: contract.input,
+      args: args ?? {},
+    }),
     errorCode: 'invalid-args',
   }
 }
