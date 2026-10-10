@@ -42,6 +42,25 @@ import {
   stopRenderTracking,
   takeSnapshot,
 } from './render-tracker'
+import { defaultWorkTags } from './work-tags'
+
+const MEMO = defaultWorkTags.SimpleMemoComponent
+
+const cloneFailure = vi.hoisted(() => ({ next: false }))
+
+vi.mock('../structured-clone', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../structured-clone')>()
+  return {
+    ...actual,
+    clonePlainData: <T>(value: T): T => {
+      if (cloneFailure.next) {
+        cloneFailure.next = false
+        throw new Error('clone failed')
+      }
+      return actual.clonePlainData(value)
+    },
+  }
+})
 
 // Source-map helpers stay deterministic; individual fixtures provide _debugSource when app ownership matters.
 vi.mock('bippy/source', () => ({
@@ -60,12 +79,13 @@ function componentFiber(opts: {
   prevProps?: Record<string, unknown> | null
   prevState?: unknown
   actualDuration?: number
+  tag?: number
 }): Fiber {
   const type = (): null => null
   Object.assign(type, { displayName: opts.name })
   const hasAlternate = opts.prevProps !== undefined || opts.prevState !== undefined
   return asFiber({
-    tag: 0,
+    tag: opts.tag ?? defaultWorkTags.FunctionComponent,
     type,
     memoizedProps: opts.props ?? null,
     memoizedState: null,
@@ -106,12 +126,29 @@ describe('diffProps', () => {
     expect(diffProps(fiber)).toEqual([])
   })
 
-  it('does not guess arbitrary prop fields from an identity change', () => {
+  it('reports a primitive prop value change', () => {
     const fiber = asFiber({
       memoizedProps: { n: 2 },
       alternate: { memoizedProps: { n: 1 } },
     })
-    expect(diffProps(fiber)).toEqual([])
+    expect(diffProps(fiber)).toEqual([
+      {
+        name: 'n',
+        kind: 'props',
+        referenceChanged: false,
+        referenceOnly: false,
+        unstable: false,
+        beforePresent: true,
+        afterPresent: true,
+        before: 1,
+        after: 2,
+        deepDiff: {
+          changes: [{ kind: 'value', path: '', before: 1, after: 2 }],
+          visited: 1,
+          truncated: false,
+        },
+      },
+    ])
   })
 
   it('returns nothing on first render (no alternate props)', () => {
@@ -445,12 +482,9 @@ describe('causal render attribution', () => {
       [{ memoizedState: observer }, externalStoreHook(after)],
       [{ memoizedState: observer }, externalStoreHook(before)],
     )
-    const clone = vi.spyOn(globalThis, 'structuredClone').mockImplementationOnce(() => {
-      throw new Error('clone failed')
-    })
+    cloneFailure.next = true
 
     expect(() => render(fiber, 'update')).toThrow('clone failed')
-    clone.mockRestore()
     expect(querySubscriberFor(observer)).toBeNull()
     expect(
       (await getRenderCauseEventsReport({ component: 'AtomicQuery', limit: 1 })).events,
@@ -1014,7 +1048,7 @@ describe('recordRender unnecessary accounting', () => {
     expect((await byName()).get('DerivedOnly')).toMatchObject({ changes: [], unnecessary: 1 })
   })
 
-  it('claims no observed input change only when the props container is stable', async () => {
+  it('claims no observed input change only when no prop value changed', async () => {
     const shared = { node: true }
     const pureProps = { a: 1, children: shared }
     render(
@@ -1022,6 +1056,14 @@ describe('recordRender unnecessary accounting', () => {
         name: 'Pure',
         props: pureProps,
         prevProps: pureProps,
+      }),
+      'update',
+    )
+    render(
+      componentFiber({
+        name: 'FreshContainer',
+        props: { a: 1, children: shared },
+        prevProps: { a: 1, children: shared },
       }),
       'update',
     )
@@ -1045,16 +1087,16 @@ describe('recordRender unnecessary accounting', () => {
     const records = await byName()
     expect(records.get('Pure')?.unnecessary).toBe(1)
     expect(records.get('Pure')?.changes).toEqual([])
+    expect(records.get('FreshContainer')).toMatchObject({
+      changes: [],
+      unnecessary: 1,
+      inputCoverage: { complete: true },
+    })
 
     expect(records.get('Changed')?.unnecessary).toBe(0)
     expect(records.get('Changed')).toMatchObject({
-      changes: [],
-      inputCoverage: {
-        complete: false,
-        scanTruncated: false,
-        propsNotEnumerated: true,
-      },
-      assessment: { inputEvidence: 'incomplete' },
+      changes: [{ name: 'a', kind: 'props', before: 1, after: 2 }],
+      inputCoverage: { complete: true, propsNotEnumerated: false },
     })
 
     expect(records.get('ChildOnly')?.unnecessary).toBe(0)
@@ -1340,27 +1382,62 @@ describe('recordRender reference-only prop accounting', () => {
   const byName = async () =>
     new Map((await getRenders({ sort: 'renders', limit: 50 })).map((r) => [r.name, r]))
 
-  it('does not claim an allocation from opaque prop containers', async () => {
+  it('counts deep-equal object and array props as a reference-only allocation', async () => {
     const shared = { node: true }
     render(
       componentFiber({
-        name: 'UnstableOnly',
-        props: { items: [1, 2], children: shared },
-        prevProps: { items: [1, 2], children: shared },
+        name: 'MemoChild',
+        tag: MEMO,
+        props: { badge: { label: 'new', tone: 1 }, items: [1, 2], children: shared },
+        prevProps: { badge: { label: 'new', tone: 1 }, items: [1, 2], children: shared },
       }),
       'update',
     )
-    const record = (await byName()).get('UnstableOnly')
-    expect(record?.referenceOnlyPropRenders).toBe(0)
-    expect(record?.unstableRenders).toBe(0)
+    const record = (await byName()).get('MemoChild')
+    expect(record?.referenceOnlyPropRenders).toBe(1)
+    expect(record?.unstableRenders).toBe(1)
     expect(record?.unnecessary).toBe(0)
-    expect(record?.changes).toEqual([])
+    expect(record?.causes).toMatchObject([
+      {
+        kind: 'props',
+        name: 'badge',
+        referenceOnly: true,
+        deepDiff: { changes: [{ kind: 'reference-only', path: '' }], truncated: false },
+      },
+      { kind: 'props', name: 'items', referenceOnly: true },
+    ])
     expect(record?.inputCoverage).toEqual({
-      complete: false,
+      complete: true,
       omittedInputs: 0,
       scanTruncated: false,
-      propsNotEnumerated: true,
+      propsNotEnumerated: false,
     })
+  })
+
+  it('does not claim an allocation when an object prop value changed', async () => {
+    render(
+      componentFiber({
+        name: 'BadgeValue',
+        tag: MEMO,
+        props: { badge: { label: 'next' } },
+        prevProps: { badge: { label: 'prev' } },
+      }),
+      'update',
+    )
+    const record = (await byName()).get('BadgeValue')
+    expect(record?.referenceOnlyPropRenders).toBe(0)
+    expect(record?.causes).toMatchObject([
+      {
+        kind: 'props',
+        name: 'badge',
+        referenceChanged: true,
+        referenceOnly: false,
+        deepDiff: {
+          changes: [{ kind: 'value', path: '/label', before: 'prev', after: 'next' }],
+          truncated: false,
+        },
+      },
+    ])
   })
 
   it('does not flag when state also changed', async () => {
@@ -1374,7 +1451,7 @@ describe('recordRender reference-only prop accounting', () => {
     Object.assign(type, { displayName: 'WithState' })
     render(
       asFiber({
-        tag: 0,
+        tag: MEMO,
         type,
         memoizedProps: { onClick: () => {} },
         memoizedState: stateHook(2),
@@ -1395,6 +1472,7 @@ describe('recordRender reference-only prop accounting', () => {
     render(
       componentFiber({
         name: 'WithChildren',
+        tag: MEMO,
         props: { onClick: () => {}, children: { id: 'next' } },
         prevProps: { onClick: () => {}, children: { id: 'prev' } },
       }),
@@ -1404,26 +1482,234 @@ describe('recordRender reference-only prop accounting', () => {
   })
 })
 
+describe('memo-aware prop causes', () => {
+  const byName = async () =>
+    new Map((await getRenders({ sort: 'renders', limit: 50 })).map((r) => [r.name, r]))
+
+  const renderUnder = (child: Fiber) => {
+    const parentProps = {}
+    const parent = componentFiber({ name: 'Parent', props: parentProps, prevProps: parentProps })
+    Object.assign(child, { return: parent })
+    const budget = createCommitAnalysisBudget(undefined, { now: () => 0 })
+    budget.currentCommitEvidence.renderedFibers.add(parent)
+    recordRender(
+      child,
+      'update',
+      undefined,
+      budget.work,
+      budget.currentCommitEvidence,
+      budget.attributionWork,
+    )
+  }
+
+  it('keeps the parent as the cause of a plain function component whose props changed', async () => {
+    renderUnder(
+      componentFiber({
+        name: 'Plain',
+        props: { style: { color: 'red' }, count: 2 },
+        prevProps: { style: { color: 'red' }, count: 1 },
+      }),
+    )
+
+    const record = (await byName()).get('Plain')
+    expect(record).toMatchObject({
+      necessity: 'unknown',
+      referenceOnlyPropRenders: 0,
+      undeterminedReferencePropRenders: 0,
+      causes: [
+        { kind: 'parent', parentName: 'Parent' },
+        { kind: 'props', name: 'style', referenceOnly: true },
+        { kind: 'props', name: 'count', referenceOnly: false },
+      ],
+    })
+  })
+
+  it('attributes a memo render to props without calling reference-only churn necessary', async () => {
+    renderUnder(
+      componentFiber({
+        name: 'MemoRow',
+        tag: MEMO,
+        props: { style: { color: 'red' } },
+        prevProps: { style: { color: 'red' } },
+      }),
+    )
+
+    expect((await byName()).get('MemoRow')).toMatchObject({
+      necessity: 'unknown',
+      referenceOnlyPropRenders: 1,
+      causes: [{ kind: 'props', name: 'style', referenceOnly: true }],
+    })
+  })
+
+  it('calls a memo render necessary when a prop value changed', async () => {
+    renderUnder(
+      componentFiber({
+        name: 'MemoValue',
+        tag: MEMO,
+        props: { count: 2 },
+        prevProps: { count: 1 },
+      }),
+    )
+
+    expect((await byName()).get('MemoValue')).toMatchObject({
+      necessity: 'necessary',
+      referenceOnlyPropRenders: 0,
+      causes: [{ kind: 'props', name: 'count' }],
+    })
+  })
+
+  it('counts memo renders broken only by new function identities separately', async () => {
+    renderUnder(
+      componentFiber({
+        name: 'MemoCallback',
+        tag: MEMO,
+        props: { onSelect: () => 2, label: 'a' },
+        prevProps: { onSelect: () => 1, label: 'a' },
+      }),
+    )
+
+    expect((await byName()).get('MemoCallback')).toMatchObject({
+      necessity: 'unknown',
+      functionIdentityPropRenders: 1,
+      referenceOnlyPropRenders: 0,
+      undeterminedReferencePropRenders: 0,
+      causes: [{ kind: 'props', name: 'onSelect', referenceChanged: true, referenceOnly: false }],
+    })
+  })
+
+  it('discloses memo reference changes that a truncated diff could not classify', async () => {
+    renderUnder(
+      componentFiber({
+        name: 'MemoNested',
+        tag: MEMO,
+        props: { config: { inner: { a: 1 } } },
+        prevProps: { config: { inner: { a: 1 } } },
+      }),
+    )
+
+    expect((await byName()).get('MemoNested')).toMatchObject({
+      referenceOnlyPropRenders: 0,
+      undeterminedReferencePropRenders: 1,
+      causes: [
+        { kind: 'props', name: 'config', referenceOnly: false, deepDiff: { truncated: true } },
+      ],
+    })
+  })
+
+  it('treats a pure class component as able to bail out on props', async () => {
+    class Pure {
+      isPureReactComponent = true
+    }
+    Object.assign(Pure.prototype, { isPureReactComponent: true })
+    const fiber = componentFiber({
+      name: 'PureRow',
+      tag: defaultWorkTags.ClassComponent,
+      props: { style: { a: 1 } },
+      prevProps: { style: { a: 1 } },
+    })
+    Object.assign(fiber, { type: Pure })
+    renderUnder(fiber)
+
+    expect(
+      [...(await byName()).values()].find((r) => r.referenceOnlyPropRenders > 0),
+    ).toMatchObject({ referenceOnlyPropRenders: 1, causes: [{ kind: 'props', name: 'style' }] })
+  })
+})
+
+describe('input attribution budget isolation', () => {
+  it('records every sibling of a wide commit and only truncates attribution', async () => {
+    const wideProps = () =>
+      Object.fromEntries(
+        Array.from({ length: 20 }, (_, index) => [
+          `p${index}`,
+          { a: index, b: index, c: index, d: index, e: index },
+        ]),
+      )
+    const budget = createCommitAnalysisBudget(2_000, { operationLimit: 20_000, now: () => 0 })
+    for (let index = 0; index < 1_000; index += 1) {
+      recordCommitFiber(
+        componentFiber({
+          name: `Row${index}`,
+          tag: MEMO,
+          props: wideProps(),
+          prevProps: wideProps(),
+        }),
+        'update',
+        budget,
+        false,
+      )
+    }
+    finalizeCommitAnalysisBudget(budget)
+
+    expect(budget).toMatchObject({ processed: 1_000, skipped: 0, failed: 0 })
+    expect(getSkippedCommitFiberCount()).toBe(0)
+    expect(getBudgetExhaustedSubsystems()).toEqual([])
+    expect(getTruncatedInputFiberCount()).toBeGreaterThan(0)
+    const records = await getRenders({ sort: 'renders', limit: 1_000 })
+    expect(records).toHaveLength(1_000)
+    expect(records.at(-1)?.inputCoverage).toMatchObject({ complete: false, scanTruncated: true })
+  })
+
+  it('keeps observation-target attribution complete after siblings exhaust the shared pool', async () => {
+    const wideProps = () =>
+      Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`p${index}`, { value: index }]))
+    const stableProps = wideProps()
+    const budget = createCommitAnalysisBudget(250, { operationLimit: 40, now: () => 0 })
+    recordCommitFiber(
+      componentFiber({
+        name: 'WideSibling',
+        tag: MEMO,
+        props: wideProps(),
+        prevProps: wideProps(),
+      }),
+      'update',
+      budget,
+      false,
+    )
+    recordCommitFiber(
+      componentFiber({
+        name: 'Target',
+        tag: MEMO,
+        props: { ...stableProps, filter: { query: 'b' } },
+        prevProps: { ...stableProps, filter: { query: 'a' } },
+      }),
+      'update',
+      budget,
+      true,
+    )
+
+    const records = await getRenders({ sort: 'renders', limit: 10 })
+    expect(records.find((record) => record.name === 'WideSibling')?.inputCoverage).toMatchObject({
+      complete: false,
+      scanTruncated: true,
+    })
+    expect(records.find((record) => record.name === 'Target')).toMatchObject({
+      inputCoverage: { complete: true },
+      causes: [{ kind: 'props', name: 'filter' }],
+    })
+  })
+})
+
 describe('bounded render input evidence', () => {
-  it('marks arbitrary prop-field discovery incomplete without retaining guesses', async () => {
+  it('retains changed props up to the evidence budget and discloses the rest', async () => {
     const before = Object.fromEntries(Array.from({ length: 55 }, (_, index) => [`p${index}`, 0]))
     const after = Object.fromEntries(Array.from({ length: 55 }, (_, index) => [`p${index}`, 1]))
     render(componentFiber({ name: 'ManyInputs', props: after, prevProps: before }), 'update')
 
     const report = (await getRenders({ sort: 'renders', limit: 10 }))[0]
-    expect(report?.causes).toMatchObject([
-      { kind: 'unknown', reason: 'causal-analysis-incomplete' },
-    ])
+    expect(report?.causes).toHaveLength(50)
+    expect(report?.causes.every((cause) => cause.kind === 'props')).toBe(true)
     expect(report?.inputCoverage).toEqual({
       complete: false,
-      omittedInputs: 0,
+      omittedInputs: 5,
       scanTruncated: false,
-      propsNotEnumerated: true,
+      propsNotEnumerated: false,
     })
     expect(report?.assessment.inputEvidence).toBe('incomplete')
     expect(report?.unnecessary).toBe(0)
-    expect(getTruncatedInputFiberCount()).toBe(0)
-    expect(getPropsNotEnumeratedFiberCount()).toBe(1)
+    expect(report?.referenceOnlyPropRenders).toBe(0)
+    expect(getTruncatedInputFiberCount()).toBe(1)
+    expect(getPropsNotEnumeratedFiberCount()).toBe(0)
   })
 })
 
@@ -1473,7 +1759,7 @@ describe('getRenders', () => {
     expect((await getRenders({ sort: 'selfTime', limit: 10 }))[0]?.name).toBe('Beta')
   })
 
-  it('does not manufacture unstable candidates for the legacy sort', async () => {
+  it('ranks deep-equal prop churn first for the legacy unstable sort', async () => {
     clearRenders()
     const stableItems = [1]
     const calm = componentFiber({
@@ -1486,6 +1772,7 @@ describe('getRenders', () => {
 
     const churny = componentFiber({
       name: 'Churny',
+      tag: MEMO,
       props: { items: [1] },
       prevProps: { items: [1] },
     })
@@ -1494,8 +1781,10 @@ describe('getRenders', () => {
     render(churny, 'update')
 
     const ranked = await getRenders({ sort: 'unstable', limit: 10 })
-    expect(ranked.map((record) => record.name)).toEqual(['Calm', 'Churny'])
-    expect(ranked.every((record) => record.unstableRenders === 0)).toBe(true)
+    expect(ranked.map((record) => [record.name, record.unstableRenders])).toEqual([
+      ['Churny', 2],
+      ['Calm', 0],
+    ])
   })
 })
 
@@ -1593,7 +1882,11 @@ describe('snapshot + rendersDiff', () => {
   })
 
   it('keeps exact timing coverage complete when only prop attribution is opaque', async () => {
-    render(componentFiber({ name: 'Row', props: { value: 2 }, prevProps: { value: 1 } }), 'update')
+    const opaqueProps = (value: number) => Object.assign(Object.create({ exotic: true }), { value })
+    render(
+      componentFiber({ name: 'Row', props: opaqueProps(2), prevProps: opaqueProps(1) }),
+      'update',
+    )
 
     const snapshot = await takeSnapshot('opaque-props', false)
     expect(snapshot.coverage).toMatchObject({

@@ -26,3 +26,21 @@ export const ownsEffectList = (fiber: Fiber): boolean => {
     fiber.tag === tags.SimpleMemoComponent
   )
 }
+
+/** Fibers React skips on shallow-equal props: memo wrappers and classes that are pure or define shouldComponentUpdate. */
+export const canBailOutOnProps = (fiber: Fiber): boolean => {
+  const tags = getReactWorkTagsForFiber(fiber)
+  if (fiber.tag === tags.MemoComponent || fiber.tag === tags.SimpleMemoComponent) return true
+  if (fiber.tag !== tags.ClassComponent) return false
+  try {
+    const prototype: unknown = (fiber.type as { prototype?: unknown } | null)?.prototype
+    if (typeof prototype !== 'object' || prototype === null) return false
+    const { isPureReactComponent, shouldComponentUpdate } = prototype as {
+      isPureReactComponent?: unknown
+      shouldComponentUpdate?: unknown
+    }
+    return isPureReactComponent === true || typeof shouldComponentUpdate === 'function'
+  } catch {
+    return false
+  }
+}

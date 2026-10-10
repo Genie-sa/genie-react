@@ -132,8 +132,21 @@ const captureComparisonMetricSchema = z.object({
   direction: z.enum(['lower-is-better', 'higher-is-better']),
   baseline: captureMetricStatsSchema,
   candidate: captureMetricStatsSchema,
-  missingBaselineCaptureIds: z.array(z.string()),
-  missingCandidateCaptureIds: z.array(z.string()),
+  missingBaselineCaptureIds: z
+    .array(z.string())
+    .describe(
+      'Baseline captures that contributed no sample, either not comparable or lacking the metric; see excludedCaptureIds for why.',
+    ),
+  missingCandidateCaptureIds: z
+    .array(z.string())
+    .describe(
+      'Candidate captures that contributed no sample, either not comparable or lacking the metric; see excludedCaptureIds for why.',
+    ),
+  excludedCaptureIds: z
+    .record(z.string(), z.array(z.string()))
+    .describe(
+      'Reasons per post-warm-up capture ID that contributed no sample. Outliers are listed separately.',
+    ),
   outlierBaselineCaptureIds: z.array(z.string()),
   outlierCandidateCaptureIds: z.array(z.string()),
   comparable: z.boolean(),

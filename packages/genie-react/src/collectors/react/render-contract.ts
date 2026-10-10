@@ -69,7 +69,7 @@ const deepDiffSchema = z.object({
   truncated: z
     .boolean()
     .describe(
-      'True when paths are incomplete. Arbitrary object internals stay opaque; arrays and documented store fields can expose exact paths.',
+      'True when paths are incomplete. Arbitrary object internals stay opaque; arrays, first-level plain-object props, and documented store fields can expose exact paths.',
     ),
 })
 
@@ -218,7 +218,7 @@ const renderInputCoverageSchema = z.object({
   propsNotEnumerated: z
     .boolean()
     .describe(
-      'The props container identity changed, but its arbitrary keys were not read because it may be a Proxy.',
+      'The changed props container was not a plain object (class instance or exotic object), so its keys were not read.',
     ),
 })
 
@@ -402,8 +402,20 @@ const renderComponentSchema = z.object({
   noObservedInputChange: z.number(),
   referenceOnlyPropRenders: z
     .number()
-    .describe('Legacy field. Automatic capture does not enumerate arbitrary prop containers.'),
+    .describe(
+      'Renders of memo, PureComponent, or shouldComponentUpdate components whose only input changes were non-function props with a new reference that a complete bounded diff found equal. Excludes truncated diffs and partial scans; see undeterminedReferencePropRenders. A custom shouldComponentUpdate is never called, so such a class may have rendered by its own rules.',
+    ),
   unstableRenders: z.number().describe('Legacy alias for referenceOnlyPropRenders.'),
+  functionIdentityPropRenders: z
+    .number()
+    .describe(
+      'Renders of memo, PureComponent, or shouldComponentUpdate components whose only input changes, under complete coverage, were props with a new reference: at least one a function with a new identity, such as an inline callback, and the rest reference-only. Not counted as reference-only because closures can differ.',
+    ),
+  undeterminedReferencePropRenders: z
+    .number()
+    .describe(
+      'Renders of memo, PureComponent, or shouldComponentUpdate components whose only input changes were reference-changed props that a partial input scan, or a truncated diff of a non-function value, could not classify as reference-only.',
+    ),
   forget: z
     .boolean()
     .describe('Legacy name for runtime memo-cache presence; use compiler.memoCacheObserved.'),
@@ -480,7 +492,7 @@ export const renderCoverageSchema = z.object({
     .int()
     .nonnegative()
     .describe(
-      'Renders whose changed props container was left opaque to avoid invoking app Proxy traps.',
+      'Renders whose changed props container was not a plain object, so its keys were left unread.',
     ),
   budgetExhaustedCommits: z.number().int().nonnegative(),
   budgetExhaustedSubsystems: z.array(

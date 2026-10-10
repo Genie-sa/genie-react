@@ -50,6 +50,63 @@ describe('deepDiff', () => {
     expect(reads).toBe(0)
   })
 
+  it('walks opted-in plain objects by own enumerable keys without invoking accessors', () => {
+    let reads = 0
+    const accessor = (value: object) =>
+      Object.defineProperty(value, 'computed', {
+        enumerable: true,
+        get: () => {
+          reads += 1
+          return 'value'
+        },
+      })
+
+    expect(deepDiff({ same: 1 }, { same: 1 }, { plainObjectDepth: 1 })).toEqual({
+      changes: [{ kind: 'reference-only', path: '' }],
+      visited: 2,
+      truncated: false,
+    })
+    expect(
+      deepDiff({ label: 'a', gone: 1 }, { label: 'b', added: 2 }, { plainObjectDepth: 1 }).changes,
+    ).toEqual([
+      { kind: 'value', path: '/label', before: 'a', after: 'b' },
+      { kind: 'removed', path: '/gone', before: 1 },
+      { kind: 'added', path: '/added', after: 2 },
+    ])
+    expect(deepDiff(accessor({}), accessor({}), { plainObjectDepth: 1 })).toMatchObject({
+      changes: [{ kind: 'reference-only', path: '/computed' }],
+      truncated: true,
+    })
+    expect(reads).toBe(0)
+  })
+
+  it('snapshots added plain objects as objects and other references as instances', () => {
+    expect(deepDiff([], [{ a: 1 }, new Map()]).changes).toEqual([
+      { kind: 'value', path: '/length', before: 0, after: 2 },
+      { kind: 'added', path: '/0', after: { type: 'object' } },
+      { kind: 'added', path: '/1', after: { type: 'instance' } },
+    ])
+  })
+
+  it('marks plain objects with symbol keys as truncated', () => {
+    const key = Symbol('key')
+    expect(deepDiff({ [key]: 1, a: 1 }, { [key]: 1, a: 1 }, { plainObjectDepth: 1 })).toEqual({
+      changes: [{ kind: 'reference-only', path: '' }],
+      visited: 2,
+      truncated: true,
+    })
+  })
+
+  it('keeps class instances opaque even when plain objects are walked', () => {
+    class Value {
+      count = 1
+    }
+    expect(deepDiff(new Value(), new Value(), { plainObjectDepth: 1 })).toMatchObject({
+      changes: [{ kind: 'reference-only', path: '' }],
+      truncated: true,
+    })
+  })
+
   it('bounds a huge array before walking its entries', () => {
     const before = Array.from({ length: 10_000 }, (_, index) => index)
     const after = before.slice()

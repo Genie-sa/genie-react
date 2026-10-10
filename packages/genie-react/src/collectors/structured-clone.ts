@@ -4,6 +4,11 @@ export function safeStructuredClone<T>(value: T): T {
   return cloneValue(value, new WeakMap()) as T
 }
 
+/** Clones the plain data Genie builds itself; on small per-render payloads this is several times faster than structuredClone's serializer. */
+export function clonePlainData<T>(value: T): T {
+  return cloneValue(value, new WeakMap()) as T
+}
+
 function cloneValue(value: unknown, seen: WeakMap<object, unknown>): unknown {
   if (value === null || typeof value !== 'object') {
     if (typeof value === 'function' || typeof value === 'symbol') {
