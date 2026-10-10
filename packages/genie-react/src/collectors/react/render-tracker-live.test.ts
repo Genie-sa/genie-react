@@ -2,7 +2,15 @@
 import 'bippy/install-hook-only'
 import { fireEvent, type RenderResult, render } from '@testing-library/react'
 import { type Fiber, getFiberFromHostInstance, getLatestFiber } from 'bippy'
-import { Component, createElement, Fragment, type ReactNode, StrictMode, useState } from 'react'
+import {
+  Component,
+  createElement,
+  Fragment,
+  memo,
+  type ReactNode,
+  StrictMode,
+  useState,
+} from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { findFiberById, findRootFiber, owningComponentFor, registerFiber } from './fiber'
 import { wasInstanceObserved } from './instance-identity'
@@ -107,9 +115,9 @@ function Leaf(): ReactNode {
   return createElement('span', null, 'leaf')
 }
 
-function TargetRoot(): ReactNode {
+const TargetRoot = memo(function TargetRoot(): ReactNode {
   return createElement('section', null, createElement(Leaf))
-}
+})
 
 function Sibling(): ReactNode {
   return null
@@ -117,9 +125,11 @@ function Sibling(): ReactNode {
 
 function TargetToggle(): ReactNode {
   const [shown, setShown] = useState(true)
+  const [bumps, setBumps] = useState(0)
   return createElement(
     Fragment,
     null,
+    createElement('button', { type: 'button', onClick: () => setBumps(bumps + 1) }, 'bump'),
     createElement('button', { type: 'button', onClick: () => setShown(false) }, 'hide'),
     shown ? createElement(TargetRoot) : null,
     shown ? createElement(Sibling) : null,
@@ -185,7 +195,12 @@ describe('render tracking against a live React tree', () => {
     expect(unmounted?.instance.mountId).toBe(mounted?.instance.mountId)
   })
 
-  it('keeps descendants of an unmounted observation root targeted after bippy releases its id', async () => {
+  it.each([
+    { bumps: 0, returnPointer: 'the committed root' },
+    { bumps: 1, returnPointer: 'the alternate of a bailed-out root' },
+  ])('keeps descendants of an unmounted observation root targeted when they return to $returnPointer', async ({
+    bumps,
+  }) => {
     view = render(createElement(TargetToggle))
     const section = view.container.querySelector('section')
     const targetRoot = section && getFiberFromHostInstance(section)?.return
@@ -195,6 +210,7 @@ describe('render tracking against a live React tree', () => {
       lifecycle: { bufferLimit: 2, targetReserve: 2 },
     })
 
+    for (let bump = 0; bump < bumps; bump += 1) fireEvent.click(view.getByText('bump'))
     fireEvent.click(view.getByText('hide'))
 
     const [unmounted] = (await leafCohort()).instances

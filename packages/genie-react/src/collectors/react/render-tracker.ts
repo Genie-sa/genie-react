@@ -215,7 +215,7 @@ const DEFAULT_OBSERVATION_CONFIGURATION: RenderObservationConfiguration = {
 
 let observationConfiguration = safeStructuredClone(DEFAULT_OBSERVATION_CONFIGURATION)
 let observationRootIds = new Set<number>()
-/** Bippy releases ids as React reports each unmount parent-first, so descendants read their deleted ancestors' root membership here. */
+/** Bippy releases ids as React reports each unmount parent-first, so descendants read their deleted ancestors' root membership here, through either buffer a stale `return` may point at. */
 let unmountedRootMembership = new WeakMap<Fiber, boolean>()
 
 const ADAPTIVE_FIBER_CEILING = 20_000
@@ -1360,7 +1360,10 @@ function recordPendingUnmounts(rendererId: number, budget: CommitAnalysisBudget)
 /** Record every fiber's root membership for its descendants, but queue only component lifecycles; host-node unmounts cannot produce cohort tombstones. */
 export function queuePendingUnmount(rendererId: number, fiber: Fiber): void {
   const withinRoot = isWithinObservationRoot(fiber)
-  if (observationRootIds.size > 0) unmountedRootMembership.set(fiber, withinRoot)
+  if (observationRootIds.size > 0) {
+    unmountedRootMembership.set(fiber, withinRoot)
+    if (fiber.alternate) unmountedRootMembership.set(fiber.alternate, withinRoot)
+  }
   if (!isCompositeFiber(fiber)) return
   const targeted = withinRoot || matchesObservedComponent(fiber)
   pendingUnmounts.push({ rendererId, fiber, fiberId: getFiberId(fiber), targeted })
