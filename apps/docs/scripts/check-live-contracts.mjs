@@ -11,7 +11,7 @@ const { GENIE_BRIDGE_URL, GENIE_SESSION } = process.env
 
 if (!GENIE_BRIDGE_URL || !GENIE_SESSION) {
   console.error(
-    "Set GENIE_BRIDGE_URL and GENIE_SESSION (plus GENIE_BRIDGE_TOKEN from that app's .genie/bridge.json) to one ready app before this check.",
+    'Set GENIE_BRIDGE_URL and GENIE_SESSION to one ready app before this check, plus GENIE_BRIDGE_TOKEN when the app lives outside this repository.',
   )
   process.exit(1)
 }

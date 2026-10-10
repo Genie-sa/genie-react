@@ -1,3 +1,4 @@
+export * from './agent-token'
 export * from './bridge'
 export { captureIntegrityDigest, verifyCaptureIntegrity } from './capture-manager'
 export * from './discovery'

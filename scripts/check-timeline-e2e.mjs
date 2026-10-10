@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,7 +12,7 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(join(root, 'apps/router-demo/package.json'))
 const { createServer } = await import(require.resolve('vite'))
 const { genie } = await import(new URL('../packages/genie-react/dist/vite.js', import.meta.url))
-const { createStandaloneBridge } = await import(
+const { createStandaloneBridge, readAgentToken } = await import(
   new URL('../packages/genie-react/dist/hub.js', import.meta.url)
 )
 const run = promisify(execFile)
@@ -130,8 +130,7 @@ createRoot(document.getElementById('root')).render(h(App))
   await page.goto(`${url}/?_genie=timeline-e2e`)
   await page.getByRole('button', { name: 'Slow network' }).waitFor()
   assert.equal((await call('devtools_wait', { condition: 'ready', timeoutMs: 10000 })).ok, true)
-  const discovery = JSON.parse(await readFile(join(fixture, '.genie/bridge.json'), 'utf8'))
-  env.GENIE_BRIDGE_TOKEN = discovery.token
+  env.GENIE_BRIDGE_TOKEN = await readAgentToken(fixture)
   const docsCheck = await run(
     process.execPath,
     [join(root, 'apps/docs/scripts/check-live-contracts.mjs')],
