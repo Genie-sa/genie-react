@@ -20,6 +20,8 @@ import { genieCommand } from './package-manager'
 export interface GenieAgentLinkOptions {
   /** Bridge URL, or a resolver re-invoked on every (re)connect so the link self-heals when the URL changes. */
   url: string | (() => string | Promise<string>)
+  /** Agent token the hub published, sent as a bearer header on every (re)connect. */
+  token?: string
   logger?: (message: string) => void
   connectTimeoutMs?: number
   invokeTimeoutMs?: number
@@ -67,9 +69,32 @@ export interface InvokeOptions {
   timeoutMs?: number
 }
 
+/** The hub refused the WebSocket upgrade (bad token, browser origin) — retrying with the same credentials cannot succeed. */
+export class BridgeRejectedError extends Error {
+  readonly status: number
+
+  constructor(status: number) {
+    super(`Genie hub refused the connection (HTTP ${status})`)
+    this.name = 'BridgeRejectedError'
+    this.status = status
+  }
+}
+
+/** Fixed remediation per refusal status; the hub's own text is not echoed into agent-facing output. */
+export function bridgeRejectionHint(error: BridgeRejectedError): string {
+  if (error.status === 401) {
+    return 'The hub rejected the agent token: it restarted, a different hub answered, or genie-react and @genie-react/cli versions differ. Re-run from the app directory so the hub is rediscovered; with --url or GENIE_BRIDGE_URL for a hub outside this directory tree, also set GENIE_BRIDGE_TOKEN.'
+  }
+  if (error.status === 403) {
+    return 'The hub refused this connection. Agents must run on the same machine as the hub, as a process without a browser Origin header.'
+  }
+  return `The hub refused the connection (HTTP ${error.status}). Update genie-react and @genie-react/cli to matching versions.`
+}
+
 /** Agent-side WebSocket client to the bridge; reconnects and re-resolves the URL each attempt to survive dev-server restarts. */
 export class GenieAgentLink {
   private readonly resolveUrl: () => string | Promise<string>
+  private readonly token: string | undefined
   private readonly log: (message: string) => void
   private readonly connectTimeoutMs: number
   private readonly invokeTimeoutMs: number
@@ -83,6 +108,7 @@ export class GenieAgentLink {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private connecting = false
   private closed = false
+  private rejection: BridgeRejectedError | null = null
 
   /** Invoked whenever the bridge pushes a status update (e.g. an app connects with new tools). */
   onStatus: ((status: BridgeStatusMessage) => void) | null = null
@@ -90,6 +116,7 @@ export class GenieAgentLink {
   constructor(options: GenieAgentLinkOptions) {
     const { url } = options
     this.resolveUrl = typeof url === 'function' ? url : () => url
+    this.token = options.token
     this.log = options.logger ?? (() => {})
     this.connectTimeoutMs = options.connectTimeoutMs ?? 5_000
     this.invokeTimeoutMs = options.invokeTimeoutMs ?? 30_000
@@ -189,14 +216,22 @@ export class GenieAgentLink {
     }
 
     this.currentUrl = url
-    const ws = new WebSocket(`${url}?role=agent`)
+    const ws = new WebSocket(`${url}?role=agent`, {
+      headers: this.token ? { authorization: `Bearer ${this.token}` } : {},
+    })
     this.ws = ws
     this.connecting = false
     ws.on('open', () => {
+      this.rejection = null
       this.log(`connected to bridge at ${url}`)
-      const waiters = this.openWaiters
-      this.openWaiters = []
-      for (const waiter of waiters) waiter()
+      this.flushOpenWaiters()
+    })
+    ws.on('unexpected-response', (request, response) => {
+      this.rejection = new BridgeRejectedError(response.statusCode ?? 0)
+      this.log(`bridge refused the connection: HTTP ${response.statusCode}`)
+      request.destroy()
+      ws.terminate()
+      this.flushOpenWaiters()
     })
     ws.on('message', (data) => this.onMessage(data.toString()))
     ws.on('error', (error) => this.log(`socket error: ${errorMessage(error)}`))
@@ -205,6 +240,12 @@ export class GenieAgentLink {
       this.status = null
       if (!this.closed) this.scheduleReconnect()
     })
+  }
+
+  private flushOpenWaiters(): void {
+    const waiters = this.openWaiters
+    this.openWaiters = []
+    for (const waiter of waiters) waiter()
   }
 
   private scheduleReconnect(): void {
@@ -250,7 +291,7 @@ export class GenieAgentLink {
       const onOpen = () => {
         clearTimeout(timer)
         if (this.ws && this.ws.readyState === WebSocket.OPEN) resolve(this.ws)
-        else reject(new Error('bridge connection closed before it was ready'))
+        else reject(this.rejection ?? new Error('bridge connection closed before it was ready'))
       }
       const timer = setTimeout(() => {
         this.openWaiters = this.openWaiters.filter((waiter) => waiter !== onOpen)

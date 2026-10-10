@@ -1,9 +1,11 @@
 import { createStandaloneBridge } from 'genie-react/hub'
 import { decodeFrame, encodeMessage } from 'genie-react/protocol'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { runBatch, runCall, runStatus, runTools } from './agent'
 import { GenieAgentLink } from './agent-link'
+
+const AGENT_TOKEN = 'cli-integration-token'
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -19,14 +21,19 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 4_000): Promise<v
 describe('agent CLI integration', () => {
   const cleanups: Array<() => void | Promise<void>> = []
 
+  beforeEach(() => {
+    vi.stubEnv('GENIE_BRIDGE_TOKEN', AGENT_TOKEN)
+  })
+
   afterEach(async () => {
+    vi.unstubAllEnvs()
     vi.restoreAllMocks()
     for (const cleanup of cleanups.reverse()) await cleanup()
     cleanups.length = 0
   })
 
   async function fixture(sessionId = 'json-session') {
-    const bridge = createStandaloneBridge()
+    const bridge = createStandaloneBridge({ agentToken: AGENT_TOKEN })
     cleanups.push(() => bridge.close())
     const { url } = await bridge.listen()
     const app = new WebSocket(`${url}?role=app`)
@@ -167,6 +174,37 @@ describe('agent CLI integration', () => {
     })
   })
 
+  it('maps a refused agent token to an actionable failure', async () => {
+    const { url } = await fixture()
+    vi.stubEnv('GENIE_BRIDGE_TOKEN', 'stale-token')
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+
+    expect(await runStatus({ url })).toBe(1)
+    const failure = JSON.parse(stdout.mock.calls.flat().join(''))
+    expect(failure).toMatchObject({ status: 'error', userActionRequired: true })
+    expect(failure.message).toContain('rejected the agent token')
+    expect(failure.message).toContain('GENIE_BRIDGE_TOKEN')
+  })
+
+  it.each([
+    ['call', (url: string) => runCall('query_rows', '{}', { url, waitMs: 12_000 })],
+    ['batch', (url: string) => runBatch('[{"tool":"query_rows"}]', { url, waitMs: 12_000 })],
+    ['tools', (url: string) => runTools(undefined, { url, waitMs: 12_000 })],
+  ] as const)('surfaces a refused token from %s at once instead of waiting for an app', async (_command, run) => {
+    const { url } = await fixture()
+    vi.stubEnv('GENIE_BRIDGE_TOKEN', 'stale-token')
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+
+    const startedAt = Date.now()
+    expect(await run(url)).toBe(1)
+    expect(Date.now() - startedAt).toBeLessThan(3_000)
+    const output = stdout.mock.calls.flat().join('')
+    expect(output).toContain('rejected the agent token')
+    expect(output).not.toContain('not_connected')
+  })
+
   it('keeps upstream instructions and unsafe session values out of trusted errors and diagnostics', async () => {
     const session = 'secret-session-$(steal-secret)'
     const { url } = await fixture(session)
@@ -204,7 +242,7 @@ describe('agent CLI integration', () => {
     undefined,
     true,
   ])('returns a schema-versioned JSON failure for an unknown tool with json=%s', async (json) => {
-    const bridge = createStandaloneBridge()
+    const bridge = createStandaloneBridge({ agentToken: AGENT_TOKEN })
     cleanups.push(() => bridge.close())
     const { url } = await bridge.listen()
 
@@ -360,7 +398,7 @@ describe('agent CLI integration', () => {
   })
 
   it('applies nested projection to tool discovery and every successful batch item', async () => {
-    const bridge = createStandaloneBridge()
+    const bridge = createStandaloneBridge({ agentToken: AGENT_TOKEN })
     cleanups.push(() => bridge.close())
     const { url } = await bridge.listen()
     const app = new WebSocket(`${url}?role=app`)
@@ -462,7 +500,7 @@ describe('agent CLI integration', () => {
   })
 
   it('can make an unmet wait result fail the process contract', async () => {
-    const bridge = createStandaloneBridge()
+    const bridge = createStandaloneBridge({ agentToken: AGENT_TOKEN })
     cleanups.push(() => bridge.close())
     const { url } = await bridge.listen()
     const app = new WebSocket(`${url}?role=app`)
@@ -528,6 +566,10 @@ describe('agent CLI integration', () => {
 
 describe('actionable CLI failures', () => {
   const cleanups: Array<() => void | Promise<void>> = []
+
+  beforeEach(() => {
+    vi.stubEnv('GENIE_BRIDGE_TOKEN', AGENT_TOKEN)
+  })
 
   afterEach(async () => {
     vi.restoreAllMocks()
@@ -635,7 +677,7 @@ describe('actionable CLI failures', () => {
   }
 
   async function appFixture() {
-    const bridge = createStandaloneBridge()
+    const bridge = createStandaloneBridge({ agentToken: AGENT_TOKEN })
     cleanups.push(() => bridge.close())
     const { url } = await bridge.listen()
     const app = new WebSocket(`${url}?role=app`)
@@ -692,6 +734,24 @@ describe('actionable CLI failures', () => {
       return output
     }
   }
+
+  it('maps a refused agent token to bridge_rejected in call and batch', async () => {
+    const { url } = await appFixture()
+    vi.stubEnv('GENIE_BRIDGE_TOKEN', 'wrong-token')
+    const read = captureStdout()
+
+    expect(await runCall('app_seed_tasks', '{}', { url })).toBe(1)
+    const callFailure = JSON.parse(read())
+    expect(callFailure).toMatchObject({
+      status: 'error',
+      reason: 'bridge_rejected',
+      userActionRequired: true,
+    })
+    expect(callFailure.message).toContain('rejected the agent token')
+
+    expect(await runBatch('[{"tool":"app_seed_tasks"}]', { url, json: true })).toBe(1)
+    expect(JSON.parse(read())).toMatchObject({ status: 'error', reason: 'bridge_rejected' })
+  })
 
   it("reports a GenieToolError's code, message, and hint in call and batch", async () => {
     const { url } = await appFixture()
@@ -956,7 +1016,7 @@ describe('actionable CLI failures', () => {
   })
 
   it('tells an agent what to do when no session is connected', async () => {
-    const bridge = createStandaloneBridge()
+    const bridge = createStandaloneBridge({ agentToken: AGENT_TOKEN })
     cleanups.push(() => bridge.close())
     const { url } = await bridge.listen()
     const read = captureStdout()

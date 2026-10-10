@@ -1,16 +1,18 @@
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import type { AddressInfo } from 'node:net'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type Plugin, type Rollup, searchForWorkspaceRoot, type ViteDevServer } from 'vite'
 import {
+  bridgeUrlFor,
   GenieBridge,
   removeDiscoveryFile,
   type StartHubResult,
   startGenieHub,
   writeDiscoveryFile,
 } from '../hub'
-import { GENIE_GLOBAL_KEY, GENIE_WS_PATH } from '../protocol'
+import { GENIE_GLOBAL_KEY } from '../protocol'
 
 export interface GenieViteOptions {
   /** Overrides the app name reported to the agent (defaults to the document title). */
@@ -21,6 +23,8 @@ export interface GenieViteOptions {
   react?: boolean
   /** Override the bridge's per-request timeout in ms (default 20000). */
   requestTimeoutMs?: number
+  /** Browser origins allowed to connect as apps beyond the dev server's own origin (e.g. a tunnel or proxy host). */
+  allowedOrigins?: readonly string[]
 }
 
 // Bare specifiers on purpose: the injected module executes in the app, so these resolve through the app's own genie-react install — the same copy <Genie /> imports.
@@ -44,6 +48,54 @@ export function hasCloudflarePlugin(plugins: readonly { name: string }[]): boole
 function isClientEntry(id: string): boolean {
   const path = id.split('?')[0] ?? id
   return path.includes('tanstack-start') && path.includes('client-entry')
+}
+
+// Vite replaces (not merges) its default deny list when one is configured, so an unset list must restate the defaults; this is Vite 8's list, a superset of 5–7's.
+const VITE_DEFAULT_FS_DENY = [
+  '.env',
+  '.env.*',
+  '*.{crt,pem,key,p12,pfx,cer,der}',
+  '.npmrc',
+  '.yarnrc.yml',
+  '**/.git/**',
+]
+const GENIE_STATE_FS_DENY = '**/.genie/**'
+const GENIE_STATE_SEGMENT = '.genie'
+const MAX_URL_DECODES = 3
+
+/** True when any decoding of the request path reaches a `.genie` segment; undecodable or deeply re-encoded paths count as reaching it. */
+export function isGenieStateRequest(url: string): boolean {
+  let path = url.split(/[?#]/, 1)[0] ?? ''
+  for (let round = 0; round <= MAX_URL_DECODES; round++) {
+    const reachesState = path
+      .split(/[\\/]/)
+      // Windows resolves `.genie.` and `.genie ` to `.genie`.
+      .some((segment) => segment.replace(/[. ]+$/, '').toLowerCase() === GENIE_STATE_SEGMENT)
+    if (reachesState) return true
+    let decoded: string
+    try {
+      decoded = decodeURIComponent(path)
+    } catch {
+      return true
+    }
+    if (decoded === path) return false
+    path = decoded
+  }
+  return true
+}
+
+// Registered ahead of Vite's own middlewares: fs.deny alone is skipped under `server.fs.strict: false`.
+function denyGenieState(
+  request: IncomingMessage,
+  response: ServerResponse,
+  next: () => void,
+): void {
+  if (!isGenieStateRequest(request.url ?? '/')) {
+    next()
+    return
+  }
+  response.statusCode = 404
+  response.end()
 }
 
 const VIRTUAL_ID = 'virtual:genie-client'
@@ -223,7 +275,15 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
           exclude: ['genie-react'],
           include: [...NESTED_OPTIMIZED_DEPS, ...installedTanstackIncludes(root)],
         },
-        server: { fs: { allow: [searchForWorkspaceRoot(root), genieRoot] } },
+        server: {
+          fs: {
+            allow: [searchForWorkspaceRoot(root), genieRoot],
+            // Plugin config merges by concatenation, so only the genie entry is added to a list the app already set.
+            deny: userConfig.server?.fs?.deny
+              ? [GENIE_STATE_FS_DENY]
+              : [...VITE_DEFAULT_FS_DENY, GENIE_STATE_FS_DENY],
+          },
+        },
       }
     },
 
@@ -254,11 +314,15 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
 
     async configureServer(server) {
       if (!enabled) return
+      server.middlewares.use(denyGenieState)
       const httpServer = server.httpServer
       if (!httpServer) return
 
       if (cloudflare) {
-        const result = await startGenieHub({ rootDir: server.config.root })
+        const result = await startGenieHub({
+          rootDir: server.config.root,
+          allowedOrigins: options.allowedOrigins,
+        })
         hub = result
         hubWsUrl = result.url
         server.config.logger.info(
@@ -275,15 +339,23 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
         return
       }
 
-      bridge = new GenieBridge({
+      const currentBridge = new GenieBridge({
         requestTimeoutMs: options.requestTimeoutMs,
+        allowedOrigins: options.allowedOrigins,
+        // Mirror Vite's own DNS-rebinding allowlist so a host Vite serves can also reach the bridge.
+        allowedHosts: server.config.server.allowedHosts,
         logger: (level, message) => server.config.logger.info(`[genie:${level}] ${message}`),
       })
+      bridge = currentBridge
       httpServer.on('upgrade', (request, socket, head) => {
         bridge?.handleUpgrade(request, socket, head)
       })
       httpServer.once('listening', () => {
-        void writeDiscovery(server, httpServer.address())
+        writeDiscovery(server, httpServer.address(), currentBridge.agentToken).catch((error) => {
+          server.config.logger.error(
+            `[genie] could not publish the bridge for the genie CLI: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        })
       })
       httpServer.once('close', () => {
         bridge?.close()
@@ -394,11 +466,11 @@ function generateClientModule(
 async function writeDiscovery(
   server: ViteDevServer,
   address: string | AddressInfo | null,
+  token: string,
 ): Promise<void> {
   if (!address || typeof address === 'string') return
-  // `localhost` (not a fixed IP) so the CLI connects whether Vite bound IPv4 or IPv6 loopback.
-  const url = `ws://localhost:${address.port}${GENIE_WS_PATH}`
-  await writeDiscoveryFile(server.config.root, { url, port: address.port })
+  const url = bridgeUrlFor(address.address, address.port)
+  await writeDiscoveryFile(server.config.root, { url, port: address.port, token })
   server.config.logger.info(`[genie] bridge ready at ${url}`)
 }
 

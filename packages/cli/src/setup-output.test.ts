@@ -120,7 +120,7 @@ it('gives universal hosts hub integration data without Vite-only manual instruct
   expect(result).toMatchObject({
     data: {
       framework: 'unknown',
-      integration: { scriptUrl: 'http://localhost:4390/__genie/client.js', developmentOnly: true },
+      integration: { scriptUrl: 'http://127.0.0.1:4390/__genie/client.js', developmentOnly: true },
     },
     next: { argv: ['npx', 'genie-react', 'hub'] },
   })

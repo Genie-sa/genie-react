@@ -20,7 +20,6 @@ import {
   GENIE_WS_PATH,
   metaToolDescriptors,
   newId,
-  ROLE_QUERY_PARAM,
   reactQuiesceContract,
   type SessionSummary,
   type ToolDescriptor,
@@ -36,12 +35,18 @@ import {
   type InteractionSettleResult,
   isInteractionTool,
 } from './interaction-manager'
-import { frameKind, matchesOf, parseQueryList, queryStateOf, routerStateOf } from './wire-guards'
+import {
+  rejectUpgrade,
+  UpgradePolicy,
+  type UpgradePolicyOptions,
+  type UpgradeVerdict,
+} from './upgrade-policy'
+import { matchesOf, parseQueryList, queryStateOf, routerStateOf } from './wire-guards'
 
 type BridgeLogLevel = 'info' | 'warn' | 'error'
 type BridgeLogger = (level: BridgeLogLevel, message: string, meta?: unknown) => void
 
-export interface GenieBridgeOptions {
+export interface GenieBridgeOptions extends UpgradePolicyOptions {
   requestTimeoutMs?: number
   /** WS ping cadence used to reap half-open connections (crashed tabs); a peer is dropped after two silent intervals. */
   heartbeatIntervalMs?: number
@@ -93,7 +98,7 @@ interface LatestDocument {
 
 interface Connection {
   socket: WebSocket
-  role: ConnectionRole | null
+  role: ConnectionRole
 }
 
 interface AppResponse {
@@ -224,6 +229,11 @@ export class GenieBridge {
   private readonly connections = new Set<WebSocket>()
   private readonly responsiveSockets = new WeakSet<WebSocket>()
   private readonly heartbeat: ReturnType<typeof setInterval>
+  private readonly upgradePolicy: UpgradePolicy
+  private readonly appOrigins = new WeakMap<
+    WebSocket,
+    Pick<SessionSummary, 'origin' | 'originUnverified'>
+  >()
   private currentSessionId: string | null = null
 
   constructor(options: GenieBridgeOptions = {}) {
@@ -236,6 +246,7 @@ export class GenieBridge {
       options.logicalCollisionGraceMs ?? LOGICAL_COLLISION_GRACE_MS,
     )
     this.log = options.logger ?? (() => {})
+    this.upgradePolicy = new UpgradePolicy(options)
     this.captures = new CaptureManager({
       resolveSession: (target) => (target ? this.resolveSession(target) : this.currentSession()),
       unknownSessionError: (target) => this.unknownSessionError(target),
@@ -255,11 +266,21 @@ export class GenieBridge {
     unrefTimer(this.heartbeat)
   }
 
+  /** The secret agents present to connect; publish it only through the private token store. */
+  get agentToken(): string {
+    return this.upgradePolicy.agentToken
+  }
+
   /** Returns `false` for non-{@link GENIE_WS_PATH} upgrades so another listener (e.g. Vite HMR) can handle them. */
   handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): boolean {
-    const { pathname, role } = parseUpgradeUrl(request.url)
-    if (pathname !== GENIE_WS_PATH) return false
-    this.wss.handleUpgrade(request, socket, head, (ws) => this.onConnection(ws, role))
+    if (new URL(request.url ?? '/', 'http://localhost').pathname !== GENIE_WS_PATH) return false
+    const verdict = this.upgradePolicy.authorize(request)
+    if (!verdict.ok) {
+      this.log('warn', `rejected connection: ${verdict.reason}`)
+      rejectUpgrade(socket, verdict.status, verdict.reason)
+      return true
+    }
+    this.wss.handleUpgrade(request, socket, head, (ws) => this.onConnection(ws, verdict))
     return true
   }
 
@@ -342,6 +363,7 @@ export class GenieBridge {
         ready: session.readyAt !== undefined,
         ...(session.readyAt === undefined ? {} : { readyAt: session.readyAt }),
         current: session.sessionId === current?.sessionId,
+        ...this.appOrigins.get(session.socket),
         ...(staleMs === null ? {} : { staleMs }),
       }
     })
@@ -391,16 +413,30 @@ export class GenieBridge {
       sessions.push(session.sessionId)
       collisions.set(session.logicalSessionId, sessions)
     }
-    return [...collisions]
+    const warnings = [...collisions]
       .filter(([, sessions]) => sessions.length > 1)
       .map(
         ([logicalSessionId, sessions]) =>
           `Logical session collision ${JSON.stringify(logicalSessionId)} across ${sessions.join(', ')}; implicit and logical-id routing is paused until the cloned document is auto-forked.`,
       )
+    const origins = [...this.apps.values()].map((session) => this.appOrigins.get(session.socket))
+    const distinctOrigins = new Set(origins.map((entry) => entry?.origin))
+    if (distinctOrigins.size > 1 && origins.some((entry) => entry?.originUnverified)) {
+      warnings.push(
+        `Sessions come from different origins (${[...distinctOrigins].map((origin) => origin ?? 'native').join(', ')}) and some were admitted only as loopback pages; check each session's origin and pass --session to target your app.`,
+      )
+    }
+    return warnings
   }
 
-  private onConnection(socket: WebSocket, role: ConnectionRole | null): void {
+  private onConnection(
+    socket: WebSocket,
+    { role, origin, originUnverified }: Extract<UpgradeVerdict, { ok: true }>,
+  ): void {
     const connection: Connection = { socket, role }
+    if (origin !== undefined) {
+      this.appOrigins.set(socket, originUnverified ? { origin, originUnverified } : { origin })
+    }
     this.connections.add(socket)
     this.responsiveSockets.add(socket)
     if (role === 'agent') this.registerAgent(socket)
@@ -432,15 +468,8 @@ export class GenieBridge {
       return
     }
 
-    const role: ConnectionRole =
-      connection.role ?? (frameKind(frame)?.startsWith('agent/') ? 'agent' : 'app')
-    if (connection.role === null) {
-      connection.role = role
-      if (role === 'agent') this.registerAgent(connection.socket)
-    }
-
     try {
-      if (role === 'agent')
+      if (connection.role === 'agent')
         this.handleAgentMessage(connection.socket, agentMessageSchema.parse(frame))
       else this.handleAppMessage(connection.socket, appMessageSchema.parse(frame))
     } catch (error) {
@@ -1510,16 +1539,6 @@ export class GenieBridge {
   private send(socket: WebSocket, message: unknown): void {
     if (socket.readyState === WebSocket.OPEN) socket.send(encodeMessage(message))
   }
-}
-
-function parseUpgradeUrl(url: string | undefined): {
-  pathname: string
-  role: ConnectionRole | null
-} {
-  const parsed = new URL(url ?? '/', 'http://localhost')
-  const roleParam = parsed.searchParams.get(ROLE_QUERY_PARAM)
-  const role = roleParam === 'app' || roleParam === 'agent' ? roleParam : null
-  return { pathname: parsed.pathname, role }
 }
 
 function recordOf(value: unknown): Record<string, unknown> | null {

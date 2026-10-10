@@ -261,6 +261,8 @@ export function cliHelp(name?: string): unknown {
           })),
           environment: {
             GENIE_BRIDGE_URL: 'Bridge URL override',
+            GENIE_BRIDGE_TOKEN:
+              'Agent token for --url or GENIE_BRIDGE_URL; wins over the token of a discovered hub at that URL and is ignored for discovered URLs',
             GENIE_SESSION: 'Default app session target',
           },
         }),

@@ -2,7 +2,7 @@ import { lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } fro
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { startGenieHub } from 'genie-react/hub'
+import { removeAgentToken, startGenieHub, writeAgentToken } from 'genie-react/hub'
 import { GENIE_DISCOVERY_FILE } from 'genie-react/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
@@ -700,6 +700,31 @@ describe('runLiveDoctor', () => {
       const session = byLabel('no app session connected yet')
       expect(session?.ok).toBe(false)
       expect(session?.critical).toBe(false)
+    } finally {
+      if (hub.status === 'started') await hub.handle.close()
+    }
+  }, 15_000)
+
+  it('keeps the agent token out of its report and explains a token mismatch', async () => {
+    const dir = await project({ 'package.json': pkg({ react: '^19' }) })
+    const hub = await startGenieHub({ rootDir: dir })
+    try {
+      if (hub.status !== 'started') throw new Error('expected a fresh hub')
+      const healthy = await runLiveDoctor({ cwd: dir, logger: silent })
+      expect(JSON.stringify(healthy)).not.toContain(hub.handle.bridge.agentToken)
+
+      await writeAgentToken(dir, 'stale-token')
+      const stale = await runLiveDoctor({ cwd: dir, logger: silent })
+      const check = stale.checks.find((c) => c.label === 'bridge accepts agent connections')
+      expect(check?.ok).toBe(false)
+      expect(check?.detail).toContain('rejected the agent token')
+      expect(JSON.stringify(stale)).not.toContain('stale-token')
+
+      await removeAgentToken(dir)
+      const unauthenticated = await runLiveDoctor({ cwd: dir, logger: silent })
+      expect(unauthenticated.checks).toContainEqual(
+        expect.objectContaining({ label: 'hub publishes an agent token', ok: false }),
+      )
     } finally {
       if (hub.status === 'started') await hub.handle.close()
     }

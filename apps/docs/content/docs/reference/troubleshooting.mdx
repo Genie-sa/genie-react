@@ -22,6 +22,45 @@ npx @genie-react/cli status --verbose
 
 Use `status --verbose` for connection diagnostics; `doctor` accepts `--live` for stack probes.
 
+## The hub refuses the connection
+
+A refused agent connection fails with a message about the agent token. The hub restarted, a
+different hub answered, or `genie-react` and `@genie-react/cli` are different versions. Run the
+command from the app folder so the CLI rediscovers the hub. With `--url` or `GENIE_BRIDGE_URL` for a
+hub outside this folder tree, set `GENIE_BRIDGE_TOKEN` and use the hub's IP address, such as
+`ws://127.0.0.1:4390/__genie/ws`. The CLI does not send the token to a `localhost` name it cannot
+match to a discovered hub, and writes an `insecure-bridge-url` diagnostic instead.
+
+Agents must run on the same machine as the hub. The hub refuses agent connections from other
+machines even when they present the right token.
+
+### An older CLI against a newer hub
+
+A `@genie-react/cli` release older than the app's `genie-react` cannot authenticate. Its commands
+retry for 11 to 14 seconds and then report `No app is connected` even though the app is open.
+The dev server log shows `[genie:warn] rejected connection: missing agent token`. Update
+`@genie-react/cli` to the same version as `genie-react`.
+
+The reverse, a newer CLI against an older hub, still works. The CLI then writes an
+`unauthenticated-bridge` diagnostic because that hub accepts any local page as an agent; update
+`genie-react`.
+
+### Browser pages
+
+The hub also refuses browser pages from other origins. The Vite bridge accepts pages from the dev
+server's own origin, including its IP address with `vite --host`. The standalone hub used by
+Next.js accepts loopback pages on the Next.js port. `genie-react hub` accepts loopback pages
+(`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`) on any port and marks those sessions with
+`originUnverified` in `status`. Other hostnames, such as a tunnel or a custom local domain, need an
+allowed origin:
+
+- Vite: `genie({ allowedOrigins: ['https://app.example.test'] })`, or the host in Vite's
+  `server.allowedHosts`.
+- Next.js: `registerGenie({ allowedOrigins: ['https://app.example.test'] })`.
+- `genie-react hub`: `GENIE_ALLOWED_ORIGINS=https://app.example.test` (comma-separated).
+
+The Vite dev server log shows each refusal as `[genie:warn] rejected connection: …`.
+
 ## More than one bridge matches
 
 Move into the correct app folder or pass `--url`. Genie stops on ambiguity instead of guessing.

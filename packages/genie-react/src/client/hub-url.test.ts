@@ -14,11 +14,11 @@ describe('deriveHubWsUrl', () => {
     )
   })
 
-  it('falls back to localhost with the default port when there is no script src', () => {
-    expect(deriveHubWsUrl(undefined, 4390)).toBe('ws://localhost:4390/__genie/ws')
+  it('falls back to 127.0.0.1 with the default port when there is no script src', () => {
+    expect(deriveHubWsUrl(undefined, 4390)).toBe('ws://127.0.0.1:4390/__genie/ws')
   })
 
   it('falls back on a malformed src', () => {
-    expect(deriveHubWsUrl('not a url', 4390)).toBe('ws://localhost:4390/__genie/ws')
+    expect(deriveHubWsUrl('not a url', 4390)).toBe('ws://127.0.0.1:4390/__genie/ws')
   })
 })

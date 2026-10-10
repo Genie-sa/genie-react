@@ -18,7 +18,7 @@ pnpm --filter @genie-react/router-demo dev
 ```bash
 agent-browser --session docs-case-proof open \
   'http://localhost:3030/?_genie=docs-case-proof'
-export GENIE_BRIDGE_URL=ws://localhost:3030/__genie/ws
+export GENIE_BRIDGE_URL=ws://127.0.0.1:3030/__genie/ws
 npx @genie-react/cli call devtools_wait --session docs-case-proof \
   '{"condition":"ready","timeoutMs":10000}'
 ```

@@ -19,7 +19,7 @@ pnpm --filter @genie-react/vite-demo dev
 ```bash
 agent-browser --session docs-case-states open \
   'http://localhost:3040/?_genie=docs-case-states'
-export GENIE_BRIDGE_URL=ws://localhost:3040/__genie/ws
+export GENIE_BRIDGE_URL=ws://127.0.0.1:3040/__genie/ws
 npx @genie-react/cli call devtools_wait --session docs-case-states \
   '{"condition":"ready","timeoutMs":10000}'
 

@@ -1,19 +1,40 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import { isIPv6 } from 'node:net'
 import { dirname, join } from 'node:path'
-import { GENIE_DISCOVERY_FILE } from '../protocol'
+import { GENIE_DISCOVERY_FILE, GENIE_WS_PATH } from '../protocol'
+import { removeAgentToken, writeAgentToken } from './agent-token'
 
 export interface HubDiscovery {
   url: string
   port: number
+  /** Agent token the hub requires; stored in a per-user private file, never under the web-served project root. */
+  token: string
 }
 
-/** Writes the discovery file the genie CLI reads to find the hub; returns the file path. */
+/** Agent URL as the bound IP literal, never `localhost`, so a specific loopback bind cannot be shadowed by a squatter on the other family; wildcards map to 127.0.0.1, which `::` still serves when IPv6 is disabled. */
+export function bridgeUrlFor(address: string, port: number): string {
+  const host = address === '0.0.0.0' || address === '::' ? '127.0.0.1' : address
+  return `ws://${isIPv6(host) ? `[${host}]` : host}:${port}${GENIE_WS_PATH}`
+}
+
+/** Publishes the hub for the genie CLI: endpoint in `.genie/bridge.json`, token in the private token store; returns the discovery path. */
 export async function writeDiscoveryFile(rootDir: string, info: HubDiscovery): Promise<string> {
+  const { token, ...endpoint } = info
   const file = join(rootDir, GENIE_DISCOVERY_FILE)
   const directory = dirname(file)
-  await mkdir(directory, { recursive: true })
+  await mkdir(directory, { recursive: true, mode: 0o700 })
+  await chmod(directory, 0o700)
   await ensureSelfIgnored(directory)
-  await writeFile(file, `${JSON.stringify({ ...info, pid: process.pid }, null, 2)}\n`)
+  // Token first, so a CLI that already sees the new endpoint can authenticate to it.
+  await writeAgentToken(rootDir, token)
+  // Write-then-rename so a concurrent CLI read never sees a torn file.
+  const temporary = `${file}.${process.pid}.tmp`
+  await rm(temporary, { force: true })
+  await writeFile(temporary, `${JSON.stringify({ ...endpoint, pid: process.pid }, null, 2)}\n`, {
+    mode: 0o600,
+    flag: 'wx',
+  })
+  await rename(temporary, file)
   return file
 }
 
@@ -27,6 +48,7 @@ async function ensureSelfIgnored(directory: string): Promise<void> {
 }
 
 export async function removeDiscoveryFile(rootDir: string): Promise<void> {
+  await removeAgentToken(rootDir)
   try {
     await rm(join(rootDir, GENIE_DISCOVERY_FILE))
   } catch {

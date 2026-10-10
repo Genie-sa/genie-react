@@ -74,7 +74,9 @@ For a desktop React Native app running on the development machine, use
 
 The hub listens on the development machine's loopback interface. A physical device cannot use
 these loopback examples directly; it requires an external, tested port forward. This repository
-does not provide a tunnel command. After that forward exists, point Expo at its reachable address:
+does not provide a tunnel command. A forward to an IP address works as is. For a forward with a hostname, start the hub with
+`GENIE_ALLOWED_ORIGINS=http://<forwarded-host>:4390` so it accepts that origin. After that forward
+exists, point Expo at its reachable address:
 
 ```bash
 EXPO_PUBLIC_GENIE_URL=ws://<forwarded-host>:4390/__genie/ws \
@@ -87,7 +89,7 @@ After Expo has opened the app, inspect the machine-readable session state from a
 pin subsequent calls to the one ready `Expo demo` session:
 
 ```bash title="Terminal 3 — agent checks"
-export GENIE_BRIDGE_URL='ws://localhost:4390/__genie/ws'
+export GENIE_BRIDGE_URL='ws://127.0.0.1:4390/__genie/ws'
 
 status_json="$(
   pnpm --filter @genie-react/expo-demo exec genie-react status

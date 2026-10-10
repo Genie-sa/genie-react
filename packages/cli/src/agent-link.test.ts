@@ -2,7 +2,12 @@ import { createStandaloneBridge, type StandaloneBridgeHandle } from 'genie-react
 import { decodeFrame, encodeMessage } from 'genie-react/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
-import { BridgeCallError, GenieAgentLink, type GenieAgentLinkOptions } from './agent-link'
+import {
+  BridgeCallError,
+  BridgeRejectedError,
+  GenieAgentLink,
+  type GenieAgentLinkOptions,
+} from './agent-link'
 
 // biome-ignore lint/suspicious/noExplicitAny: test harness deals in decoded wire frames
 type Frame = any
@@ -13,6 +18,8 @@ function asBridgeCallError(error: unknown): BridgeCallError {
   if (!(error instanceof BridgeCallError)) throw new Error('unreachable')
   return error
 }
+
+const AGENT_TOKEN = 'agent-link-test-token'
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -40,14 +47,14 @@ describe('GenieAgentLink', () => {
   async function makeBridge(
     options?: Parameters<typeof createStandaloneBridge>[0],
   ): Promise<{ handle: StandaloneBridgeHandle; url: string }> {
-    const handle = createStandaloneBridge(options)
+    const handle = createStandaloneBridge({ agentToken: AGENT_TOKEN, ...options })
     const { url } = await handle.listen()
     cleanups.push(() => handle.close())
     return { handle, url }
   }
 
   function makeLink(options: GenieAgentLinkOptions): GenieAgentLink {
-    const link = new GenieAgentLink(options)
+    const link = new GenieAgentLink({ token: AGENT_TOKEN, ...options })
     cleanups.push(() => link.close())
     return link
   }
@@ -100,6 +107,18 @@ describe('GenieAgentLink', () => {
 
     const result = (await link.invoke('echo', { hello: 'world' })) as { echoed: unknown }
     expect(result.echoed).toEqual({ hello: 'world' })
+  })
+
+  it('fails fast with the HTTP status when the hub refuses the agent token', async () => {
+    const { url } = await makeBridge()
+    const link = makeLink({ url, token: 'stale-token', connectTimeoutMs: 5_000 })
+    link.start()
+
+    const started = Date.now()
+    const error = await link.invoke('devtools_status', {}).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(BridgeRejectedError)
+    expect(error).toMatchObject({ status: 401 })
+    expect(Date.now() - started).toBeLessThan(2_000)
   })
 
   it('rejects invoke() when the bridge reports ok:false', async () => {

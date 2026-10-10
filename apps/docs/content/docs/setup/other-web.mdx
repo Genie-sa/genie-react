@@ -22,7 +22,7 @@ omit the manual client from production.
 Load the hub client first in the document head:
 
 ```html
-<script src="http://localhost:4390/__genie/client.js"></script>
+<script src="http://127.0.0.1:4390/__genie/client.js"></script>
 ```
 
 This global client adds session, React, memory, performance, and timeline tools. Use it as the sole
@@ -45,7 +45,7 @@ import { queryCollector } from 'genie-react/collectors/query'
 import { queryClient } from './query-client'
 
 createGenieClient({
-  url: 'ws://localhost:4390/__genie/ws',
+  url: 'ws://127.0.0.1:4390/__genie/ws',
   collectors: [
     sessionCollector(),
     reactCollector(),
@@ -67,7 +67,7 @@ omit its import and collector, and call `timelineCollector()` without options, w
 Open the app with `?_genie=manual-check`, then use a second terminal:
 
 ```bash
-export GENIE_BRIDGE_URL='ws://localhost:4390/__genie/ws'
+export GENIE_BRIDGE_URL='ws://127.0.0.1:4390/__genie/ws'
 npx @genie-react/cli status --session manual-check
 npx @genie-react/cli tools --session manual-check
 ```

@@ -95,6 +95,10 @@ export const sessionSummarySchema = z.object({
   ready: z.boolean().default(true),
   readyAt: z.number().optional(),
   current: z.boolean(),
+  /** Browser Origin the app connected from; absent for native and Node clients. */
+  origin: z.string().optional(),
+  /** True when only the loopback-page rule admitted this session, so any local page on any port could be it. */
+  originUnverified: z.boolean().optional(),
   /** Present when a heartbeat-capable session went silent (likely a dead tab context); default routing skips it while a fresh session exists. */
   staleMs: z.number().optional(),
 })

@@ -8,7 +8,7 @@ import {
   GENIE_DISCOVERY_FILE,
   GENIE_INFO_PATH,
 } from 'genie-react/protocol'
-import { GenieAgentLink } from './agent-link'
+import { BridgeRejectedError, bridgeRejectionHint, GenieAgentLink } from './agent-link'
 import {
   CANONICAL_SKILL_DIRECTORY,
   CLAUDE_SKILL_DIRECTORY,
@@ -22,7 +22,13 @@ import {
   type SkillLocation,
   skillVersion,
 } from './agent-skill'
-import { type BridgeDiscovery, isPidAlive, parseBridgeDiscovery, resolveBridge } from './discovery'
+import {
+  type BridgeDiscovery,
+  isPidAlive,
+  isTokenTransportSafe,
+  parseBridgeDiscovery,
+  resolveBridge,
+} from './discovery'
 import { isRecord } from './guards'
 import { genieCommand, packageManagerCommands } from './package-manager'
 
@@ -373,7 +379,7 @@ export async function runLiveDoctor(options: LiveDoctorOptions = {}): Promise<Do
   let sessionHealth: SessionProbe | null = null
   let sourceMapHealth: SourceMapHealth | null = null
 
-  const { url, source } = await resolveBridge(cwd)
+  const { url, token, source } = await resolveBridge(cwd)
   const origin = httpOriginOf(url)
   if (!origin) {
     checks.push({ label: 'bridge url is well-formed', ok: false, critical: true, detail: url })
@@ -413,13 +419,23 @@ export async function runLiveDoctor(options: LiveDoctorOptions = {}): Promise<Do
     }
 
     if (hub.kind !== 'unreachable') {
-      const session = await probeSession(url, timeoutMs)
+      if (token === undefined && (source === 'file' || source === 'workspace')) {
+        checks.push({
+          label: 'hub publishes an agent token',
+          ok: false,
+          critical: false,
+          detail: 'Older genie-react hubs accept unauthenticated agents; update genie-react.',
+        })
+      }
+      const sendableToken = token !== undefined && isTokenTransportSafe(url) ? token : undefined
+      const probe = await probeSession(url, sendableToken, timeoutMs)
+      const session = 'error' in probe ? null : probe
       sessionHealth = session
       checks.push({
         label: 'bridge accepts agent connections',
         ok: session !== null,
         critical: true,
-        detail: session ? undefined : 'WebSocket round-trip failed',
+        detail: 'error' in probe ? probe.error : undefined,
       })
       if (session) {
         sourceMapHealth = session.sourceMapHealth
@@ -536,9 +552,14 @@ interface SourceMapHealth {
   unknown: number
 }
 
-async function probeSession(url: string, timeoutMs: number): Promise<SessionProbe | null> {
+async function probeSession(
+  url: string,
+  token: string | undefined,
+  timeoutMs: number,
+): Promise<SessionProbe | { error: string }> {
   const link = new GenieAgentLink({
     url,
+    token,
     connectTimeoutMs: timeoutMs,
     invokeTimeoutMs: timeoutMs * 2,
   })
@@ -566,8 +587,13 @@ async function probeSession(url: string, timeoutMs: number): Promise<SessionProb
       roundTripMs,
       sourceMapHealth,
     }
-  } catch {
-    return null
+  } catch (error) {
+    return {
+      error:
+        error instanceof BridgeRejectedError
+          ? bridgeRejectionHint(error)
+          : 'WebSocket round-trip failed',
+    }
   } finally {
     link.close()
   }
@@ -1056,7 +1082,7 @@ function printUniversalSetup(log: Logger): void {
   log.info(`${PREVIEW}No Vite config or Next.js detected — universal setup for any React app:`)
   log.info(`  1. run the hub: npx ${CLI_PACKAGE} hub`)
   log.info(
-    `  2. add first in <head>: <script src="http://localhost:${GENIE_DEFAULT_HUB_PORT}${GENIE_CLIENT_PATH}"></script>`,
+    `  2. add first in <head>: <script src="http://127.0.0.1:${GENIE_DEFAULT_HUB_PORT}${GENIE_CLIENT_PATH}"></script>`,
   )
   log.info('     (the hub prints this tag with its actual port if 4390 was busy)')
 }
