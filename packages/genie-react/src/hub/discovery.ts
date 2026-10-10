@@ -11,9 +11,9 @@ export interface HubDiscovery {
   token: string
 }
 
-/** Agent URL as the bound IP literal, never `localhost` (a squatter on the other address family would get the token); `0.0.0.0` → 127.0.0.1, `::` → [::1], which `::` owns even without dual-stack. */
+/** Agent URL as the bound IP literal, never `localhost`, so a specific loopback bind cannot be shadowed by a squatter on the other family; wildcards map to 127.0.0.1, which `::` still serves when IPv6 is disabled. */
 export function bridgeUrlFor(address: string, port: number): string {
-  const host = address === '0.0.0.0' ? '127.0.0.1' : address === '::' ? '::1' : address
+  const host = address === '0.0.0.0' || address === '::' ? '127.0.0.1' : address
   return `ws://${isIPv6(host) ? `[${host}]` : host}:${port}${GENIE_WS_PATH}`
 }
 

@@ -108,7 +108,7 @@ export async function resolveBridge(cwd: string = process.cwd()): Promise<Resolv
   }
 
   const port = process.env.GENIE_BRIDGE_PORT ?? '5173'
-  return { url: normalizeBridgeUrl(`ws://localhost:${port}${GENIE_WS_PATH}`), source: 'fallback' }
+  return { url: normalizeBridgeUrl(`ws://127.0.0.1:${port}${GENIE_WS_PATH}`), source: 'fallback' }
 }
 
 export async function resolveBridgeUrl(cwd: string = process.cwd()): Promise<string> {

@@ -61,23 +61,23 @@ describe('resolveBridgeUrl', () => {
     expect(await resolveBridgeUrl(nested)).toBe('ws://127.0.0.1:4321/__genie/ws')
   })
 
-  it('falls through to the localhost default when the discovery file is malformed', async () => {
+  it('falls through to the loopback default when the discovery file is malformed', async () => {
     await writeDiscovery('{ not json')
-    expect(await resolveBridgeUrl(cwd)).toBe(`ws://localhost:5173${GENIE_WS_PATH}`)
+    expect(await resolveBridgeUrl(cwd)).toBe(`ws://127.0.0.1:5173${GENIE_WS_PATH}`)
   })
 
   it('falls through to the default when no discovery file exists', async () => {
-    expect(await resolveBridgeUrl(cwd)).toBe(`ws://localhost:5173${GENIE_WS_PATH}`)
+    expect(await resolveBridgeUrl(cwd)).toBe(`ws://127.0.0.1:5173${GENIE_WS_PATH}`)
   })
 
   it('honors GENIE_BRIDGE_PORT and GENIE_WS_PATH in the default', async () => {
     process.env.GENIE_BRIDGE_PORT = '6100'
-    expect(await resolveBridgeUrl(cwd)).toBe(`ws://localhost:6100${GENIE_WS_PATH}`)
+    expect(await resolveBridgeUrl(cwd)).toBe(`ws://127.0.0.1:6100${GENIE_WS_PATH}`)
   })
 
   it('falls through to the default when the discovery file lacks a url', async () => {
     await writeDiscovery(JSON.stringify({ port: 4321 }))
-    expect(await resolveBridgeUrl(cwd)).toBe(`ws://localhost:5173${GENIE_WS_PATH}`)
+    expect(await resolveBridgeUrl(cwd)).toBe(`ws://127.0.0.1:5173${GENIE_WS_PATH}`)
   })
 
   it('removes a stale discovery file (dead pid) and falls through to the default', async () => {
@@ -85,7 +85,7 @@ describe('resolveBridgeUrl', () => {
     await writeDiscovery(
       JSON.stringify({ url: 'ws://127.0.0.1:4321/__genie/ws', port: 4321, pid: 999_999 }),
     )
-    expect(await resolveBridgeUrl(cwd)).toBe(`ws://localhost:5173${GENIE_WS_PATH}`)
+    expect(await resolveBridgeUrl(cwd)).toBe(`ws://127.0.0.1:5173${GENIE_WS_PATH}`)
     expect(existsSync(join(cwd, GENIE_DISCOVERY_FILE))).toBe(false)
     expect(JSON.parse(stderrSpy.mock.calls.flat().join(''))).toMatchObject({
       status: 'diagnostic',
@@ -239,7 +239,7 @@ describe('resolveBridgeUrl', () => {
     )
 
     expect(await resolveBridge(cwd)).toEqual({
-      url: `ws://localhost:5173${GENIE_WS_PATH}`,
+      url: `ws://127.0.0.1:5173${GENIE_WS_PATH}`,
       source: 'fallback',
     })
   })
