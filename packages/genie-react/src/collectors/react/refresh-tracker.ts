@@ -1,4 +1,4 @@
-import { getDisplayName, getRDTHook, onRendererInject, type Unsubscribe } from 'bippy'
+import { type Fiber, getDisplayName, getRDTHook, onRendererInject, type Unsubscribe } from 'bippy'
 import { toUnsubscribe } from './bippy-compat'
 import { type NodeId, nameOf, registerFiber } from './fiber'
 import {
@@ -22,14 +22,20 @@ const SOURCE_CLASSIFY_LIMIT = 120
 const SOURCE_CLASSIFY_BUDGET_MS = 500
 const REFRESH_QUIESCENCE_MS = 1_000
 
+/** Bippy releases a fiber's id when it unmounts, so the id is captured while the fiber is still mounted. */
+interface RefreshFiber {
+  fiber: Fiber
+  id: NodeId
+}
+
 interface StoredRefreshEvent {
   sequence: number
   timestamp: number
   filePaths: string[]
   updatedComponents: string[]
   remountedComponents: string[]
-  updatedFibers: ReactRefreshUpdate['updatedFibers']
-  remountedFibers: ReactRefreshUpdate['staleFibers']
+  updatedFibers: RefreshFiber[]
+  remountedFibers: RefreshFiber[]
   counts: RefreshEventCounts
   profileCommitsExcluded: number
 }
@@ -136,6 +142,9 @@ function componentNames(types: unknown[]): string[] {
     .slice(0, COMPONENT_LIMIT_PER_KIND)
 }
 
+const refreshFibers = (fibers: Fiber[]): RefreshFiber[] =>
+  fibers.slice(0, FIBER_LIMIT_PER_KIND).map((fiber) => ({ fiber, id: registerFiber(fiber) }))
+
 function recordRefresh(update: ReactRefreshUpdate): void {
   clearSourceCache()
   const event: StoredRefreshEvent = {
@@ -144,8 +153,8 @@ function recordRefresh(update: ReactRefreshUpdate): void {
     filePaths: [...new Set<string>(update.filePaths)],
     updatedComponents: componentNames(update.updatedComponents),
     remountedComponents: componentNames(update.staleComponents),
-    updatedFibers: update.updatedFibers.slice(0, FIBER_LIMIT_PER_KIND),
-    remountedFibers: update.staleFibers.slice(0, FIBER_LIMIT_PER_KIND),
+    updatedFibers: refreshFibers(update.updatedFibers),
+    remountedFibers: refreshFibers(update.staleFibers),
     counts: {
       updatedComponents: update.updatedComponents.length,
       remountedComponents: update.staleComponents.length,
@@ -290,7 +299,9 @@ export async function getRefreshEvents(query: {
   const selected = events
     .filter((event) => event.sequence > (query.afterSequence ?? 0))
     .slice(-query.limit)
-  const fibers = selected.flatMap((event) => [...event.updatedFibers, ...event.remountedFibers])
+  const fibers = selected.flatMap((event) =>
+    [...event.updatedFibers, ...event.remountedFibers].map(({ fiber }) => fiber),
+  )
   const classified =
     query.includeSource || query.appOnly
       ? await classifyFibersWithinBudget(fibers, {
@@ -307,15 +318,15 @@ export async function getRefreshEvents(query: {
         }
   let offset = 0
   const reports = selected.map((event): RefreshEventReport => {
-    const toReports = (eventFibers: ReactRefreshUpdate['updatedFibers']) =>
-      eventFibers.map((fiber): RefreshFiberReport => {
+    const toReports = (eventFibers: RefreshFiber[]) =>
+      eventFibers.map(({ fiber, id }): RefreshFiberReport => {
         const classification = classified.classes[offset++] ?? {
           source: null,
           isLibrary: false,
           ownership: 'unknown' as const,
         }
         return {
-          id: registerFiber(fiber),
+          id,
           name: nameOf(fiber),
           source: query.includeSource ? classification.source : null,
           sourceOwnership: classification.ownership,
