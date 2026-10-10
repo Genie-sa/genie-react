@@ -1,6 +1,11 @@
 import type { Fiber, MemoizedState, Props } from 'bippy'
 import { plainOwnKeys } from '../causal/safe-object'
-import { type DeepDiffResult, isDataDescriptor, safeOwnPropertyDescriptor } from './deep-diff'
+import {
+  type DeepDiffResult,
+  isDataDescriptor,
+  presenceDiff,
+  safeOwnPropertyDescriptor,
+} from './deep-diff'
 import { classifyHook, isStatefulHook } from './fiber'
 import {
   createRenderEvidenceBudget,
@@ -129,7 +134,12 @@ function propChange(
   after: PropSlot,
   evidence: RenderEvidenceBudget,
 ): PropRenderChange {
-  const deepDiff = diffWithBudget(before.value, after.value, evidence, PROP_PLAIN_OBJECT_DEPTH)
+  const deepDiff =
+    before.present === after.present
+      ? diffWithBudget(before.value, after.value, evidence, PROP_PLAIN_OBJECT_DEPTH)
+      : after.present
+        ? presenceDiff('added', after.value)
+        : presenceDiff('removed', before.value)
   const referenceChanged =
     before.present && after.present && isReference(before.value) && isReference(after.value)
   const referenceOnly =
@@ -145,10 +155,21 @@ function propChange(
     unstable: referenceChanged,
     beforePresent: before.present,
     afterPresent: after.present,
-    before: stateValue(before.value, evidence),
-    after: stateValue(after.value, evidence),
+    before: stateValue(before.value, evidence, PROP_PLAIN_OBJECT_DEPTH),
+    after: stateValue(after.value, evidence, PROP_PLAIN_OBJECT_DEPTH),
     deepDiff,
   }
+}
+
+/** Both sides are functions with different identities, the usual inline callback that defeats memo. */
+export function isFunctionIdentityChange(fiber: Fiber, change: PropRenderChange): boolean {
+  const prev: Props | null = fiber.alternate?.memoizedProps ?? null
+  const next: Props | null = fiber.memoizedProps
+  if (!change.referenceChanged || !prev || !next) return false
+  return (
+    typeof readPropSlot(prev, change.name)?.value === 'function' &&
+    typeof readPropSlot(next, change.name)?.value === 'function'
+  )
 }
 
 function isReference(value: unknown): boolean {

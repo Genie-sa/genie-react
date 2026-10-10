@@ -80,6 +80,23 @@ describe('deepDiff', () => {
     expect(reads).toBe(0)
   })
 
+  it('snapshots added plain objects as objects and other references as instances', () => {
+    expect(deepDiff([], [{ a: 1 }, new Map()]).changes).toEqual([
+      { kind: 'value', path: '/length', before: 0, after: 2 },
+      { kind: 'added', path: '/0', after: { type: 'object' } },
+      { kind: 'added', path: '/1', after: { type: 'instance' } },
+    ])
+  })
+
+  it('marks plain objects with symbol keys as truncated', () => {
+    const key = Symbol('key')
+    expect(deepDiff({ [key]: 1, a: 1 }, { [key]: 1, a: 1 }, { plainObjectDepth: 1 })).toEqual({
+      changes: [{ kind: 'reference-only', path: '' }],
+      visited: 2,
+      truncated: true,
+    })
+  })
+
   it('keeps class instances opaque even when plain objects are walked', () => {
     class Value {
       count = 1

@@ -1,6 +1,10 @@
+import { isKnownProxy } from '../causal/proxy-tagging'
 import {
+  hasOwnSymbolKeys,
+  isArrayValue,
   isDataDescriptor,
   isPlainObject,
+  isWalkablePlainObject,
   plainOwnKeys,
   safeOwnPropertyDescriptor,
 } from '../causal/safe-object'
@@ -130,6 +134,15 @@ export function deepDiff(
     budget.remainingChanges = Math.max(0, budget.remainingChanges - state.changes.length)
   }
   return { changes: state.changes, visited: state.visited, truncated: state.truncated }
+}
+
+/** A slot present on one side only; presence is the change even when the present value is undefined. */
+export function presenceDiff(kind: 'added' | 'removed', value: unknown): DeepDiffResult {
+  const state = { truncated: false }
+  const snapshot = snapshotValue(value, state)
+  const change: DeepDiffChange =
+    kind === 'added' ? { kind, path: '', after: snapshot } : { kind, path: '', before: snapshot }
+  return { changes: [change], visited: 1, truncated: state.truncated }
 }
 
 function walk(
@@ -312,8 +325,9 @@ function recordChange(state: DiffState, change: DeepDiffChange): void {
 }
 
 function containerKind(value: unknown, depth: number, state: DiffState): ContainerKind | null {
-  if (Array.isArray(value)) return 'array'
-  return depth < state.plainObjectDepth && isPlainObject(value) ? 'object' : null
+  if (typeof value !== 'object' || value === null || isKnownProxy(value)) return null
+  if (isArrayValue(value)) return 'array'
+  return depth < state.plainObjectDepth && isWalkablePlainObject(value) ? 'object' : null
 }
 
 function isOpaqueReference(value: unknown, kind: ContainerKind | null): boolean {
@@ -339,6 +353,8 @@ function scanArrayProperties(value: object, state: DiffState): PropertyScan {
 function scanPlainObjectProperties(value: object, state: DiffState): PropertyScan {
   const keys = plainOwnKeys(value)
   if (keys === undefined) return { properties: [], complete: false }
+  // Symbol-keyed fields are never compared, so their presence rules out a reference-only claim.
+  if (hasOwnSymbolKeys(value)) state.truncated = true
   return scanOwnProperties(value, keys.length, (index) => keys[index] ?? '', state)
 }
 
@@ -365,7 +381,7 @@ function scanOwnProperties(
   return { properties, complete: limit === count }
 }
 
-function snapshotValue(value: unknown, state: DiffState): DeepDiffValue {
+function snapshotValue(value: unknown, state: Pick<DiffState, 'truncated'>): DeepDiffValue {
   if (value === null) return value
   if (typeof value === 'string') {
     if (value.length <= MAX_TEXT_CODE_UNITS) return value
@@ -398,7 +414,8 @@ function snapshotValue(value: unknown, state: DiffState): DeepDiffValue {
   }
   if (typeof value === 'function') return { type: 'function' }
 
-  return Array.isArray(value) ? { type: 'array' } : { type: 'instance' }
+  if (isArrayValue(value)) return { type: 'array' }
+  return isPlainObject(value) ? { type: 'object' } : { type: 'instance' }
 }
 
 function appendPointer(path: string, segment: string, state: DiffState): string {

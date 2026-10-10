@@ -403,9 +403,19 @@ const renderComponentSchema = z.object({
   referenceOnlyPropRenders: z
     .number()
     .describe(
-      'Renders whose only React input changes were props with a new reference but no observed value change.',
+      'Renders of memo, PureComponent, or shouldComponentUpdate components whose only input changes were props with a new reference and a complete bounded diff that found no value change. Excludes truncated diffs; see undeterminedReferencePropRenders.',
     ),
   unstableRenders: z.number().describe('Legacy alias for referenceOnlyPropRenders.'),
+  functionIdentityPropRenders: z
+    .number()
+    .describe(
+      'Renders of memo, PureComponent, or shouldComponentUpdate components whose only changed props were functions with a new identity, such as inline callbacks. Not counted as reference-only because closures can differ.',
+    ),
+  undeterminedReferencePropRenders: z
+    .number()
+    .describe(
+      'Renders of memo, PureComponent, or shouldComponentUpdate components whose only input changes were reference-changed props that a truncated diff or partial input scan could not classify as reference-only.',
+    ),
   forget: z
     .boolean()
     .describe('Legacy name for runtime memo-cache presence; use compiler.memoCacheObserved.'),

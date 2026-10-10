@@ -13,6 +13,7 @@ import {
   routerNotificationFor,
   type SubscriberRegistration,
 } from '../causal/external-store-registry'
+import { isKnownProxy } from '../causal/proxy-tagging'
 import {
   callObserverMethod,
   isQueryObserver,
@@ -20,6 +21,7 @@ import {
   queryObserverIdentity,
   queryObserverOptions,
 } from '../causal/query-observer'
+import { isWalkablePlainObject, plainOwnKeys } from '../causal/safe-object'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from './deep-diff'
 import { nameOf } from './fiber'
 import { type InstanceDescriptor, instanceForMountedFiber } from './instance-identity'
@@ -48,6 +50,7 @@ export interface PendingQuerySubscriberRegistration {
 export const HOOK_WALK_LIMIT = 1_000
 const STATE_VALUE_DEPTH = 2
 const STATE_VALUE_MAX_ENTRIES = 20
+const PREVIEW_KEY_LIMIT = 10
 const STATE_VALUE_MAX_STRING_LENGTH = 200
 const SNAPSHOT_FIELD_OUTPUT_LIMIT = 50
 const QUERY_OBSERVER_LIMIT = 200
@@ -117,13 +120,17 @@ const RENDER_CAUSE_KINDS: RenderCauseKind[] = [
   'unknown',
 ]
 
-/** Bound causal values before retention; render tracking never pins an app's full state graph. */
-export function stateValue(value: unknown, evidence?: RenderEvidenceBudget): unknown {
+/** Bound causal values before retention; plain objects shallower than plainObjectDepth preview their key names. */
+export function stateValue(
+  value: unknown,
+  evidence?: RenderEvidenceBudget,
+  plainObjectDepth = 0,
+): unknown {
   if (evidence && !scanInputEvidence(evidence, 'dehydrate')) {
     return { __genie_dehydrated__: true, preview: '[omitted: commit budget]' }
   }
   try {
-    const bounded = boundedStateValue(value, 0, [], new WeakSet(), evidence)
+    const bounded = boundedStateValue(value, 0, [], new WeakSet(), evidence, plainObjectDepth)
     return dehydrate(bounded, {
       depth: STATE_VALUE_DEPTH,
       maxEntries: STATE_VALUE_MAX_ENTRIES,
@@ -164,6 +171,7 @@ function boundedStateValue(
   path: ReadonlyArray<string | number>,
   seen: WeakSet<object>,
   evidence?: RenderEvidenceBudget,
+  plainObjectDepth = 0,
 ): unknown {
   if (typeof value === 'function') {
     return dehydratedValue('function', 'ƒ anonymous()', path)
@@ -178,8 +186,11 @@ function boundedStateValue(
   const object = value as object
   if (seen.has(object)) return dehydratedValue('circular', '[Circular]', path)
 
+  if (isKnownProxy(object)) return dehydratedValue('object', '[proxy not inspected]', path)
   if (!Array.isArray(value)) {
-    return dehydratedValue('object', '[object fields not inspected]', path)
+    return depth < plainObjectDepth && isWalkablePlainObject(object)
+      ? plainObjectKeyPreview(object, path)
+      : dehydratedValue('object', '[object fields not inspected]', path)
   }
   const length = ownArrayLength(value)
   if (depth >= STATE_VALUE_DEPTH) {
@@ -191,6 +202,22 @@ function boundedStateValue(
   } finally {
     seen.delete(object)
   }
+}
+
+function plainObjectKeyPreview(
+  value: object,
+  path: ReadonlyArray<string | number>,
+): Record<string, unknown> {
+  const keys = plainOwnKeys(value)
+  if (!keys) return dehydratedValue('object', '[object fields not inspected]', path)
+  const shown = keys.slice(0, PREVIEW_KEY_LIMIT).join(', ')
+  const hidden = keys.length - PREVIEW_KEY_LIMIT
+  return dehydratedValue(
+    'object',
+    hidden > 0 ? `{${shown}, … ${hidden} more}` : `{${shown}}`,
+    path,
+    keys.length,
+  )
 }
 
 function boundedArrayValue(

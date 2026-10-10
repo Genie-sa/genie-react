@@ -62,6 +62,77 @@ describe('diffProps', () => {
     ])
   })
 
+  it('reports an array nested in a plain object prop as reference-only at its path', () => {
+    expect(
+      diffProps(propsFiber({ filter: { items: [1, 2] } }, { filter: { items: [1, 2] } })),
+    ).toMatchObject([
+      {
+        name: 'filter',
+        referenceOnly: true,
+        deepDiff: {
+          changes: [{ kind: 'reference-only', path: '/items' }],
+          truncated: false,
+        },
+      },
+    ])
+  })
+
+  it('reports a presence-only change even when the present value is undefined', () => {
+    expect(diffProps(propsFiber({ a: undefined }, {}))).toMatchObject([
+      {
+        name: 'a',
+        beforePresent: true,
+        afterPresent: false,
+        deepDiff: { changes: [{ kind: 'removed', path: '', before: { type: 'undefined' } }] },
+      },
+    ])
+    expect(diffProps(propsFiber({}, { a: undefined }))).toMatchObject([
+      {
+        name: 'a',
+        deepDiff: { changes: [{ kind: 'added', path: '', after: { type: 'undefined' } }] },
+      },
+    ])
+  })
+
+  it('never claims reference-only for objects with symbol keys or for React elements', () => {
+    const tag = Symbol('tag')
+    const element = () => ({
+      $$typeof: Symbol.for('react.transitional.element'),
+      type: 'b',
+      props: {},
+    })
+
+    expect(
+      diffProps(
+        propsFiber(
+          { meta: { [tag]: 1 }, icon: element() },
+          { meta: { [tag]: 2 }, icon: element() },
+        ),
+      ),
+    ).toMatchObject([
+      { name: 'meta', referenceOnly: false, deepDiff: { truncated: true } },
+      {
+        name: 'icon',
+        referenceOnly: false,
+        deepDiff: { changes: [{ kind: 'reference-only', path: '' }], truncated: true },
+      },
+    ])
+  })
+
+  it('previews walked plain-object props by their key names', () => {
+    const [change] = diffProps(
+      propsFiber({ badge: { label: 'a', tone: 1 } }, { badge: { label: 'b', tone: 1 } }),
+    )
+
+    expect(change?.after).toEqual({
+      __genie_dehydrated__: true,
+      kind: 'object',
+      preview: '{label, tone}',
+      path: [],
+      size: 2,
+    })
+  })
+
   it('keeps nested objects opaque below the first prop level', () => {
     expect(
       diffProps(propsFiber({ style: { inner: { a: 1 } } }, { style: { inner: { a: 1 } } })),
@@ -136,12 +207,94 @@ describe('render input safety', () => {
     expect(inputCoverage(evidence).propsNotEnumerated).toBe(true)
   })
 
-  it('stops at the commit work budget and discloses the truncated scan', () => {
-    const evidence = createRenderEvidenceBudget(createCommitWorkBudget({ operationLimit: 1 }))
+  it('stops at the attribution budget and discloses the truncated scan', () => {
+    const attribution = createCommitWorkBudget({ operationLimit: 1, now: () => 0 })
+    const commitWork = createCommitWorkBudget({ operationLimit: 5, now: () => 0 })
+    const evidence = createRenderEvidenceBudget(attribution, commitWork)
     const changes = diffProps(propsFiber({ a: 1, b: 1, c: 1 }, { a: 2, b: 2, c: 2 }), evidence)
 
-    expect(changes.length).toBeLessThan(3)
+    expect(changes).toMatchObject([
+      {
+        name: 'a',
+        deepDiff: { changes: [], visited: 0, truncated: true },
+        before: { preview: '[omitted: commit budget]' },
+      },
+    ])
+    expect(inputCoverage(evidence)).toEqual({
+      complete: false,
+      omittedInputs: 0,
+      scanTruncated: true,
+      propsNotEnumerated: false,
+    })
+    expect(commitWork.remainingOperations).toBe(5)
+    expect(commitWork.exhaustedSubsystems.size).toBe(0)
+  })
+
+  it('caps attribution per fiber even when the commit pool has room', () => {
+    const props = (value: number) =>
+      Object.fromEntries(Array.from({ length: 1_200 }, (_, index) => [`p${index}`, value]))
+    const evidence = createRenderEvidenceBudget(
+      createCommitWorkBudget({ operationLimit: 50_000, now: () => 0 }),
+    )
+
+    expect(diffProps(propsFiber(props(0), props(1)), evidence)).toHaveLength(50)
     expect(inputCoverage(evidence)).toMatchObject({ complete: false, scanTruncated: true })
+  })
+
+  it('treats props whose key listing throws as not enumerated', () => {
+    const props = new Proxy(
+      {},
+      {
+        ownKeys() {
+          throw new Error('revoked')
+        },
+      },
+    )
+    const evidence = createRenderEvidenceBudget()
+
+    expect(diffProps(propsFiber(props, { value: 1 }), evidence)).toEqual([])
+    expect(inputCoverage(evidence)).toMatchObject({
+      propsNotEnumerated: true,
+      scanTruncated: false,
+    })
+  })
+
+  it('discloses a prop slot whose descriptor lookup throws', () => {
+    let lookups = 0
+    const props = new Proxy(
+      { value: 1 },
+      {
+        getOwnPropertyDescriptor(target, key) {
+          lookups += 1
+          if (lookups > 1) throw new Error('trap')
+          return Reflect.getOwnPropertyDescriptor(target, key)
+        },
+      },
+    )
+    const evidence = createRenderEvidenceBudget()
+
+    expect(diffProps(propsFiber(props, { value: 2 }), evidence)).toEqual([])
+    expect(inputCoverage(evidence)).toMatchObject({
+      propsNotEnumerated: false,
+      scanTruncated: true,
+    })
+  })
+
+  it('truncates a plain-object prop walk that runs out of attribution budget', () => {
+    const evidence = createRenderEvidenceBudget(
+      createCommitWorkBudget({ operationLimit: 4, now: () => 0 }),
+    )
+    const [change] = diffProps(
+      propsFiber({ badge: { a: 1, b: 2, c: 3 } }, { badge: { a: 1, b: 2, c: 3 } }),
+      evidence,
+    )
+
+    expect(change).toMatchObject({
+      name: 'badge',
+      referenceOnly: false,
+      deepDiff: { truncated: true },
+    })
+    expect(inputCoverage(evidence).scanTruncated).toBe(true)
   })
 
   it('retains at most the input evidence limit and counts the omitted changes', () => {

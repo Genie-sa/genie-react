@@ -9,13 +9,19 @@ import {
 const INPUT_EVIDENCE_LIMIT = 50
 const DEEP_DIFF_VISIT_LIMIT = 500
 const DEEP_DIFF_CHANGE_LIMIT = 50
+// Bounds one fiber's attribution so a single wide component cannot spend the commit's whole attribution pool.
+const FIBER_ATTRIBUTION_OPERATION_LIMIT = 1_000
 
 export interface RenderEvidenceBudget {
   remainingInputs: number
   omittedInputs: number
   scanTruncated: boolean
   propsNotEnumerated: boolean
+  remainingOperations: number
+  /** Per-commit attribution pool, separate from the measurement budget so exhausting it only truncates input evidence. */
+  attributionWork: CommitWorkBudget | undefined
   deepDiff: DeepDiffBudget
+  /** Measurement budget, used only for instance identity lookups. */
   commitWork: CommitWorkBudget | undefined
 }
 
@@ -26,21 +32,35 @@ export interface RenderInputCoverage {
   propsNotEnumerated: boolean
 }
 
-export function createRenderEvidenceBudget(commitWork?: CommitWorkBudget): RenderEvidenceBudget {
-  return {
+export function createRenderEvidenceBudget(
+  attributionWork?: CommitWorkBudget,
+  commitWork?: CommitWorkBudget,
+): RenderEvidenceBudget {
+  const budget: RenderEvidenceBudget = {
     remainingInputs: INPUT_EVIDENCE_LIMIT,
     omittedInputs: 0,
     scanTruncated: false,
     propsNotEnumerated: false,
+    remainingOperations: FIBER_ATTRIBUTION_OPERATION_LIMIT,
+    attributionWork,
     deepDiff: createDeepDiffBudget(DEEP_DIFF_VISIT_LIMIT, DEEP_DIFF_CHANGE_LIMIT, () =>
-      consumeCommitWork(commitWork, 'deep-diff'),
+      consumeAttribution(budget, 'deep-diff'),
     ),
     commitWork,
   }
+  return budget
+}
+
+function consumeAttribution(budget: RenderEvidenceBudget, subsystem: string): boolean {
+  if (budget.remainingOperations <= 0 || !consumeCommitWork(budget.attributionWork, subsystem)) {
+    return false
+  }
+  budget.remainingOperations -= 1
+  return true
 }
 
 export function scanInputEvidence(budget: RenderEvidenceBudget, subsystem: string): boolean {
-  if (consumeCommitWork(budget.commitWork, subsystem)) return true
+  if (consumeAttribution(budget, subsystem)) return true
   truncateInputScan(budget)
   return false
 }
