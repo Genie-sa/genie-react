@@ -468,6 +468,12 @@ const compactCauseSchema = z.object({
     .describe(
       'Prop, state or context name, store label, query hash, router ID or parent component.',
     ),
+  contextIndex: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe('Which context read changed, for a component that reads the same context twice.'),
   referenceOnly: z.literal(true).optional(),
   reason: z
     .string()

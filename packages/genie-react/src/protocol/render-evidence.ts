@@ -31,6 +31,7 @@ export interface CompactRenderCause<
   kind: Kind
   evidence: Evidence
   name?: string
+  contextIndex?: number
   referenceOnly?: true
   reason?: string
   changedResultFields?: string[]
@@ -49,7 +50,7 @@ export function memoCounters(
   )
 }
 
-/** A render cause reduced to its kind, evidence, the input's name and how it was matched; values and diffs are dropped. */
+/** A render cause reduced to its kind, evidence, the input's name (plus the read index that tells repeated context reads apart) and how it was matched; values and diffs are dropped. */
 export function compactRenderCause<Kind extends string, Evidence extends string>(
   cause: RenderCauseFields<Kind, Evidence>,
 ): CompactRenderCause<Kind, Evidence> {
@@ -66,6 +67,9 @@ export function compactRenderCause<Kind extends string, Evidence extends string>
     kind: cause.kind,
     evidence: cause.evidence,
     ...(typeof name === 'string' ? { name } : {}),
+    ...(cause.kind === 'context' && typeof fields.contextIndex === 'number'
+      ? { contextIndex: fields.contextIndex }
+      : {}),
     ...(cause.kind === 'props' && fields.referenceOnly === true
       ? { referenceOnly: true as const }
       : {}),
