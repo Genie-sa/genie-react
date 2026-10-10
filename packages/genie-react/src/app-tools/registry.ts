@@ -175,27 +175,32 @@ async function runHandler(entry: AppToolEntry, args: never): Promise<unknown> {
   return result
 }
 
+const NOT_SERIALIZABLE_HINT = 'return plain data, not DOM nodes, fibers, or class instances'
+
 /** Pre-flights the wire encoding: an unserializable result would otherwise vanish into a bridge timeout or silently collapse, and an unbounded one floods the agent's context. */
 function guardResultSize(name: string, result: unknown, capBytes: number): void {
   let lossy: string | null
   try {
     lossy = findLossyValue(result, 'result', new Set())
   } catch (error) {
-    throw new Error(
-      `"${name}" returned a value that cannot be serialized (${errorMessage(error)}) — return plain data, not DOM nodes, fibers, or class instances`,
+    throw new GenieToolError(
+      `"${name}" returned a value that cannot be serialized (${errorMessage(error)})`,
+      { code: 'RESULT_NOT_SERIALIZABLE', hint: NOT_SERIALIZABLE_HINT },
     )
   }
   if (lossy) {
-    throw new Error(
-      `"${name}" returned a value that cannot cross the wire: ${lossy} — return plain serializable data`,
-    )
+    throw new GenieToolError(`"${name}" returned a value that cannot cross the wire: ${lossy}`, {
+      code: 'RESULT_NOT_SERIALIZABLE',
+      hint: 'return plain serializable data',
+    })
   }
   let encoded: string
   try {
     encoded = encodeMessage(result)
   } catch (error) {
-    throw new Error(
-      `"${name}" returned a value that cannot be serialized (${errorMessage(error)}) — return plain data, not DOM nodes, fibers, or class instances`,
+    throw new GenieToolError(
+      `"${name}" returned a value that cannot be serialized (${errorMessage(error)})`,
+      { code: 'RESULT_NOT_SERIALIZABLE', hint: NOT_SERIALIZABLE_HINT },
     )
   }
   const bytes = new TextEncoder().encode(encoded).byteLength
@@ -205,8 +210,12 @@ function guardResultSize(name: string, result: unknown, capBytes: number): void 
     typeof result === 'object' && result !== null
       ? ` (top-level keys: ${Object.keys(result).slice(0, 10).join(', ')})`
       : ''
-  throw new Error(
-    `"${name}" returned ~${kb}KB — over its ${Math.round(capBytes / 1024)}KB result cap, too large for an agent to read${shape}. Return a summary, accept limit/filter args, or raise maxResultBytes on the tool if this size is intentional.`,
+  throw new GenieToolError(
+    `"${name}" returned ~${kb}KB — over its ${Math.round(capBytes / 1024)}KB result cap, too large for an agent to read${shape}`,
+    {
+      code: 'RESULT_TOO_LARGE',
+      hint: 'return a summary, accept limit/filter args, or raise maxResultBytes on the tool if this size is intentional',
+    },
   )
 }
 

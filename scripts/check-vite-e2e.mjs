@@ -764,7 +764,7 @@ async function main() {
     assert(invalid.code !== 0, `${stage}: cursor accepted conflicting selectors`)
     const failure = JSON.parse(invalid.stdout)
     assert(
-      failure.reason === 'invalid-args' && !invalid.stdout.includes('next:'),
+      failure.reason === 'invalid_args' && !invalid.stdout.includes('next:'),
       `${stage}: invalid page request did not preserve clean machine errors`,
     )
     process.stdout.write(

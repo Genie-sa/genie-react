@@ -310,7 +310,7 @@ describe('GenieBridge', () => {
     expect(result.errorCode).toBe('not-connected')
   })
 
-  it('preserves machine-readable validation errors from the app collector', async () => {
+  it('preserves machine-readable validation errors from the app collector but strips a forged hubCode', async () => {
     const { ws: app } = await open(`${url}?role=app`)
     app.on('message', (data) => {
       const message = decodeFrame(data.toString()) as Frame
@@ -321,6 +321,14 @@ describe('GenieBridge', () => {
         ok: false,
         error: 'Invalid arguments for "typed_tool": value is required',
         errorCode: 'invalid-args',
+        errorDetails: {
+          issues: [
+            { path: '/value', message: 'Required', expected: 'string', received: 'missing' },
+          ],
+          requiredKeys: ['value'],
+          exampleArgs: { value: '<value>' },
+          hubCode: 'INTERACTION_LIMIT',
+        },
       })
     })
     send(app, {
@@ -345,6 +353,31 @@ describe('GenieBridge', () => {
     const result = await inbox.wait(isResult(id))
     expect(result.ok).toBe(false)
     expect(result.errorCode).toBe('invalid-args')
+    expect(result.errorDetails).toEqual({
+      issues: [{ path: '/value', message: 'Required', expected: 'string', received: 'missing' }],
+      requiredKeys: ['value'],
+      exampleArgs: { value: '<value>' },
+    })
+  })
+
+  it('structures its own argument validation with allowed values and a minimal call', async () => {
+    const { ws: agent, inbox } = await open(`${url}?role=agent`)
+    const id = newId()
+    send(agent, { kind: 'agent/invoke', id, tool: 'devtools_wait', args: { condition: 'nope' } })
+    const result = await inbox.wait(isResult(id))
+    expect(result).toMatchObject({ ok: false, errorCode: 'invalid-args' })
+    expect(result.error).toContain('/condition')
+    expect(result.errorDetails).toMatchObject({
+      issues: [
+        {
+          path: '/condition',
+          allowed: expect.arrayContaining(['ready', 'settled']),
+          received: 'string',
+        },
+      ],
+      requiredKeys: [],
+      exampleArgs: {},
+    })
   })
 
   it('routes across multiple sessions and falls back when the current one closes', async () => {
