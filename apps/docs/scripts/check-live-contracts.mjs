@@ -10,7 +10,9 @@ const cliPath = resolve(repoRoot, 'packages/cli/dist/cli.js')
 const { GENIE_BRIDGE_URL, GENIE_SESSION } = process.env
 
 if (!GENIE_BRIDGE_URL || !GENIE_SESSION) {
-  console.error('Set GENIE_BRIDGE_URL and GENIE_SESSION to one ready app before this check.')
+  console.error(
+    "Set GENIE_BRIDGE_URL and GENIE_SESSION (plus GENIE_BRIDGE_TOKEN from that app's .genie/bridge.json) to one ready app before this check.",
+  )
   process.exit(1)
 }
 

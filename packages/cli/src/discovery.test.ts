@@ -4,9 +4,15 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { GENIE_DISCOVERY_FILE, GENIE_WS_PATH } from 'genie-react/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { isPidAlive, normalizeBridgeUrl, resolveBridge, resolveBridgeUrl } from './discovery'
+import {
+  isPidAlive,
+  normalizeBridgeUrl,
+  resolveBridge,
+  resolveBridgeToken,
+  resolveBridgeUrl,
+} from './discovery'
 
-const ENV_KEYS = ['GENIE_BRIDGE_URL', 'GENIE_BRIDGE_PORT'] as const
+const ENV_KEYS = ['GENIE_BRIDGE_URL', 'GENIE_BRIDGE_PORT', 'GENIE_BRIDGE_TOKEN'] as const
 
 describe('resolveBridgeUrl', () => {
   let cwd: string
@@ -115,6 +121,53 @@ describe('resolveBridgeUrl', () => {
     expect((await resolveBridge(cwd)).source).toBe('fallback')
   })
 
+  it('carries the agent token published alongside the discovered url', async () => {
+    await writeDiscovery(
+      JSON.stringify({ url: 'ws://localhost:4321/__genie/ws', port: 4321, token: 'file-token' }),
+    )
+    expect(await resolveBridge(cwd)).toEqual({
+      url: 'ws://localhost:4321/__genie/ws',
+      token: 'file-token',
+      source: 'file',
+    })
+  })
+
+  it('pairs an explicit url with the token of the discovery file publishing that endpoint', async () => {
+    await writeDiscovery(
+      JSON.stringify({ url: 'ws://localhost:4321/__genie/ws', port: 4321, token: 'file-token' }),
+    )
+    expect(await resolveBridgeToken('ws://127.0.0.1:4321/__genie/ws', cwd)).toBe('file-token')
+    expect(await resolveBridgeToken('ws://localhost:9999/__genie/ws', cwd)).toBeUndefined()
+    expect(await resolveBridgeToken('ws://remote.example:4321/__genie/ws', cwd)).toBeUndefined()
+
+    process.env.GENIE_BRIDGE_URL = 'ws://localhost:4321/__genie/ws'
+    expect((await resolveBridge(cwd)).token).toBe('file-token')
+    process.env.GENIE_BRIDGE_TOKEN = 'env-token'
+    expect((await resolveBridge(cwd)).token).toBe('env-token')
+    expect(await resolveBridgeToken('ws://remote.example:4321/__genie/ws', cwd)).toBe('env-token')
+  })
+
+  it('pairs an explicit url with a matching descendant bridge token from a monorepo root', async () => {
+    await mkdir(join(cwd, '.git'))
+    for (const [name, port] of [
+      ['admin', 4321],
+      ['shop', 4322],
+    ] as const) {
+      const file = join(cwd, 'apps', name, GENIE_DISCOVERY_FILE)
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(
+        file,
+        JSON.stringify({
+          url: `ws://localhost:${port}/__genie/ws`,
+          pid: process.pid,
+          token: `${name}-token`,
+        }),
+      )
+    }
+
+    expect(await resolveBridgeToken('ws://localhost:4322/__genie/ws', cwd)).toBe('shop-token')
+  })
+
   it('discovers one live descendant bridge when invoked from a monorepo root', async () => {
     await mkdir(join(cwd, '.git'))
     const appFile = join(cwd, 'apps', 'shop', GENIE_DISCOVERY_FILE)
@@ -124,11 +177,13 @@ describe('resolveBridgeUrl', () => {
       JSON.stringify({
         url: 'ws://127.0.0.1:4321/__genie/ws',
         pid: process.pid,
+        token: 'shop-token',
       }),
     )
 
     expect(await resolveBridge(cwd)).toEqual({
       url: 'ws://127.0.0.1:4321/__genie/ws',
+      token: 'shop-token',
       source: 'workspace',
     })
   })

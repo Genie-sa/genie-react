@@ -17,7 +17,13 @@ const require = createRequire(join(root, 'packages/cli/package.json'))
 const { WebSocket } = require('ws')
 const fixture = await mkdtemp(join(tmpdir(), 'genie-json-cli-'))
 const cleanups = []
-const env = { ...process.env, GENIE_BRIDGE_URL: '', GENIE_SESSION: '', NO_COLOR: '1' }
+const env = {
+  ...process.env,
+  GENIE_BRIDGE_URL: '',
+  GENIE_BRIDGE_TOKEN: '',
+  GENIE_SESSION: '',
+  NO_COLOR: '1',
+}
 let checks = 0
 
 function lines(text) {
@@ -133,6 +139,7 @@ try {
   const bridge = createStandaloneBridge()
   cleanups.push(() => bridge.close())
   const { url } = await bridge.listen()
+  env.GENIE_BRIDGE_TOKEN = bridge.bridge.agentToken
   const app = new WebSocket(`${url}?role=app`)
   cleanups.push(() => app.close())
   await new Promise((resolve, reject) => {

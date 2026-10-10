@@ -5,6 +5,8 @@ export interface RegisterGenieOptions {
   port?: number
   /** Directory the discovery file is written to (defaults to the project cwd). */
   rootDir?: string
+  /** Browser origins allowed to connect as apps beyond loopback pages (e.g. a LAN or tunnel host). */
+  allowedOrigins?: readonly string[]
 }
 
 const HUB_FLAG = Symbol.for('genie-react.hub')
@@ -21,6 +23,7 @@ export async function registerGenie(options: RegisterGenieOptions = {}): Promise
   try {
     const result = await startGenieHub({
       rootDir: options.rootDir,
+      allowedOrigins: options.allowedOrigins,
       port: options.port ?? envPort() ?? GENIE_DEFAULT_HUB_PORT,
     })
     if (result.status === 'started') holder[HUB_FLAG] = result.handle

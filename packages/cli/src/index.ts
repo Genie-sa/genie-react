@@ -8,7 +8,7 @@ import {
   GENIE_DISCOVERY_FILE,
   GENIE_INFO_PATH,
 } from 'genie-react/protocol'
-import { GenieAgentLink } from './agent-link'
+import { BridgeRejectedError, bridgeRejectionHint, GenieAgentLink } from './agent-link'
 import { type BridgeDiscovery, isPidAlive, parseBridgeDiscovery, resolveBridge } from './discovery'
 import { isRecord } from './guards'
 
@@ -123,6 +123,9 @@ export interface DoctorOptions {
   logger?: Logger
 }
 
+/** Discovery as doctor reports it: the agent token stays in the owner-only file, never in printed output. */
+export type PublicBridgeDiscovery = Omit<BridgeDiscovery, 'token'>
+
 export interface DoctorCheck {
   label: string
   ok: boolean
@@ -134,7 +137,7 @@ export interface DoctorResult {
   ok: boolean
   framework: Framework
   checks: DoctorCheck[]
-  bridge: BridgeDiscovery | null
+  bridge: PublicBridgeDiscovery | null
   versions: {
     cli: string
     runtime: string | null
@@ -147,7 +150,7 @@ export interface DoctorResult {
     activeHash: string | null
     current: boolean
   }
-  bridgeCandidates: BridgeDiscovery[]
+  bridgeCandidates: PublicBridgeDiscovery[]
   remediation: string[]
   live?: {
     sessionHealth: SessionProbe | null
@@ -369,7 +372,7 @@ export async function runLiveDoctor(options: LiveDoctorOptions = {}): Promise<Do
   let sessionHealth: SessionProbe | null = null
   let sourceMapHealth: SourceMapHealth | null = null
 
-  const { url, source } = await resolveBridge(cwd)
+  const { url, token, source } = await resolveBridge(cwd)
   const origin = httpOriginOf(url)
   if (!origin) {
     checks.push({ label: 'bridge url is well-formed', ok: false, critical: true, detail: url })
@@ -409,13 +412,14 @@ export async function runLiveDoctor(options: LiveDoctorOptions = {}): Promise<Do
     }
 
     if (hub.kind !== 'unreachable') {
-      const session = await probeSession(url, timeoutMs)
+      const probe = await probeSession(url, token, timeoutMs)
+      const session = 'error' in probe ? null : probe
       sessionHealth = session
       checks.push({
         label: 'bridge accepts agent connections',
         ok: session !== null,
         critical: true,
-        detail: session ? undefined : 'WebSocket round-trip failed',
+        detail: 'error' in probe ? probe.error : undefined,
       })
       if (session) {
         sourceMapHealth = session.sourceMapHealth
@@ -532,9 +536,14 @@ interface SourceMapHealth {
   unknown: number
 }
 
-async function probeSession(url: string, timeoutMs: number): Promise<SessionProbe | null> {
+async function probeSession(
+  url: string,
+  token: string | undefined,
+  timeoutMs: number,
+): Promise<SessionProbe | { error: string }> {
   const link = new GenieAgentLink({
     url,
+    token,
     connectTimeoutMs: timeoutMs,
     invokeTimeoutMs: timeoutMs * 2,
   })
@@ -562,8 +571,13 @@ async function probeSession(url: string, timeoutMs: number): Promise<SessionProb
       roundTripMs,
       sourceMapHealth,
     }
-  } catch {
-    return null
+  } catch (error) {
+    return {
+      error:
+        error instanceof BridgeRejectedError
+          ? bridgeRejectionHint(error)
+          : 'WebSocket round-trip failed',
+    }
   } finally {
     link.close()
   }
@@ -1079,10 +1093,11 @@ function isCommonJs(code: string): boolean {
   return /\bmodule\.exports\b|\brequire\s*\(/.test(code)
 }
 
-function readBridgeDiscovery(cwd: string): BridgeDiscovery | null {
+function readBridgeDiscovery(cwd: string): PublicBridgeDiscovery | null {
   const path = join(cwd, GENIE_DISCOVERY_FILE)
   if (!existsSync(path)) return null
-  return parseBridgeDiscovery(readFileSafe(path))
+  const discovery = parseBridgeDiscovery(readFileSafe(path))
+  return discovery && { url: discovery.url, pid: discovery.pid }
 }
 
 function findPackageDir(cwd: string, name: string): string | null {

@@ -39,6 +39,14 @@ During production builds, the `genie()` plugin replaces this dedicated component
 Rollup resolves the app graph. Genie browser modules and protocol code therefore stay out of the
 production assets.
 
+The bridge accepts app connections from the dev server's own origin and from loopback pages. With
+`vite --host`, pages opened through the machine's IP address connect as well. For a custom hostname
+or tunnel, list it in Vite's `server.allowedHosts` or pass it to the plugin:
+
+```ts
+genie({ allowedOrigins: ['https://storefront.example.test'] })
+```
+
 ## Check the setup
 
 ```bash

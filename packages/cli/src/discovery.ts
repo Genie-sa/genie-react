@@ -18,6 +18,7 @@ export function isPidAlive(pid: number): boolean {
 export interface BridgeDiscovery {
   url: string
   pid?: number
+  token?: string
 }
 
 /** Validate the WebSocket endpoint before it reaches ws or a paste-ready shell command. */
@@ -54,11 +55,14 @@ export function parseBridgeDiscovery(raw: string): BridgeDiscovery | null {
   return {
     url,
     pid: typeof parsed.pid === 'number' ? parsed.pid : undefined,
+    token: typeof parsed.token === 'string' ? parsed.token : undefined,
   }
 }
 
 export interface ResolvedBridge {
   url: string
+  /** Agent token the hub requires; undefined when nothing published one for this URL. */
+  token?: string
   /** `fallback` means the URL is a guess (no env, no discovery file) — callers should say so instead of presenting it as fact. */
   source: 'env' | 'file' | 'workspace' | 'fallback'
 }
@@ -78,19 +82,24 @@ const MAX_DISCOVERY_DEPTH = 5
 interface WorkspaceDiscovery {
   file: string
   url: string
+  token?: string
 }
 
-/** Priority: env → nearest discovery file → one live descendant in a workspace root → localhost fallback. */
+/** Priority: env → nearest discovery file → one live descendant in a workspace root → localhost fallback; the token travels with the file that published the URL. */
 export async function resolveBridge(cwd: string = process.cwd()): Promise<ResolvedBridge> {
   const fromEnv = process.env.GENIE_BRIDGE_URL
-  if (fromEnv) return { url: normalizeBridgeUrl(fromEnv), source: 'env' }
+  if (fromEnv) {
+    const url = normalizeBridgeUrl(fromEnv)
+    return { url, token: await resolveBridgeToken(url, cwd), source: 'env' }
+  }
 
   const fromFile = await readDiscoveryUpward(cwd)
-  if (fromFile) return { url: fromFile, source: 'file' }
+  if (fromFile) return { url: fromFile.url, token: fromFile.token, source: 'file' }
 
   const fromWorkspace = await readWorkspaceDiscoveries(cwd)
-  if (fromWorkspace.length === 1) {
-    return { url: fromWorkspace[0]?.url ?? '', source: 'workspace' }
+  const [only] = fromWorkspace
+  if (only && fromWorkspace.length === 1) {
+    return { url: only.url, token: only.token, source: 'workspace' }
   }
   if (fromWorkspace.length > 1) {
     const choices = fromWorkspace
@@ -109,8 +118,38 @@ export async function resolveBridgeUrl(cwd: string = process.cwd()): Promise<str
   return (await resolveBridge(cwd)).url
 }
 
+/** Token for an explicitly chosen URL: GENIE_BRIDGE_TOKEN, else the discovery file (upward, then below a workspace root) publishing that endpoint. */
+export async function resolveBridgeToken(
+  url: string,
+  cwd: string = process.cwd(),
+): Promise<string | undefined> {
+  const fromEnv = process.env.GENIE_BRIDGE_TOKEN
+  if (fromEnv) return fromEnv
+  const nearest = await readDiscoveryUpward(cwd)
+  if (nearest && sameEndpoint(nearest.url, url)) return nearest.token
+  const descendants = await readWorkspaceDiscoveries(cwd)
+  return descendants.find((discovery) => sameEndpoint(discovery.url, url))?.token
+}
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+// Discovery always says `localhost`; a user-typed 127.0.0.1 or [::1] for the same port is the same hub.
+function sameEndpoint(a: string, b: string): boolean {
+  const left = new URL(a)
+  const right = new URL(b)
+  const hostsMatch =
+    left.hostname === right.hostname ||
+    (LOOPBACK_HOSTS.has(left.hostname) && LOOPBACK_HOSTS.has(right.hostname))
+  return (
+    hostsMatch &&
+    left.protocol === right.protocol &&
+    left.port === right.port &&
+    left.pathname === right.pathname
+  )
+}
+
 // Walks up to the filesystem root, so `genie-react call` works from nested dirs and monorepo roots.
-async function readDiscoveryUpward(startDir: string): Promise<string | null> {
+async function readDiscoveryUpward(startDir: string): Promise<BridgeDiscovery | null> {
   const { root } = parse(startDir)
   let dir = startDir
   for (;;) {
@@ -119,7 +158,7 @@ async function readDiscoveryUpward(startDir: string): Promise<string | null> {
       const raw = await readFile(path, 'utf8')
       const discovery = parseBridgeDiscovery(raw)
       if (discovery?.url) {
-        if (discovery.pid === undefined || isPidAlive(discovery.pid)) return discovery.url
+        if (discovery.pid === undefined || isPidAlive(discovery.pid)) return discovery
         // A SIGKILLed dev server/hub never cleans up; a dead pid means the URL is a lie — heal instead of failing weird.
         await unlink(path).catch(() => {})
         writeDiagnostic(
@@ -154,7 +193,7 @@ async function readWorkspaceDiscoveries(cwd: string): Promise<WorkspaceDiscovery
       if (entry.name === '.genie') {
         const file = join(dir, entry.name, 'bridge.json')
         const discovery = await readLiveDiscovery(file)
-        if (discovery) found.push({ file, url: discovery.url })
+        if (discovery) found.push({ file, url: discovery.url, token: discovery.token })
         continue
       }
       if (IGNORED_DISCOVERY_DIRS.has(entry.name)) continue

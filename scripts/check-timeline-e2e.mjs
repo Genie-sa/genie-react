@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -130,6 +130,8 @@ createRoot(document.getElementById('root')).render(h(App))
   await page.goto(`${url}/?_genie=timeline-e2e`)
   await page.getByRole('button', { name: 'Slow network' }).waitFor()
   assert.equal((await call('devtools_wait', { condition: 'ready', timeoutMs: 10000 })).ok, true)
+  const discovery = JSON.parse(await readFile(join(fixture, '.genie/bridge.json'), 'utf8'))
+  env.GENIE_BRIDGE_TOKEN = discovery.token
   const docsCheck = await run(
     process.execPath,
     [join(root, 'apps/docs/scripts/check-live-contracts.mjs')],
@@ -198,6 +200,7 @@ createRoot(document.getElementById('root')).render(h(App))
   })
   const hubAddress = await hub.listen()
   env.GENIE_BRIDGE_URL = hubAddress.url
+  env.GENIE_BRIDGE_TOKEN = hub.bridge.agentToken
   scriptHubPort = hubAddress.port
   const scriptPage = await browser.newPage()
   scriptPage.on('pageerror', (error) => errors.push(error.message))

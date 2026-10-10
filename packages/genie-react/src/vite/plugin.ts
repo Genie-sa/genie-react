@@ -21,6 +21,8 @@ export interface GenieViteOptions {
   react?: boolean
   /** Override the bridge's per-request timeout in ms (default 20000). */
   requestTimeoutMs?: number
+  /** Browser origins allowed to connect as apps beyond the dev server's own origin and loopback pages. */
+  allowedOrigins?: readonly string[]
 }
 
 // Bare specifiers on purpose: the injected module executes in the app, so these resolve through the app's own genie-react install — the same copy <Genie /> imports.
@@ -258,7 +260,10 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
       if (!httpServer) return
 
       if (cloudflare) {
-        const result = await startGenieHub({ rootDir: server.config.root })
+        const result = await startGenieHub({
+          rootDir: server.config.root,
+          allowedOrigins: options.allowedOrigins,
+        })
         hub = result
         hubWsUrl = result.url
         server.config.logger.info(
@@ -275,15 +280,19 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
         return
       }
 
-      bridge = new GenieBridge({
+      const currentBridge = new GenieBridge({
         requestTimeoutMs: options.requestTimeoutMs,
+        allowedOrigins: options.allowedOrigins,
+        // Mirror Vite's own DNS-rebinding allowlist so a host Vite serves can also reach the bridge.
+        allowedHosts: server.config.server.allowedHosts,
         logger: (level, message) => server.config.logger.info(`[genie:${level}] ${message}`),
       })
+      bridge = currentBridge
       httpServer.on('upgrade', (request, socket, head) => {
         bridge?.handleUpgrade(request, socket, head)
       })
       httpServer.once('listening', () => {
-        void writeDiscovery(server, httpServer.address())
+        void writeDiscovery(server, httpServer.address(), currentBridge.agentToken)
       })
       httpServer.once('close', () => {
         bridge?.close()
@@ -394,11 +403,12 @@ function generateClientModule(
 async function writeDiscovery(
   server: ViteDevServer,
   address: string | AddressInfo | null,
+  token: string,
 ): Promise<void> {
   if (!address || typeof address === 'string') return
   // `localhost` (not a fixed IP) so the CLI connects whether Vite bound IPv4 or IPv6 loopback.
   const url = `ws://localhost:${address.port}${GENIE_WS_PATH}`
-  await writeDiscoveryFile(server.config.root, { url, port: address.port })
+  await writeDiscoveryFile(server.config.root, { url, port: address.port, token })
   server.config.logger.info(`[genie] bridge ready at ${url}`)
 }
 

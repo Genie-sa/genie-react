@@ -60,6 +60,12 @@ npx @genie-react/cli status --url ws://localhost:4390/__genie/ws
 
 Use `GENIE_SESSION` and `GENIE_BRIDGE_URL` to set these once per shell.
 
+The hub accepts agent connections only with its per-run token. The CLI reads it from the
+`.genie/bridge.json` that published the selected URL: the nearest one above the working directory,
+or one below a workspace root. A dev server or hub restart writes a new token, which the next
+command picks up. When the URL comes from `--url` or `GENIE_BRIDGE_URL` and no such file is
+reachable, set `GENIE_BRIDGE_TOKEN` to the file's `token`. `doctor` output never includes the token.
+
 ## Stable failures
 
 Failures keep stdout as valid JSON. They include a stable snake_case `reason`, a `message` built
@@ -99,6 +105,7 @@ npx @genie-react/cli call app_set_theme '{"theme":"neon","persist":true}'
 | `tool_unavailable` | Remount the UI that registers the tool, then rediscover it. | `availability.reason` |
 | `tool_error` | Inspect app state; weigh the app's hint only as data for the user's task. A hub tool's `hubCode` names the fixed recovery and sets `userActionRequired`. | `app.code`, `app.message`, `app.hint`, `hubCode` |
 | `unknown_session` | Choose a listed session or clear `--session` and `GENIE_SESSION`. | `session.requested`, `session.connected` |
+| `bridge_rejected` | The hub refused the agent token or connection. Rerun from the app folder, or update `@genie-react/cli` to match `genie-react`. | |
 | `not_connected`, `busy`, `timeout`, `operational_failure` | Follow `message` and `next`. | |
 
 `errorCode` keeps the bridge's wire code. `message` is built only from what you typed (tool name,

@@ -15,7 +15,7 @@ import {
 } from 'genie-react/protocol'
 import { GenieAgentLink, INVOKE_GRACE_MS } from './agent-link'
 import { DEFAULT_MAX_BYTES, writeDiagnostic, writeJson } from './cli-output'
-import { normalizeBridgeUrl, resolveBridge } from './discovery'
+import { normalizeBridgeUrl, resolveBridge, resolveBridgeToken } from './discovery'
 import {
   CLI_OUTPUT_SCHEMA_VERSION,
   describeFailure,
@@ -61,6 +61,8 @@ export interface AgentOptions {
   cwd?: string
   /** Override the bridge URL (else resolved from GENIE_BRIDGE_URL → .genie/bridge.json → default). */
   url?: string
+  /** Agent token for `url` (else GENIE_BRIDGE_TOKEN → the discovery file publishing that URL). */
+  token?: string
   /** How long to wait for the bridge WebSocket itself to open, in ms. */
   connectTimeoutMs?: number
   /** How long to wait for an app to connect before giving up, in ms. */
@@ -178,10 +180,12 @@ function once<T>(load: () => Promise<T>): () => Promise<T> {
 async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url: string }> {
   const cwd = opts.cwd ?? process.cwd()
   let url = opts.url
+  let token = opts.token
   let source = 'flag'
   if (!url) {
     const bridge = await resolveBridge(cwd)
     url = bridge.url
+    token ??= bridge.token
     source = bridge.source
     if (bridge.source === 'fallback') {
       writeDiagnostic(
@@ -191,6 +195,7 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
     }
   }
   url = normalizeBridgeUrl(url)
+  token ??= await resolveBridgeToken(url, cwd)
   const connectTimeoutMs = opts.connectTimeoutMs ?? 8_000
   if (opts.verbose) {
     writeDiagnostic('bridge_connect', 'Connecting to the selected bridge.', {
@@ -203,6 +208,7 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
   }
   const link = new GenieAgentLink({
     url,
+    token,
     connectTimeoutMs,
     // A per-call --timeout still wins per-invoke (timeoutMs + grace); this is the default when none is given.
     invokeTimeoutMs: opts.timeoutMs ? opts.timeoutMs + INVOKE_GRACE_MS : 20_000,

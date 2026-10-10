@@ -4,12 +4,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** Peeks `kind` before schema selection; malformed frames yield `undefined` and get rejected by `schema.parse` instead of throwing. */
-export function frameKind(frame: unknown): string | undefined {
-  if (isRecord(frame) && typeof frame.kind === 'string') return frame.kind
-  return undefined
-}
-
 /** The `matches` array from a `react_find_components` result, or `undefined`. */
 export function matchesOf(result: unknown): unknown[] | undefined {
   if (isRecord(result) && Array.isArray(result.matches)) return result.matches

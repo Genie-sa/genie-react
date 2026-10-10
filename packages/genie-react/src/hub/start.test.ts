@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -41,13 +41,25 @@ describe('startGenieHub multi-session behavior', () => {
     expect(await discoveredPort(dirA)).toBe(BASE_PORT)
   })
 
+  it('publishes the agent token in an owner-only discovery file', async () => {
+    const result = track(await startGenieHub({ rootDir: dirA, port: BASE_PORT + 5 }))
+    if (result.status !== 'started') throw new Error('expected a fresh hub')
+    const file = join(dirA, GENIE_DISCOVERY_FILE)
+    const discovery = JSON.parse(await readFile(file, 'utf8'))
+
+    expect(discovery.token).toBe(result.handle.bridge.agentToken)
+    if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600)
+  })
+
   it('reuses a hub that already serves the same app root instead of starting a second one', async () => {
     const first = track(await startGenieHub({ rootDir: dirA, port: BASE_PORT + 10 }))
+    const published = await readFile(join(dirA, GENIE_DISCOVERY_FILE), 'utf8')
     const second = await startGenieHub({ rootDir: dirA, port: BASE_PORT + 10 })
 
     expect(first.status).toBe('started')
     expect(second.status).toBe('reused')
     expect(second.port).toBe(BASE_PORT + 10)
+    expect(await readFile(join(dirA, GENIE_DISCOVERY_FILE), 'utf8')).toBe(published)
   })
 
   it("walks to the next port when another app's hub owns the preferred one", async () => {

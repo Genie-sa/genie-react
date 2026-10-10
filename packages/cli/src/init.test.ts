@@ -538,6 +538,27 @@ describe('runLiveDoctor', () => {
     }
   }, 15_000)
 
+  it('keeps the agent token out of its report and explains a token mismatch', async () => {
+    const dir = await project({ 'package.json': pkg({ react: '^19' }) })
+    const hub = await startGenieHub({ rootDir: dir })
+    try {
+      if (hub.status !== 'started') throw new Error('expected a fresh hub')
+      const file = join(dir, GENIE_DISCOVERY_FILE)
+      const healthy = await runLiveDoctor({ cwd: dir, logger: silent })
+      expect(JSON.stringify(healthy)).not.toContain(hub.handle.bridge.agentToken)
+
+      const discovery = JSON.parse(await readFile(file, 'utf8'))
+      await writeFile(file, JSON.stringify({ ...discovery, token: 'stale-token' }), 'utf8')
+      const stale = await runLiveDoctor({ cwd: dir, logger: silent })
+      const check = stale.checks.find((c) => c.label === 'bridge accepts agent connections')
+      expect(check?.ok).toBe(false)
+      expect(check?.detail).toContain('rejected the agent token')
+      expect(JSON.stringify(stale)).not.toContain('stale-token')
+    } finally {
+      if (hub.status === 'started') await hub.handle.close()
+    }
+  }, 15_000)
+
   it('reports nothing listening when the discovery file points at a dead port', async () => {
     const dir = await project({ 'package.json': pkg({ react: '^19' }) })
     const port = await freePort()

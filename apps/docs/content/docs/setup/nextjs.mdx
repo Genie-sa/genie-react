@@ -35,6 +35,9 @@ export async function register(): Promise<void> {
 }
 ```
 
+Pages served from `localhost` or `127.0.0.1` connect to the hub on any port. For another hostname,
+pass it as `registerGenie({ allowedOrigins: ['https://app.example.test'] })`.
+
 This loads the core session, React, memory, performance, and timeline tools. Query tools require
 the separate registration below. The timeline initially has browser request and React lanes; inspect
 its lane availability before expecting Query or Router events.

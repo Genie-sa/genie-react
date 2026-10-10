@@ -22,6 +22,25 @@ npx @genie-react/cli status --verbose
 
 Use `status --verbose` for connection diagnostics; `doctor` accepts `--live` for stack probes.
 
+## The hub refuses the connection
+
+A refused agent connection fails with a message about the agent token. The hub restarted or a
+different hub answered. Run the command from the app folder so the CLI rereads
+`.genie/bridge.json`. With `--url` or `GENIE_BRIDGE_URL` from elsewhere, set `GENIE_BRIDGE_TOKEN` to
+that file's `token`.
+
+The hub also refuses browser pages from other sites. Pages served from `localhost`, `127.0.0.1`,
+`[::1]` or `*.localhost` connect on any port. A page whose IP address matches the dev server's own
+address connects too, as with `vite --host`. Other hostnames, such as a tunnel or a custom local
+domain, need an allowed origin:
+
+- Vite: `genie({ allowedOrigins: ['https://app.example.test'] })`, or the host in Vite's
+  `server.allowedHosts`.
+- Next.js: `registerGenie({ allowedOrigins: ['https://app.example.test'] })`.
+- `genie-react hub`: `GENIE_ALLOWED_ORIGINS=https://app.example.test` (comma-separated).
+
+The Vite dev server log shows each refusal as `[genie:warn] rejected connection: …`.
+
 ## More than one bridge matches
 
 Move into the correct app folder or pass `--url`. Genie stops on ambiguity instead of guessing.

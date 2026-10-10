@@ -15,6 +15,8 @@ export interface StartHubOptions {
   strictPort?: boolean
   /** How many consecutive ports to try when walking (default 10). */
   portAttempts?: number
+  /** Browser origins allowed to connect as apps beyond loopback pages; `GENIE_ALLOWED_ORIGINS` (comma-separated) adds more. */
+  allowedOrigins?: readonly string[]
 }
 
 export type StartHubResult =
@@ -32,22 +34,25 @@ export async function startGenieHub(options: StartHubOptions = {}): Promise<Star
   const rootDir = options.rootDir ?? process.cwd()
   const preferred = options.port ?? GENIE_DEFAULT_HUB_PORT
   const attempts = options.strictPort ? 1 : (options.portAttempts ?? 10)
+  const allowedOrigins = [...(options.allowedOrigins ?? []), ...envAllowedOrigins()]
 
   for (let offset = 0; offset < attempts; offset++) {
     const port = preferred + offset
-    const handle = createStandaloneBridge({ rootDir })
+    const handle = createStandaloneBridge({ rootDir, allowedOrigins })
     try {
       const bound = await handle.listen(port)
-      await writeDiscoveryFile(rootDir, { url: hubUrl(bound.port), port: bound.port })
+      await writeDiscoveryFile(rootDir, {
+        url: hubUrl(bound.port),
+        port: bound.port,
+        token: handle.bridge.agentToken,
+      })
       return { status: 'started', handle, port: bound.port, ...urls(bound.port) }
     } catch (error) {
       await handle.close()
       if (!isAddrInUse(error)) throw error
       const occupant = await probeHubInfo(port)
-      if (occupant?.rootDir === rootDir) {
-        await writeDiscoveryFile(rootDir, { url: hubUrl(port), port })
-        return { status: 'reused', port, ...urls(port) }
-      }
+      // The owning hub already wrote discovery with its token; rewriting it here would publish this process's pid and no token.
+      if (occupant?.rootDir === rootDir) return { status: 'reused', port, ...urls(port) }
     }
   }
   throw new Error(
@@ -79,6 +84,13 @@ async function probeHubInfo(port: number): Promise<{ rootDir: string } | null> {
   } catch {
     return null
   }
+}
+
+function envAllowedOrigins(): string[] {
+  return (process.env.GENIE_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin !== '')
 }
 
 function hubUrl(port: number): string {

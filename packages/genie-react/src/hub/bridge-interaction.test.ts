@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { decodeFrame, devtoolsInteractionStopContract, newId } from '../protocol'
-import { type Frame, isResult, open, send } from './bridge-test-harness'
-import { createStandaloneBridge, type StandaloneBridgeHandle } from './standalone'
+import { createTestBridge, type Frame, isResult, open, send } from './bridge-test-harness'
+import type { StandaloneBridgeHandle } from './standalone'
 
 describe('GenieBridge interaction capture', () => {
   let handle: StandaloneBridgeHandle
   let url: string
 
   beforeEach(async () => {
-    handle = createStandaloneBridge()
+    handle = createTestBridge()
     url = (await handle.listen()).url
   })
 

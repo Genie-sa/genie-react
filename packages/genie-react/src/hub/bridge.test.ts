@@ -1,15 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { decodeFrame, newId } from '../protocol'
-import { connect, delay, type Frame, isResult, open, send } from './bridge-test-harness'
-import { createStandaloneBridge, type StandaloneBridgeHandle } from './standalone'
+import {
+  connect,
+  createTestBridge,
+  delay,
+  type Frame,
+  isResult,
+  open,
+  send,
+} from './bridge-test-harness'
+import type { StandaloneBridgeHandle } from './standalone'
 
 describe('GenieBridge', () => {
   let handle: StandaloneBridgeHandle
   let url: string
 
   beforeEach(async () => {
-    handle = createStandaloneBridge()
+    handle = createTestBridge()
     url = (await handle.listen()).url
   })
 
@@ -579,7 +587,7 @@ describe('GenieBridge', () => {
   })
 
   it('pauses ambiguous logical routing and auto-forks persistent cloned browser state', async () => {
-    const collisionHandle = createStandaloneBridge({ logicalCollisionGraceMs: 500 })
+    const collisionHandle = createTestBridge({ logicalCollisionGraceMs: 500 })
     const collisionUrl = (await collisionHandle.listen()).url
     try {
       const { ws: original } = await open(`${collisionUrl}?role=app`)
@@ -657,7 +665,7 @@ describe('GenieBridge', () => {
   })
 
   it('treats a short concurrent reload overlap as lineage instead of a clone', async () => {
-    const overlapHandle = createStandaloneBridge({ logicalCollisionGraceMs: 200 })
+    const overlapHandle = createTestBridge({ logicalCollisionGraceMs: 200 })
     const overlapUrl = (await overlapHandle.listen()).url
     try {
       const { ws: oldDocument } = await open(`${overlapUrl}?role=app`)
@@ -734,7 +742,7 @@ describe('GenieBridge', () => {
   })
 
   it('resets stale heartbeat state when a heartbeat-capable session re-hellos', async () => {
-    const fastHandle = createStandaloneBridge({ sessionStaleMs: 100 })
+    const fastHandle = createTestBridge({ sessionStaleMs: 100 })
     const fastUrl = (await fastHandle.listen()).url
     try {
       const app = await connect(`${fastUrl}?role=app`)
@@ -764,7 +772,7 @@ describe('GenieBridge', () => {
   })
 
   it('times out a forwarded tool when the app never responds', async () => {
-    const fastHandle = createStandaloneBridge({ requestTimeoutMs: 150 })
+    const fastHandle = createTestBridge({ requestTimeoutMs: 150 })
     const fastUrl = (await fastHandle.listen()).url
     try {
       const app = await connect(`${fastUrl}?role=app`)
@@ -789,7 +797,7 @@ describe('GenieBridge', () => {
   })
 
   it('fast-fails a busy (heartbeat-then-silent) session with errorCode busy well before the full timeout', async () => {
-    const fastHandle = createStandaloneBridge({
+    const fastHandle = createTestBridge({
       requestTimeoutMs: 20_000,
       busyProbeMs: 200,
       busyHeartbeatGapMs: 100,
@@ -830,7 +838,7 @@ describe('GenieBridge', () => {
   })
 
   it('busy-fails via a re-armed probe when the heartbeat gap crosses the threshold only after the first probe', async () => {
-    const fastHandle = createStandaloneBridge({
+    const fastHandle = createTestBridge({
       requestTimeoutMs: 20_000,
       busyProbeMs: 100,
       busyHeartbeatGapMs: 400,
@@ -864,7 +872,7 @@ describe('GenieBridge', () => {
   })
 
   it('lets a caller-supplied timeoutMs override the busy fast-fail', async () => {
-    const fastHandle = createStandaloneBridge({
+    const fastHandle = createTestBridge({
       requestTimeoutMs: 20_000,
       busyProbeMs: 100,
       busyHeartbeatGapMs: 50,
@@ -904,7 +912,7 @@ describe('GenieBridge', () => {
   })
 
   it('does not busy-gate advertised mutation tools', async () => {
-    const fastHandle = createStandaloneBridge({
+    const fastHandle = createTestBridge({
       requestTimeoutMs: 1_000,
       busyProbeMs: 100,
       busyHeartbeatGapMs: 50,
@@ -951,7 +959,7 @@ describe('GenieBridge', () => {
   })
 
   it('escalates the busy message to "unresponsive" (no retry hint) once the gap crosses the stale threshold', async () => {
-    const fastHandle = createStandaloneBridge({
+    const fastHandle = createTestBridge({
       requestTimeoutMs: 20_000,
       busyProbeMs: 200,
       busyHeartbeatGapMs: 50,
@@ -985,7 +993,7 @@ describe('GenieBridge', () => {
   })
 
   it('routes default calls away from a heartbeat-stale session to a fresh one, and flags it in status', async () => {
-    const fastHandle = createStandaloneBridge({ requestTimeoutMs: 4_000, sessionStaleMs: 150 })
+    const fastHandle = createTestBridge({ requestTimeoutMs: 4_000, sessionStaleMs: 150 })
     const fastUrl = (await fastHandle.listen()).url
     try {
       const hello = (sessionId: string) => ({
@@ -1030,7 +1038,7 @@ describe('GenieBridge', () => {
   })
 
   it('honors a per-call timeoutMs (clamped) instead of the bridge default', async () => {
-    const fastHandle = createStandaloneBridge({ requestTimeoutMs: 30_000 })
+    const fastHandle = createTestBridge({ requestTimeoutMs: 30_000 })
     const fastUrl = (await fastHandle.listen()).url
     try {
       const app = await connect(`${fastUrl}?role=app`)
@@ -1058,7 +1066,7 @@ describe('GenieBridge', () => {
   })
 
   it('never busy-fails a legacy session that never sent a heartbeat — it gets the plain timeout', async () => {
-    const fastHandle = createStandaloneBridge({
+    const fastHandle = createTestBridge({
       requestTimeoutMs: 150,
       busyProbeMs: 50,
       busyHeartbeatGapMs: 10,
@@ -1087,7 +1095,7 @@ describe('GenieBridge', () => {
   })
 
   it('reaps sessions whose sockets stop answering heartbeat pings', async () => {
-    const fastHandle = createStandaloneBridge({ heartbeatIntervalMs: 40 })
+    const fastHandle = createTestBridge({ heartbeatIntervalMs: 40 })
     const fastUrl = (await fastHandle.listen()).url
     try {
       const zombie = await new Promise<WebSocket>((resolve, reject) => {

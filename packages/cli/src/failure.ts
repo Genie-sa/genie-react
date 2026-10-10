@@ -10,7 +10,7 @@ import {
   type ToolErrorDetails,
   type ToolErrorIssue,
 } from 'genie-react/protocol'
-import { BridgeCallError } from './agent-link'
+import { BridgeCallError, BridgeRejectedError, bridgeRejectionHint } from './agent-link'
 import { isRecord } from './guards'
 import { FieldSelectionError, ResultSelectionError } from './result-selection'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
@@ -29,6 +29,7 @@ export type FailureReason =
   | 'tool_error'
   | 'busy'
   | 'timeout'
+  | 'bridge_rejected'
   | 'operational_failure'
 
 export interface NextCommand {
@@ -191,6 +192,13 @@ async function classify(error: unknown, context: FailureContext): Promise<Failur
     context.tool !== undefined && SAFE_TOOL_NAME.test(context.tool) ? context.tool : undefined
   if (error instanceof FieldSelectionError) return fieldSelectionFailure(error, context)
   if (error instanceof ResultSelectionError) return selectionFailure(error, context)
+  if (error instanceof BridgeRejectedError) {
+    return {
+      reason: 'bridge_rejected',
+      message: bridgeRejectionHint(error),
+      next: nextCommand('doctor', '--live'),
+    }
+  }
   if (!(error instanceof BridgeCallError) || !error.errorCode) {
     return {
       reason: 'operational_failure',
