@@ -4,17 +4,68 @@ export const AGENTS = /** @type {const} */ (['claude', 'codex'])
 
 const GENIE_COMMANDS = ['genie-react', 'pnpm exec genie-react', 'npx genie-react']
 const SHELL_HELPERS = ['sleep', 'echo', 'cat', 'head', 'tail', 'grep', 'jq', 'wc', 'ls']
-const BROWSER_FILE_COMMANDS = [
-  'upload',
-  'download',
-  'pdf',
-  'har',
-  'trace',
-  'profiler',
-  'record',
-  'state',
-  'auth',
-  'cookies set',
+const BROWSER_COMMANDS = [
+  'open',
+  'snapshot',
+  'click',
+  'dblclick',
+  'type',
+  'fill',
+  'press',
+  'keyboard',
+  'hover',
+  'focus',
+  'check',
+  'uncheck',
+  'select',
+  'drag',
+  'scroll',
+  'scrollintoview',
+  'wait',
+  'eval',
+  'get',
+  'is',
+  'find',
+  'mouse',
+  'tab',
+  'react',
+]
+const BROWSER_BARE_COMMANDS = [
+  'snapshot',
+  'back',
+  'forward',
+  'reload',
+  'console',
+  'errors',
+  'screenshot',
+]
+const BROWSER_DENIED_FLAGS = [
+  '--session',
+  '--namespace',
+  '--profile',
+  '--restore',
+  '--state',
+  '--auto-connect',
+  '--cdp',
+  '--provider',
+  '--executable-path',
+  '--extension',
+  '--init-script',
+  '--enable',
+  '--args',
+  '--user-agent',
+  '--proxy',
+  '--ignore-https-errors',
+  '--ca-cert',
+  '--allow-file-access',
+  '--allowed-domains',
+  '--action-policy',
+  '--headers',
+  '--headed',
+  '--engine',
+  '--config',
+  '--download-path',
+  '--screenshot-dir',
 ]
 const PROTECTED_PATHS = [
   'vite.config.ts',
@@ -30,6 +81,7 @@ const PROTECTED_PATHS = [
   '.claude',
   '.agents',
   'node_modules',
+  '.genie',
 ]
 const SYSTEM_PATH = ['/usr/bin', '/bin', '/usr/sbin', '/sbin']
 const INHERITED_ENV = new Set([
@@ -94,14 +146,15 @@ export function outsideRoots(dirs, roots) {
 }
 
 /**
- * Where Claude and Codex keep session transcripts, which can hold earlier trials' answers.
+ * Where Claude and Codex keep transcripts, file snapshots, and prompt history, which can hold earlier trials' answers.
  * @param {NodeJS.ProcessEnv} env
  * @param {string} home
  */
-export function agentHistoryDirs(env, home) {
+export function agentStateDirs(env, home) {
   return [
-    join(env.CLAUDE_CONFIG_DIR ?? join(home, '.claude'), 'projects'),
-    join(env.CODEX_HOME ?? join(home, '.codex'), 'sessions'),
+    env.CLAUDE_CONFIG_DIR ?? join(home, '.claude'),
+    join(home, '.claude.json'),
+    env.CODEX_HOME ?? join(home, '.codex'),
   ]
 }
 
@@ -135,8 +188,8 @@ export function agentEnv(source, { dir, browserSession, toolDirs }) {
 /**
  * Claude Code settings that run every Bash command in the OS sandbox, network limited to the local dev server and
  * the agent-browser daemon socket, and no reads of the repository or sibling temp directories.
- * Writes are limited to `.genie` and, in fix mode, `src/`, and never reach files the unsandboxed harness executes or
- * trusts (Vite config, manifests, git metadata).
+ * Writes are limited to `src/` in fix mode and never reach files the unsandboxed harness executes or trusts (Vite
+ * config, manifests, git metadata, or `.genie/bridge.json`, which the harness's own Genie calls use).
  * Bash still needs an allow rule, so commands outside the allowlist are denied and counted.
  * @param {{ dir: string, mode: 'diagnose' | 'fix', readableRoots: string[], deniedReadRoots: string[], browserSocketDir: string }} options
  */
@@ -147,7 +200,7 @@ export function claudeSandboxSettings({
   deniedReadRoots,
   browserSocketDir,
 }) {
-  const writable = ['.genie', ...(mode === 'fix' ? ['src'] : [])]
+  const writable = mode === 'fix' ? ['src'] : []
   return {
     sandbox: {
       enabled: true,
@@ -171,7 +224,8 @@ export function claudeSandboxSettings({
 
 /**
  * Restricts Claude to the Genie CLI, agent-browser, a few shell helpers, and file tools scoped to the trial directory.
- * The agent-browser daemon runs outside the sandbox, so its subcommands that read or write host files are denied.
+ * The agent-browser daemon runs outside the sandbox, so only page-level subcommands are allowed, and flags that switch
+ * sessions, relaunch the browser, or point it at host files or other endpoints are denied wherever they appear.
  * Read rules also govern Grep and Glob; the prompt is sent on stdin.
  * @param {AgentRunOptions} options
  * @returns {AgentCommand}
@@ -181,7 +235,8 @@ function claudeCommand(options) {
     options.mode === 'fix' ? ['Read', 'Edit', 'Grep', 'Glob'] : ['Read', 'Grep', 'Glob']
   const allowed = [
     ...GENIE_COMMANDS.map((command) => `Bash(${command} *)`),
-    'Bash(agent-browser *)',
+    ...BROWSER_COMMANDS.map((command) => `Bash(agent-browser ${command} *)`),
+    ...BROWSER_BARE_COMMANDS.map((command) => `Bash(agent-browser ${command})`),
     ...SHELL_HELPERS.map((command) => `Bash(${command} *)`),
     'Read(./**)',
     ...options.readableRoots.map((root) => `Read(/${root}/**)`),
@@ -214,7 +269,8 @@ function claudeCommand(options) {
       ...allowed,
       '--disallowedTools',
       ...options.deniedReadRoots.map((root) => `Read(/${root}/**)`),
-      ...BROWSER_FILE_COMMANDS.map((command) => `Bash(agent-browser ${command} *)`),
+      ...BROWSER_DENIED_FLAGS.map((flag) => `Bash(agent-browser *${flag}*)`),
+      'Bash(agent-browser * -p *)',
     ],
     env: agentEnv(process.env, options),
   }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   agentCommand,
   agentEnv,
-  agentHistoryDirs,
+  agentStateDirs,
   claudeSandboxSettings,
   outsideRoots,
 } from './agents.mjs'
@@ -75,11 +75,11 @@ describe('claudeSandboxSettings', () => {
     })
   })
 
-  it('allows writes only to Genie state and, in fix mode, src', () => {
+  it('allows writes only to src, and only in fix mode', () => {
     const diagnose = claudeSandboxSettings({ ...base, mode: 'diagnose' }).sandbox.filesystem
-    expect(diagnose.allowWrite).toEqual(['/tmp/trial/.genie'])
+    expect(diagnose.allowWrite).toEqual([])
     const fix = claudeSandboxSettings({ ...base, mode: 'fix' }).sandbox.filesystem
-    expect(fix.allowWrite).toEqual(['/tmp/trial/.genie', '/tmp/trial/src'])
+    expect(fix.allowWrite).toEqual(['/tmp/trial/src'])
     expect(fix.denyWrite).toEqual(
       expect.arrayContaining([
         '/tmp/trial/vite.config.ts',
@@ -90,6 +90,7 @@ describe('claudeSandboxSettings', () => {
         '/tmp/trial/.claude',
         '/tmp/trial/.agents',
         '/tmp/trial/node_modules',
+        '/tmp/trial/.genie',
       ]),
     )
   })
@@ -106,15 +107,17 @@ describe('outsideRoots', () => {
   })
 })
 
-describe('agentHistoryDirs', () => {
-  it('follows CLAUDE_CONFIG_DIR and CODEX_HOME', () => {
-    expect(agentHistoryDirs({}, '/home/me')).toEqual([
-      '/home/me/.claude/projects',
-      '/home/me/.codex/sessions',
+describe('agentStateDirs', () => {
+  it('covers whole agent config dirs and follows CLAUDE_CONFIG_DIR and CODEX_HOME', () => {
+    expect(agentStateDirs({}, '/home/me')).toEqual([
+      '/home/me/.claude',
+      '/home/me/.claude.json',
+      '/home/me/.codex',
     ])
-    expect(agentHistoryDirs({ CLAUDE_CONFIG_DIR: '/cfg', CODEX_HOME: '/cx' }, '/home/me')).toEqual([
-      '/cfg/projects',
-      '/cx/sessions',
+    expect(agentStateDirs({ CLAUDE_CONFIG_DIR: '/cfg', CODEX_HOME: '/cx' }, '/home/me')).toEqual([
+      '/cfg',
+      '/home/me/.claude.json',
+      '/cx',
     ])
   })
 })
@@ -130,15 +133,43 @@ describe('agentCommand', () => {
     expect(diagnose.args).not.toContain('Bash(cd *)')
     expect(diagnose.args).not.toContain('Bash(export *)')
     expect(diagnose.args).not.toContain('Bash(sort *)')
-    expect(diagnose.args).toEqual(
-      expect.arrayContaining(['Bash(agent-browser upload *)', 'Bash(agent-browser download *)']),
-    )
     expect(diagnose.args).toContain('Read(//tmp/deps/**)')
     expect(diagnose.args.some((arg) => arg.startsWith('Edit'))).toBe(false)
 
     const fix = agentCommand({ ...options, agent: 'claude', mode: 'fix' })
     expect(fix.args).toContain('Edit(./src/**)')
     expect(fix.args).not.toContain('Edit')
+  })
+
+  it('allows only page-level agent-browser subcommands and denies session or launch flags anywhere', () => {
+    const { args } = agentCommand({ ...options, agent: 'claude', mode: 'fix' })
+    expect(args).not.toContain('Bash(agent-browser *)')
+    expect(args).toEqual(
+      expect.arrayContaining([
+        'Bash(agent-browser open *)',
+        'Bash(agent-browser eval *)',
+        'Bash(agent-browser snapshot)',
+        'Bash(agent-browser screenshot)',
+        'Bash(agent-browser *--session*)',
+        'Bash(agent-browser *--executable-path*)',
+        'Bash(agent-browser *--allow-file-access*)',
+        'Bash(agent-browser *--cdp*)',
+        'Bash(agent-browser * -p *)',
+      ]),
+    )
+    for (const command of [
+      'upload',
+      'download',
+      'batch',
+      'plugin',
+      'connect',
+      'read',
+      'pdf',
+      'state',
+    ]) {
+      expect(args.some((arg) => arg.startsWith(`Bash(agent-browser ${command}`))).toBe(false)
+    }
+    expect(args).not.toContain('Bash(agent-browser screenshot *)')
   })
 
   it('runs Codex without user config or rules and without temp-dir write access', () => {
