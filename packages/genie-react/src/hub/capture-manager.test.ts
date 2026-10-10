@@ -1,14 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import { type CaptureArtifact, captureArtifactSchema, type ToolDescriptor } from '../protocol'
+import {
+  type CaptureArtifact,
+  captureArtifactSchema,
+  devtoolsCaptureCreateContract,
+  type ToolDescriptor,
+} from '../protocol'
 import { CaptureManager, type CaptureSession, verifyCaptureIntegrity } from './capture-manager'
 
+const viewInput = { type: 'object', properties: { view: { type: 'string' } } }
 const tools: ToolDescriptor[] = [
   'react_get_renders',
   'react_render_causes',
   'react_profile_report',
   'query_list',
   'query_is_fetching',
-].map((name) => ({ name, title: name, description: name, group: 'react' }))
+].map((name) => ({
+  name,
+  title: name,
+  description: name,
+  group: 'react',
+  ...(name.startsWith('react_') ? { inputJsonSchema: viewInput } : {}),
+}))
 
 const session: CaptureSession = {
   sessionId: 'session-1',
@@ -16,21 +28,27 @@ const session: CaptureSession = {
   tools,
 }
 
-function manager(): CaptureManager<CaptureSession> {
+const comparableRenders = {
+  commits: 4,
+  summary: { totalRenders: 3, semantics: 'exact' },
+  comparable: true,
+  notComparableReasons: [],
+  coverage: { complete: true, semantics: 'exact' },
+}
+
+function manager(
+  renders: Record<string, unknown> = comparableRenders,
+  target: CaptureSession = session,
+): CaptureManager<CaptureSession> {
   return new CaptureManager({
-    resolveSession: () => session,
+    resolveSession: () => target,
     unknownSessionError: (target) => `unknown ${target}`,
     isCurrentSession: () => true,
     request: async (_session, tool, args) => ({
       ok: true,
       result:
         tool === 'react_get_renders'
-          ? {
-              commits: 4,
-              summary: { totalRenders: 3, semantics: 'exact' },
-              comparable: true,
-              argsEcho: args,
-            }
+          ? { ...renders, argsEcho: args }
           : tool === 'query_is_fetching'
             ? { fetching: 2, mutating: 1 }
             : { commits: 4 },
@@ -43,6 +61,7 @@ async function createCapture(captures: CaptureManager<CaptureSession>, name: str
     name,
     include: ['react'],
     maxAttempts: 1,
+    view: 'full',
   })
   expect(result.ok).toBe(true)
   if (!result.ok) throw new Error(result.error)
@@ -82,6 +101,72 @@ describe('capture manager artifacts', () => {
     })
   })
 
+  it('answers create with the bounded read summary unless the full view is requested', async () => {
+    const captures = manager()
+    const created = await captures.invoke('devtools_capture_create', {
+      name: 'summary-first',
+      include: ['react'],
+      maxAttempts: 1,
+    })
+    if (!created.ok) throw new Error(created.error)
+    const read = await captures.invoke('devtools_capture_read', {
+      captureId: (created.result as { captureId: string }).captureId,
+    })
+    if (!read.ok) throw new Error(read.error)
+
+    expect(created.result).toEqual(read.result)
+    expect(created.result).toMatchObject({
+      availableSections: ['react'],
+      warnings: [],
+      complete: true,
+      renders: {
+        comparable: true,
+        notComparableReasons: [],
+        coverage: { complete: true, semantics: 'exact' },
+      },
+    })
+    expect(created.result).not.toHaveProperty('sections')
+    expect(devtoolsCaptureCreateContract.output.safeParse(created.result).success).toBe(true)
+  })
+
+  it('reports incomparable render evidence and never calls that capture complete', async () => {
+    const created = await manager({
+      ...comparableRenders,
+      comparable: false,
+      notComparableReasons: ['app-source-classification-incomplete'],
+      coverage: { complete: false, semantics: 'lower-bound' },
+    }).invoke('devtools_capture_create', { name: 'partial', include: ['react'], maxAttempts: 1 })
+    if (!created.ok) throw new Error(created.error)
+
+    expect(created.result).toMatchObject({
+      consistency: { kind: 'react-commit-stable' },
+      complete: false,
+      renders: {
+        comparable: false,
+        notComparableReasons: ['app-source-classification-incomplete'],
+        coverage: { complete: false, semantics: 'lower-bound' },
+      },
+    })
+  })
+
+  it('asks an app that predates view for its default shape instead of an argument it would reject', async () => {
+    const legacy = {
+      ...session,
+      tools: tools.map(({ inputJsonSchema: _input, ...descriptor }) => descriptor),
+    }
+    const created = await createCapture(manager(comparableRenders, legacy), 'legacy')
+
+    expect(created.sections.react?.tools.react_get_renders?.args).toEqual({
+      sort: 'renders',
+      limit: 50,
+      appOnly: true,
+    })
+    expect(created.sections.react?.tools.react_render_causes?.args).toEqual({
+      limit: 50,
+      appOnly: true,
+    })
+  })
+
   it('retains invocation args, content integrity, and a bounded summary-first read', async () => {
     const captures = manager()
     const created = await createCapture(captures, 'baseline')
@@ -90,6 +175,7 @@ describe('capture manager artifacts', () => {
       sort: 'renders',
       limit: 50,
       appOnly: true,
+      view: 'full',
     })
     expect(created.summary).toMatchObject({
       sectionStatus: { react: 'ok' },

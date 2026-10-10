@@ -16,7 +16,7 @@ import {
   toolValidationFailure,
   unknownArgumentsFailure,
 } from '../protocol'
-import { schemaConstraints } from '../protocol/schema-description'
+import { schemaConstraints, withoutSafeIntegerBounds } from '../protocol/schema-description'
 import type { CollectorContext, ErasedCollectorTool, GenieCollector } from './collector'
 import {
   forkSessionIdentity,
@@ -527,10 +527,14 @@ function toDescriptor(tool: ErasedCollectorTool): ToolDescriptor {
     : base
 }
 
-/** JSON Schema conversion can throw on schemas from a mismatched zod copy; a missing schema degrades discovery (warned loudly), a throw would kill the hello. */
+/** Output schemas share repeated subschemas through `$defs`, keeping summary/full unions within the default CLI byte cap. JSON Schema conversion can throw on schemas from a mismatched zod copy; a missing schema degrades discovery (warned loudly), a throw would kill the hello. */
 function safeToJsonSchema(toolName: string, schema: z.ZodType, io: 'input' | 'output'): unknown {
   try {
-    return io === 'input' ? z.toJSONSchema(schema, { io: 'input' }) : z.toJSONSchema(schema)
+    return withoutSafeIntegerBounds(
+      io === 'input'
+        ? z.toJSONSchema(schema, { io: 'input' })
+        : z.toJSONSchema(schema, { reused: 'ref' }),
+    )
   } catch (error) {
     console.warn(
       `[genie] tool "${toolName}": could not derive the ${io} JSON Schema (${errorMessage(error)}) — the tool stays callable and validated, but agents cannot discover its ${io} contract`,

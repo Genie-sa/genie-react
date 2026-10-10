@@ -96,7 +96,11 @@ describe('app source classification coverage', () => {
     const collector = reactCollector()
     const read = async (appOnly: boolean) =>
       reactGetRendersContract.output.parse(
-        await call(collector, 'react_get_renders', { sort: 'renders', limit: 40, appOnly }),
+        await call(
+          collector,
+          'react_get_renders',
+          reactGetRendersContract.input.parse({ limit: 40, appOnly }),
+        ),
       )
 
     const filtered = await read(true)
@@ -117,6 +121,7 @@ describe('app source classification coverage', () => {
     expect(unfiltered.summary.totalRenders).toBe(1)
     expect(unfiltered.summary.semantics).toBe('exact')
     expect(unfiltered.notComparableReasons).not.toContain('app-source-classification-incomplete')
-    expect(unfiltered.components[0]?.sourceOwnership).toBe('unknown')
+    if (unfiltered.view !== 'summary') throw new Error('expected the default summary view')
+    expect(unfiltered.components[0]?.source).toEqual({ location: null, ownership: 'unknown' })
   })
 })

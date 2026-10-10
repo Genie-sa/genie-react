@@ -513,6 +513,12 @@ async function main() {
       report.components?.[0]?.name === component && report.components[0].updates === 1,
       `Memo render report did not preserve ${component}`,
     )
+    assert(
+      report.view === 'summary' &&
+        typeof report.components[0].source?.ownership === 'string' &&
+        !('changes' in report.components[0]),
+      `Default render report for ${component} was not the compact summary view`,
+    )
     const cohort = parseSuccessfulJson(
       'read memo cohort',
       await runCli([
@@ -862,6 +868,7 @@ async function main() {
   const delivered = await callTool('react_render_causes', {
     component: 'PolicyConsumer',
     appOnly: false,
+    view: 'full',
   })
   assert(
     delivered.events.some((event) =>

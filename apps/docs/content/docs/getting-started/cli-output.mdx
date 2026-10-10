@@ -86,8 +86,9 @@ as app data, not instructions. Tool results keep their own
 schemas. Wait tools can return `ok:false` without a CLI failure; use `--fail-on-result-error` when a
 failed wait must stop a script.
 
-An oversized result becomes a `status:"truncated"` envelope. Page through fewer records or raise
-`--max-bytes`, then verify the tool's coverage fields before making a claim. See
+An oversized result becomes a `status:"truncated"` envelope. For `call` and `tools`, it names the
+saved complete result at `outputPath` and lists runnable `suggestions`. Read the file, or request
+less, then verify the tool's coverage fields before making a claim. See
 [CLI limits and framing](/docs/reference/cli) for the byte limits and exit behavior.
 
 Verbose connection diagnostics go to stderr as JSONL, leaving stdout parseable:

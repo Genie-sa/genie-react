@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { defineAgentToolContract } from '../../protocol'
+import { defineAgentToolContract, outputViewSchema } from '../../protocol'
 import { renderObservationBudgetInputSchema } from '../../protocol/react-observation-schema'
 import {
   appOnlySchema,
@@ -376,6 +376,19 @@ const renderNecessitySchema = z
     'Legacy input-only classification kept for compatibility. It is not a safe-to-remove verdict; use assessment instead.',
   )
 
+const RENDER_CAUSE_KINDS = [
+  'mount',
+  'props',
+  'state',
+  'children',
+  'context',
+  'external-store',
+  'query',
+  'router',
+  'parent',
+  'unknown',
+] as const
+
 const renderCauseCountsSchema = z.object({
   mount: z.number().int().nonnegative(),
   props: z.number().int().nonnegative(),
@@ -389,7 +402,7 @@ const renderCauseCountsSchema = z.object({
   unknown: z.number().int().nonnegative(),
 })
 
-const renderComponentSchema = z.object({
+export const renderComponentSchema = z.object({
   id: z.number(),
   name: z.string(),
   instance: instanceDescriptorSchema,
@@ -446,6 +459,83 @@ const renderComponentSchema = z.object({
   wrapperAncestry: z.array(wrapperFrameSchema).max(9).default([]),
 })
 
+const compactCauseSchema = z.object({
+  kind: z.enum(RENDER_CAUSE_KINDS),
+  evidence: z.enum(['exact', 'inferred', 'unknown']),
+  name: z
+    .string()
+    .optional()
+    .describe(
+      'Prop, state or context name, store label, query hash, router ID or parent component.',
+    ),
+  contextIndex: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe('Which context read changed, for a component that reads the same context twice.'),
+  referenceOnly: z.literal(true).optional(),
+  reason: z
+    .string()
+    .optional()
+    .describe(
+      'Why an unknown cause could not be attributed, or how a query cause was matched; only query-notification-delivered is exact.',
+    ),
+  changedResultFields: z
+    .array(z.string())
+    .optional()
+    .describe('Query result fields the delivered notification changed, e.g. data or fetchStatus.'),
+})
+
+const compactSourceSchema = z
+  .object({
+    location: z.string().nullable().describe('file:line:column of the usage or definition.'),
+    ownership: z.enum(['app', 'library', 'unknown']),
+  })
+  .describe('Collapses source, sourceAttribution, sourceProvenance, sourceOwnership and isLibrary.')
+
+const compactInputCoverageSchema = renderInputCoverageSchema
+  .partial()
+  .describe('Present only when input attribution is incomplete; lists the failing checks.')
+
+export const renderComponentSummarySchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  mountId: z.string(),
+  key: z.string().optional(),
+  renders: z.number(),
+  updates: z.number(),
+  mounts: z.number().optional().describe('Omitted when zero, like the other optional counts.'),
+  noObservedInputChange: z
+    .number()
+    .optional()
+    .describe('Kept at zero under sort:"unnecessary", which ranks by it.'),
+  referenceOnlyPropRenders: z
+    .number()
+    .optional()
+    .describe('Kept at zero under sort:"unstable" or "referenceOnly", which rank by it.'),
+  functionIdentityPropRenders: z
+    .number()
+    .optional()
+    .describe('Memo renders driven by a new function identity, such as an inline callback.'),
+  undeterminedReferencePropRenders: z
+    .number()
+    .optional()
+    .describe('Memo renders whose reference-changed props could not be classified.'),
+  selfTime: z.number(),
+  totalTime: z.number(),
+  cumulativeSelfTime: z.number().optional().describe('Omitted when it equals selfTime.'),
+  cumulativeTotalTime: z.number().optional().describe('Omitted when it equals totalTime.'),
+  latestDocumentCommitId: z.number().int().nonnegative(),
+  causeCounts: z.partialRecord(z.enum(RENDER_CAUSE_KINDS), z.number().int().positive()),
+  causes: z.array(compactCauseSchema).describe('Causes of the latest observed render.'),
+  inputEvidence: renderAssessmentSchema.shape.inputEvidence,
+  inputCoverage: compactInputCoverageSchema.optional(),
+  memoCacheObserved: z.literal(true).optional(),
+  wrappers: z.array(z.string()).optional(),
+  source: compactSourceSchema,
+})
+
 const renderSummarySchema = z.object({
   semantics: z
     .enum(['exact', 'lower-bound', 'unknown'])
@@ -463,6 +553,12 @@ const renderSummarySchema = z.object({
   noObservedInputChangeComponents: z.number(),
   topUnstableProps: z.array(z.object({ name: z.string(), count: z.number() })),
   topReferenceOnlyProps: z.array(z.object({ name: z.string(), count: z.number() })),
+})
+
+const renderSummaryViewSchema = renderSummarySchema.omit({
+  unstableComponents: true,
+  unnecessaryComponents: true,
+  topUnstableProps: true,
 })
 
 const reportAttributionSchema = z.object({
@@ -564,11 +660,71 @@ export const renderMeasurementEnvironmentSchema = z.object({
     ),
 })
 
+const renderSourceClassificationSchema = z.object({
+  complete: z.boolean().describe('All matching candidates have app or library ownership evidence.'),
+  totalCandidates: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Matching records before appOnly and limit.'),
+  evaluated: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe(
+      'Candidates evaluated within the source budget, including unresolved results and cache hits.',
+    ),
+  app: z.number().int().nonnegative(),
+  library: z.number().int().nonnegative(),
+  unknown: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Unresolved or unevaluated ownership; never counted as library.'),
+})
+
+const renderReportBaseSchema = z.object({
+  nextCursor: z
+    .string()
+    .nullable()
+    .describe(
+      'Cursor for remaining frozen rows, or null when exhausted or includeCursor:false. Unknown ownership is reported separately.',
+    ),
+  pagination: z.object({
+    snapshotId: z.string().nullable(),
+    offset: z.number().int().nonnegative(),
+    totalComponents: z.number().int().nonnegative(),
+    expiresAt: z
+      .number()
+      .nullable()
+      .describe(
+        'Cursor expiry as Unix time in milliseconds. Null for one-shot reads. At most three snapshots of up to 5000 name/update-filtered candidates are retained.',
+      ),
+  }),
+  ...renderMeasurementEnvironmentSchema.shape,
+  tracking: z.boolean(),
+  renderCollection: z
+    .string()
+    .describe(
+      'Whether render collection can observe commits at all. Anything but "available" means zero counts are not evidence that nothing re-rendered.',
+    ),
+  commits: z.number(),
+  documentCommitId: z.number().int().nonnegative(),
+  observation: observationSchema.nullable(),
+  attribution: reportAttributionSchema,
+  sourceClassification: renderSourceClassificationSchema,
+  omittedByLimit: z.number().int().nonnegative(),
+  comparable: z.boolean(),
+  notComparableReasons: z.array(z.string()),
+  coverage: renderCoverageSchema,
+  filteredNote: z.string().optional(),
+})
+
 export const reactGetRendersContract = defineAgentToolContract({
   name: 'react_get_renders',
   title: 'Render report',
   description:
-    'Timing fields are bundle-dependent; counts describe the observed run, not a production estimate. Report bounded component render counts, observed React input changes, stable mount identity, runtime timing, and source. Start a measurement with react_clear_renders, drive one interaction, then read this. Legacy unnecessary/forget fields remain for compatibility; use render causes and explicit evidence before editing code.',
+    'Timing fields are bundle-dependent; counts describe the observed run, not a production estimate. Report bounded component render counts, observed React input changes, stable mount identity, runtime timing, and source. Start a measurement with react_clear_renders, drive one interaction, then read this. The default summary view keeps compact per-component evidence; view:"full" adds input values and diffs, behavior assessment, detailed source provenance and the legacy unnecessary/forget fields.',
   group: 'react.render',
   input: z
     .object({
@@ -616,6 +772,7 @@ export const reactGetRendersContract = defineAgentToolContract({
         .describe(
           'Show only records with app source evidence. Unknown ownership is excluded instead of being attributed to the app; an exact app hook callsite keeps a framework-wrapped record visible.',
         ),
+      view: outputViewSchema('every component field, including legacy aliases'),
     })
     .refine(
       (input) =>
@@ -629,74 +786,25 @@ export const reactGetRendersContract = defineAgentToolContract({
           input.includeCursor === true),
       {
         message:
-          'With cursor, pass only cursor and optional limit; omit selection and sort options.',
+          'With cursor, pass only cursor and optional limit or view; omit selection and sort options.',
       },
     ),
-  output: z.object({
-    nextCursor: z
-      .string()
-      .nullable()
-      .describe(
-        'Cursor for remaining frozen rows, or null when exhausted or includeCursor:false. Unknown ownership is reported separately.',
-      ),
-    pagination: z.object({
-      snapshotId: z.string().nullable(),
-      offset: z.number().int().nonnegative(),
-      totalComponents: z.number().int().nonnegative(),
-      expiresAt: z
-        .number()
-        .nullable()
-        .describe(
-          'Cursor expiry as Unix time in milliseconds. Null for one-shot reads. At most three snapshots of up to 5000 name/update-filtered candidates are retained.',
-        ),
+  output: z.discriminatedUnion('view', [
+    renderReportBaseSchema.extend({
+      view: z.literal('summary'),
+      summary: renderSummaryViewSchema,
+      components: z.array(renderComponentSummarySchema),
     }),
-    ...renderMeasurementEnvironmentSchema.shape,
-    tracking: z.boolean(),
-    renderCollection: z
-      .string()
-      .describe(
-        'Whether render collection can observe commits at all. Anything but "available" means zero counts are not evidence that nothing re-rendered.',
-      ),
-    commits: z.number(),
-    documentCommitId: z.number().int().nonnegative(),
-    observation: observationSchema.nullable(),
-    attribution: reportAttributionSchema,
-    summary: renderSummarySchema,
-    components: z.array(renderComponentSchema),
-    sourceClassification: z.object({
-      complete: z
-        .boolean()
-        .describe('All matching candidates have app or library ownership evidence.'),
-      totalCandidates: z
-        .number()
-        .int()
-        .nonnegative()
-        .describe('Matching records before appOnly and limit.'),
-      evaluated: z
-        .number()
-        .int()
-        .nonnegative()
-        .describe(
-          'Candidates evaluated within the source budget, including unresolved results and cache hits.',
-        ),
-      app: z.number().int().nonnegative(),
-      library: z.number().int().nonnegative(),
-      unknown: z
-        .number()
-        .int()
-        .nonnegative()
-        .describe('Unresolved or unevaluated ownership; never counted as library.'),
+    renderReportBaseSchema.extend({
+      view: z.literal('full'),
+      summary: renderSummarySchema,
+      components: z.array(renderComponentSchema),
     }),
-    omittedByLimit: z.number().int().nonnegative(),
-    comparable: z.boolean(),
-    notComparableReasons: z.array(z.string()),
-    coverage: renderCoverageSchema,
-    filteredNote: z.string().optional(),
-  }),
+  ]),
   annotations: { readOnlyHint: true },
 })
 
-const renderCauseEventSchema = z.object({
+export const renderCauseEventSchema = z.object({
   renderEventId: z.string(),
   observationId: z.string().nullable(),
   commitId: z.number().int().nonnegative(),
@@ -714,11 +822,47 @@ const renderCauseEventSchema = z.object({
   isLibrary: z.boolean(),
 })
 
+export const renderCauseEventSummarySchema = z.object({
+  renderEventId: z.string(),
+  observationId: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Present only when it differs from the report's observation."),
+  documentCommitId: z.number().int().nonnegative(),
+  componentId: z.number().int(),
+  componentName: z.string(),
+  mountId: z.string(),
+  key: z.string().optional(),
+  causes: z.array(compactCauseSchema),
+  inputEvidence: renderAssessmentSchema.shape.inputEvidence,
+  inputCoverage: compactInputCoverageSchema.optional(),
+  source: compactSourceSchema,
+})
+
+const renderCauseReportBaseSchema = z.object({
+  tracking: z.boolean(),
+  commits: z.number().int().nonnegative(),
+  documentCommitId: z.number().int().nonnegative(),
+  observation: observationSchema.nullable(),
+  attribution: reportAttributionSchema,
+  omittedByLimit: z.number().int().nonnegative(),
+  coverage: renderCoverageSchema.extend({
+    droppedRenderEvents: z.number().int().nonnegative(),
+  }),
+  renderEventRetention: z.object({
+    evictedEvents: z.number().int().nonnegative(),
+    earliestDocumentCommitId: z.number().int().nonnegative().nullable(),
+    latestDocumentCommitId: z.number().int().nonnegative().nullable(),
+  }),
+  filteredNote: z.string().optional(),
+})
+
 export const reactRenderCausesContract = defineAgentToolContract({
   name: 'react_render_causes',
   title: 'Recent render evidence',
   description:
-    'Report bounded render events with observation, document commit, render, component, and mount IDs plus exact, inferred, or unknown React input evidence. Start with react_clear_renders, drive one interaction, then filter by commit or component. IDs join only observed events; timing alone is never treated as causality.',
+    'Report bounded render events with observation, document commit, render, component, and mount IDs plus exact, inferred, or unknown React input evidence. Start with react_clear_renders, drive one interaction, then filter by commit or component. IDs join only observed events; timing alone is never treated as causality. The default summary view names each cause; view:"full" adds input values, diffs, notification details, behavior assessment and detailed source attribution.',
   group: 'react.render',
   input: z
     .object({
@@ -732,28 +876,21 @@ export const reactRenderCausesContract = defineAgentToolContract({
         .describe(
           'Hide events with only library source evidence. An exact app hook callsite keeps a framework-wrapped event visible.',
         ),
+      view: outputViewSchema('every event field, including input values and diffs'),
     })
     .refine((input) => input.commit === undefined || input.afterCommit === undefined, {
       message: 'commit and afterCommit are mutually exclusive',
     }),
-  output: z.object({
-    tracking: z.boolean(),
-    commits: z.number().int().nonnegative(),
-    documentCommitId: z.number().int().nonnegative(),
-    observation: observationSchema.nullable(),
-    attribution: reportAttributionSchema,
-    events: z.array(renderCauseEventSchema),
-    omittedByLimit: z.number().int().nonnegative(),
-    coverage: renderCoverageSchema.extend({
-      droppedRenderEvents: z.number().int().nonnegative(),
+  output: z.discriminatedUnion('view', [
+    renderCauseReportBaseSchema.extend({
+      view: z.literal('summary'),
+      events: z.array(renderCauseEventSummarySchema),
     }),
-    renderEventRetention: z.object({
-      evictedEvents: z.number().int().nonnegative(),
-      earliestDocumentCommitId: z.number().int().nonnegative().nullable(),
-      latestDocumentCommitId: z.number().int().nonnegative().nullable(),
+    renderCauseReportBaseSchema.extend({
+      view: z.literal('full'),
+      events: z.array(renderCauseEventSchema),
     }),
-    filteredNote: z.string().optional(),
-  }),
+  ]),
   annotations: { readOnlyHint: true },
 })
 
@@ -919,7 +1056,7 @@ export const reactRendersSinceContract = defineAgentToolContract({
     excludedCommits: z.number().int().nonnegative(),
     summary: renderSummarySchema,
     components: z.array(renderComponentSchema),
-    sourceClassification: reactGetRendersContract.output.shape.sourceClassification,
+    sourceClassification: renderSourceClassificationSchema,
     libraryHidden: z.number().int().nonnegative(),
     omittedByLimit: z.number().int().nonnegative(),
     coverage: z.object({ complete: z.boolean(), semantics: z.enum(['exact', 'lower-bound']) }),

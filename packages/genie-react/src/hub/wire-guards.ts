@@ -25,3 +25,17 @@ export function queryStateOf(result: unknown): Record<string, unknown> | undefin
 export function routerStateOf(result: unknown): Record<string, unknown> | undefined {
   return isRecord(result) ? result : undefined
 }
+
+export function recordOf(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null
+}
+
+export function numberField(record: Record<string, unknown> | null, key: string): number | null {
+  const value = record?.[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+export function stringField(record: Record<string, unknown> | null, key: string): string | null {
+  const value = record?.[key]
+  return typeof value === 'string' ? value : null
+}

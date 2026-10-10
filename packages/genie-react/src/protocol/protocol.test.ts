@@ -211,6 +211,7 @@ describe('capture protocol', () => {
       name: 'before fix',
       include: ['react', 'effects', 'query', 'router', 'memory'],
       maxAttempts: 3,
+      view: 'summary',
     })
     expect(() =>
       devtoolsCaptureCreateContract.input.parse({
@@ -384,6 +385,7 @@ describe('interaction protocol', () => {
       domains: ['react'],
       quietMs: 500,
       timeoutMs: 10_000,
+      view: 'summary',
     })
     expect(() =>
       devtoolsInteractionStopContract.input.parse({
@@ -391,5 +393,18 @@ describe('interaction protocol', () => {
         domains: ['react', 'react'],
       }),
     ).toThrow()
+    expect(() =>
+      devtoolsInteractionStopContract.input.parse({
+        interactionId: 'int_1',
+        sections: ['renders'],
+      }),
+    ).toThrow(/sections requires view/)
+    expect(
+      devtoolsInteractionStopContract.input.parse({
+        interactionId: 'int_1',
+        view: 'full',
+        sections: ['causes'],
+      }),
+    ).toMatchObject({ view: 'full', sections: ['causes'] })
   })
 })

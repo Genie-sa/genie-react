@@ -77,7 +77,7 @@ describe('agent token store', () => {
     const elsewhere = await mkdtemp(join(tmpdir(), 'genie-token-elsewhere-'))
     try {
       await symlink(elsewhere, agentTokenDirectory())
-      await expect(writeAgentToken(root, 'secret')).rejects.toThrow(/refusing to store/)
+      await expect(writeAgentToken(root, 'secret')).rejects.toThrow(/refusing to use/)
     } finally {
       await rm(elsewhere, { recursive: true, force: true })
     }
