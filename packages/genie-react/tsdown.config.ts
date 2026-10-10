@@ -65,5 +65,7 @@ export default defineConfig([
     clean: false,
     // Self-contained on purpose: the hub serves this single file to pages with no bundler integration.
     deps: { alwaysBundle: [/./], onlyBundle: false },
+    // Only dev pages load this file, but minifying would otherwise fold NODE_ENV to "production" and compile out dev-only runtime such as proxy tagging.
+    define: { 'process.env.NODE_ENV': '"development"' },
   },
 ])
