@@ -122,10 +122,14 @@ const safeSession = (session: string | undefined): string | undefined =>
 export const safeToolNames = (names: readonly string[]): string[] =>
   names.filter((name) => SAFE_TOOL_NAME.test(name))
 
-export function toolHelpNext(tool: string, session?: string): NextCommand | undefined {
+export function toolHelpNext(
+  tool: string,
+  session?: string,
+  flags: readonly string[] = [],
+): NextCommand | undefined {
   if (!SAFE_TOOL_NAME.test(tool)) return undefined
   const pinned = safeSession(session)
-  return nextCommand('tools', tool, ...(pinned ? ['--session', pinned] : []))
+  return nextCommand('tools', tool, ...flags, ...(pinned ? ['--session', pinned] : []))
 }
 
 const NO_ACTION_REASONS: ReadonlySet<FailureReason> = new Set(['busy', 'timeout', 'tool_error'])

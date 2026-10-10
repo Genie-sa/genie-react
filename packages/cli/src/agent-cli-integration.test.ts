@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createStandaloneBridge } from 'genie-react/hub'
@@ -189,12 +189,14 @@ describe('agent CLI integration', () => {
       maxBytes: DEFAULT_MAX_BYTES,
       largestPaths: [{ path: '/rows', items: 1 }],
     })
-    expect(envelope.outputPath.startsWith(join(realpathSync(runtime), 'genie-react-'))).toBe(true)
+    expect(envelope.outputPath.startsWith(join(runtime, 'genie-react-'))).toBe(true)
     expect(JSON.parse(readFileSync(envelope.outputPath, 'utf8')).rows[0].detail).toHaveLength(
       100_000,
     )
     expect(envelope.suggestions.map((suggestion: { argv: string[] }) => suggestion.argv)).toEqual([
       [
+        'pnpm',
+        'exec',
         'genie-react',
         'call',
         'query_rows',
@@ -205,6 +207,8 @@ describe('agent CLI integration', () => {
         'json-session',
       ],
       [
+        'pnpm',
+        'exec',
         'genie-react',
         'call',
         'query_rows',
@@ -217,6 +221,8 @@ describe('agent CLI integration', () => {
         '/rows/0',
       ],
       [
+        'pnpm',
+        'exec',
         'genie-react',
         'call',
         'query_rows',

@@ -46,7 +46,13 @@ import {
   renderBoundedText,
   selectResult,
 } from './result-selection'
-import { groupIndex, resolveToolsSelector, slimDescriptor, toolDetail } from './tool-output'
+import {
+  groupIndex,
+  resolveToolsSelector,
+  slimDescriptor,
+  type ToolDescriptor,
+  toolDetail,
+} from './tool-output'
 
 export {
   summarizeCapture,
@@ -981,11 +987,14 @@ export async function runTools(
       return 1
     }
 
+    const detail = (tool: ToolDescriptor) =>
+      toolDetail(tool, opts.outputSchema, toolHelpNext(tool.name, pinned, ['--output-schema']))
+
     if (selector) {
       const selection = resolveToolsSelector(tools, selector)
       switch (selection.kind) {
         case 'tool':
-          emitToolsResult(opts, toolDetail(selection.tool, opts.outputSchema), selector)
+          emitToolsResult(opts, detail(selection.tool), selector)
           return 0
         case 'group': {
           const value = selection.tools.map(slimDescriptor)
@@ -1013,7 +1022,7 @@ export async function runTools(
     if (opts.all) {
       emitToolsResult(opts, {
         app: status.app,
-        tools: tools.map((tool) => toolDetail(tool, opts.outputSchema)),
+        tools: tools.map(detail),
       })
       return 0
     }

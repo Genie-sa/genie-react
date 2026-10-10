@@ -5,7 +5,6 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -14,8 +13,10 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { agentTokenDirectory, writeAgentToken } from 'genie-react/hub'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { overflowSuggestions, recoverOverflow, spillDirectory } from './output-recovery'
+import { genieCommand } from './package-manager'
 import type { Overflow } from './result-selection'
 
 const posix = process.platform !== 'win32'
@@ -36,12 +37,14 @@ const invocation = {
   flags: ['--session', 'agent-a'],
 }
 
+const prefix = genieCommand(['call', 'react_get_renders']).argv
+
 describe('overflow suggestions', () => {
   it('suggests the summary view, a fitting limit, a selectable branch, one item and a raised cap', () => {
     expect(
       overflowSuggestions(overflow, invocation, 100_000).map(({ reason, argv }) => ({
         reason,
-        argv: argv.slice(3),
+        argv: argv.slice(prefix.length),
       })),
     ).toEqual([
       {
@@ -66,7 +69,7 @@ describe('overflow suggestions', () => {
       },
     ])
     expect(overflowSuggestions(overflow, invocation, 100_000)[0]?.command).toBe(
-      `genie-react call react_get_renders '{"limit":200,"view":"summary"}' --session agent-a`,
+      `${genieCommand([]).command} call react_get_renders '{"limit":200,"view":"summary"}' --session agent-a`,
     )
   })
 
@@ -77,7 +80,8 @@ describe('overflow suggestions', () => {
       100_000,
     )
     expect(suggestions.map(({ argv }) => argv)).toEqual([
-      ['genie-react', 'tools', 'react_get_renders', '--select', '/output', '--max-bytes', '400000'],
+      genieCommand(['tools', 'react_get_renders', '--select', '/output', '--max-bytes', '400000'])
+        .argv,
     ])
   })
 
@@ -100,7 +104,7 @@ describe('overflow suggestions', () => {
     ])
     expect(suggestions[0]?.argv.at(-1)).toBe(hostile)
     expect(suggestions[0]?.command).toBe(
-      `genie-react call query_list --select '/data/x'\\''; rm -rf ~; echo '\\'''`,
+      `${genieCommand([]).command} call query_list --select '/data/x'\\''; rm -rf ~; echo '\\'''`,
     )
   })
 
@@ -139,9 +143,7 @@ describe('overflow spill', () => {
     const outputPath = spill('call react_get_renders/../x')
     const directory = spillDirectory()
 
-    expect(directory).toBe(
-      join(realpathSync(runtime), `genie-react-${process.getuid?.() ?? 'user'}`, 'out'),
-    )
+    expect(directory).toBe(join(runtime, `genie-react-${process.getuid?.() ?? 'user'}`, 'out'))
     expect(outputPath?.startsWith(`${directory}/call-react_get_renders-..-x-`)).toBe(true)
     expect(readFileSync(outputPath ?? '', 'utf8')).toBe(`${overflow.serialized}\n`)
     if (posix) {
@@ -174,7 +176,7 @@ describe('overflow spill', () => {
     expect(existsSync(victim)).toBe(true)
   })
 
-  it.runIf(posix)('refuses a symlinked or shared output directory', () => {
+  it.runIf(posix)('refuses a symlinked output directory and tightens a loosened one', () => {
     const base = join(runtime, `genie-react-${process.getuid?.()}`)
     mkdirSync(base, { mode: 0o700 })
     symlinkSync(project, join(base, 'out'))
@@ -185,6 +187,25 @@ describe('overflow spill', () => {
     rmSync(join(base, 'out'))
     mkdirSync(join(base, 'out'), { mode: 0o700 })
     chmodSync(join(base, 'out'), 0o755)
+    expect(spill()).toBeDefined()
+    expect(statSync(join(base, 'out')).mode & 0o777).toBe(0o700)
+  })
+
+  it.runIf(posix)('refuses a symlinked per-user directory', () => {
+    symlinkSync(project, join(runtime, `genie-react-${process.getuid?.()}`))
     expect(spill()).toBeUndefined()
+    expect(readdirSync(project)).toEqual([])
+  })
+
+  it('shares the per-user directory with the agent token store in either creation order', async () => {
+    expect(dirname(spillDirectory())).toBe(agentTokenDirectory())
+
+    expect(spill()).toBeDefined()
+    expect(dirname(await writeAgentToken(project, 'secret'))).toBe(agentTokenDirectory())
+
+    rmSync(agentTokenDirectory(), { recursive: true })
+    await writeAgentToken(project, 'secret')
+    expect(spill()).toBeDefined()
+    if (posix) expect(statSync(agentTokenDirectory()).mode & 0o777).toBe(0o700)
   })
 })

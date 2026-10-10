@@ -228,19 +228,21 @@ describe('tool detail output outline', () => {
 
   it('replaces the output schema with an outline unless the complete schema is requested', () => {
     const descriptor = tool({ name: 'react_get_renders', outputJsonSchema })
-    expect(toolDetail(descriptor)).toEqual({
+    const next = {
+      command: 'genie-react tools react_get_renders --output-schema',
+      argv: ['genie-react', 'tools', 'react_get_renders', '--output-schema'],
+    }
+    expect(toolDetail(descriptor, false, next)).toEqual({
       name: 'react_get_renders',
       title: 'react_get_renders',
       group: 'query',
       output: {
         kind: 'outline',
         fields: outlineJsonSchema(outputJsonSchema),
-        next: {
-          command: 'genie-react tools react_get_renders --output-schema',
-          argv: ['genie-react', 'tools', 'react_get_renders', '--output-schema'],
-        },
+        next,
       },
     })
+    expect(toolDetail(descriptor)).toHaveProperty('output', expect.not.objectContaining({ next }))
     expect(toolDetail(descriptor, true)).toBe(descriptor)
     expect(toolDetail(tool({ name: 'devtools_status' }))).not.toHaveProperty('output')
   })

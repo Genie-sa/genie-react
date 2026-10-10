@@ -1,6 +1,5 @@
 import type { BridgeStatusMessage } from 'genie-react/protocol'
 import { isRecord } from './guards'
-import { shellQuote } from './output-recovery'
 
 export type ToolDescriptor = BridgeStatusMessage['tools'][number]
 
@@ -187,24 +186,24 @@ function range(minimum: unknown, maximum: unknown, label = ''): string | null {
 export interface ToolOutputOutline {
   kind: 'outline'
   fields: Record<string, string>
-  next: { command: string; argv: string[] }
+  next?: { command: string; argv: string[] }
 }
 
 /** Tool detail for agents: the full input schema and a one-level output outline; `--output-schema` restores the complete output schema. */
 export function toolDetail(
   tool: ToolDescriptor,
   includeOutputSchema = false,
+  outputSchemaNext?: ToolOutputOutline['next'],
 ): ToolDescriptor | (Omit<ToolDescriptor, 'outputJsonSchema'> & { output?: ToolOutputOutline }) {
   if (includeOutputSchema) return tool
   const { outputJsonSchema, ...detail } = tool
   if (outputJsonSchema === undefined) return detail
-  const argv = ['genie-react', 'tools', tool.name, '--output-schema']
   return {
     ...detail,
     output: {
       kind: 'outline',
       fields: outlineJsonSchema(outputJsonSchema),
-      next: { command: argv.map(shellQuote).join(' '), argv },
+      ...(outputSchemaNext ? { next: outputSchemaNext } : {}),
     },
   }
 }
