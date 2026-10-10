@@ -72,6 +72,7 @@ import {
   renderEvidenceComparability,
   renderSummarySemantics,
 } from './render-snapshots'
+import { summarizeRenderCauseEvent, summarizeRenderComponent } from './render-summary'
 import {
   clearRenders,
   getAnalysisFailedFiberCount,
@@ -450,6 +451,7 @@ export function reactCollector(): GenieCollector {
           sort,
           limit,
           appOnly,
+          view,
         }) => {
           const report = await getRendersMeasurement({
             component,
@@ -486,6 +488,19 @@ export function reactCollector(): GenieCollector {
             comparability.comparable = false
             comparability.notComparableReasons.push('app-source-classification-incomplete')
           }
+          const reportSummary = {
+            ...summary,
+            semantics: renderSummarySemantics(
+              {
+                ...measurementCoverage,
+                complete: measurementCoverage.complete && !classificationIncomplete,
+              },
+              summary.totalRenders,
+            ),
+            coverageDomain: 'render-measurement' as const,
+          }
+          const { unstableComponents, unnecessaryComponents, topUnstableProps, ...summaryView } =
+            reportSummary
           return {
             tracking: report.tracking,
             renderCollection: report.renderCollection,
@@ -494,18 +509,13 @@ export function reactCollector(): GenieCollector {
             documentCommitId: report.documentCommitId,
             observation: report.observation,
             attribution: report.attribution,
-            summary: {
-              ...summary,
-              semantics: renderSummarySemantics(
-                {
-                  ...measurementCoverage,
-                  complete: measurementCoverage.complete && !classificationIncomplete,
-                },
-                summary.totalRenders,
-              ),
-              coverageDomain: 'render-measurement' as const,
-            },
-            components,
+            ...(view === 'full'
+              ? { view, summary: reportSummary, components }
+              : {
+                  view,
+                  summary: summaryView,
+                  components: components.map(summarizeRenderComponent),
+                }),
             sourceClassification,
             omittedByLimit,
             nextCursor: report.nextCursor,
@@ -518,7 +528,7 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactRenderCausesContract,
-        handler: async ({ commit, afterCommit, component, limit, appOnly }) => {
+        handler: async ({ commit, afterCommit, component, limit, appOnly, view }) => {
           const report = await getRenderCauseMeasurement({
             commit,
             afterCommit,
@@ -545,7 +555,14 @@ export function reactCollector(): GenieCollector {
             documentCommitId: report.documentCommitId,
             observation: report.observation,
             attribution: report.attribution,
-            events,
+            ...(view === 'full'
+              ? { view, events }
+              : {
+                  view,
+                  events: events.map((event) =>
+                    summarizeRenderCauseEvent(event, report.observation?.id ?? null),
+                  ),
+                }),
             omittedByLimit,
             renderEventRetention: report.renderEventRetention,
             coverage: {

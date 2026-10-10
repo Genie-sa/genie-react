@@ -17,6 +17,7 @@ export const CLI_OPTIONS = {
   ndjson: { type: 'boolean' },
   'sessions-only': { type: 'boolean' },
   all: { type: 'boolean' },
+  'output-schema': { type: 'boolean' },
   port: { type: 'string' },
   timeout: { type: 'string' },
   fields: { type: 'string' },
@@ -94,7 +95,7 @@ const OPTION_DETAILS: Record<OptionName, OptionDetail> = {
   },
   'max-bytes': {
     description:
-      'Bound stdout bytes including newlines; oversized results return a truncation envelope',
+      'Bound stdout bytes including newlines; an oversized call or tools result is written to .genie/out and replaced by a truncation envelope with its path and retry suggestions',
     default: DEFAULT_MAX_BYTES,
     minimum: 512,
     maximum: 50000000,
@@ -111,6 +112,10 @@ const OPTION_DETAILS: Record<OptionName, OptionDetail> = {
     default: false,
   },
   all: { description: 'Return every tool contract', default: false },
+  'output-schema': {
+    description: 'Include complete output JSON Schemas instead of one-level outlines',
+    default: false,
+  },
   output: { description: 'Write the checksummed capture artifact to this path' },
   section: { description: 'Export comma-separated capture domains', enum: CAPTURE_DOMAINS },
   force: { description: 'Replace an existing capture export file', default: false },
@@ -181,9 +186,16 @@ export const COMMANDS: Record<string, Command> = {
         description: 'Exact tool name or group family; omission returns a group index',
       },
     ],
-    options: [...CONNECTION, ...SELECTION, 'wait', 'all'],
-    examples: [['tools'], ['tools', 'react.render'], ['tools', 'react_get_renders']],
-    notes: ['Exact tools expose input and output schemas. --all returns every contract.'],
+    options: [...CONNECTION, ...SELECTION, 'wait', 'all', 'output-schema'],
+    examples: [
+      ['tools'],
+      ['tools', 'react.render'],
+      ['tools', 'react_get_renders'],
+      ['tools', 'react_get_renders', '--output-schema'],
+    ],
+    notes: [
+      'Exact tools expose the input schema and an outline of top-level output fields; --output-schema adds the complete output schema. --all returns every contract.',
+    ],
   },
   status: {
     description: 'Inspect bridge readiness and resolve connected app sessions',

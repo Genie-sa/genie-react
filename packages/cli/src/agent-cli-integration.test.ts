@@ -1,9 +1,13 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createStandaloneBridge } from 'genie-react/hub'
 import { decodeFrame, encodeMessage } from 'genie-react/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { runBatch, runCall, runStatus, runTools } from './agent'
 import { GenieAgentLink } from './agent-link'
+import { DEFAULT_MAX_BYTES } from './cli-output'
 
 const AGENT_TOKEN = 'cli-integration-token'
 
@@ -164,14 +168,64 @@ describe('agent CLI integration', () => {
     expect(await runCall('query_rows', '{}', { url, fields: ['id'] })).toBe(0)
     expect(stdout.mock.calls.flat().join('')).toBe('{"id":7}\n')
     stdout.mockClear()
-    expect(await runCall('query_rows', '{"large":true}', { url })).toBe(0)
+    const cwd = mkdtempSync(join(tmpdir(), 'genie-spill-'))
+    cleanups.push(() => rmSync(cwd, { recursive: true, force: true }))
+    expect(
+      await runCall('query_rows', '{"large":true,"limit":50}', {
+        url,
+        cwd,
+        session: 'json-session',
+      }),
+    ).toBe(0)
     const output = stdout.mock.calls.flat().join('')
-    expect(Buffer.byteLength(output)).toBeLessThanOrEqual(262_144)
-    expect(JSON.parse(output)).toMatchObject({
+    expect(Buffer.byteLength(output)).toBeLessThanOrEqual(DEFAULT_MAX_BYTES)
+    const envelope = JSON.parse(output)
+    expect(envelope).toMatchObject({
       status: 'truncated',
       reason: 'max_bytes',
-      maxBytes: 262_144,
+      maxBytes: DEFAULT_MAX_BYTES,
+      largestPaths: [{ path: '/rows', items: 1 }],
     })
+    expect(envelope.outputPath.startsWith(join(cwd, '.genie', 'out'))).toBe(true)
+    expect(JSON.parse(readFileSync(envelope.outputPath, 'utf8')).rows[0].detail).toHaveLength(
+      100_000,
+    )
+    expect(envelope.suggestions.map((suggestion: { argv: string[] }) => suggestion.argv)).toEqual([
+      [
+        'genie-react',
+        'call',
+        'query_rows',
+        '{"large":true,"limit":13}',
+        '--url',
+        url,
+        '--session',
+        'json-session',
+      ],
+      [
+        'genie-react',
+        'call',
+        'query_rows',
+        '{"large":true,"limit":50}',
+        '--url',
+        url,
+        '--session',
+        'json-session',
+        '--select',
+        '/rows/0',
+      ],
+      [
+        'genie-react',
+        'call',
+        'query_rows',
+        '{"large":true,"limit":50}',
+        '--url',
+        url,
+        '--session',
+        'json-session',
+        '--max-bytes',
+        String(envelope.originalBytes),
+      ],
+    ])
   })
 
   it('maps a refused agent token to an actionable failure', async () => {

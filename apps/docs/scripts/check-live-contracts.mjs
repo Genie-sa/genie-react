@@ -224,7 +224,7 @@ const toolNames = listing.groups.flatMap((group) => group.tools).sort()
 const errors = []
 
 for (const toolName of toolNames) {
-  const descriptor = runCli('tools', toolName, '--json')
+  const descriptor = runCli('tools', toolName, '--output-schema', '--max-bytes', '50000000')
   const section = sections.get(toolName)
   if (!section) {
     errors.push(`${toolName}: missing tool section`)

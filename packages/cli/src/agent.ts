@@ -35,15 +35,18 @@ import {
   toolHelpNext,
 } from './failure'
 import { isRecord, isRecordArray } from './guards'
+import { type CallInvocation, recoverOverflow } from './output-recovery'
 import { setOutputContext } from './output-safety'
 import { genieCommand } from './package-manager'
 import {
   FieldSelectionError,
+  type Overflow,
+  type OverflowRecovery,
   renderBoundedJson,
   renderBoundedText,
   selectResult,
 } from './result-selection'
-import { groupIndex, resolveToolsSelector, slimDescriptor } from './tool-output'
+import { groupIndex, resolveToolsSelector, slimDescriptor, toolDetail } from './tool-output'
 
 export {
   summarizeCapture,
@@ -75,6 +78,8 @@ export interface AgentOptions {
   session?: string
   /** `genie-react tools --all`: the complete flat catalog instead of the progressive group index. */
   all?: boolean
+  /** `genie-react tools --output-schema`: include complete output JSON Schemas instead of outlines. */
+  outputSchema?: boolean
   /** Per-call full-timeout budget (ms) forwarded to the bridge; clamped by it to [1000, 120000]. */
   timeoutMs?: number
   /** `--fields id,name,…`: project the first array-of-records to these keys as JSONL (implies machine output). */
@@ -250,10 +255,33 @@ export function renderResult(
   fields?: string[],
   select?: string,
   maxBytes = DEFAULT_MAX_BYTES,
+  recover?: (overflow: Overflow) => OverflowRecovery,
 ): string {
   if (fields && fields.length > 0) return renderBoundedText(projectFields(result, fields), maxBytes)
   const projected = select === undefined ? result : selectResult(result, select)
-  return renderBoundedJson(projected ?? null, maxBytes)
+  return renderBoundedJson(projected ?? null, maxBytes, recover)
+}
+
+/** Oversized results spill to `.genie/out` beside the app and suggest narrower retries built from this invocation. */
+function overflowRecovery(
+  opts: AgentOptions,
+  label: string,
+  invocation: Omit<CallInvocation, 'flags' | 'select'>,
+): (overflow: Overflow) => OverflowRecovery {
+  const flags = [
+    ...(opts.url === undefined ? [] : ['--url', opts.url]),
+    ...(opts.session === undefined ? [] : ['--session', opts.session]),
+  ]
+  return (overflow) =>
+    recoverOverflow(
+      overflow,
+      { ...invocation, flags, select: opts.select },
+      {
+        cwd: opts.cwd ?? process.cwd(),
+        label,
+        maxBytes: opts.maxBytes ?? DEFAULT_MAX_BYTES,
+      },
+    )
 }
 
 /** `--fields` output: the top-level object projected when any requested key exists on it; otherwise one JSONL row per record in the FIRST array-of-records field (key order, empty → zero rows). Deterministic — the projected source never depends on which array happens to have rows. */
@@ -549,7 +577,18 @@ export async function runCall(
     const result = await link.invoke(tool, args, undefined, { timeoutMs: opts.timeoutMs })
     const operationId = operationIdOf(result)
     if (operationId) setOutputContext({ operation: `call ${tool}`, operationId })
-    const rendered = renderResult(tool, result, opts.json, opts.fields, opts.select, opts.maxBytes)
+    const rendered = renderResult(
+      tool,
+      result,
+      opts.json,
+      opts.fields,
+      opts.select,
+      opts.maxBytes,
+      overflowRecovery(opts, `call-${tool}`, {
+        command: ['call', tool],
+        args: isRecord(args) ? args : undefined,
+      }),
+    )
     out(rendered)
     return opts.failOnResultError &&
       (tool === devtoolsWaitContract.name || tool === reactQuiesceContract.name) &&
@@ -951,11 +990,11 @@ export async function runTools(
       const selection = resolveToolsSelector(tools, selector)
       switch (selection.kind) {
         case 'tool':
-          emitToolsResult(opts, selection.tool)
+          emitToolsResult(opts, toolDetail(selection.tool, opts.outputSchema), selector)
           return 0
         case 'group': {
           const value = selection.tools.map(slimDescriptor)
-          emitToolsResult(opts, value)
+          emitToolsResult(opts, value, selector)
           return 0
         }
         case 'unknown': {
@@ -977,7 +1016,10 @@ export async function runTools(
     }
 
     if (opts.all) {
-      emitToolsResult(opts, { app: status.app, tools })
+      emitToolsResult(opts, {
+        app: status.app,
+        tools: tools.map((tool) => toolDetail(tool, opts.outputSchema)),
+      })
       return 0
     }
     const index = groupIndex(status.app?.name, tools)
@@ -996,9 +1038,21 @@ export async function runTools(
   }
 }
 
-function emitToolsResult(opts: AgentOptions, value: unknown): void {
+function emitToolsResult(opts: AgentOptions, value: unknown, selector?: string): void {
   const selected = opts.select === undefined ? value : selectResult(value, opts.select)
-  writeJson(selected, opts.maxBytes)
+  const command = [
+    'tools',
+    ...(selector === undefined ? [] : [selector]),
+    ...(opts.all ? ['--all'] : []),
+    ...(opts.outputSchema ? ['--output-schema'] : []),
+  ]
+  out(
+    renderBoundedJson(
+      selected,
+      opts.maxBytes ?? DEFAULT_MAX_BYTES,
+      overflowRecovery(opts, `tools-${selector ?? 'all'}`, { command }),
+    ),
+  )
 }
 
 function waitForTools(

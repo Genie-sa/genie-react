@@ -113,7 +113,8 @@ Creates one immutable, schema-versioned runtime artifact for the selected physic
 `include` is an optional list of 1–6 unique values from `react`, `effects`, `query`, `router`,
 `memory`, and `performance`; it defaults to `["react","effects","query","router","memory"]` and
 does not include `performance`.
-`maxAttempts` is an optional integer from 1–5 and defaults to 3.
+`maxAttempts` is an optional integer from 1–5 and defaults to 3. `view` is `summary` (default) or
+`full`; `full` returns the retained artifact with every section.
 
 ```bash
 npx @genie-react/cli call devtools_capture_create \
@@ -144,9 +145,13 @@ npx @genie-react/cli call devtools_capture_create \
   "complete": true,
   "warnings": [],
   "sizeBytes": 18420,
-  "pinned": false
+  "pinned": false,
+  "availableSections": ["react", "effects", "query", "performance"]
 }
 ```
+
+The default summary matches `devtools_capture_read`. Read sections later with `devtools_capture_read`
+or export them with `capture export`.
 
 **Agent use:** Save the returned `captureId` as one cohort sample and verify the physical session,
 document generation, consistency, completeness, and warnings before using it as baseline evidence.
@@ -437,12 +442,14 @@ Concurrent time windows cannot by themselves assign disjoint causal commit sets.
 
 ## `devtools_interaction_stop`
 
-Freezes and returns the bounded evidence for one interaction ID.
+Freezes the evidence for one interaction ID and returns its summary.
 
 **Input:** `interactionId` is a required non-empty string. `domains` is an optional list of 1–5
 unique values from `react`, `query`, `router`, `frames`, and `network`, and defaults to `["react"]`.
 `quietMs` is an optional integer from 100–5,000 and defaults to 500. `timeoutMs` is an optional
-positive integer up to 60,000 and defaults to 10,000.
+positive integer up to 60,000 and defaults to 10,000. `view` is `summary` (default) or `full`.
+`sections` requires `view:"full"` and selects 1–4 unique values from `renders`, `causes`, `effects`,
+and `cohorts`.
 
 ```bash
 npx @genie-react/cli call devtools_interaction_stop \
@@ -487,12 +494,51 @@ npx @genie-react/cli call devtools_interaction_stop \
   },
   "warnings": [
     "1 post-interaction React commit occurred during settle and was excluded by the profile freeze."
-  ]
+  ],
+  "view": "summary",
+  "renders": {
+    "status": "ok",
+    "totalRenders": 9,
+    "omittedComponents": 0,
+    "components": [
+      {
+        "id": 57,
+        "name": "CheckoutRow",
+        "renders": 2,
+        "updates": 2,
+        "selfTime": 1.4,
+        "topCause": { "kind": "props", "count": 2, "name": "item" }
+      }
+    ]
+  },
+  "effects": {
+    "status": "ok",
+    "tool": "react_effect_timeline",
+    "events": 3,
+    "hottest": [
+      {
+        "effectId": "effect:mount:9:0",
+        "componentName": "CheckoutRow",
+        "kind": "effect",
+        "events": 2,
+        "executions": 2,
+        "durationMs": 0.2,
+        "source": "CheckoutRow.tsx:18:3"
+      }
+    ]
+  },
+  "fullView": {
+    "tool": "devtools_interaction_stop",
+    "args": { "interactionId": "int_3b74e2c8-91a6-4f5d-b207-6c83a1d94e50", "view": "full" },
+    "sections": ["renders", "causes", "effects", "cohorts"]
+  }
 }
 ```
 
 **Agent use:** Require `coverage.comparable:true`, inspect every settle domain and warning, then use
-the render, cause, effect, and component-cohort sections to choose the next source inspection.
+the top components, their causes, and the hottest effects to choose the next source inspection.
+Repeat the call with `view:"full"` and the needed `sections` for complete render, cause, effect, and
+cohort evidence.
 
 **Limits:** Stop must use the same physical document; a reload or disconnect expires the active
 interaction. React profiling freezes before settle, so later commits are counted but excluded when

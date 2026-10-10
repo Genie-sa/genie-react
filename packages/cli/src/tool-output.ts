@@ -182,3 +182,83 @@ function range(minimum: unknown, maximum: unknown, label = ''): string | null {
   if (max !== null) return `[${label}<=${max}]`
   return null
 }
+
+export interface ToolOutputOutline {
+  kind: 'outline'
+  fields: Record<string, string>
+  next: { command: string; argv: string[] }
+}
+
+/** Tool detail for agents: the full input schema and a one-level output outline; `--output-schema` restores the complete output schema. */
+export function toolDetail(
+  tool: ToolDescriptor,
+  includeOutputSchema = false,
+): ToolDescriptor | (Omit<ToolDescriptor, 'outputJsonSchema'> & { output?: ToolOutputOutline }) {
+  if (includeOutputSchema) return tool
+  const { outputJsonSchema, ...detail } = tool
+  if (outputJsonSchema === undefined) return detail
+  const argv = ['genie-react', 'tools', tool.name, '--output-schema']
+  return {
+    ...detail,
+    output: {
+      kind: 'outline',
+      fields: outlineJsonSchema(outputJsonSchema),
+      next: { command: argv.join(' '), argv },
+    },
+  }
+}
+
+/** Top-level output keys with shallow types; a key that is optional or missing from a union branch ends in `?`. */
+export function outlineJsonSchema(schema: unknown): Record<string, string> {
+  const root = isRecord(schema) ? schema : {}
+  const objects = unionBranches(root)
+    .map((branch) => resolveRef(root, branch))
+    .filter((branch) => isRecord(branch.properties))
+  const keys = [...new Set(objects.flatMap((branch) => Object.keys(branch.properties as object)))]
+  return Object.fromEntries(
+    keys.map((key) => {
+      const types = new Set<string>()
+      let optional = false
+      for (const branch of objects) {
+        const properties = branch.properties as Record<string, unknown>
+        const required = Array.isArray(branch.required) ? branch.required : []
+        if (!required.includes(key)) optional = true
+        if (key in properties) types.add(shallowType(root, properties[key]))
+      }
+      return [optional ? `${key}?` : key, [...types].join(' | ')]
+    }),
+  )
+}
+
+function unionBranches(schema: Record<string, unknown>): unknown[] {
+  const branches = [schema.anyOf, schema.oneOf].find(Array.isArray)
+  return branches ?? [schema]
+}
+
+function resolveRef(root: Record<string, unknown>, schema: unknown): Record<string, unknown> {
+  if (!isRecord(schema)) return {}
+  if (typeof schema.$ref !== 'string') return schema
+  const name = schema.$ref.split('/').at(-1) ?? ''
+  const definitions = isRecord(root.$defs) ? root.$defs : {}
+  const resolved = definitions[name]
+  return isRecord(resolved) ? resolved : {}
+}
+
+function shallowType(root: Record<string, unknown>, schema: unknown): string {
+  const resolved = resolveRef(root, schema)
+  if (resolved.const !== undefined) return JSON.stringify(resolved.const)
+  if (Array.isArray(resolved.enum)) {
+    const values = resolved.enum.map((value) => JSON.stringify(value))
+    return values.length > 6 ? `${values.slice(0, 6).join(' | ')} | …` : values.join(' | ')
+  }
+  const branches = [resolved.anyOf, resolved.oneOf].find(Array.isArray)
+  if (branches) return [...new Set(branches.map((branch) => shallowType(root, branch)))].join(' | ')
+  const types: unknown[] = Array.isArray(resolved.type) ? resolved.type : [resolved.type ?? 'any']
+  return types
+    .map((type) =>
+      type === 'array' && resolved.items !== undefined
+        ? `array<${jsonSchemaType(resolveRef(root, resolved.items))}>`
+        : String(type),
+    )
+    .join(' | ')
+}

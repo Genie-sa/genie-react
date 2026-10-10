@@ -175,8 +175,25 @@ describe('GenieBridge', () => {
       warnings: [],
     })
     expect(created.result.captureId).toMatch(/^cap_/)
-    expect(created.result.sizeBytes).toBe(Buffer.byteLength(JSON.stringify(created.result), 'utf8'))
-    expect(created.result.sections.react.tools.react_get_renders.result.commits).toBe(7)
+    expect(created.result.availableSections).toEqual([
+      'react',
+      'effects',
+      'query',
+      'router',
+      'memory',
+    ])
+    expect(created.result.sections).toBeUndefined()
+
+    const fullId = newId()
+    send(agent, {
+      kind: 'agent/invoke',
+      id: fullId,
+      tool: 'devtools_capture_read',
+      args: { captureId: created.result.captureId, view: 'full' },
+    })
+    const full = (await inbox.wait(isResult(fullId))).result
+    expect(created.result.sizeBytes).toBe(Buffer.byteLength(JSON.stringify(full), 'utf8'))
+    expect(full.sections.react.tools.react_get_renders.result.commits).toBe(7)
 
     const listId = newId()
     send(agent, {

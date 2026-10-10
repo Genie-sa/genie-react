@@ -7,7 +7,18 @@ import {
   toolDescriptorSchema,
 } from './protocol'
 import { renderObservationBudgetInputSchema } from './react-observation-schema'
-import { schemaConstraints } from './schema-description'
+import { schemaConstraints, withoutSafeIntegerBounds } from './schema-description'
+
+export const OUTPUT_VIEWS = ['summary', 'full'] as const
+export type OutputView = (typeof OUTPUT_VIEWS)[number]
+
+/** Heavy tools answer with decision fields first; `full` restores the complete payload. */
+export function outputViewSchema(fullDescription: string) {
+  return z
+    .enum(OUTPUT_VIEWS)
+    .default('summary')
+    .describe(`summary (default) returns bounded decision fields; full returns ${fullDescription}.`)
+}
 
 export const CAPTURE_SCHEMA_VERSION = '1.0' as const
 export const CAPTURE_DOMAINS = [
@@ -246,7 +257,7 @@ export const devtoolsCaptureCreateContract = defineAgentToolContract({
   name: 'devtools_capture_create',
   title: 'Create an immutable runtime capture',
   description:
-    'Create and retain a named, schema-versioned artifact containing bounded runtime sections. The bridge probes React commits before and after, retries when they move, and records whether the final artifact is React-commit-stable or best-effort. Read it later by captureId or export this JSON result directly.',
+    'Create and retain a named, schema-versioned artifact containing bounded runtime sections. The bridge probes React commits before and after, retries when they move, and records whether the final artifact is React-commit-stable or best-effort. Returns the capture summary by default; read sections later with devtools_capture_read or export the artifact with `genie-react capture export`.',
   group: 'meta',
   input: z
     .object({
@@ -261,9 +272,10 @@ export const devtoolsCaptureCreateContract = defineAgentToolContract({
         )
         .default(['react', 'effects', 'query', 'router', 'memory']),
       maxAttempts: z.number().int().min(1).max(5).default(3),
+      view: outputViewSchema('the retained artifact with every section'),
     })
     .strict(),
-  output: captureArtifactSchema,
+  output: z.union([captureReadSummarySchema, captureArtifactSchema]),
   annotations: { idempotentHint: false },
 })
 
@@ -294,7 +306,7 @@ export const devtoolsCaptureReadContract = defineAgentToolContract({
   input: z
     .object({
       captureId: z.string().min(1, 'captureId is required'),
-      view: z.enum(['summary', 'full']).default('summary'),
+      view: outputViewSchema('the retained artifact'),
       sections: z
         .array(captureDomainSchema)
         .max(CAPTURE_DOMAINS.length)
@@ -638,11 +650,151 @@ export const devtoolsInteractionBeginContract = defineAgentToolContract({
   annotations: { idempotentHint: false },
 })
 
+export const INTERACTION_SECTIONS = ['renders', 'causes', 'effects', 'cohorts'] as const
+export type InteractionSection = (typeof INTERACTION_SECTIONS)[number]
+
+const interactionBoundarySchema = z.object({
+  observationId: z.string().nullable(),
+  startDocumentCommitId: z.number().int().nonnegative().nullable(),
+  stopDocumentCommitId: z.number().int().nonnegative().nullable(),
+  finalDocumentCommitId: z.number().int().nonnegative().nullable(),
+  recordedCommits: z.number().int().nonnegative().nullable(),
+  postInteractionCommits: z.number().int().nonnegative().nullable(),
+  trackingFrozen: z.boolean(),
+  postInteractionPolicy: z.enum([
+    'excluded-by-profile-freeze',
+    'not-excluded-profile-freeze-failed',
+  ]),
+})
+
+const interactionCoverageSchema = z.object({
+  complete: z.boolean(),
+  comparable: z.boolean(),
+  notComparableReasons: z.array(z.string()),
+  boundary: z.literal('profile-frozen-before-settle'),
+})
+
+const interactionCaptureBaseSchema = z.object({
+  schemaVersion: z.literal(INTERACTION_SCHEMA_VERSION),
+  kind: z.literal('interaction-capture'),
+  interactionId: z.string(),
+  name: z.string(),
+  state: z.literal('completed'),
+  startedAt: z.string().datetime(),
+  stoppedAt: z.string().datetime(),
+  session: interactionSessionSchema,
+  boundary: interactionBoundarySchema,
+  coverage: interactionCoverageSchema,
+  warnings: z.array(z.string()),
+})
+
+const interactionSectionStatusSchema = z.object({
+  status: interactionToolResultSchema.shape.status,
+  error: z.string().optional(),
+})
+
+export const interactionCaptureSchema = interactionCaptureBaseSchema.extend({
+  settle: z.object({
+    ok: z.boolean(),
+    waitedMs: z.number().int().nonnegative(),
+    reason: z.string().optional(),
+    domains: z.partialRecord(z.enum(WAIT_DOMAINS), waitDomainResultSchema),
+  }),
+  sections: z
+    .object({
+      renders: interactionToolResultSchema,
+      causes: interactionToolResultSchema,
+      effects: interactionToolResultSchema,
+      cohorts: z.array(z.object({ component: z.string(), evidence: interactionToolResultSchema })),
+    })
+    .partial()
+    .describe('Every section unless the request selected some.'),
+})
+export type InteractionCapture = z.infer<typeof interactionCaptureSchema>
+
+export const interactionSummarySchema = interactionCaptureBaseSchema.extend({
+  view: z.literal('summary'),
+  settle: z.object({
+    ok: z.boolean(),
+    waitedMs: z.number().int().nonnegative(),
+    reason: z.string().optional(),
+    domains: z.partialRecord(
+      z.enum(WAIT_DOMAINS),
+      waitDomainResultSchema.omit({ lastObserved: true }),
+    ),
+  }),
+  renders: interactionSectionStatusSchema.extend({
+    commits: z.number().nullable(),
+    trackedComponents: z.number().nullable(),
+    totalRenders: z.number().nullable(),
+    totalUpdates: z.number().nullable(),
+    omittedComponents: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe(
+        'Components recorded beyond the ones listed here; read the renders section for them.',
+      ),
+    components: z.array(
+      z.object({
+        id: z.number(),
+        name: z.string(),
+        renders: z.number(),
+        updates: z.number(),
+        selfTime: z.number(),
+        topCause: z
+          .object({ kind: z.string(), count: z.number(), name: z.string().optional() })
+          .nullable()
+          .describe('Most frequent observed input kind for this component; name labels the input.'),
+      }),
+    ),
+  }),
+  causes: interactionSectionStatusSchema.extend({
+    events: z.number().int().nonnegative(),
+    omittedByLimit: z.number().int().nonnegative().nullable(),
+  }),
+  effects: interactionSectionStatusSchema.extend({
+    tool: z.string(),
+    events: z.number().int().nonnegative(),
+    omittedByLimit: z.number().int().nonnegative().nullable(),
+    hottest: z
+      .array(
+        z.object({
+          effectId: z.string(),
+          componentName: z.string(),
+          kind: z.string(),
+          events: z.number().int().positive(),
+          executions: z.number().int().nonnegative(),
+          durationMs: z.number().nonnegative(),
+          source: z.string().nullable(),
+        }),
+      )
+      .describe('Effects with the most events in this interaction.'),
+  }),
+  cohorts: z.array(
+    interactionSectionStatusSchema.extend({
+      component: z.string(),
+      cohortStatus: z.string().nullable(),
+      matched: z.number().int().nonnegative().nullable(),
+      mountedUpdated: z.number().int().nonnegative().nullable(),
+      unmounted: z.number().int().nonnegative().nullable(),
+    }),
+  ),
+  fullView: z
+    .object({
+      tool: z.literal('devtools_interaction_stop'),
+      args: z.object({ interactionId: z.string(), view: z.literal('full') }),
+      sections: z.array(z.enum(INTERACTION_SECTIONS)),
+    })
+    .describe('Call to retrieve retained evidence; pass any subset of sections as args.sections.'),
+})
+export type InteractionSummary = z.infer<typeof interactionSummarySchema>
+
 export const devtoolsInteractionStopContract = defineAgentToolContract({
   name: 'devtools_interaction_stop',
   title: 'Stop and read an atomic interaction observation',
   description:
-    'Freeze React profiling before waiting, then return bounded renders, causes, targeted cohorts, and effect timeline evidence from that interaction ID. Commits occurring during settle are excluded by the profile freeze and counted explicitly.',
+    'Freeze React profiling before waiting, then summarize the interaction: top rendered components with their most frequent cause, the hottest effects, cohorts, settle and coverage. Commits occurring during settle are excluded by the profile freeze and counted explicitly. Repeat the call with view:"full" (optionally with sections) to read the retained renders, causes, effects and cohort evidence.',
   group: 'meta',
   input: z
     .object({
@@ -650,59 +802,31 @@ export const devtoolsInteractionStopContract = defineAgentToolContract({
       domains: z.array(z.enum(WAIT_DOMAINS)).min(1).max(WAIT_DOMAINS.length).default(['react']),
       quietMs: z.number().int().min(100).max(5_000).default(500),
       timeoutMs: z.number().int().positive().max(60_000).default(10_000),
+      view: outputViewSchema('the retained renders, causes, effects and cohort tool results'),
+      sections: z
+        .array(z.enum(INTERACTION_SECTIONS))
+        .min(1)
+        .max(INTERACTION_SECTIONS.length)
+        .optional()
+        .describe('For view="full", include only these sections.'),
     })
     .strict()
-    .refine((input) => new Set(input.domains).size === input.domains.length, {
-      message: 'domains must be unique',
-      path: ['domains'],
+    .superRefine((input, context) => {
+      if (new Set(input.domains).size !== input.domains.length) {
+        context.addIssue({ code: 'custom', path: ['domains'], message: 'domains must be unique' })
+      }
+      if (input.sections !== undefined && input.view !== 'full') {
+        context.addIssue({
+          code: 'custom',
+          path: ['sections'],
+          message: 'sections requires view="full"',
+        })
+      }
+      if (input.sections && new Set(input.sections).size !== input.sections.length) {
+        context.addIssue({ code: 'custom', path: ['sections'], message: 'sections must be unique' })
+      }
     }),
-  output: z.object({
-    schemaVersion: z.literal(INTERACTION_SCHEMA_VERSION),
-    kind: z.literal('interaction-capture'),
-    interactionId: z.string(),
-    name: z.string(),
-    state: z.literal('completed'),
-    startedAt: z.string().datetime(),
-    stoppedAt: z.string().datetime(),
-    session: interactionSessionSchema,
-    boundary: z.object({
-      observationId: z.string().nullable(),
-      startDocumentCommitId: z.number().int().nonnegative().nullable(),
-      stopDocumentCommitId: z.number().int().nonnegative().nullable(),
-      finalDocumentCommitId: z.number().int().nonnegative().nullable(),
-      recordedCommits: z.number().int().nonnegative().nullable(),
-      postInteractionCommits: z.number().int().nonnegative().nullable(),
-      trackingFrozen: z.boolean(),
-      postInteractionPolicy: z.enum([
-        'excluded-by-profile-freeze',
-        'not-excluded-profile-freeze-failed',
-      ]),
-    }),
-    settle: z.object({
-      ok: z.boolean(),
-      waitedMs: z.number().int().nonnegative(),
-      reason: z.string().optional(),
-      domains: z.partialRecord(z.enum(WAIT_DOMAINS), waitDomainResultSchema),
-    }),
-    sections: z.object({
-      renders: interactionToolResultSchema,
-      causes: interactionToolResultSchema,
-      effects: interactionToolResultSchema,
-      cohorts: z.array(
-        z.object({
-          component: z.string(),
-          evidence: interactionToolResultSchema,
-        }),
-      ),
-    }),
-    coverage: z.object({
-      complete: z.boolean(),
-      comparable: z.boolean(),
-      notComparableReasons: z.array(z.string()),
-      boundary: z.literal('profile-frozen-before-settle'),
-    }),
-    warnings: z.array(z.string()),
-  }),
+  output: z.union([interactionSummarySchema, interactionCaptureSchema]),
   annotations: { idempotentHint: true },
 })
 
@@ -721,7 +845,7 @@ export const metaTools = [
 
 /** Catalog entries for the meta tools, so `tools` listings and toolCount agree on the same set. */
 export const metaToolDescriptors: ToolDescriptor[] = metaTools.map((contract) => {
-  const inputJsonSchema = z.toJSONSchema(contract.input, { io: 'input' })
+  const inputJsonSchema = withoutSafeIntegerBounds(z.toJSONSchema(contract.input, { io: 'input' }))
   const constraints = contract.name.startsWith('react_') ? schemaConstraints(inputJsonSchema) : ''
   return {
     name: contract.name,

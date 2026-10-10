@@ -64,9 +64,13 @@ Summarizes component render counts, changed inputs, timing, mount identity, and 
 whole-name glob (1–160 characters): `*` matches any text and `?` matches one character. `excludeNames`
 accepts up to 50 such globs. `minUpdates` is a nonnegative integer and defaults to 0. These selectors
 combine with the existing `component` substring and run before source classification and the cap.
+`view` is `summary` (default) or `full`. The summary keeps counts, timing, cause kinds and names,
+input evidence, and one `source` with `location` and `ownership` per component. `full` adds input
+values and `deepDiff`, behavior `assessment`, `instance` details, `sourceProvenance`, and the legacy
+`unnecessary`, `unstableRenders`, `forget`, and `necessity` fields.
 
-Use `nextCursor` with `cursor` to read the remainder; pass only `cursor` and optional `limit` on
-continuation calls. Pages retain the first report's ordering, counts, summary, source coverage, and
+Use `nextCursor` with `cursor` to read the remainder; pass only `cursor` and optional `limit` or
+`view` on continuation calls. Pages retain the first report's ordering, counts, summary, source coverage, and
 observation metadata while new commits arrive. `pagination` reports the snapshot ID, row offset,
 total selected rows, and `expiresAt` in Unix milliseconds. `omittedByLimit` counts rows remaining
 after the current page, and `nextCursor:null` means that selected snapshot is exhausted.
@@ -180,44 +184,22 @@ npx @genie-react/cli call react_get_renders \
     "epoch": 2,
     "startedAfterDocumentCommitId": 18
   },
+  "view": "summary",
   "summary": { "totalRenders": 12, "totalUpdates": 8 },
   "components": [
     {
       "id": 51,
       "name": "ProductCard",
-      "instance": {
-        "mountId": "mount:9",
-        "key": "sku-1",
-        "logicalPath": "ProductList[key=sku-1] > ProductCard[key=sku-1]",
-        "logicalIdentityEvidence": "keyed",
-        "mountGeneration": 1
-      },
+      "mountId": "mount:9",
+      "key": "sku-1",
       "renders": 4,
       "updates": 4,
       "selfTime": 1.2,
       "cumulativeSelfTime": 3.4,
-      "causes": [
-        {
-          "kind": "state",
-          "evidence": "exact",
-          "name": "state[0]",
-          "before": { "selected": false },
-          "after": { "selected": true },
-          "deepDiff": {
-            "changes": [
-              {
-                "kind": "value",
-                "path": "selected",
-                "before": false,
-                "after": true
-              }
-            ],
-            "visited": 2,
-            "truncated": false
-          },
-          "hook": { "index": 0, "stateIndex": 0, "kind": "state" }
-        }
-      ]
+      "causeCounts": { "state": 4 },
+      "causes": [{ "kind": "state", "evidence": "exact", "name": "state[0]" }],
+      "inputEvidence": "changed",
+      "source": { "location": "ProductCard.tsx:12:3", "ownership": "app" }
     }
   ],
   "omittedByLimit": 0,
@@ -226,8 +208,8 @@ npx @genie-react/cli call react_get_renders \
 ```
 
 **Agent use:** Optimize the highest cumulative cost only after the exact changed path and complete
-coverage explain the render. Compatibility counts such as `unnecessary` are not proof that a render
-is safe to remove.
+coverage explain the render; request `view:"full"` for the changed values and `deepDiff` paths.
+Compatibility counts such as `unnecessary` are not proof that a render is safe to remove.
 
 Props cause a render only for components that can skip it on equal props: `memo` components and
 classes that extend `PureComponent` or define `shouldComponentUpdate`. Any other component lists its
@@ -254,7 +236,9 @@ and are never removed by this check.
 
 **Input:** `commit` and `afterCommit` are optional nonnegative integers and are mutually exclusive.
 `component` is an optional substring. `limit` is an integer from 1 to 500 and defaults to 100.
-`appOnly` defaults to `true`.
+`appOnly` defaults to `true`. `view` is `summary` (default) or `full`; the summary names each cause,
+while `full` adds input values, `deepDiff`, Query notification details, `assessment`, `instance`,
+and source attribution.
 
 ```bash
 npx @genie-react/cli call react_render_causes \
@@ -272,38 +256,18 @@ npx @genie-react/cli call react_render_causes \
     "epoch": 2,
     "startedAfterDocumentCommitId": 18
   },
+  "view": "summary",
   "events": [
     {
       "renderEventId": "render:20:7",
-      "observationId": "observation:2",
-      "commitId": 2,
       "documentCommitId": 20,
       "componentId": 51,
       "componentName": "ProductCard",
-      "instance": {
-        "mountId": "mount:9",
-        "key": "sku-1",
-        "mountGeneration": 1,
-        "logicalIdentityEvidence": "keyed"
-      },
-      "causes": [
-        {
-          "kind": "state",
-          "evidence": "exact",
-          "name": "state[0]",
-          "before": false,
-          "after": true,
-          "deepDiff": {
-            "changes": [
-              { "kind": "value", "path": "", "before": false, "after": true }
-            ],
-            "visited": 1,
-            "truncated": false
-          },
-          "hook": { "index": 0, "stateIndex": 0, "kind": "state" }
-        }
-      ],
-      "sourceOwnership": "app"
+      "mountId": "mount:9",
+      "key": "sku-1",
+      "causes": [{ "kind": "state", "evidence": "exact", "name": "state[0]" }],
+      "inputEvidence": "changed",
+      "source": { "location": "ProductCard.tsx:12:3", "ownership": "app" }
     }
   ],
   "omittedByLimit": 0,
@@ -320,8 +284,8 @@ npx @genie-react/cli call react_render_causes \
 }
 ```
 
-**Agent use:** Join `renderEventId`, observation, document commit, mount, and hook IDs to the action,
-then change the producer of the exact input. Repeat the interaction if events were evicted or
+**Agent use:** Join `renderEventId`, observation, document commit, and mount IDs to the action
+(`view:"full"` adds hook IDs), then change the producer of the exact input. Repeat the interaction if events were evicted or
 coverage is incomplete.
 
 ## `react_component_cohort`

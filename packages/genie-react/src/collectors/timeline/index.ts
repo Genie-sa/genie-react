@@ -12,9 +12,34 @@ export interface TimelineCollectorOptions {
 }
 
 const domainSchema = z.enum(['request', 'query', 'react', 'navigation'])
+const COVERAGE_DETAILS = {
+  'resource-timing':
+    'Completed fetch/XHR Resource Timing only; observation time includes delivery delay. Requests started before recording may appear. Failed, unfinished, worker and non-fetch/XHR requests may be absent. Cross-origin detailed timing requires Timing-Allow-Origin. URLs omit credentials, queries and fragments; paths remain.',
+  'resource-timing-flush-failed':
+    'Completed fetch/XHR Resource Timing, but the final resource queue flush failed; entries may be missing.',
+  'no-resource-timing':
+    'Browser Resource Timing unavailable; native network requests are not observed.',
+  'query-cache':
+    'Supplied QueryCache add/remove/update notifications; no pre-existing snapshot, mutation cache, payloads or inferred request links. Query hashes are bounded but may contain key values.',
+  'no-query-client': 'No QueryClient supplied. Only the supplied QueryCache is observed.',
+  'react-root-commits':
+    'Supported development React root commits; hook must precede React. renderDurationMs is root actualDuration when positive, otherwise unknown; not commit wall time, native UI timing, effects or component attribution. No Fiber tree traversal.',
+  'no-react-renderer': 'No supported development React renderer/hook; load Genie before React.',
+  'tanstack-router':
+    'Supplied TanStack Router lifecycle notifications only; no transition duration or causal navigation IDs inferred. Locations include pathname only.',
+  'no-tanstack-router':
+    'No TanStack Router supplied; other routers and native navigation are not observed.',
+} as const
+type CoverageCode = keyof typeof COVERAGE_DETAILS
+const COVERAGE_DOCS = 'https://genie-react.com/docs/tools/timeline#coverage-codes'
+
 const coverageSchema = z.object({
   status: z.enum(['available', 'unavailable']),
-  detail: z.string(),
+  code: z.enum(Object.keys(COVERAGE_DETAILS) as [CoverageCode, ...CoverageCode[]]),
+  detail: z
+    .string()
+    .optional()
+    .describe(`Returned by timeline_start; later reports keep only the code (${COVERAGE_DOCS}).`),
 })
 const eventSchema = z.object({
   sequence: z.number().int().positive(),
@@ -100,9 +125,17 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
   let recording: Recording | undefined
 
   const now = () => performance.now()
-  const describe = (target: Recording): TimelineReport =>
+  const describe = (target: Recording, { withCoverageDetail = false } = {}): TimelineReport =>
     reportSchema.parse({
       ...target.report,
+      coverage: withCoverageDetail
+        ? Object.fromEntries(
+            Object.entries(target.report.coverage).map(([domain, coverage]) => [
+              domain,
+              { ...coverage, detail: COVERAGE_DETAILS[coverage.code] },
+            ]),
+          )
+        : target.report.coverage,
       eventCount: target.events.length,
       durationMs:
         target.report.state === 'recording'
@@ -138,8 +171,7 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
       resources(target, deliveredEntries)
       if (target.observer) resources(target, target.observer.takeRecords())
     } catch {
-      target.report.coverage.request.detail +=
-        ' Final resource queue flush failed; entries may be missing.'
+      target.report.coverage.request = { status: 'available', code: 'resource-timing-flush-failed' }
     } finally {
       target.report.state = 'stopped'
       target.report.stopReason = reason
@@ -264,24 +296,10 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
         clock: 'performance.now',
         ordering: 'observation-time-then-sequence',
         coverage: {
-          request: {
-            status: 'unavailable',
-            detail:
-              'Browser Resource Timing unavailable; native network requests are not observed.',
-          },
-          query: {
-            status: 'unavailable',
-            detail: 'No QueryClient supplied. Only the supplied QueryCache is observed.',
-          },
-          react: {
-            status: 'unavailable',
-            detail: 'No supported development React renderer/hook; load Genie before React.',
-          },
-          navigation: {
-            status: 'unavailable',
-            detail:
-              'No TanStack Router supplied; other routers and native navigation are not observed.',
-          },
+          request: { status: 'unavailable', code: 'no-resource-timing' },
+          query: { status: 'unavailable', code: 'no-query-client' },
+          react: { status: 'unavailable', code: 'no-react-renderer' },
+          navigation: { status: 'unavailable', code: 'no-tanstack-router' },
         },
       },
     }
@@ -296,11 +314,7 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
         target.dispose.push(() => observer.disconnect())
         observer.observe({ type: 'resource', buffered: false })
         target.observer = observer
-        target.report.coverage.request = {
-          status: 'available',
-          detail:
-            'Completed fetch/XHR Resource Timing only; observation time includes delivery delay. Requests started before recording may appear. Failed, unfinished, worker and non-fetch/XHR requests may be absent. Cross-origin detailed timing requires Timing-Allow-Origin. URLs omit credentials, queries and fragments; paths remain.',
-        }
+        target.report.coverage.request = { status: 'available', code: 'resource-timing' }
       }
       if (options.queryClient) {
         target.dispose.push(
@@ -315,11 +329,7 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
             })
           }),
         )
-        target.report.coverage.query = {
-          status: 'available',
-          detail:
-            'Supplied QueryCache add/remove/update notifications; no pre-existing snapshot, mutation cache, payloads or inferred request links. Query hashes are bounded but may contain key values.',
-        }
+        target.report.coverage.query = { status: 'available', code: 'query-cache' }
       }
       if (options.router) {
         for (const eventType of [
@@ -339,11 +349,7 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
             }),
           )
         }
-        target.report.coverage.navigation = {
-          status: 'available',
-          detail:
-            'Supplied TanStack Router lifecycle notifications only; no transition duration or causal navigation IDs inferred. Locations include pathname only.',
-        }
+        target.report.coverage.navigation = { status: 'available', code: 'tanstack-router' }
       }
       let safeRendererPresent = false
       try {
@@ -367,11 +373,7 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
             }),
           }),
         )
-        target.report.coverage.react = {
-          status: 'available',
-          detail:
-            'Supported development React root commits; hook must precede React. renderDurationMs is root actualDuration when positive, otherwise unknown; not commit wall time, native UI timing, effects or component attribution. No Fiber tree traversal.',
-        }
+        target.report.coverage.react = { status: 'available', code: 'react-root-commits' }
       }
       // Subscriptions can synchronously notify; release immediately if the cap stopped setup.
       if (target.report.state === 'stopped') {
@@ -382,7 +384,7 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
         else target.timer = setTimeout(() => stop(target, 'max-duration'), remainingMs)
       }
       recording = target
-      return describe(target)
+      return describe(target, { withCoverageDetail: true })
     } catch (error) {
       stop(target, 'collector-cleanup')
       release(target)

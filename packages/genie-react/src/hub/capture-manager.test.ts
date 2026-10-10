@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { type CaptureArtifact, captureArtifactSchema, type ToolDescriptor } from '../protocol'
+import {
+  type CaptureArtifact,
+  captureArtifactSchema,
+  devtoolsCaptureCreateContract,
+  type ToolDescriptor,
+} from '../protocol'
 import { CaptureManager, type CaptureSession, verifyCaptureIntegrity } from './capture-manager'
 
 const tools: ToolDescriptor[] = [
@@ -43,6 +48,7 @@ async function createCapture(captures: CaptureManager<CaptureSession>, name: str
     name,
     include: ['react'],
     maxAttempts: 1,
+    view: 'full',
   })
   expect(result.ok).toBe(true)
   if (!result.ok) throw new Error(result.error)
@@ -82,6 +88,25 @@ describe('capture manager artifacts', () => {
     })
   })
 
+  it('answers create with the bounded read summary unless the full view is requested', async () => {
+    const captures = manager()
+    const created = await captures.invoke('devtools_capture_create', {
+      name: 'summary-first',
+      include: ['react'],
+      maxAttempts: 1,
+    })
+    if (!created.ok) throw new Error(created.error)
+    const read = await captures.invoke('devtools_capture_read', {
+      captureId: (created.result as { captureId: string }).captureId,
+    })
+    if (!read.ok) throw new Error(read.error)
+
+    expect(created.result).toEqual(read.result)
+    expect(created.result).toMatchObject({ availableSections: ['react'], warnings: [] })
+    expect(created.result).not.toHaveProperty('sections')
+    expect(devtoolsCaptureCreateContract.output.safeParse(created.result).success).toBe(true)
+  })
+
   it('retains invocation args, content integrity, and a bounded summary-first read', async () => {
     const captures = manager()
     const created = await createCapture(captures, 'baseline')
@@ -90,6 +115,7 @@ describe('capture manager artifacts', () => {
       sort: 'renders',
       limit: 50,
       appOnly: true,
+      view: 'full',
     })
     expect(created.summary).toMatchObject({
       sectionStatus: { react: 'ok' },

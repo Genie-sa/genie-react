@@ -47,9 +47,9 @@ Setup receipts list planned, applied, already-present and manual artifacts, incl
 
 ## Bounds and recovery
 
-The default ceiling is 262,144 bytes per JSON document or default JSONL record, including its newline. An explicit batch `--max-bytes` buffers results and bounds the whole command. Hub lifecycle records are independently bounded. JSONL streams are not presented as one JSON document with a fixed total size.
+The default ceiling is 102,400 bytes per JSON document or default JSONL record, including its newline. An explicit batch `--max-bytes` buffers results and bounds the whole command. Hub lifecycle records are independently bounded. JSONL streams are not presented as one JSON document with a fixed total size.
 
-`--max-bytes` accepts 512–50,000,000. An oversized response becomes an explicit `status:"truncated"` envelope with size and omitted-path information. It is not a complete result. Use a tool's pagination/limit arguments, `--select`, or a larger byte limit to recover the required evidence. An export artifact's content is separate from its stdout receipt.
+`--max-bytes` accepts 512–50,000,000. An oversized response becomes an explicit `status:"truncated"` envelope with size, omitted-path information, the heaviest selectable `largestPaths`, and runnable `suggestions` built from the invocation (summary view, a fitting `limit`, a `--select` branch, or a raised byte limit). For `call` and `tools`, the complete JSON is also written to `outputPath` under `.genie/out/` (mode 0600; the newest 20 files are kept), following the Playwright CLI pattern. The envelope is not a complete result. An export artifact's content is separate from its stdout receipt.
 
 ```sh
 npx @genie-react/cli call --help

@@ -27,6 +27,7 @@ import {
   summarizeTree,
 } from './agent'
 import { BridgeCallError } from './agent-link'
+import { DEFAULT_MAX_BYTES } from './cli-output'
 import { describeFailure } from './failure'
 import { ResultSelectionError } from './result-selection'
 import { suggestToolNames } from './tool-output'
@@ -382,11 +383,12 @@ describe('renderResult', () => {
 
   it('bounds output by default without emitting partial JSON', () => {
     const rendered = renderResult('query_get', { data: '界'.repeat(100_000) })
-    expect(Buffer.byteLength(`${rendered}\n`)).toBeLessThanOrEqual(262_144)
+    expect(Buffer.byteLength(`${rendered}\n`)).toBeLessThanOrEqual(DEFAULT_MAX_BYTES)
     expect(JSON.parse(rendered)).toMatchObject({
       status: 'truncated',
       reason: 'max_bytes',
-      maxBytes: 262_144,
+      maxBytes: DEFAULT_MAX_BYTES,
+      largestPaths: [{ path: '/data' }],
     })
   })
 

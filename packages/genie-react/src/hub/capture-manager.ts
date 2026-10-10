@@ -69,13 +69,13 @@ interface CaptureManagerOptions<TSession extends CaptureSession> {
 
 const REACT_COMMIT_PROBE: CaptureRecipeTool = {
   name: 'react_get_renders',
-  args: { sort: 'renders', limit: 50, appOnly: true },
+  args: { sort: 'renders', limit: 50, appOnly: true, view: 'full' },
 }
 
 const CAPTURE_RECIPES: Record<CaptureDomain, CaptureRecipeTool[]> = {
   react: [
     REACT_COMMIT_PROBE,
-    { name: 'react_render_causes', args: { limit: 50, appOnly: true } },
+    { name: 'react_render_causes', args: { limit: 50, appOnly: true, view: 'full' } },
     { name: 'react_profile_report', args: { limit: 50 } },
   ],
   effects: [
@@ -214,7 +214,11 @@ export class CaptureManager<TSession extends CaptureSession> {
       }
     }
     try {
-      return { ok: true, result: await this.create(session, parsed.data) }
+      const capture = await this.create(session, parsed.data)
+      return {
+        ok: true,
+        result: parsed.data.view === 'full' ? capture : captureReadSummary(capture),
+      }
     } catch (error) {
       return { ok: false, error: errorMessage(error), errorCode: 'tool-error' }
     }

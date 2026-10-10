@@ -90,32 +90,98 @@ export function selectResult(result: unknown, expression: string): SelectionEnve
   }
 }
 
-export function renderBoundedJson(value: unknown, maxBytes?: number): string {
+export interface LargePath {
+  path: string
+  bytes: number
+  items?: number
+}
+
+export interface OutputSuggestion {
+  reason: string
+  command: string
+  argv: string[]
+}
+
+export interface Overflow {
+  serialized: string
+  originalBytes: number
+  largestPaths: LargePath[]
+}
+
+export interface OverflowRecovery {
+  outputPath?: string
+  suggestions: OutputSuggestion[]
+}
+
+const LARGEST_PATH_LIMIT = 5
+const LARGEST_PATH_DEPTH = 6
+const COMPOSITE_CHILD_SHARE = 0.25
+
+export function renderBoundedJson(
+  value: unknown,
+  maxBytes?: number,
+  recover?: (overflow: Overflow) => OverflowRecovery,
+): string {
   const serialized = JSON.stringify(value)
-  if (maxBytes === undefined || Buffer.byteLength(serialized, 'utf8') + 1 <= maxBytes) {
-    return serialized
-  }
   const originalBytes = Buffer.byteLength(serialized, 'utf8') + 1
-  const envelope = {
+  if (maxBytes === undefined || originalBytes <= maxBytes) return serialized
+
+  const largestPaths = largestJsonPaths(value)
+  const recovery = recover?.({ serialized, originalBytes, largestPaths })
+  const required = {
     schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
     status: 'truncated',
     reason: 'max_bytes',
     maxBytes,
     originalBytes,
     omittedPathCount: countLeafPaths(value),
-    topLevelPaths: isRecord(value)
-      ? Object.keys(value)
-          .sort()
-          .slice(0, 20)
-          .map((key) => `/${escapePointer(key)}`)
-      : [],
-    message: 'The result exceeded --max-bytes; use --select or a smaller tool limit.',
+    ...(recovery?.outputPath === undefined ? {} : { outputPath: recovery.outputPath }),
+    message: recovery?.outputPath
+      ? 'The result exceeded --max-bytes. The complete JSON was written to outputPath; read it from there, or follow a suggestion to request less.'
+      : 'The result exceeded --max-bytes. Follow a suggestion, use --select on one of largestPaths, or lower a tool limit.',
   }
-  const bounded = JSON.stringify(envelope)
-  if (Buffer.byteLength(bounded, 'utf8') + 1 > maxBytes) {
-    throw new ResultSelectionError('--max-bytes is too small for the truncation envelope.')
+  const topLevelPaths = isRecord(value)
+    ? Object.keys(value)
+        .sort()
+        .slice(0, 20)
+        .map((key) => `/${escapePointer(key)}`)
+    : []
+  const candidates = [
+    { ...required, largestPaths, suggestions: recovery?.suggestions ?? [], topLevelPaths },
+    { ...required, largestPaths, suggestions: recovery?.suggestions ?? [] },
+    { ...required, largestPaths: largestPaths.slice(0, 2) },
+    required,
+  ]
+  for (const envelope of candidates) {
+    const bounded = JSON.stringify(envelope)
+    if (Buffer.byteLength(bounded, 'utf8') + 1 <= maxBytes) return bounded
   }
-  return bounded
+  throw new ResultSelectionError('--max-bytes is too small for the truncation envelope.')
+}
+
+/** The heaviest JSON branches; a branch with a heavy descendant defers to that descendant so each path is selectable on its own. */
+export function largestJsonPaths(value: unknown): LargePath[] {
+  const selectable: LargePath[] = []
+  const visit = (current: unknown, path: string, depth: number): number => {
+    if (!isRecord(current)) return 0
+    let heaviest = 0
+    for (const [key, child] of Object.entries(current)) {
+      const childPath = `${path}/${escapePointer(key)}`
+      const bytes = Buffer.byteLength(JSON.stringify(child) ?? '', 'utf8')
+      const heaviestDescendant = depth < LARGEST_PATH_DEPTH ? visit(child, childPath, depth + 1) : 0
+      if (heaviestDescendant < bytes * COMPOSITE_CHILD_SHARE) {
+        selectable.push({
+          path: childPath,
+          bytes,
+          ...(Array.isArray(child) ? { items: child.length } : {}),
+        })
+      }
+      heaviest = Math.max(heaviest, bytes)
+    }
+    return heaviest
+  }
+  visit(value, '', 1)
+  return selectable.sort((left, right) => right.bytes - left.bytes).slice(0, LARGEST_PATH_LIMIT)
 }
 
 export function renderBoundedText(text: string, maxBytes?: number): string {
