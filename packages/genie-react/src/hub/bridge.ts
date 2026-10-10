@@ -5,6 +5,7 @@ import { WebSocket, WebSocketServer } from 'ws'
 import {
   type AgentErrorCode,
   type AgentMessage,
+  type AgentToolContract,
   type AppInfo,
   type AppMessage,
   agentMessageSchema,
@@ -16,14 +17,15 @@ import {
   devtoolsStatusContract,
   devtoolsWaitContract,
   encodeMessage,
-  formatToolValidationError,
   GENIE_WS_PATH,
+  type HubErrorCode,
   metaToolDescriptors,
   newId,
-  ROLE_QUERY_PARAM,
   reactQuiesceContract,
   type SessionSummary,
   type ToolDescriptor,
+  type ToolErrorDetails,
+  toolValidationFailure,
   WAIT_CONDITIONS,
   type WaitCondition,
   type WaitDomain,
@@ -34,12 +36,26 @@ import {
   type InteractionSettleResult,
   isInteractionTool,
 } from './interaction-manager'
-import { frameKind, matchesOf, parseQueryList, queryStateOf, routerStateOf } from './wire-guards'
+import {
+  answeringSessionOf,
+  type RoutableDocument,
+  type SessionResolution,
+  type SessionUnavailable,
+  tabKeyOf,
+  tabLabel,
+} from './session-routing'
+import {
+  rejectUpgrade,
+  UpgradePolicy,
+  type UpgradePolicyOptions,
+  type UpgradeVerdict,
+} from './upgrade-policy'
+import { matchesOf, parseQueryList, queryStateOf, routerStateOf } from './wire-guards'
 
 type BridgeLogLevel = 'info' | 'warn' | 'error'
 type BridgeLogger = (level: BridgeLogLevel, message: string, meta?: unknown) => void
 
-export interface GenieBridgeOptions {
+export interface GenieBridgeOptions extends UpgradePolicyOptions {
   requestTimeoutMs?: number
   /** WS ping cadence used to reap half-open connections (crashed tabs); a peer is dropped after two silent intervals. */
   heartbeatIntervalMs?: number
@@ -49,8 +65,14 @@ export interface GenieBridgeOptions {
   busyHeartbeatGapMs?: number
   /** Silence after which a heartbeat-capable session reads as a dead tab context and loses default routing; production default 15000ms. */
   sessionStaleMs?: number
-  /** Grace for ordinary reload overlap before a concurrent logical identity is auto-forked. */
+  /** Grace before two documents claiming one logical id and generation are treated as a cloned tab and auto-forked. */
   logicalCollisionGraceMs?: number
+  /** How long a document replaced by a newer generation of its tab may prove it is still live (a cloned tab) before its socket is closed; production default 2500ms. */
+  supersededLivenessMs?: number
+  /** Silence after which an older document of a tab is superseded at once by a newer generation; one heard from more recently first gets `supersededLivenessMs` to prove it is a live duplicate. Production default 1500ms. */
+  supersedeSilenceMs?: number
+  /** How long the default target waits for its tab to reconnect after a reload before another tab may become the default; production default 5000ms. */
+  targetReloadGraceMs?: number
   logger?: BridgeLogger
 }
 
@@ -83,6 +105,13 @@ interface AppSession {
   lastHeartbeatAt?: number
 }
 
+type AppHello = Extract<AppMessage, { kind: 'app/hello' }>
+
+interface SupersededDocument {
+  session: AppSession
+  timer: ReturnType<typeof setTimeout>
+}
+
 interface LatestDocument {
   sessionId: string
   documentGeneration?: number
@@ -91,7 +120,7 @@ interface LatestDocument {
 
 interface Connection {
   socket: WebSocket
-  role: ConnectionRole | null
+  role: ConnectionRole
 }
 
 interface AppResponse {
@@ -99,8 +128,12 @@ interface AppResponse {
   result?: unknown
   error?: string
   errorCode?: AgentErrorCode
+  errorDetails?: ToolErrorDetails
   retryInMs?: number
   busyTelemetry?: BusyTelemetry
+  /** The document the request was routed to; absent when routing itself failed. */
+  session?: AppSession
+  retargeted?: boolean
 }
 
 interface PendingRequest {
@@ -108,7 +141,16 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>
   busyTimer: ReturnType<typeof setTimeout> | null
   sessionId: string
+  /** The tool is not read-only, so losing its document mid-call leaves its side effects unknown. */
+  mayHaveCompleted: boolean
 }
+
+interface DefaultTabReload {
+  timer: ReturnType<typeof setTimeout>
+  since: number
+}
+
+type InterruptionCode = Extract<HubErrorCode, 'SESSION_DISCONNECTED' | 'SESSION_SUPERSEDED'>
 
 const POLL_INTERVAL_MS = 150
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000
@@ -124,6 +166,11 @@ const MIN_REQUEST_TIMEOUT_MS = 1_000
 const MAX_REQUEST_TIMEOUT_MS = 120_000
 const MAX_SESSION_SUCCESSORS = 256
 const LOGICAL_COLLISION_GRACE_MS = 750
+// Spans two ~1s heartbeats, so a superseded document that is really a live cloned tab can prove it before eviction.
+const SUPERSEDED_LIVENESS_MS = 2_500
+const TARGET_RELOAD_GRACE_MS = 5_000
+// One ~1s app heartbeat plus jitter: an older document quieter than this is frozen or unloading, not a live duplicate.
+const SUPERSEDE_SILENCE_MS = 1_500
 
 interface WaitInput {
   condition: WaitCondition
@@ -141,7 +188,15 @@ interface WaitDomainCheck {
   lastObserved?: unknown
 }
 
+/** A tab target resolved on every poll, or one exact document that fails the wait once it is gone. */
+type WaitTarget = string | AppSession | undefined
+
+const DOCUMENT_GONE_REASON =
+  'The app document disconnected (reload, navigation, or closed tab) before it settled.'
+
 interface WaitCheck {
+  /** The document this check polled; undefined when the check did not resolve one. */
+  session?: AppSession | null
   state: 'met' | 'pending' | 'failed'
   reason?: string
   query?: { queryHash: string; queryKey: unknown }
@@ -198,7 +253,7 @@ function unrefTimer(timer: ReturnType<typeof setInterval>): void {
   if (typeof timer === 'object' && timer !== null && 'unref' in timer) timer.unref()
 }
 
-/** The hub: a `noServer` WSS mountable on Vite's HTTP server; calls route to the newest app session unless `agent/invoke.sessionId` targets one, and it answers the `devtools_status`/`devtools_wait` meta tools itself. */
+/** The hub: a `noServer` WSS mountable on Vite's HTTP server; calls route to the targeted tab's newest document (explicit `agent/invoke.sessionId`, else the only or already-targeted tab), and it answers the `devtools_status`/`devtools_wait` meta tools itself. */
 export class GenieBridge {
   private readonly wss = new WebSocketServer({ noServer: true })
   private readonly agents = new Set<WebSocket>()
@@ -209,19 +264,35 @@ export class GenieBridge {
   private readonly busyHeartbeatGapMs: number
   private readonly sessionStaleMs: number
   private readonly logicalCollisionGraceMs: number
+  private readonly supersededLivenessMs: number
+  private readonly targetReloadGraceMs: number
+  private readonly supersedeSilenceMs: number
   private readonly log: BridgeLogger
+  /** Routable documents: at most one per tab except during a same-generation clone collision. */
   private readonly apps = new Map<string, AppSession>()
+  /** Documents replaced by a newer generation of their tab; never routed or listed, closed unless they prove they are a live clone. */
+  private readonly superseded = new Map<string, SupersededDocument>()
   /** Physical document id → its replacement; bounded so stale shell pins can survive ordinary reloads. */
   private readonly sessionSuccessors = new Map<string, string>()
   /** Logical tab id → latest document, retained after socket close so close-before-hello reloads keep lineage. */
   private readonly latestDocuments = new Map<string, LatestDocument>()
   private readonly logicalCollisionTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** Newer generations waiting for an older, recently live document of their tab to prove it is a duplicate; routing keeps the older one meanwhile. */
+  private readonly generationRaces = new Set<string>()
   private readonly captures: CaptureManager<AppSession>
   private readonly interactions: InteractionManager<AppSession>
   private readonly connections = new Set<WebSocket>()
   private readonly responsiveSockets = new WeakSet<WebSocket>()
   private readonly heartbeat: ReturnType<typeof setInterval>
-  private currentSessionId: string | null = null
+  private readonly upgradePolicy: UpgradePolicy
+  private readonly appOrigins = new WeakMap<
+    WebSocket,
+    Pick<SessionSummary, 'origin' | 'originUnverified'>
+  >()
+  /** Tab key untargeted calls stick to, so opening another tab never silently retargets them. */
+  private defaultTabKey: string | null = null
+  /** Pending while the default tab's last document is gone but may still reconnect from a reload. */
+  private defaultTabReload: DefaultTabReload | null = null
 
   constructor(options: GenieBridgeOptions = {}) {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
@@ -232,17 +303,21 @@ export class GenieBridge {
       0,
       options.logicalCollisionGraceMs ?? LOGICAL_COLLISION_GRACE_MS,
     )
+    this.supersededLivenessMs = options.supersededLivenessMs ?? SUPERSEDED_LIVENESS_MS
+    this.targetReloadGraceMs = options.targetReloadGraceMs ?? TARGET_RELOAD_GRACE_MS
+    this.supersedeSilenceMs = options.supersedeSilenceMs ?? SUPERSEDE_SILENCE_MS
     this.log = options.logger ?? (() => {})
+    this.upgradePolicy = new UpgradePolicy(options)
     this.captures = new CaptureManager({
-      resolveSession: (target) => (target ? this.resolveSession(target) : this.currentSession()),
-      unknownSessionError: (target) => this.unknownSessionError(target),
-      isCurrentSession: (session) => this.apps.get(session.sessionId)?.socket === session.socket,
+      resolveSession: (target) => this.targetSession(target),
+      sessionUnavailable: (target) => this.sessionUnavailable(target),
+      isCurrentSession: (session) => this.isCurrent(session),
       request: (session, tool, args) => this.appRequestForSession(tool, args, session),
     })
     this.interactions = new InteractionManager({
-      resolveSession: (target) => (target ? this.resolveSession(target) : this.currentSession()),
-      unknownSessionError: (target) => this.unknownSessionError(target),
-      isCurrentSession: (session) => this.apps.get(session.sessionId)?.socket === session.socket,
+      resolveSession: (target) => this.targetSession(target),
+      sessionUnavailable: (target) => this.sessionUnavailable(target),
+      isCurrentSession: (session) => this.isCurrent(session),
       request: (session, tool, args) => this.appRequestForSession(tool, args, session),
       settle: (session, domains, quietMs, timeoutMs) =>
         this.settleInteraction(session, domains, quietMs, timeoutMs),
@@ -252,16 +327,26 @@ export class GenieBridge {
     unrefTimer(this.heartbeat)
   }
 
+  /** The secret agents present to connect; publish it only through the private token store. */
+  get agentToken(): string {
+    return this.upgradePolicy.agentToken
+  }
+
   /** Returns `false` for non-{@link GENIE_WS_PATH} upgrades so another listener (e.g. Vite HMR) can handle them. */
   handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): boolean {
-    const { pathname, role } = parseUpgradeUrl(request.url)
-    if (pathname !== GENIE_WS_PATH) return false
-    this.wss.handleUpgrade(request, socket, head, (ws) => this.onConnection(ws, role))
+    if (new URL(request.url ?? '/', 'http://localhost').pathname !== GENIE_WS_PATH) return false
+    const verdict = this.upgradePolicy.authorize(request)
+    if (!verdict.ok) {
+      this.log('warn', `rejected connection: ${verdict.reason}`)
+      rejectUpgrade(socket, verdict.status, verdict.reason)
+      return true
+    }
+    this.wss.handleUpgrade(request, socket, head, (ws) => this.onConnection(ws, verdict))
     return true
   }
 
   getStatus(): BridgeStatus {
-    const current = this.currentSession()
+    const current = this.peekTarget()
     return {
       connected: this.apps.size > 0,
       ready: current?.readyAt !== undefined,
@@ -282,33 +367,144 @@ export class GenieBridge {
     this.latestDocuments.clear()
     for (const timer of this.logicalCollisionTimers.values()) clearTimeout(timer)
     this.logicalCollisionTimers.clear()
+    this.generationRaces.clear()
+    this.clearDefaultTabReload()
     this.captures.clear()
     this.interactions.clear()
     // terminate(), not close(): a graceful close handshake with a half-open peer blocks shutdown on ws's 30s timeout.
     for (const socket of this.agents) socket.terminate()
     for (const session of this.apps.values()) session.socket.terminate()
+    for (const { session, timer } of this.superseded.values()) {
+      clearTimeout(timer)
+      session.socket.terminate()
+    }
+    this.superseded.clear()
     this.wss.close()
   }
 
-  // A heartbeat-capable session gone this quiet is a dead tab context (reload leftover, frozen bfcache page) — never route default calls to it while a live session exists.
+  // A heartbeat-capable session gone this quiet is a frozen or hung tab — default calls prefer a live tab while it stays silent.
   private staleMsOf(session: AppSession): number | null {
     if (session.lastHeartbeatAt === undefined) return null
     const gap = Date.now() - session.lastHeartbeatAt
     return gap > this.sessionStaleMs ? gap : null
   }
 
-  private currentSession(): AppSession | null {
-    const pinned = this.currentSessionId ? (this.apps.get(this.currentSessionId) ?? null) : null
-    if (pinned && this.logicalPeers(pinned).length > 0) return null
-    if (!pinned || this.staleMsOf(pinned) === null) return pinned
-    const fresh = [...this.apps.values()]
-      .filter((session) => this.staleMsOf(session) === null)
-      .sort(compareSessionRecency)[0]
-    return fresh ?? pinned
+  private tabDocuments(): Map<string, AppSession[]> {
+    const tabs = new Map<string, AppSession[]>()
+    for (const session of this.apps.values()) {
+      const key = tabKeyOf(session)
+      const documents = tabs.get(key)
+      if (documents) documents.push(session)
+      else tabs.set(key, [session])
+    }
+    return tabs
+  }
+
+  /** Resolves an explicit target, or the default tab; `pin` makes an unambiguous default sticky for later untargeted calls. */
+  private resolveTarget(target?: string, pin = true): SessionResolution<AppSession> {
+    if (target) {
+      const session = this.resolveSession(target)
+      return session ? { ok: true, session } : { ok: false, ...this.unknownSession(target) }
+    }
+    const tabs = this.tabDocuments()
+    const pinned = this.defaultTabKey === null ? undefined : tabs.get(this.defaultTabKey)
+    if (this.defaultTabKey !== null && pinned) return this.tabDocument(this.defaultTabKey, pinned)
+    const live = [...tabs]
+    const fresh = live.filter(([, documents]) =>
+      documents.some((session) => this.staleMsOf(session) === null),
+    )
+    const candidates = fresh.length > 0 ? fresh : live
+    const reload = this.defaultTabReload
+    if (reload && candidates.length !== 1) {
+      return {
+        ok: false,
+        errorCode: 'not-connected',
+        errorDetails: { hubCode: 'SESSION_RELOADING' },
+        retryInMs: BUSY_RETRY_MS,
+        error: `The targeted tab ${JSON.stringify(this.defaultTabKey)} is reconnecting after a reload; retry shortly, or target another tab explicitly.`,
+      }
+    }
+    const [only] = candidates
+    if (!only) {
+      return {
+        ok: false,
+        errorCode: 'not-connected',
+        error: 'No app connected. Start the dev server and open the app in a browser.',
+      }
+    }
+    if (candidates.length > 1) {
+      return {
+        ok: false,
+        errorCode: 'unknown-session',
+        errorDetails: { hubCode: 'SESSION_AMBIGUOUS' },
+        error: `${candidates.length} app tabs are connected and none is targeted: ${candidates
+          .map(([, documents]) => documents.map(tabLabel).join(' / '))
+          .join(
+            '; ',
+          )}. Pass a session name, logical id or session id as the target (CLI: --session <target> or GENIE_SESSION).`,
+      }
+    }
+    const [key, documents] = only
+    const retargeted = this.defaultTabKey !== null
+    // A tab that connected after the default left replaces it (a Metro reload, a fresh tab); one already open only answers while the default may still reconnect.
+    const replacement =
+      !reload || documents.every((document) => document.connectedAt >= reload.since)
+    if (pin && replacement) {
+      this.defaultTabKey = key
+      this.clearDefaultTabReload()
+    }
+    const resolution = this.tabDocument(key, documents)
+    return resolution.ok && retargeted ? { ...resolution, retargeted } : resolution
+  }
+
+  private tabDocument(key: string, documents: AppSession[]): SessionResolution<AppSession> {
+    const settled = documents.filter((session) => !this.generationRaces.has(session.sessionId))
+    const [session] = settled
+    if (!session || settled.length > 1) return { ok: false, ...this.unknownSession(key) }
+    if (this.staleMsOf(session) === null) return { ok: true, session }
+    // A frozen or hung tab keeps the target, but the one live tab may answer meanwhile.
+    const [live, ...others] = [...this.apps.values()].filter(
+      (candidate) => this.staleMsOf(candidate) === null,
+    )
+    return live && others.length === 0
+      ? { ok: true, session: live, retargeted: true }
+      : { ok: true, session }
+  }
+
+  private isCurrent(session: AppSession): boolean {
+    return this.apps.get(session.sessionId)?.socket === session.socket
+  }
+
+  private waitSession(target: WaitTarget): AppSession | null {
+    if (typeof target !== 'object') return this.targetSession(target)
+    return this.isCurrent(target) ? target : null
+  }
+
+  private targetSession(target?: string): AppSession | null {
+    const resolution = this.resolveTarget(target)
+    return resolution.ok ? resolution.session : null
+  }
+
+  private peekTarget(target?: string): AppSession | null {
+    const resolution = this.resolveTarget(target, false)
+    return resolution.ok ? resolution.session : null
+  }
+
+  private sessionUnavailable(target?: string): SessionUnavailable {
+    const resolution = this.resolveTarget(target, false)
+    if (resolution.ok) {
+      return {
+        errorCode: 'not-connected',
+        errorDetails: { hubCode: 'SESSION_DISCONNECTED' },
+        error: 'The target app document disconnected.',
+      }
+    }
+    const { ok: _, ...unavailable } = resolution
+    return unavailable
   }
 
   private sessionSummaries(): SessionSummary[] {
-    const current = this.currentSession()
+    const current = this.peekTarget()
     return [...this.apps.values()].sort(compareSessionRecency).map((session) => {
       const staleMs = this.staleMsOf(session)
       const collisionWithSessionIds = this.logicalPeers(session).map((peer) => peer.sessionId)
@@ -339,6 +535,7 @@ export class GenieBridge {
         ready: session.readyAt !== undefined,
         ...(session.readyAt === undefined ? {} : { readyAt: session.readyAt }),
         current: session.sessionId === current?.sessionId,
+        ...this.appOrigins.get(session.socket),
         ...(staleMs === null ? {} : { staleMs }),
       }
     })
@@ -349,8 +546,13 @@ export class GenieBridge {
   }
 
   private hasReadySession(sessionId?: string): boolean {
-    const session = sessionId ? this.resolveSession(sessionId) : this.currentSession()
-    return session?.readyAt !== undefined
+    const resolution = this.resolveTarget(sessionId, false)
+    if (resolution.ok) return resolution.session.readyAt !== undefined
+    // An ambiguous target is reported by the call that needs one, so readiness waits must not stall on it.
+    return (
+      resolution.errorDetails?.hubCode === 'SESSION_AMBIGUOUS' &&
+      [...this.apps.values()].some((session) => session.readyAt !== undefined)
+    )
   }
 
   /** Resolves physical ids, reload-stable logical ids, and unique human names. */
@@ -364,7 +566,10 @@ export class GenieBridge {
     const physical = this.apps.get(physicalId)
     if (physical) return physical
 
-    const logical = [...this.apps.values()].filter((session) => session.logicalSessionId === target)
+    const logical = [...this.apps.values()].filter(
+      (session) =>
+        session.logicalSessionId === target && !this.generationRaces.has(session.sessionId),
+    )
     if (logical.length === 1) return logical[0] ?? null
 
     const named = [...this.apps.values()].filter((session) => session.sessionName === target)
@@ -388,16 +593,30 @@ export class GenieBridge {
       sessions.push(session.sessionId)
       collisions.set(session.logicalSessionId, sessions)
     }
-    return [...collisions]
+    const warnings = [...collisions]
       .filter(([, sessions]) => sessions.length > 1)
       .map(
         ([logicalSessionId, sessions]) =>
           `Logical session collision ${JSON.stringify(logicalSessionId)} across ${sessions.join(', ')}; implicit and logical-id routing is paused until the cloned document is auto-forked.`,
       )
+    const origins = [...this.apps.values()].map((session) => this.appOrigins.get(session.socket))
+    const distinctOrigins = new Set(origins.map((entry) => entry?.origin))
+    if (distinctOrigins.size > 1 && origins.some((entry) => entry?.originUnverified)) {
+      warnings.push(
+        `Sessions come from different origins (${[...distinctOrigins].map((origin) => origin ?? 'native').join(', ')}) and some were admitted only as loopback pages; check each session's origin and pass --session to target your app.`,
+      )
+    }
+    return warnings
   }
 
-  private onConnection(socket: WebSocket, role: ConnectionRole | null): void {
+  private onConnection(
+    socket: WebSocket,
+    { role, origin, originUnverified }: Extract<UpgradeVerdict, { ok: true }>,
+  ): void {
     const connection: Connection = { socket, role }
+    if (origin !== undefined) {
+      this.appOrigins.set(socket, originUnverified ? { origin, originUnverified } : { origin })
+    }
     this.connections.add(socket)
     this.responsiveSockets.add(socket)
     if (role === 'agent') this.registerAgent(socket)
@@ -429,15 +648,8 @@ export class GenieBridge {
       return
     }
 
-    const role: ConnectionRole =
-      connection.role ?? (frameKind(frame)?.startsWith('agent/') ? 'agent' : 'app')
-    if (connection.role === null) {
-      connection.role = role
-      if (role === 'agent') this.registerAgent(connection.socket)
-    }
-
     try {
-      if (role === 'agent')
+      if (connection.role === 'agent')
         this.handleAgentMessage(connection.socket, agentMessageSchema.parse(frame))
       else this.handleAppMessage(connection.socket, appMessageSchema.parse(frame))
     } catch (error) {
@@ -451,88 +663,24 @@ export class GenieBridge {
   }
 
   private handleAppMessage(socket: WebSocket, message: AppMessage): void {
+    if (
+      this.superseded.size > 0 &&
+      (message.kind === 'app/hello' ||
+        message.kind === 'app/ready' ||
+        message.kind === 'app/heartbeat')
+    ) {
+      this.reviveSuperseded(socket)
+    }
     switch (message.kind) {
-      case 'app/hello': {
-        const existing = this.apps.get(message.sessionId)
-        const previousLogicalSessionId = existing?.logicalSessionId
-        const now = Date.now()
-        if (existing && existing.socket !== socket) {
-          // Requests in flight on the replaced socket will never get a response.
-          this.failPendingForSession(
-            message.sessionId,
-            'app reconnected — the previous connection was replaced; retry the call',
-          )
-          existing.socket.close()
-        }
-        const latest = message.logicalSessionId
-          ? this.latestDocuments.get(message.logicalSessionId)
-          : undefined
-        const concurrentLogicalDocument = message.logicalSessionId
-          ? [...this.apps.values()].some(
-              (session) =>
-                session.sessionId !== message.sessionId &&
-                session.logicalSessionId === message.logicalSessionId,
-            )
-          : false
-        const replacesLatest =
-          !concurrentLogicalDocument &&
-          (latest === undefined ||
-            latest.sessionId === message.sessionId ||
-            (message.documentGeneration ?? 0) >= (latest.documentGeneration ?? 0))
-        const predecessorSessionId =
-          replacesLatest && latest?.sessionId !== message.sessionId ? latest?.sessionId : undefined
-        if (predecessorSessionId) {
-          const predecessor = this.apps.get(predecessorSessionId)
-          if (predecessor) predecessor.successorSessionId = message.sessionId
-          this.recordSessionSuccessor(predecessorSessionId, message.sessionId)
-        }
-        if (message.logicalSessionId && replacesLatest) {
-          this.recordLatestDocument(message.logicalSessionId, {
-            sessionId: message.sessionId,
-            documentGeneration: message.documentGeneration,
-            connectedAt: existing?.connectedAt ?? now,
-          })
-        }
-        this.apps.set(message.sessionId, {
-          socket,
-          sessionId: message.sessionId,
-          logicalSessionId: message.logicalSessionId,
-          documentGeneration: message.documentGeneration,
-          sessionName: message.sessionName,
-          predecessorSessionId: existing?.predecessorSessionId ?? predecessorSessionId,
-          successorSessionId: existing?.successorSessionId,
-          forkedFromLogicalSessionId: existing?.forkedFromLogicalSessionId,
-          app: message.app,
-          capabilities: message.capabilities,
-          tools: message.tools,
-          // First-connect time survives re-hellos (tool refreshes, reconnects), so a background tab can't steal recency.
-          connectedAt: existing?.connectedAt ?? now,
-          readyAt: existing?.readyAt,
-          // A re-hello from a once-heartbeating session is a live JS turn (reload, reconnect, or tool refresh), so clear stale/busy state immediately.
-          lastHeartbeatAt: existing?.lastHeartbeatAt === undefined ? undefined : now,
-        })
-        if (previousLogicalSessionId && previousLogicalSessionId !== message.logicalSessionId) {
-          this.refreshLatestDocument(previousLogicalSessionId)
-        }
-        if (!existing && replacesLatest) {
-          this.currentSessionId = message.sessionId
-          this.log(
-            'info',
-            `app connected: ${message.app.name ?? message.sessionId} (${this.apps.size} session${this.apps.size === 1 ? '' : 's'})`,
-          )
-        }
-        const registered = this.apps.get(message.sessionId)
-        if (registered) this.scheduleLogicalCollision(registered)
-        for (const notify of [...this.connectionWaiters]) notify()
-        this.broadcastStatus()
+      case 'app/hello':
+        this.registerDocument(socket, message)
         return
-      }
       case 'app/ready': {
         const session = this.apps.get(message.sessionId)
         if (!session || session.socket !== socket) return
         session.readyAt ??= Date.now()
         if (session.lastHeartbeatAt !== undefined) session.lastHeartbeatAt = Date.now()
-        for (const notify of [...this.connectionWaiters]) notify()
+        this.notifyConnectionWaiters()
         this.broadcastStatus()
         return
       }
@@ -548,7 +696,7 @@ export class GenieBridge {
           session.lastHeartbeatAt = now
           // Backward compatibility: pre-readiness clients prove collector startup by reaching their heartbeat loop.
           session.readyAt ??= now
-          for (const notify of [...this.connectionWaiters]) notify()
+          this.notifyConnectionWaiters()
           if (becameReady) this.broadcastStatus()
         }
         return
@@ -564,10 +712,167 @@ export class GenieBridge {
           result: message.result,
           error: message.error,
           errorCode: message.ok ? undefined : (message.errorCode ?? 'tool-error'),
+          errorDetails: message.ok ? undefined : message.errorDetails,
         })
         return
       }
     }
+  }
+
+  private registerDocument(socket: WebSocket, message: AppHello): void {
+    const now = Date.now()
+    // Same-socket superseded documents were revived already; one reconnecting on a new socket drops the old one.
+    this.evictSuperseded(message.sessionId)
+    // A live document is its tab's newest, so a successor recorded while it sat in the back/forward cache is history.
+    this.sessionSuccessors.delete(message.sessionId)
+    const existing = this.apps.get(message.sessionId)
+    const previousLogicalSessionId = existing?.logicalSessionId
+    if (existing && existing.socket !== socket) {
+      // Requests in flight on the replaced socket will never get a response.
+      this.failPendingForSession(message.sessionId, 'SESSION_DISCONNECTED')
+      existing.socket.close()
+    }
+    const generation = message.documentGeneration ?? 0
+    const peers = message.logicalSessionId
+      ? [...this.apps.values()].filter(
+          (session) =>
+            session.sessionId !== message.sessionId &&
+            session.logicalSessionId === message.logicalSessionId,
+        )
+      : []
+    const olderPeers = peers.filter((peer) => (peer.documentGeneration ?? 0) < generation)
+    // Superseding a document heard from within the last heartbeat could evict a live tab whose duplicate just opened.
+    const racingPeers = olderPeers.filter(
+      (peer) =>
+        peer.lastHeartbeatAt !== undefined && now - peer.lastHeartbeatAt < this.supersedeSilenceMs,
+    )
+    const outranked = peers.some((peer) => (peer.documentGeneration ?? 0) > generation)
+    const latest = message.logicalSessionId
+      ? this.latestDocuments.get(message.logicalSessionId)
+      : undefined
+    const replacesLatest =
+      racingPeers.length === 0 &&
+      olderPeers.length === peers.length &&
+      (latest === undefined ||
+        latest.sessionId === message.sessionId ||
+        generation >= (latest.documentGeneration ?? 0))
+    const predecessorSessionId =
+      replacesLatest && latest?.sessionId !== message.sessionId ? latest?.sessionId : undefined
+    if (predecessorSessionId) {
+      const predecessor = this.apps.get(predecessorSessionId)
+      if (predecessor) predecessor.successorSessionId = message.sessionId
+      this.recordSessionSuccessor(predecessorSessionId, message.sessionId)
+    }
+    if (message.logicalSessionId && replacesLatest) {
+      this.recordLatestDocument(message.logicalSessionId, {
+        sessionId: message.sessionId,
+        documentGeneration: message.documentGeneration,
+        connectedAt: existing?.connectedAt ?? now,
+      })
+    }
+    const registered: AppSession = {
+      socket,
+      sessionId: message.sessionId,
+      logicalSessionId: message.logicalSessionId,
+      documentGeneration: message.documentGeneration,
+      sessionName: message.sessionName,
+      predecessorSessionId: existing?.predecessorSessionId ?? predecessorSessionId,
+      forkedFromLogicalSessionId: existing?.forkedFromLogicalSessionId,
+      app: message.app,
+      capabilities: message.capabilities,
+      tools: message.tools,
+      // First-connect time survives re-hellos (tool refreshes, reconnects), so a background tab can't steal recency.
+      connectedAt: existing?.connectedAt ?? now,
+      readyAt: existing?.readyAt,
+      // A re-hello from a once-heartbeating session is a live JS turn (reload, reconnect, or tool refresh), so clear stale/busy state immediately.
+      lastHeartbeatAt: existing?.lastHeartbeatAt === undefined ? undefined : now,
+    }
+    this.apps.set(message.sessionId, registered)
+    for (const peer of olderPeers) {
+      if (!racingPeers.includes(peer)) this.supersede(peer, registered)
+    }
+    if (previousLogicalSessionId && previousLogicalSessionId !== message.logicalSessionId) {
+      this.refreshLatestDocument(previousLogicalSessionId)
+    }
+    if (!existing) {
+      this.log(
+        'info',
+        `app connected: ${message.app.name ?? message.sessionId} (${this.apps.size} session${this.apps.size === 1 ? '' : 's'})`,
+      )
+    }
+    // An older generation reconnecting beside its live successor is running JS, so it is a cloned tab.
+    if (outranked && message.logicalSessionId) {
+      this.autoForkLogicalCollision(message.sessionId, message.logicalSessionId)
+    } else if (racingPeers.length > 0) {
+      this.scheduleGenerationRace(registered, now)
+    } else {
+      this.scheduleLogicalCollision(registered)
+    }
+    if (this.defaultTabKey === tabKeyOf(registered)) this.clearDefaultTabReload()
+    this.notifyConnectionWaiters()
+    this.broadcastStatus()
+  }
+
+  /** A newer generation of the same tab replaces this document at once: no routing, no status row, and its in-flight calls fail now instead of reading as busy. */
+  private supersede(document: AppSession, successor: AppSession): void {
+    this.apps.delete(document.sessionId)
+    this.clearCollisionTimer(document.sessionId)
+    document.successorSessionId = successor.sessionId
+    successor.predecessorSessionId ??= document.sessionId
+    this.recordSessionSuccessor(document.sessionId, successor.sessionId)
+    this.failPendingForSession(document.sessionId, 'SESSION_SUPERSEDED')
+    const timer = setTimeout(
+      () => this.evictSuperseded(document.sessionId),
+      this.supersededLivenessMs,
+    )
+    unrefTimer(timer)
+    this.superseded.set(document.sessionId, { session: document, timer })
+    this.log('info', 'superseded app document', {
+      sessionId: document.sessionId,
+      successorSessionId: successor.sessionId,
+      logicalSessionId: document.logicalSessionId,
+    })
+  }
+
+  private evictSuperseded(sessionId: string): void {
+    const entry = this.superseded.get(sessionId)
+    if (!entry) return
+    clearTimeout(entry.timer)
+    this.superseded.delete(sessionId)
+    // terminate(), not close(): a frozen back/forward-cached page cannot complete a close handshake.
+    entry.session.socket.terminate()
+  }
+
+  /** A superseded document that still runs JS was cloned (duplicated tab, window.open), not navigated away: it keeps the tab identity and the newer clone is forked. */
+  private reviveSuperseded(socket: WebSocket): void {
+    const entry = [...this.superseded.values()].find(({ session }) => session.socket === socket)
+    if (!entry) return
+    const { session } = entry
+    clearTimeout(entry.timer)
+    this.superseded.delete(session.sessionId)
+    this.sessionSuccessors.delete(session.sessionId)
+    const clone = session.successorSessionId ? this.apps.get(session.successorSessionId) : undefined
+    session.successorSessionId = undefined
+    this.apps.set(session.sessionId, session)
+    this.log('warn', 'superseded app document is still live; forking its clone', {
+      sessionId: session.sessionId,
+      cloneSessionId: clone?.sessionId,
+    })
+    if (!clone || !session.logicalSessionId || clone.logicalSessionId !== session.logicalSessionId)
+      return
+    if (clone.predecessorSessionId === session.sessionId) clone.predecessorSessionId = undefined
+    this.autoForkLogicalCollision(clone.sessionId, session.logicalSessionId)
+  }
+
+  private notifyConnectionWaiters(): void {
+    for (const notify of [...this.connectionWaiters]) notify()
+  }
+
+  private clearCollisionTimer(sessionId: string): void {
+    const timer = this.logicalCollisionTimers.get(sessionId)
+    if (timer) clearTimeout(timer)
+    this.logicalCollisionTimers.delete(sessionId)
+    this.generationRaces.delete(sessionId)
   }
 
   private markSessionAlive(socket: WebSocket, impliesReady = false): void {
@@ -612,9 +917,7 @@ export class GenieBridge {
   }
 
   private scheduleLogicalCollision(session: AppSession): void {
-    const previousTimer = this.logicalCollisionTimers.get(session.sessionId)
-    if (previousTimer) clearTimeout(previousTimer)
-    this.logicalCollisionTimers.delete(session.sessionId)
+    this.clearCollisionTimer(session.sessionId)
     if (!session.logicalSessionId || this.logicalPeers(session).length === 0) return
 
     const expectedLogicalSessionId = session.logicalSessionId
@@ -631,8 +934,32 @@ export class GenieBridge {
     })
   }
 
+  /** A newer generation met an older document of its tab that beat within the last heartbeat: a reload whose old socket has not closed yet, or a duplicated tab. The older one keeps routing until it closes, stays silent (superseded), or beats again (the newer one is a duplicate and forks). */
+  private scheduleGenerationRace(session: AppSession, since: number): void {
+    const logicalSessionId = session.logicalSessionId
+    if (!logicalSessionId) return
+    this.clearCollisionTimer(session.sessionId)
+    this.generationRaces.add(session.sessionId)
+    const timer = setTimeout(() => {
+      this.clearCollisionTimer(session.sessionId)
+      if (this.apps.get(session.sessionId) !== session) return
+      for (const peer of this.logicalPeers(session)) {
+        const older = (peer.documentGeneration ?? 0) < (session.documentGeneration ?? 0)
+        if (older && (peer.lastHeartbeatAt ?? 0) <= since) this.supersede(peer, session)
+      }
+      if (this.logicalPeers(session).length > 0) {
+        this.autoForkLogicalCollision(session.sessionId, logicalSessionId)
+        return
+      }
+      this.refreshLatestDocument(logicalSessionId)
+      this.broadcastStatus()
+    }, this.supersededLivenessMs)
+    unrefTimer(timer)
+    this.logicalCollisionTimers.set(session.sessionId, timer)
+  }
+
   private autoForkLogicalCollision(sessionId: string, expectedLogicalSessionId: string): void {
-    this.logicalCollisionTimers.delete(sessionId)
+    this.clearCollisionTimer(sessionId)
     const session = this.apps.get(sessionId)
     if (!session || session.logicalSessionId !== expectedLogicalSessionId) return
     const collisionWithSessionIds = this.logicalPeers(session).map((peer) => peer.sessionId)
@@ -672,6 +999,7 @@ export class GenieBridge {
     if (remaining.length !== 1) return
     const successor = remaining[0]
     if (!successor) return
+    this.clearCollisionTimer(successor.sessionId)
     successor.predecessorSessionId ??= closed.sessionId
     this.recordSessionSuccessor(closed.sessionId, successor.sessionId)
     this.recordLatestDocument(closed.logicalSessionId, {
@@ -715,60 +1043,47 @@ export class GenieBridge {
     if (tool === devtoolsStatusContract.name) {
       const parsed = devtoolsStatusContract.input.safeParse(args ?? {})
       if (!parsed.success) {
-        this.result(
-          agent,
-          id,
-          false,
-          undefined,
-          formatToolValidationError(devtoolsStatusContract.name, parsed.error.issues),
-          { errorCode: 'invalid-args' },
-        )
+        this.invalidArguments(agent, id, devtoolsStatusContract, parsed.error.issues, args)
         return
       }
-      const target = sessionId ? this.resolveSession(sessionId) : this.currentSession()
-      if (sessionId && !target) {
-        this.result(agent, id, false, undefined, this.unknownSessionError(sessionId), {
-          errorCode: 'unknown-session',
-        })
+      const resolution = this.resolveTarget(sessionId, false)
+      if (sessionId && !resolution.ok) {
+        const { error, ...extra } = resolution
+        this.result(agent, id, false, undefined, error, extra)
         return
       }
-      this.result(agent, id, true, {
-        connected: this.apps.size > 0,
-        ready: target?.readyAt !== undefined,
-        sessionId: target?.sessionId ?? null,
-        app: target?.app ?? null,
-        domains: target?.capabilities ?? [],
-        toolCount: catalogOf(target).length,
-        ...(parsed.data.includeTools ? { tools: catalogOf(target) } : {}),
-        sessions: this.sessionSummaries(),
-        warnings: this.statusWarnings(),
-      })
-      return
-    }
-
-    if (isCaptureTool(tool)) {
-      const response = await this.captures.invoke(tool, args, sessionId)
+      const target = resolution.ok ? resolution.session : null
       this.result(
         agent,
         id,
-        response.ok,
-        response.ok ? response.result : undefined,
-        response.ok ? undefined : response.error,
-        response.ok ? undefined : { errorCode: response.errorCode },
+        true,
+        {
+          connected: this.apps.size > 0,
+          ready: target?.readyAt !== undefined,
+          sessionId: target?.sessionId ?? null,
+          app: target?.app ?? null,
+          domains: target?.capabilities ?? [],
+          toolCount: catalogOf(target).length,
+          ...(parsed.data.includeTools ? { tools: catalogOf(target) } : {}),
+          sessions: this.sessionSummaries(),
+          warnings: this.statusWarnings(),
+        },
+        undefined,
+        { session: target },
       )
       return
     }
 
-    if (isInteractionTool(tool)) {
-      const response = await this.interactions.invoke(tool, args, sessionId)
-      this.result(
-        agent,
-        id,
-        response.ok,
-        response.ok ? response.result : undefined,
-        response.ok ? undefined : response.error,
-        response.ok ? undefined : { errorCode: response.errorCode },
-      )
+    if (isCaptureTool(tool) || isInteractionTool(tool)) {
+      const response = isCaptureTool(tool)
+        ? await this.captures.invoke(tool, args, sessionId)
+        : await this.interactions.invoke(tool, args, sessionId)
+      if (response.ok) {
+        this.result(agent, id, true, response.result, undefined, { session: response.session })
+        return
+      }
+      const { ok: _, error, ...extra } = response
+      this.result(agent, id, false, undefined, error, extra)
       return
     }
 
@@ -793,19 +1108,13 @@ export class GenieBridge {
   ): Promise<void> {
     const parsed = reactQuiesceContract.input.safeParse(args ?? {})
     if (!parsed.success) {
-      this.result(
-        agent,
-        id,
-        false,
-        undefined,
-        formatToolValidationError(reactQuiesceContract.name, parsed.error.issues),
-        { errorCode: 'invalid-args' },
-      )
+      this.invalidArguments(agent, id, reactQuiesceContract, parsed.error.issues, args)
       return
     }
     const started = Date.now()
     const deadline = started + parsed.data.timeoutMs
-    const session = sessionId ? this.resolveSession(sessionId) : this.currentSession()
+    const resolution = this.resolveTarget(sessionId)
+    const session = resolution.ok ? resolution.session : null
     const pollState: WaitPollState = {
       reactSession: null,
       reactCommit: null,
@@ -820,23 +1129,29 @@ export class GenieBridge {
     let documentCommitId: number | null = null
     let renderCollection: string | null = null
     const finish = (outcome: 'idle' | 'timed-out' | 'unavailable', reason?: string) =>
-      this.result(agent, id, true, {
-        ok: outcome === 'idle',
-        outcome,
-        elapsedMs: Date.now() - started,
-        observedCommits,
-        documentCommitId,
-        sessionId: session?.sessionId ?? null,
-        renderCollection,
-        ...(reason ? { reason } : {}),
-      })
+      this.result(
+        agent,
+        id,
+        true,
+        {
+          ok: outcome === 'idle',
+          outcome,
+          elapsedMs: Date.now() - started,
+          observedCommits,
+          documentCommitId,
+          sessionId: session?.sessionId ?? null,
+          renderCollection,
+          ...(reason ? { reason } : {}),
+        },
+        undefined,
+        { session },
+      )
     if (!session) {
-      finish('unavailable', 'No app document is connected. Connect the app and retry.')
+      finish('unavailable', resolution.ok ? undefined : resolution.error)
       return
     }
     while (Date.now() < deadline) {
-      const current = sessionId ? this.resolveSession(sessionId) : this.currentSession()
-      if (!sameDocument(current)) {
+      if (!sameDocument(this.peekTarget(sessionId))) {
         finish('unavailable', 'App document changed during quiescence. Start a fresh measurement.')
         return
       }
@@ -848,10 +1163,10 @@ export class GenieBridge {
           quietMs: parsed.data.idleMs,
           deadline,
         },
-        session.sessionId,
+        session,
         pollState,
       )
-      if (!sameDocument(sessionId ? this.resolveSession(sessionId) : this.currentSession())) {
+      if (!sameDocument(this.peekTarget(sessionId))) {
         finish('unavailable', 'App document changed during quiescence. Start a fresh measurement.')
         return
       }
@@ -893,31 +1208,31 @@ export class GenieBridge {
   ): Promise<void> {
     const parsed = devtoolsWaitContract.input.safeParse(args ?? {})
     if (!parsed.success) {
-      this.result(
-        agent,
-        id,
-        false,
-        undefined,
-        formatToolValidationError(devtoolsWaitContract.name, parsed.error.issues),
-        { errorCode: 'invalid-args' },
-      )
+      this.invalidArguments(agent, id, devtoolsWaitContract, parsed.error.issues, args)
       return
     }
     const input = parsed.data
     const started = Date.now()
     const finish = (check: WaitCheck, timeoutReason = 'timeout') =>
-      this.result(agent, id, true, {
-        ok: check.state === 'met',
-        condition: input.condition,
-        waitedMs: Date.now() - started,
-        ...(check.state === 'met'
-          ? {}
-          : { reason: check.state === 'failed' ? check.reason : timeoutReason }),
-        ...(check.query === undefined ? {} : { query: check.query }),
-        validConditions: [...WAIT_CONDITIONS],
-        ...(check.lastObserved === undefined ? {} : { lastObserved: check.lastObserved }),
-        ...(check.domains === undefined ? {} : { domains: check.domains }),
-      })
+      this.result(
+        agent,
+        id,
+        true,
+        {
+          ok: check.state === 'met',
+          condition: input.condition,
+          waitedMs: Date.now() - started,
+          ...(check.state === 'met'
+            ? {}
+            : { reason: check.state === 'failed' ? check.reason : timeoutReason }),
+          ...(check.query === undefined ? {} : { query: check.query }),
+          validConditions: [...WAIT_CONDITIONS],
+          ...(check.lastObserved === undefined ? {} : { lastObserved: check.lastObserved }),
+          ...(check.domains === undefined ? {} : { domains: check.domains }),
+        },
+        undefined,
+        { session: check.session === undefined ? this.peekTarget(sessionId) : check.session },
+      )
 
     if (input.condition === 'connected' || input.condition === 'ready') {
       const waitFor =
@@ -942,6 +1257,11 @@ export class GenieBridge {
       finish({ state: 'failed', reason: 'no app connected' })
       return
     }
+    const target = this.resolveTarget(sessionId, false)
+    if (!sessionId && !target.ok && target.errorCode === 'unknown-session') {
+      this.result(agent, id, false, undefined, target.error, { errorCode: target.errorCode })
+      return
+    }
 
     const check = await this.pollCondition(
       input,
@@ -954,7 +1274,7 @@ export class GenieBridge {
   private async pollCondition(
     input: WaitInput,
     remainingMs: number,
-    sessionId?: string,
+    target: WaitTarget,
   ): Promise<WaitCheck> {
     const deadline = Date.now() + Math.max(0, remainingMs)
     const pollState: WaitPollState = {
@@ -965,7 +1285,7 @@ export class GenieBridge {
     }
     let lastCheck: WaitCheck = { state: 'pending' }
     while (Date.now() < deadline) {
-      const check = await this.checkCondition(input, sessionId, pollState)
+      const check = await this.checkCondition(input, target, pollState)
       lastCheck = check
       if (check.state !== 'pending') return check
       await delay(POLL_INTERVAL_MS)
@@ -983,7 +1303,7 @@ export class GenieBridge {
     const check = await this.pollCondition(
       { condition: 'settled', domains, quietMs },
       timeoutMs,
-      session.sessionId,
+      session,
     )
     return {
       ok: check.state === 'met',
@@ -997,17 +1317,30 @@ export class GenieBridge {
 
   private async checkCondition(
     input: WaitInput,
-    sessionId: string | undefined,
+    target: WaitTarget,
+    pollState: WaitPollState,
+  ): Promise<WaitCheck> {
+    const session = this.waitSession(target)
+    if (!session && typeof target === 'object') {
+      return { session: null, state: 'failed', reason: DOCUMENT_GONE_REASON }
+    }
+    return { ...(await this.checkConditionOn(input, session, pollState)), session }
+  }
+
+  private async checkConditionOn(
+    input: WaitInput,
+    session: AppSession | null,
     pollState: WaitPollState,
   ): Promise<WaitCheck> {
     if (input.condition === 'react-quiet' || input.condition === 'settled') {
-      return this.checkSettle(input, sessionId, pollState)
+      return this.checkSettle(input, session, pollState)
     }
+    if (!session) return { state: 'pending' }
     if (input.condition === 'component') {
-      const res = await this.appRequest(
+      const res = await this.appRequestForSession(
         'react_find_components',
         { query: input.name ?? '', limit: 1 },
-        sessionId,
+        session,
       )
       const matches = matchesOf(res.result)
       return {
@@ -1021,7 +1354,7 @@ export class GenieBridge {
           input.queryHash === undefined
             ? { queryKey: input.queryKey }
             : { queryHash: input.queryHash }
-        const res = await this.appRequest('query_get', selector, sessionId)
+        const res = await this.appRequestForSession('query_get', selector, session)
         const query = queryStateOf(res.result)
         if (!res.ok || !query) return { state: 'pending' }
         const match = queryIdentity(query)
@@ -1033,7 +1366,7 @@ export class GenieBridge {
       }
 
       if (input.name) {
-        const res = await this.appRequest('query_list', { limit: 500 }, sessionId)
+        const res = await this.appRequestForSession('query_list', { limit: 500 }, session)
         const queries = parseQueryList(res.result)
         if (!res.ok || !queries || queries.length === 0) return { state: 'pending' }
         const relevant = queries.filter((query) => legacyQueryMatches(query, input.name ?? ''))
@@ -1052,7 +1385,7 @@ export class GenieBridge {
           lastObserved: { fetchStatus: query.fetchStatus ?? null },
         }
       }
-      const fetching = await this.appRequest('query_is_fetching', {}, sessionId)
+      const fetching = await this.appRequestForSession('query_is_fetching', {}, session)
       const state = queryStateOf(fetching.result)
       return {
         state: fetching.ok && state?.fetching === 0 && state.mutating === 0 ? 'met' : 'pending',
@@ -1063,7 +1396,7 @@ export class GenieBridge {
       }
     }
     if (input.condition === 'navigation') {
-      const res = await this.appRequest('router_get_state', {}, sessionId)
+      const res = await this.appRequestForSession('router_get_state', {}, session)
       const state = routerStateOf(res.result)
       if (!res.ok || !state) return { state: 'pending' }
       return {
@@ -1082,13 +1415,13 @@ export class GenieBridge {
 
   private async checkSettle(
     input: WaitInput,
-    sessionId: string | undefined,
+    session: AppSession | null,
     pollState: WaitPollState,
   ): Promise<WaitCheck> {
     const requested: WaitDomain[] = input.condition === 'react-quiet' ? ['react'] : input.domains
     const domains: Partial<Record<WaitDomain, WaitDomainCheck>> = {}
     for (const domain of requested) {
-      domains[domain] = await this.checkSettleDomain(domain, input, sessionId, pollState)
+      domains[domain] = await this.checkSettleDomain(domain, input, session, pollState)
     }
     const checks = Object.values(domains)
     const unsupported = checks.find(
@@ -1112,10 +1445,9 @@ export class GenieBridge {
   private async checkSettleDomain(
     domain: WaitDomain,
     input: WaitInput,
-    sessionId: string | undefined,
+    session: AppSession | null,
     pollState: WaitPollState,
   ): Promise<WaitDomainCheck> {
-    const session = sessionId ? this.resolveSession(sessionId) : this.currentSession()
     const unsupported = (tool: string): WaitDomainCheck => ({
       status: 'unsupported',
       reason: `Domain ${domain} requires unavailable tool ${tool}.`,
@@ -1126,8 +1458,9 @@ export class GenieBridge {
         reason: 'Generic network quiet is not instrumented by this app.',
       }
     }
+    if (!session) return { status: 'pending', reason: 'No app document is connected.' }
     if (domain === 'react') {
-      if (!session || !toolDescriptor(session, 'react_get_renders')) {
+      if (!toolDescriptor(session, 'react_get_renders')) {
         return unsupported('react_get_renders')
       }
       const response = await this.appRequestForSession(
@@ -1177,10 +1510,10 @@ export class GenieBridge {
       }
     }
     if (domain === 'query') {
-      if (!session || !toolDescriptor(session, 'query_is_fetching')) {
+      if (!toolDescriptor(session, 'query_is_fetching')) {
         return unsupported('query_is_fetching')
       }
-      const response = await this.appRequest('query_is_fetching', {}, sessionId)
+      const response = await this.appRequestForSession('query_is_fetching', {}, session)
       const result = recordOf(response.result)
       const fetching = result ? numberField(result, 'fetching') : null
       const mutating = result ? (numberField(result, 'mutating') ?? 0) : null
@@ -1190,10 +1523,10 @@ export class GenieBridge {
       }
     }
     if (domain === 'router') {
-      if (!session || !toolDescriptor(session, 'router_get_state')) {
+      if (!toolDescriptor(session, 'router_get_state')) {
         return unsupported('router_get_state')
       }
-      const response = await this.appRequest('router_get_state', {}, sessionId)
+      const response = await this.appRequestForSession('router_get_state', {}, session)
       const result = routerStateOf(response.result)
       return {
         status: response.ok && result?.isLoading === false ? 'met' : 'pending',
@@ -1203,9 +1536,9 @@ export class GenieBridge {
         },
       }
     }
-    if (!session || !toolDescriptor(session, 'browser_fps')) return unsupported('browser_fps')
+    if (!toolDescriptor(session, 'browser_fps')) return unsupported('browser_fps')
     if (pollState.frameCheck?.status === 'met') return pollState.frameCheck
-    const response = await this.appRequest('browser_fps', { durationMs: 250 }, sessionId)
+    const response = await this.appRequestForSession('browser_fps', { durationMs: 250 }, session)
     const result = recordOf(response.result)
     const comparable = result?.comparable === true
     pollState.frameCheck = {
@@ -1236,19 +1569,10 @@ export class GenieBridge {
       id,
       tool,
       args,
-      (response) =>
-        this.result(agent, id, response.ok, response.result, response.error, {
-          errorCode: response.errorCode,
-          retryInMs: response.retryInMs,
-          busyTelemetry: response.busyTelemetry,
-        }),
+      ({ ok, result, error, ...extra }) => this.result(agent, id, ok, result, error, extra),
       sessionId,
       timeoutMs,
     )
-  }
-
-  private appRequest(tool: string, args: unknown, sessionId?: string): Promise<AppResponse> {
-    return new Promise((resolve) => this.sendAppRequest(newId(), tool, args, resolve, sessionId))
   }
 
   private appRequestForSession(
@@ -1277,26 +1601,23 @@ export class GenieBridge {
     exactSession?: AppSession,
     deadline?: number,
   ): void {
-    const exactCurrent = exactSession ? this.apps.get(exactSession.sessionId) : undefined
-    const session = exactSession
-      ? exactCurrent?.socket === exactSession.socket
-        ? exactCurrent
-        : null
-      : sessionId
-        ? this.resolveSession(sessionId)
-        : this.currentSession()
-    if (!session) {
-      settle({
-        ok: false,
-        errorCode: sessionId && !exactSession ? 'unknown-session' : 'not-connected',
-        error: exactSession
-          ? 'The target app document disconnected during the request.'
-          : sessionId
-            ? this.unknownSessionError(sessionId)
-            : 'No app connected. Run your dev server with the Genie Vite plugin.',
-      })
+    const resolution: SessionResolution<AppSession> = exactSession
+      ? this.isCurrent(exactSession)
+        ? { ok: true, session: exactSession }
+        : {
+            ok: false,
+            errorCode: 'not-connected',
+            errorDetails: { hubCode: 'SESSION_DISCONNECTED' },
+            error: 'The target app document disconnected during the request.',
+          }
+      : this.resolveTarget(sessionId)
+    if (!resolution.ok) {
+      settle(resolution)
       return
     }
+    const { session, retargeted } = resolution
+    const settleWithSession = (response: AppResponse): void =>
+      settle({ ...response, session, ...(retargeted ? { retargeted } : {}) })
     const fullTimeout = Math.min(
       this.clampTimeout(timeoutMs),
       deadline === undefined ? Infinity : Math.max(0, deadline - Date.now()),
@@ -1305,20 +1626,21 @@ export class GenieBridge {
       const pending = this.pending.get(id)
       if (pending) this.clearPendingTimers(pending)
       this.pending.delete(id)
-      settle({
+      settleWithSession({
         ok: false,
         errorCode: 'timeout',
         error: `Tool "${tool}" timed out after ${fullTimeout}ms — the app tab may be reloading or its main thread busy; retry, or wait for it with devtools_wait`,
       })
     }, fullTimeout)
     const busyTimer = this.shouldBusyProbe(session, tool, timeoutMs)
-      ? this.scheduleBusyProbe(id, session.sessionId, tool, settle)
+      ? this.scheduleBusyProbe(id, session.sessionId, tool, settleWithSession)
       : null
     this.pending.set(id, {
-      settle,
+      settle: settleWithSession,
       timer,
       busyTimer,
       sessionId: session.sessionId,
+      mayHaveCompleted: toolDescriptor(session, tool)?.annotations?.readOnlyHint !== true,
     })
     this.send(session.socket, { kind: 'bridge/request', id, tool, args })
   }
@@ -1428,52 +1750,86 @@ export class GenieBridge {
     })
   }
 
-  private unknownSessionError(sessionId: string): string {
-    const logical = [...this.apps.values()].filter(
-      (session) => session.logicalSessionId === sessionId,
-    )
+  private unknownSession(target: string): SessionUnavailable {
+    const ambiguous = (error: string): SessionUnavailable => ({
+      errorCode: 'unknown-session',
+      errorDetails: { hubCode: 'SESSION_AMBIGUOUS' },
+      error,
+    })
+    const logical = [...this.apps.values()].filter((session) => session.logicalSessionId === target)
     if (logical.length > 1) {
-      return `Logical session ${JSON.stringify(sessionId)} has a live identity collision (${logical.map((session) => session.sessionId).join(', ')}). Wait for auto-fork, then choose a distinct logical or physical id from devtools_status.`
+      return ambiguous(
+        `Logical session ${JSON.stringify(target)} has a live identity collision (${logical.map((session) => session.sessionId).join(', ')}). Wait for auto-fork, then choose a distinct logical or physical id from devtools_status.`,
+      )
     }
-    const named = [...this.apps.values()].filter((session) => session.sessionName === sessionId)
+    const named = [...this.apps.values()].filter((session) => session.sessionName === target)
     if (named.length > 1) {
-      return `Session name "${sessionId}" is ambiguous (${named.length} tabs). Use a physical or logical id from devtools_status.`
+      return ambiguous(
+        `Session name ${JSON.stringify(target)} is ambiguous; ${named.length} tabs share it: ${named.map(tabLabel).join('; ')}. Target one by its logical or physical id from devtools_status.`,
+      )
     }
     const targets = this.sessionSummaries()
       .flatMap((session) => [session.sessionId, session.logicalSessionId, session.sessionName])
-      .filter((target): target is string => typeof target === 'string')
-    return `Unknown session "${sessionId}". Connected targets: ${[...new Set(targets)].join(', ') || 'none'} — run devtools_status to list them.`
+      .filter((candidate): candidate is string => typeof candidate === 'string')
+    return {
+      errorCode: 'unknown-session',
+      error: `Unknown session "${target}". Connected targets: ${[...new Set(targets)].join(', ') || 'none'} — run devtools_status to list them.`,
+    }
   }
 
-  private failPendingForSession(sessionId: string, error: string): void {
+  private failPendingForSession(sessionId: string, hubCode: InterruptionCode): void {
     for (const [id, pending] of this.pending) {
       if (pending.sessionId !== sessionId) continue
       this.clearPendingTimers(pending)
-      pending.settle({ ok: false, error, errorCode: 'not-connected' })
       this.pending.delete(id)
+      pending.settle({
+        ok: false,
+        errorCode: 'not-connected',
+        error: interruptedCallError(hubCode, pending.mayHaveCompleted),
+        errorDetails: { hubCode, ...(pending.mayHaveCompleted ? { mayHaveCompleted: true } : {}) },
+      })
     }
   }
 
   private onClose(connection: Connection): void {
     this.connections.delete(connection.socket)
+    const superseded = [...this.superseded.values()].find(
+      ({ session }) => session.socket === connection.socket,
+    )
+    if (superseded) {
+      clearTimeout(superseded.timer)
+      this.superseded.delete(superseded.session.sessionId)
+      return
+    }
     const session = [...this.apps.values()].find((s) => s.socket === connection.socket)
     if (session) {
       this.apps.delete(session.sessionId)
-      const collisionTimer = this.logicalCollisionTimers.get(session.sessionId)
-      if (collisionTimer) clearTimeout(collisionTimer)
-      this.logicalCollisionTimers.delete(session.sessionId)
+      this.clearCollisionTimer(session.sessionId)
       this.promoteLogicalSuccessor(session)
       this.log('info', `app disconnected: ${session.app.name ?? session.sessionId}`)
-      this.failPendingForSession(session.sessionId, 'app disconnected')
-      if (this.currentSessionId === session.sessionId) {
-        const successor = this.resolveSession(session.sessionId)
-        const next = successor ?? [...this.apps.values()].sort(compareSessionRecency)[0]
-        this.currentSessionId = next?.sessionId ?? null
-      }
+      this.failPendingForSession(session.sessionId, 'SESSION_DISCONNECTED')
+      if (this.defaultTabKey === tabKeyOf(session) && !this.tabDocuments().has(this.defaultTabKey))
+        this.holdDefaultTabForReload()
       this.broadcastStatus()
       return
     }
     this.agents.delete(connection.socket)
+  }
+
+  /** Keeps untargeted calls on a reloading tab instead of letting another tab take over; waiters re-check once the grace lapses. */
+  private holdDefaultTabForReload(): void {
+    this.clearDefaultTabReload()
+    const timer = setTimeout(() => {
+      this.defaultTabReload = null
+      this.notifyConnectionWaiters()
+    }, this.targetReloadGraceMs)
+    unrefTimer(timer)
+    this.defaultTabReload = { timer, since: Date.now() }
+  }
+
+  private clearDefaultTabReload(): void {
+    if (this.defaultTabReload) clearTimeout(this.defaultTabReload.timer)
+    this.defaultTabReload = null
   }
 
   private broadcastStatus(): void {
@@ -1487,7 +1843,9 @@ export class GenieBridge {
     ok: boolean,
     result?: unknown,
     error?: string,
-    extra?: { errorCode?: AgentErrorCode; retryInMs?: number; busyTelemetry?: BusyTelemetry },
+    extra?: Omit<AppResponse, 'ok' | 'result' | 'error' | 'session'> & {
+      session?: RoutableDocument | null
+    },
   ): void {
     this.send(agent, {
       kind: 'bridge/result',
@@ -1496,8 +1854,28 @@ export class GenieBridge {
       result,
       error,
       errorCode: extra?.errorCode,
+      errorDetails: extra?.errorDetails,
       retryInMs: extra?.retryInMs,
       busyTelemetry: extra?.busyTelemetry,
+      session: extra?.session ? answeringSessionOf(extra.session) : undefined,
+      retargeted: extra?.retargeted,
+    })
+  }
+
+  private invalidArguments(
+    agent: WebSocket,
+    id: string,
+    contract: AgentToolContract,
+    issues: Parameters<typeof toolValidationFailure>[1],
+    args: unknown,
+  ): void {
+    const failure = toolValidationFailure(contract.name, issues, {
+      input: contract.input,
+      args: args ?? {},
+    })
+    this.result(agent, id, false, undefined, failure.error, {
+      errorCode: 'invalid-args',
+      errorDetails: failure.errorDetails,
     })
   }
 
@@ -1506,14 +1884,14 @@ export class GenieBridge {
   }
 }
 
-function parseUpgradeUrl(url: string | undefined): {
-  pathname: string
-  role: ConnectionRole | null
-} {
-  const parsed = new URL(url ?? '/', 'http://localhost')
-  const roleParam = parsed.searchParams.get(ROLE_QUERY_PARAM)
-  const role = roleParam === 'app' || roleParam === 'agent' ? roleParam : null
-  return { pathname: parsed.pathname, role }
+function interruptedCallError(hubCode: InterruptionCode, mayHaveCompleted: boolean): string {
+  const cause =
+    hubCode === 'SESSION_SUPERSEDED'
+      ? 'The app document was replaced by a newer page load in its tab before answering'
+      : 'The app document disconnected (reload, navigation, or closed tab) before answering'
+  return mayHaveCompleted
+    ? `${cause}; the call is not read-only and may have completed, so inspect app state before retrying.`
+    : `${cause}; retry the call.`
 }
 
 function recordOf(value: unknown): Record<string, unknown> | null {

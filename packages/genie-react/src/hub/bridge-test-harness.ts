@@ -1,12 +1,26 @@
 import { WebSocket } from 'ws'
 import { decodeFrame, encodeMessage } from '../protocol'
+import { createStandaloneBridge, type StandaloneBridgeOptions } from './standalone'
 
 // biome-ignore lint/suspicious/noExplicitAny: test harness deals in decoded wire frames
 export type Frame = any
 
+export const TEST_AGENT_TOKEN = 'test-agent-token'
+
+export const createTestBridge = (options?: StandaloneBridgeOptions) =>
+  createStandaloneBridge({ agentToken: TEST_AGENT_TOKEN, ...options })
+
+/** Agent sockets authenticate like the CLI does, so suites only spell out `?role=agent`. */
+function socketFor(url: string): WebSocket {
+  const isAgent = new URL(url).searchParams.get('role') === 'agent'
+  return new WebSocket(url, {
+    headers: isAgent ? { authorization: `Bearer ${TEST_AGENT_TOKEN}` } : {},
+  })
+}
+
 export function connect(url: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url)
+    const ws = socketFor(url)
     ws.once('open', () => resolve(ws))
     ws.once('error', reject)
   })
@@ -14,7 +28,7 @@ export function connect(url: string): Promise<WebSocket> {
 
 /** Attaches the inbox before `open`, so the bridge's immediate status push cannot be missed. */
 export async function open(url: string): Promise<{ ws: WebSocket; inbox: Inbox }> {
-  const ws = new WebSocket(url)
+  const ws = socketFor(url)
   const inbox = new Inbox(ws)
   await new Promise<void>((resolve, reject) => {
     ws.once('open', () => resolve())

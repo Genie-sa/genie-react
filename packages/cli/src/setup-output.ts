@@ -1,12 +1,16 @@
 import { GENIE_CLIENT_PATH, GENIE_DEFAULT_HUB_PORT } from 'genie-react/protocol'
+import { conflictRemedy, SKILL_PATH_CONFLICT } from './agent-skill'
 import { writeJson } from './cli-output'
 import { type InitOptions, initNextCommands, type RootRouteOutcome, runInit } from './index'
+import { genieCommand, packageManagerCommands } from './package-manager'
+import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 
 export interface InitCommandOptions extends Omit<InitOptions, 'logger'> {
   maxBytes?: number
 }
 
 export function runInitCommand(options: InitCommandOptions = {}): number {
+  const cwd = options.cwd ?? process.cwd()
   try {
     const result = runInit({ ...options, logger: { info() {}, error() {} } })
     const outcome = (kind: string, item: RootRouteOutcome) => ({
@@ -42,8 +46,9 @@ export function runInitCommand(options: InitCommandOptions = {}): number {
         ({ kind, status }) =>
           (status === 'manual' || status === 'missing') && !(universal && kind === 'vite_config'),
       )
-      .map(({ kind }) => ({
+      .map(({ kind, reason, path }) => ({
         kind,
+        ...(path ? { path } : {}),
         ...(kind === 'vite_config'
           ? { module: 'genie-react/vite', export: 'genie', placement: 'Vite plugins array' }
           : {}),
@@ -69,18 +74,16 @@ export function runInitCommand(options: InitCommandOptions = {}): number {
                 'Call from register() only when NODE_ENV is not production and NEXT_RUNTIME is nodejs',
             }
           : {}),
-        ...(kind === 'agent_skill'
-          ? {
-              next: {
-                command: 'npm install --save-dev @genie-react/cli',
-                argv: ['npm', 'install', '--save-dev', '@genie-react/cli'],
-              },
-            }
+        ...(kind === 'agent_skill' && reason === 'bundled_skill_missing'
+          ? { next: installCliCommand(cwd) }
+          : {}),
+        ...(kind === 'agent_skill' && reason === SKILL_PATH_CONFLICT && path
+          ? { placement: `${conflictRemedy(path)}, then rerun init` }
           : {}),
       }))
     writeJson(
       {
-        schemaVersion: '1.0',
+        schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: result.ok ? 'ok' : 'action_required',
         reason: result.ok
           ? result.dryRun
@@ -96,22 +99,19 @@ export function runInitCommand(options: InitCommandOptions = {}): number {
           dryRun: result.dryRun,
           artifacts,
           manualSteps,
-          commands: initNextCommands(options.cwd ?? process.cwd(), result.framework),
+          commands: initNextCommands(cwd, result.framework),
           ...(universal
             ? {
                 integration: {
                   module: 'genie-react/next',
                   export: 'GenieScript',
-                  scriptUrl: `http://localhost:${GENIE_DEFAULT_HUB_PORT}${GENIE_CLIENT_PATH}`,
+                  scriptUrl: `http://127.0.0.1:${GENIE_DEFAULT_HUB_PORT}${GENIE_CLIENT_PATH}`,
                   developmentOnly: true,
                 },
               }
             : {}),
         },
-        next: {
-          command: universal ? 'genie-react hub' : 'genie-react doctor',
-          argv: ['genie-react', universal ? 'hub' : 'doctor'],
-        },
+        next: genieCommand([universal ? 'hub' : 'doctor'], cwd),
       },
       options.maxBytes,
     )
@@ -119,17 +119,22 @@ export function runInitCommand(options: InitCommandOptions = {}): number {
   } catch {
     writeJson(
       {
-        schemaVersion: '1.0',
+        schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: 'error',
         reason: 'setup_failed',
         message:
           'Failed to apply local setup. Check file permissions and inspect the current setup before retrying.',
         userActionRequired: true,
         data: { changesMayHaveApplied: !options.dryRun },
-        next: { command: 'genie-react init --dry-run', argv: ['genie-react', 'init', '--dry-run'] },
+        next: genieCommand(['init', '--dry-run'], cwd),
       },
       options.maxBytes,
     )
     return 1
   }
+}
+
+function installCliCommand(cwd: string) {
+  const argv = [...packageManagerCommands(cwd).add, '@genie-react/cli']
+  return { command: argv.join(' '), argv }
 }

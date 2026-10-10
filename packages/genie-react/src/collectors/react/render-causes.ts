@@ -1,5 +1,6 @@
 import type { ContextDependency, Fiber, MemoizedState } from 'bippy'
-import { dehydrate, type ToolOutput } from '../../protocol'
+import type { z } from 'zod'
+import { dehydrate } from '../../protocol'
 import {
   externalStoreId,
   isRegisteredQueryObserver,
@@ -34,9 +35,9 @@ import {
   scanInputEvidence,
   truncateInputScan,
 } from './render-budget'
-import type { reactRenderCausesContract } from './render-contract'
+import type { renderCauseEventSchema } from './render-contract'
 
-export type RenderCauseEvent = ToolOutput<typeof reactRenderCausesContract>['events'][number]
+export type RenderCauseEvent = z.infer<typeof renderCauseEventSchema>
 export type RenderCause = RenderCauseEvent['causes'][number]
 export type RenderNecessity = RenderCauseEvent['necessity']
 export type RenderCauseKind = RenderCause['kind']

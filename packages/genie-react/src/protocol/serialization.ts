@@ -329,3 +329,18 @@ function resolvePath(input: unknown, path: ReadonlyArray<string | number>): Reso
 function formatPath(path: ReadonlyArray<string | number>): string {
   return path.length === 0 ? '<root>' : path.join('.')
 }
+
+/** `file:line:column`, dropping trailing positions the source map could not resolve. */
+export function formatSourceLocation(
+  source: { file: string; line: number | null; column: number | null } | null,
+): string | null {
+  if (!source) return null
+  if (source.line === null) return source.file
+  return source.column === null
+    ? `${source.file}:${source.line}`
+    : `${source.file}:${source.line}:${source.column}`
+}
+
+export function roundMilliseconds(value: number): number {
+  return Math.round(value * 100) / 100
+}

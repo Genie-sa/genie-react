@@ -26,6 +26,21 @@ npx @genie-react/cli init
 `init` detects Vite and Next.js, updates supported configuration, and installs the agent skill. It
 runs without prompts. `--yes` is accepted for existing automation and makes the same changes.
 
+The skill lands in `.agents/skills/genie`, which Codex, Cursor, and other Agent Skills clients read.
+Claude Code reads only `.claude/skills`, so `init` also links `.claude/skills/genie` to that copy, or
+copies it where symlinks are unavailable. The skill's commands, and the commands the CLI suggests
+once Genie is installed, use the package manager found from your lockfile: `npx genie-react` for
+npm, `pnpm exec genie-react` for pnpm, `yarn genie-react` for Yarn 2+, `yarn --silent genie-react`
+for Yarn 1, or `bunx genie-react` for Bun. Without a lockfile they use npm. `doctor` reports either
+location when it drifts from the installed CLI; rerun `init` to refresh it.
+
+`init` writes only into an empty directory or one that already holds Genie's skill. It never
+follows a symlink out of the project. Any other file, directory, or symlink at either location is
+left untouched and reported as a manual step with `reason: "skill_path_conflict"`. Its `path` names
+the entry in the way: the skill path itself, a parent such as `.agents`, or a symlinked skill file.
+`doctor` reports the same entry. Remove or replace only that file, directory, or symlink, then rerun
+`init`.
+
 Read `data.artifacts`, `data.manualSteps`, and `userActionRequired` in the receipt. A successful exit
 can still require manual wiring. Plain Vite apps, for example, need `<Genie />` near the app root for
 the additional collectors. Follow the matching [platform setup](/docs/setup) until each manual step
@@ -41,12 +56,11 @@ pnpm dev
 ```
 
 Open the app's local URL with `?_genie=setup-check`. If the URL already has a query string, append
-`&_genie=setup-check`. In a second terminal, pin that session and check the running stack:
+`&_genie=setup-check`. In a second terminal, check the running stack and select that session:
 
 ```bash title="Terminal 2"
-export GENIE_SESSION=setup-check
 npx @genie-react/cli doctor --live
-npx @genie-react/cli status --sessions-only
+npx @genie-react/cli status --session setup-check --sessions-only
 ```
 
 Continue when `doctor` reports `ok:true` and the selected status session has `ready:true` and
@@ -57,8 +71,8 @@ failures.
 ## Make the first read
 
 ```bash
-npx @genie-react/cli tools react_get_tree
-npx @genie-react/cli call react_get_tree '{"depth":2}'
+npx @genie-react/cli tools react_get_tree --session setup-check
+npx @genie-react/cli call react_get_tree --session setup-check '{"depth":2}'
 ```
 
 A tree response confirms that calls reached the mounted app. Next, use

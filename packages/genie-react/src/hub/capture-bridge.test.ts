@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { newId } from '../protocol'
-import { isResult, open, send } from './bridge-test-harness'
-import { createStandaloneBridge, type StandaloneBridgeHandle } from './standalone'
+import { createTestBridge, isResult, open, send } from './bridge-test-harness'
+import type { StandaloneBridgeHandle } from './standalone'
 
 describe('capture bridge validation', () => {
   let handle: StandaloneBridgeHandle
   let url: string
 
   beforeEach(async () => {
-    handle = createStandaloneBridge()
+    handle = createTestBridge()
     url = (await handle.listen()).url
   })
 

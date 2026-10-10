@@ -10,7 +10,7 @@ export interface GenieScriptProps {
 export function GenieScript({ port }: GenieScriptProps = {}): ReactElement | null {
   if (isProductionBuild()) return null
   const resolved = port ?? globalPort() ?? envPort() ?? GENIE_DEFAULT_HUB_PORT
-  return createElement('script', { src: `http://localhost:${resolved}${GENIE_CLIENT_PATH}` })
+  return createElement('script', { src: `http://127.0.0.1:${resolved}${GENIE_CLIENT_PATH}` })
 }
 
 // The hub publishes its bound port on a global symbol because Next.js resets `process.env` between recompiles — without it a walked port silently degrades to the default.

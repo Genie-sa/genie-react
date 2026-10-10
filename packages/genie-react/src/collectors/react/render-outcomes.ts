@@ -1,10 +1,5 @@
-import {
-  didFiberCommit,
-  type Fiber,
-  isHostFiber,
-  type MemoizedState,
-  type RenderPhase,
-} from 'bippy'
+import { type Fiber, isHostFiber, type MemoizedState, type RenderPhase } from 'bippy'
+import { didFiberCommit } from './bippy-compat'
 import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
 import type { RenderCause } from './render-causes'
 import { isHostTextFiber } from './work-tags'

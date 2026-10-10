@@ -6,15 +6,15 @@ import {
   recordRender,
 } from '../collectors/react/render-tracker'
 import { decodeFrame, newId } from '../protocol'
-import { type Frame, isResult, open, send } from './bridge-test-harness'
-import { createStandaloneBridge, type StandaloneBridgeHandle } from './standalone'
+import { createTestBridge, type Frame, isResult, open, send } from './bridge-test-harness'
+import type { StandaloneBridgeHandle } from './standalone'
 
 describe('GenieBridge waits', () => {
   let handle: StandaloneBridgeHandle
   let url: string
 
   beforeEach(async () => {
-    handle = createStandaloneBridge()
+    handle = createTestBridge()
     url = (await handle.listen()).url
   })
 

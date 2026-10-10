@@ -1,4 +1,4 @@
-import { type BridgeStatusMessage, minimalExampleArgs } from 'genie-react/protocol'
+import type { BridgeStatusMessage } from 'genie-react/protocol'
 import { isRecord } from './guards'
 
 export type ToolDescriptor = BridgeStatusMessage['tools'][number]
@@ -6,7 +6,7 @@ export type ToolDescriptor = BridgeStatusMessage['tools'][number]
 export type ToolsSelection =
   | { kind: 'tool'; tool: ToolDescriptor }
   | { kind: 'group'; tools: ToolDescriptor[] }
-  | { kind: 'unknown'; message: string }
+  | { kind: 'unknown'; message: string; suggestions: string[] }
 
 /** Exact tool name → its full contract; a group or group family (`app` covers `app.cart`, `react` covers `react.tree`) → that listing; else suggestions, never a full dump. */
 export function resolveToolsSelector(tools: ToolDescriptor[], selector: string): ToolsSelection {
@@ -17,17 +17,51 @@ export function resolveToolsSelector(tools: ToolDescriptor[], selector: string):
   )
   if (inGroup.length > 0) return { kind: 'group', tools: inGroup }
 
-  const needle = selector.toLowerCase()
-  const near = tools
-    .map((candidate) => candidate.name)
-    .filter((name) => name.includes(needle))
-    .slice(0, 5)
+  const near = suggestToolNames(
+    tools.map((candidate) => candidate.name),
+    selector,
+  )
   const groups = [...new Set(tools.map((candidate) => candidate.group))].sort()
   const hint = near.length > 0 ? `Did you mean: ${near.join(', ')}? ` : ''
   return {
     kind: 'unknown',
     message: `Unknown tool or group "${selector}". ${hint}Groups: ${groups.join(', ')}`,
+    suggestions: near,
   }
+}
+
+/** Closest names to a mistyped one: substring matches first, then small edit distances; empty when nothing is plausibly meant. */
+export function suggestToolNames(names: readonly string[], query: string, limit = 5): string[] {
+  const needle = query.toLowerCase()
+  const maxDistance = Math.max(2, Math.floor(needle.length / 4))
+  return names
+    .map((name) => {
+      const candidate = name.toLowerCase()
+      const contains = candidate.includes(needle) || needle.includes(candidate)
+      return { name, contains, distance: editDistance(needle, candidate) }
+    })
+    .filter(({ contains, distance }) => contains || distance <= maxDistance)
+    .sort(
+      (a, b) =>
+        Number(b.contains) - Number(a.contains) ||
+        a.distance - b.distance ||
+        a.name.localeCompare(b.name),
+    )
+    .slice(0, limit)
+    .map(({ name }) => name)
+}
+
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index)
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i]
+    for (let j = 1; j <= b.length; j++) {
+      const substitution = (previous[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1)
+      current[j] = Math.min((previous[j] ?? 0) + 1, (current[j - 1] ?? 0) + 1, substitution)
+    }
+    previous = current
+  }
+  return previous[b.length] ?? 0
 }
 
 const ACTION_PREFIXES: Record<string, string[]> = {
@@ -74,117 +108,6 @@ export function groupIndex(
   }
 }
 
-/** Layer 1 of tool discovery: groups, counts, and a short name preview. */
-export function formatGroupIndex(appName: string | undefined, tools: ToolDescriptor[]): string {
-  const groups = groupIndex(appName, tools).groups
-  const width = Math.max(0, ...groups.map((group) => group.group.length))
-  const lines = [`${tools.length} tools from ${appName ?? 'the app'} · ${groups.length} groups`, '']
-  let appMarkerShown = false
-  for (const group of groups) {
-    const preview =
-      group.tools.slice(0, 3).join(', ') +
-      (group.tools.length > 3 ? `, +${group.tools.length - 3} more` : '')
-    const isAppGroup = group.group === 'app' || group.group.startsWith('app.')
-    const marker =
-      isAppGroup && !appMarkerShown ? ' ← custom tools this app registered for you' : ''
-    if (isAppGroup) appMarkerShown = true
-    lines.push(
-      `  ${group.group.padEnd(width)} ${String(group.count).padStart(2)} — ${preview}${marker}`,
-    )
-  }
-  lines.push(
-    '',
-    'drill in: genie-react tools <group> · one tool: genie-react tools <tool> · everything: genie-react tools --all',
-  )
-  return lines.join('\n')
-}
-
-/** Layer 3 of tool discovery: one complete contract and a runnable example. */
-export function formatToolDetail(tool: ToolDescriptor): string {
-  const lines = [`${tool.name} — ${tool.title} [${tool.group}]${kindBadge(tool)}`]
-  if (tool.available === false) {
-    lines.push(
-      '',
-      `currently unavailable: ${tool.unavailableReason ?? 'the code that registers it is not running'}`,
-    )
-  }
-  lines.push('', tool.description, '', 'params:')
-  const object = objectSchema(tool.inputJsonSchema)
-  const properties = object && isRecord(object.properties) ? object.properties : {}
-  const required = new Set(Array.isArray(object?.required) ? object.required : [])
-  const names = Object.keys(properties)
-  if (names.length === 0) lines.push('  (none)')
-  for (const name of names) {
-    const property = properties[name]
-    appendSchemaProperty(lines, name, property, required.has(name), 2, 0)
-  }
-  lines.push(
-    '',
-    `example: genie-react call ${tool.name} ${shellSingleQuote(minimalExampleArgs(properties, required, tool.inputJsonSchema))}`,
-  )
-  return lines.join('\n')
-}
-
-/** POSIX-safe single quoting for generated examples — schema-derived strings must never break out of the quotes. */
-function shellSingleQuote(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`
-}
-
-function appendSchemaProperty(
-  lines: string[],
-  path: string,
-  schema: unknown,
-  required: boolean,
-  indent: number,
-  depth: number,
-): void {
-  const parts = [`${' '.repeat(indent)}${path}${required ? '' : '?'}: ${jsonSchemaType(schema)}`]
-  if (isRecord(schema)) {
-    const constraints = jsonSchemaConstraints(schema)
-    if (constraints) parts.push(constraints)
-    if (schema.default !== undefined) parts.push(`(default ${JSON.stringify(schema.default)})`)
-    if (typeof schema.description === 'string') parts.push(`— ${schema.description}`)
-  }
-  lines.push(parts.join(' '))
-  if (depth >= 5 || !isRecord(schema)) return
-
-  const nested = nestedObjectSchema(schema)
-  if (!nested || !isRecord(nested.properties)) return
-  const nestedRequired = new Set(Array.isArray(nested.required) ? nested.required : [])
-  const prefix = schema.type === 'array' ? `${path}[]` : path
-  for (const [name, child] of Object.entries(nested.properties)) {
-    appendSchemaProperty(
-      lines,
-      `${prefix}.${name}`,
-      child,
-      nestedRequired.has(name),
-      indent + 2,
-      depth + 1,
-    )
-  }
-}
-
-function nestedObjectSchema(schema: Record<string, unknown>): Record<string, unknown> | null {
-  if (schema.type === 'array' && isRecord(schema.items)) return objectSchema(schema.items)
-  const direct = objectSchema(schema)
-  if (direct?.properties !== schema.properties || isRecord(schema.properties)) return direct
-  if (Array.isArray(schema.anyOf)) {
-    for (const branch of schema.anyOf) {
-      const found = isRecord(branch) ? nestedObjectSchema(branch) : null
-      if (found) return found
-    }
-  }
-  return null
-}
-
-/** `(read-only)` / `(action)` / `(destructive)` from the advertised annotations, so intent is visible before calling; the `action` group implies mutation even without an explicit hint. */
-function kindBadge(tool: ToolDescriptor): string {
-  if (tool.annotations?.destructiveHint === true) return ' (destructive)'
-  if (tool.annotations?.readOnlyHint === true) return ' (read-only)'
-  if (tool.annotations?.readOnlyHint === false || tool.group === 'action') return ' (action)'
-  return ''
-}
-
 export function slimDescriptor(tool: ToolDescriptor): {
   name: string
   title: string
@@ -197,32 +120,6 @@ export function slimDescriptor(tool: ToolDescriptor): {
     params: describeToolParams(tool.inputJsonSchema),
     ...(tool.available === false ? { available: false } : {}),
   }
-}
-
-/** Renders the complete catalog grouped by domain; optional params carry a question mark. */
-export function formatToolsListing(status: {
-  app?: { name?: string } | null
-  tools: ToolDescriptor[]
-}): string {
-  const lines: string[] = [`${status.tools.length} tools from ${status.app?.name ?? 'the app'}:`]
-  const groups = new Map<string, ToolDescriptor[]>()
-  for (const tool of status.tools) {
-    const list = groups.get(tool.group) ?? []
-    list.push(tool)
-    groups.set(tool.group, list)
-  }
-  for (const [group, tools] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
-    lines.push('', `  ${group}`)
-    for (const tool of tools.sort((a, b) => a.name.localeCompare(b.name))) {
-      const unavailable =
-        tool.available === false ? ' · ✗ unavailable (genie-react tools <tool> explains)' : ''
-      lines.push(
-        `    ${tool.name} — ${tool.title}${kindBadge(tool)}${unavailable}`,
-        `      ${describeToolParams(tool.inputJsonSchema)}`,
-      )
-    }
-  }
-  return lines.join('\n')
 }
 
 function describeToolParams(schema: unknown): string {
@@ -284,4 +181,84 @@ function range(minimum: unknown, maximum: unknown, label = ''): string | null {
   if (min !== null) return `[${label}>=${min}]`
   if (max !== null) return `[${label}<=${max}]`
   return null
+}
+
+export interface ToolOutputOutline {
+  kind: 'outline'
+  fields: Record<string, string>
+  next?: { command: string; argv: string[] }
+}
+
+/** Tool detail for agents: the full input schema and a one-level output outline; `--output-schema` restores the complete output schema. */
+export function toolDetail(
+  tool: ToolDescriptor,
+  includeOutputSchema = false,
+  outputSchemaNext?: ToolOutputOutline['next'],
+): ToolDescriptor | (Omit<ToolDescriptor, 'outputJsonSchema'> & { output?: ToolOutputOutline }) {
+  if (includeOutputSchema) return tool
+  const { outputJsonSchema, ...detail } = tool
+  if (outputJsonSchema === undefined) return detail
+  return {
+    ...detail,
+    output: {
+      kind: 'outline',
+      fields: outlineJsonSchema(outputJsonSchema),
+      ...(outputSchemaNext ? { next: outputSchemaNext } : {}),
+    },
+  }
+}
+
+/** Top-level output keys with shallow types; a key that is optional or missing from a union branch ends in `?`. */
+export function outlineJsonSchema(schema: unknown): Record<string, string> {
+  const root = isRecord(schema) ? schema : {}
+  const objects = unionBranches(root)
+    .map((branch) => resolveRef(root, branch))
+    .filter((branch) => isRecord(branch.properties))
+  const keys = [...new Set(objects.flatMap((branch) => Object.keys(branch.properties as object)))]
+  return Object.fromEntries(
+    keys.map((key) => {
+      const types = new Set<string>()
+      let optional = false
+      for (const branch of objects) {
+        const properties = branch.properties as Record<string, unknown>
+        const required = Array.isArray(branch.required) ? branch.required : []
+        if (!required.includes(key)) optional = true
+        if (key in properties) types.add(shallowType(root, properties[key]))
+      }
+      return [optional ? `${key}?` : key, [...types].join(' | ')]
+    }),
+  )
+}
+
+function unionBranches(schema: Record<string, unknown>): unknown[] {
+  const branches = [schema.anyOf, schema.oneOf].find(Array.isArray)
+  return branches ?? [schema]
+}
+
+function resolveRef(root: Record<string, unknown>, schema: unknown): Record<string, unknown> {
+  if (!isRecord(schema)) return {}
+  if (typeof schema.$ref !== 'string') return schema
+  const name = schema.$ref.split('/').at(-1) ?? ''
+  const definitions = isRecord(root.$defs) ? root.$defs : {}
+  const resolved = definitions[name]
+  return isRecord(resolved) ? resolved : {}
+}
+
+function shallowType(root: Record<string, unknown>, schema: unknown): string {
+  const resolved = resolveRef(root, schema)
+  if (resolved.const !== undefined) return JSON.stringify(resolved.const)
+  if (Array.isArray(resolved.enum)) {
+    const values = resolved.enum.map((value) => JSON.stringify(value))
+    return values.length > 6 ? `${values.slice(0, 6).join(' | ')} | …` : values.join(' | ')
+  }
+  const branches = [resolved.anyOf, resolved.oneOf].find(Array.isArray)
+  if (branches) return [...new Set(branches.map((branch) => shallowType(root, branch)))].join(' | ')
+  const types: unknown[] = Array.isArray(resolved.type) ? resolved.type : [resolved.type ?? 'any']
+  return types
+    .map((type) =>
+      type === 'array' && resolved.items !== undefined
+        ? `array<${jsonSchemaType(resolveRef(root, resolved.items))}>`
+        : String(type),
+    )
+    .join(' | ')
 }

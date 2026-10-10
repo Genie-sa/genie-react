@@ -12,7 +12,7 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const require = createRequire(join(root, 'apps/router-demo/package.json'))
 const { createServer } = await import(require.resolve('vite'))
 const { genie } = await import(new URL('../packages/genie-react/dist/vite.js', import.meta.url))
-const { createStandaloneBridge } = await import(
+const { createStandaloneBridge, readAgentToken } = await import(
   new URL('../packages/genie-react/dist/hub.js', import.meta.url)
 )
 const run = promisify(execFile)
@@ -130,6 +130,7 @@ createRoot(document.getElementById('root')).render(h(App))
   await page.goto(`${url}/?_genie=timeline-e2e`)
   await page.getByRole('button', { name: 'Slow network' }).waitFor()
   assert.equal((await call('devtools_wait', { condition: 'ready', timeoutMs: 10000 })).ok, true)
+  env.GENIE_BRIDGE_TOKEN = await readAgentToken(fixture)
   const docsCheck = await run(
     process.execPath,
     [join(root, 'apps/docs/scripts/check-live-contracts.mjs')],
@@ -198,6 +199,7 @@ createRoot(document.getElementById('root')).render(h(App))
   })
   const hubAddress = await hub.listen()
   env.GENIE_BRIDGE_URL = hubAddress.url
+  env.GENIE_BRIDGE_TOKEN = hub.bridge.agentToken
   scriptHubPort = hubAddress.port
   const scriptPage = await browser.newPage()
   scriptPage.on('pageerror', (error) => errors.push(error.message))

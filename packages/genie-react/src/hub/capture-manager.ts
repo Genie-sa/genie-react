@@ -1,31 +1,40 @@
 import { createHash } from 'node:crypto'
+import type { z } from 'zod'
 import {
   type AgentErrorCode,
+  type AgentToolContract,
   type AppInfo,
   CAPTURE_SCHEMA_VERSION,
   type CaptureArtifact,
   type CaptureDomain,
+  type captureReadSummarySchema,
   dehydrate,
   devtoolsCaptureCompareContract,
   devtoolsCaptureCreateContract,
   devtoolsCaptureListContract,
   devtoolsCapturePinContract,
   devtoolsCaptureReadContract,
-  formatToolValidationError,
+  type HubErrorCode,
   newId,
   type ToolDescriptor,
+  type ToolErrorDetails,
+  toolValidationFailure,
 } from '../protocol'
 import { compareCaptureCohorts } from './capture-comparison'
+import { withFullView } from './full-view'
+import type { SessionUnavailable } from './session-routing'
+import { recordOf, stringField } from './wire-guards'
 
 const MAX_RETAINED_CAPTURES = 20
 const MAX_CAPTURE_BYTES = 2_000_000
 
 type CaptureSection = NonNullable<CaptureArtifact['sections'][CaptureDomain]>
 type CaptureToolResult = CaptureSection['tools'][string]
+type CaptureReadSummary = z.infer<typeof captureReadSummarySchema>
 
 interface CaptureRecipeTool {
   name: string
-  args: unknown
+  args: Record<string, unknown>
 }
 
 interface CaptureRequestResult {
@@ -33,6 +42,7 @@ interface CaptureRequestResult {
   result?: unknown
   error?: string
   errorCode?: AgentErrorCode
+  errorDetails?: ToolErrorDetails
 }
 
 export interface CaptureSession {
@@ -44,20 +54,22 @@ export interface CaptureSession {
   tools: ToolDescriptor[]
 }
 
+/** `session` is the document the call ran against, when one was routed. */
 export type CaptureInvocation =
-  | { ok: true; result: unknown }
-  | {
+  | { ok: true; result: unknown; session?: CaptureSession }
+  | (Omit<SessionUnavailable, 'errorCode'> & {
       ok: false
-      error: string
       errorCode: Extract<
         AgentErrorCode,
         'invalid-args' | 'not-connected' | 'unknown-session' | 'tool-error'
       >
-    }
+      session?: CaptureSession
+    })
 
 interface CaptureManagerOptions<TSession extends CaptureSession> {
   resolveSession: (target?: string) => TSession | null
-  unknownSessionError: (target: string) => string
+  /** Why `resolveSession(target)` found no document; untargeted calls can fail as ambiguous, not only as disconnected. */
+  sessionUnavailable: (target?: string) => SessionUnavailable
   isCurrentSession: (session: TSession) => boolean
   request: (session: TSession, tool: string, args: unknown) => Promise<CaptureRequestResult>
 }
@@ -122,7 +134,7 @@ export class CaptureManager<TSession extends CaptureSession> {
   async invoke(tool: string, args: unknown, sessionTarget?: string): Promise<CaptureInvocation> {
     if (tool === devtoolsCaptureListContract.name) {
       const parsed = devtoolsCaptureListContract.input.safeParse(args ?? {})
-      if (!parsed.success) return invalidArguments(tool, parsed.error)
+      if (!parsed.success) return invalidArguments(devtoolsCaptureListContract, args, parsed.error)
       const captures = [...this.captures.values()]
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
         .map(captureSummary)
@@ -141,7 +153,7 @@ export class CaptureManager<TSession extends CaptureSession> {
 
     if (tool === devtoolsCaptureReadContract.name) {
       const parsed = devtoolsCaptureReadContract.input.safeParse(args ?? {})
-      if (!parsed.success) return invalidArguments(tool, parsed.error)
+      if (!parsed.success) return invalidArguments(devtoolsCaptureReadContract, args, parsed.error)
       const capture = this.captures.get(parsed.data.captureId)
       return capture
         ? {
@@ -151,24 +163,14 @@ export class CaptureManager<TSession extends CaptureSession> {
                 ? captureReadSummary(capture)
                 : selectedCapture(capture, parsed.data.sections),
           }
-        : {
-            ok: false,
-            error: `No retained capture ${JSON.stringify(parsed.data.captureId)}. Run devtools_capture_list to inspect retained IDs.`,
-            errorCode: 'invalid-args',
-          }
+        : notRetained([{ path: '/captureId', captureId: parsed.data.captureId }])
     }
 
     if (tool === devtoolsCapturePinContract.name) {
       const parsed = devtoolsCapturePinContract.input.safeParse(args ?? {})
-      if (!parsed.success) return invalidArguments(tool, parsed.error)
+      if (!parsed.success) return invalidArguments(devtoolsCapturePinContract, args, parsed.error)
       const capture = this.captures.get(parsed.data.captureId)
-      if (!capture) {
-        return {
-          ok: false,
-          error: `No retained capture ${JSON.stringify(parsed.data.captureId)}. Run devtools_capture_list to inspect retained IDs.`,
-          errorCode: 'invalid-args',
-        }
-      }
+      if (!capture) return notRetained([{ path: '/captureId', captureId: parsed.data.captureId }])
       capture.pinned = parsed.data.pinned
       capture.sizeBytes = captureSizeBytes(capture)
       return { ok: true, result: captureSummary(capture) }
@@ -176,16 +178,17 @@ export class CaptureManager<TSession extends CaptureSession> {
 
     if (tool === devtoolsCaptureCompareContract.name) {
       const parsed = devtoolsCaptureCompareContract.input.safeParse(args ?? {})
-      if (!parsed.success) return invalidArguments(tool, parsed.error)
-      const requestedIds = [...parsed.data.baselineCaptureIds, ...parsed.data.candidateCaptureIds]
-      const missing = requestedIds.filter((captureId) => !this.captures.has(captureId))
-      if (missing.length > 0) {
-        return {
-          ok: false,
-          error: `No retained capture${missing.length === 1 ? '' : 's'} ${missing.map((captureId) => JSON.stringify(captureId)).join(', ')}. Run devtools_capture_list to inspect retained IDs.`,
-          errorCode: 'invalid-args',
-        }
-      }
+      if (!parsed.success)
+        return invalidArguments(devtoolsCaptureCompareContract, args, parsed.error)
+      const missing = (['baselineCaptureIds', 'candidateCaptureIds'] as const)
+        .flatMap((cohort) =>
+          parsed.data[cohort].map((captureId, index) => ({
+            path: `/${cohort}/${index}`,
+            captureId,
+          })),
+        )
+        .filter(({ captureId }) => !this.captures.has(captureId))
+      if (missing.length > 0) return notRetained(missing)
       const getCapture = (captureId: string): CaptureArtifact => {
         const capture = this.captures.get(captureId)
         if (!capture) throw new Error(`Retained capture ${captureId} disappeared.`)
@@ -206,21 +209,23 @@ export class CaptureManager<TSession extends CaptureSession> {
       throw new Error(`CaptureManager cannot handle ${JSON.stringify(tool)}.`)
     }
     const parsed = devtoolsCaptureCreateContract.input.safeParse(args ?? {})
-    if (!parsed.success) return invalidArguments(tool, parsed.error)
+    if (!parsed.success) return invalidArguments(devtoolsCaptureCreateContract, args, parsed.error)
     const session = this.options.resolveSession(sessionTarget)
     if (!session) {
       return {
         ok: false,
-        error: sessionTarget
-          ? this.options.unknownSessionError(sessionTarget)
-          : 'No app connected. Start the dev server and open the app in a browser.',
-        errorCode: sessionTarget ? 'unknown-session' : 'not-connected',
+        ...this.options.sessionUnavailable(sessionTarget),
       }
     }
     try {
-      return { ok: true, result: await this.create(session, parsed.data) }
+      const capture = await this.create(session, parsed.data)
+      return {
+        ok: true,
+        result: parsed.data.view === 'full' ? capture : captureReadSummary(capture),
+        session,
+      }
     } catch (error) {
-      return { ok: false, error: errorMessage(error), errorCode: 'tool-error' }
+      return { ok: false, error: errorMessage(error), errorCode: 'tool-error', session }
     }
   }
 
@@ -307,7 +312,8 @@ export class CaptureManager<TSession extends CaptureSession> {
       sections: finalSections,
       complete:
         input.include.every((domain) => finalSections[domain]?.status === 'ok') &&
-        consistencyKind === 'react-commit-stable',
+        consistencyKind === 'react-commit-stable' &&
+        renderEvidenceComplete(finalSections),
       warnings,
       sizeBytes: 0,
       pinned: false,
@@ -360,16 +366,17 @@ export class CaptureManager<TSession extends CaptureSession> {
     recipe: CaptureRecipeTool,
   ): Promise<CaptureToolResult> {
     const startedAt = Date.now()
+    const args = withFullView(session.tools, recipe.name, recipe.args)
     if (!session.tools.some((tool) => tool.name === recipe.name)) {
       return {
         status: 'unavailable',
         capturedAt: new Date().toISOString(),
         durationMs: 0,
         error: `Tool ${JSON.stringify(recipe.name)} is not advertised by this app.`,
-        args: structuredClone(recipe.args),
+        args: structuredClone(args),
       }
     }
-    const response = await this.options.request(session, recipe.name, recipe.args)
+    const response = await this.options.request(session, recipe.name, args)
     if (!response.ok && response.errorCode === 'not-connected') {
       throw new Error('The app document changed during capture. Retry against the ready successor.')
     }
@@ -384,7 +391,7 @@ export class CaptureManager<TSession extends CaptureSession> {
             maxEntries: 1_000,
             maxStringLength: 10_000,
           }),
-          args: dehydrate(recipe.args, {
+          args: dehydrate(args, {
             depth: 8,
             maxEntries: 200,
             maxStringLength: 2_000,
@@ -395,7 +402,7 @@ export class CaptureManager<TSession extends CaptureSession> {
           capturedAt: new Date().toISOString(),
           durationMs,
           error: response.error ?? `Tool ${JSON.stringify(recipe.name)} failed.`,
-          args: dehydrate(recipe.args, {
+          args: dehydrate(args, {
             depth: 8,
             maxEntries: 200,
             maxStringLength: 2_000,
@@ -429,13 +436,33 @@ export class CaptureManager<TSession extends CaptureSession> {
   }
 }
 
+function notRetained(missing: readonly { path: string; captureId: string }[]): CaptureInvocation {
+  return {
+    ok: false,
+    error: `No retained capture${missing.length === 1 ? '' : 's'} ${missing.map(({ captureId }) => JSON.stringify(captureId)).join(', ')}. Run devtools_capture_list to inspect retained IDs.`,
+    errorCode: 'invalid-args',
+    errorDetails: {
+      hubCode: 'CAPTURE_NOT_RETAINED' satisfies HubErrorCode,
+      issues: missing.map(({ path }) => ({
+        path,
+        message: 'No retained capture has this ID.',
+        received: 'string',
+      })),
+    },
+  }
+}
+
 function invalidArguments(
-  tool: string,
-  error: { issues: readonly { path: readonly PropertyKey[]; message: string }[] },
+  contract: AgentToolContract,
+  args: unknown,
+  error: { issues: Parameters<typeof toolValidationFailure>[1] },
 ): CaptureInvocation {
   return {
     ok: false,
-    error: formatToolValidationError(tool, error.issues),
+    ...toolValidationFailure(contract.name, error.issues, {
+      input: contract.input,
+      args: args ?? {},
+    }),
     errorCode: 'invalid-args',
   }
 }
@@ -469,15 +496,37 @@ function captureSummary(capture: CaptureArtifact): Omit<CaptureArtifact, 'sectio
   return summary
 }
 
-function captureReadSummary(capture: CaptureArtifact): ReturnType<typeof captureSummary> & {
-  warnings: string[]
-  availableSections: CaptureDomain[]
-} {
+function captureReadSummary(capture: CaptureArtifact): CaptureReadSummary {
   return {
     ...captureSummary(capture),
     warnings: [...capture.warnings],
     availableSections: Object.keys(capture.sections) as CaptureDomain[],
+    renders: renderEvidence(capture.sections),
   }
+}
+
+/** Comparability and coverage of the captured react_get_renders result, or null when React was not captured. */
+function renderEvidence(sections: CaptureArtifact['sections']): CaptureReadSummary['renders'] {
+  const result = recordOf(sections.react?.tools.react_get_renders?.result)
+  if (!result) return null
+  const coverage = recordOf(result.coverage)
+  const semantics = stringField(coverage, 'semantics')
+  return {
+    comparable: result.comparable === true,
+    notComparableReasons: Array.isArray(result.notComparableReasons)
+      ? result.notComparableReasons.filter((reason) => typeof reason === 'string')
+      : [],
+    coverage: {
+      complete: coverage?.complete === true,
+      semantics: semantics === 'exact' || semantics === 'lower-bound' ? semantics : null,
+    },
+  }
+}
+
+function renderEvidenceComplete(sections: CaptureArtifact['sections']): boolean {
+  if (!sections.react) return true
+  const evidence = renderEvidence(sections)
+  return evidence?.comparable === true && evidence.coverage.complete
 }
 
 function selectedCapture(

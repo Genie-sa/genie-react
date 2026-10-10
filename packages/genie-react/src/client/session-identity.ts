@@ -83,7 +83,7 @@ export function runtimeSessionIdentity(): SessionIdentity {
   return runtime[RUNTIME_IDENTITY_KEY]
 }
 
-/** Applies a hub-requested collision fork to the live identity and best-effort tab storage. */
+/** Applies a new identity (a hub-requested collision fork or a cache restore) to the live document and best-effort tab storage. */
 export function forkSessionIdentity(
   identity: SessionIdentity,
   logicalSessionId: string,
@@ -97,10 +97,37 @@ export function forkSessionIdentity(
       storage.setItem(LOGICAL_SESSION_KEY, logicalSessionId)
       storage.setItem(DOCUMENT_GENERATION_KEY, String(documentGeneration))
     } catch {
-      // The fork still protects this live hub session when persistence is unavailable.
+      // The new identity still governs this live hub session when persistence is unavailable.
     }
   }
   return identity
+}
+
+/** Re-activates a back/forward-cached document as the tab's newest generation, so the hub supersedes whatever document the tab showed meanwhile. */
+export function advanceSessionIdentity(
+  identity: SessionIdentity,
+  storage: SessionStorageLike | undefined = readSessionStorage(),
+): SessionIdentity {
+  let stored: SessionIdentity | null = null
+  if (storage) {
+    try {
+      const logicalSessionId = storage.getItem(LOGICAL_SESSION_KEY)
+      const generation = Number(storage.getItem(DOCUMENT_GENERATION_KEY))
+      if (logicalSessionId && Number.isSafeInteger(generation) && generation > 0) {
+        stored = { logicalSessionId, documentGeneration: generation }
+      }
+    } catch {
+      // Without readable storage the tab identity stays as this document knew it.
+    }
+  }
+  const documentGeneration =
+    Math.max(identity.documentGeneration, stored?.documentGeneration ?? 0) + 1
+  return forkSessionIdentity(
+    identity,
+    stored?.logicalSessionId ?? identity.logicalSessionId,
+    documentGeneration,
+    storage,
+  )
 }
 
 export function runtimeSessionName(candidate?: string): string | undefined {

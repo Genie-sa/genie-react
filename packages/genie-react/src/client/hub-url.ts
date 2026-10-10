@@ -11,5 +11,5 @@ export function deriveHubWsUrl(scriptSrc: string | undefined, fallbackPort: numb
       // malformed src — fall through to the default port
     }
   }
-  return `ws://localhost:${fallbackPort}${GENIE_WS_PATH}`
+  return `ws://127.0.0.1:${fallbackPort}${GENIE_WS_PATH}`
 }

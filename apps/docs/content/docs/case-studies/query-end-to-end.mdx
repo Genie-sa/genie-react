@@ -22,9 +22,8 @@ Open and bind the page:
 ```bash
 agent-browser --session docs-case-start open \
   'http://localhost:3000/?_genie=docs-case-start'
-export GENIE_BRIDGE_URL=ws://localhost:3000/__genie/ws
-export GENIE_SESSION=docs-case-start
-npx @genie-react/cli call devtools_wait \
+export GENIE_BRIDGE_URL=ws://127.0.0.1:3000/__genie/ws
+npx @genie-react/cli call devtools_wait --session docs-case-start \
   '{"condition":"query-settled","queryKey":["demo","greeting"],"timeoutMs":10000}'
 ```
 
@@ -33,17 +32,17 @@ npx @genie-react/cli call devtools_wait \
 Start one interaction boundary, write test data, and check the page:
 
 ```bash
-begin="$(npx @genie-react/cli call devtools_interaction_begin \
+begin="$(npx @genie-react/cli call devtools_interaction_begin --session docs-case-start \
   '{"name":"query cache write","components":["App"]}' --json)"
 interaction_id="$(printf '%s\n' "$begin" | jq -r '.interactionId')"
 
-npx @genie-react/cli call query_set_data \
+npx @genie-react/cli call query_set_data --session docs-case-start \
   '{"queryKey":["demo","greeting"],"data":{"message":"cache probe","at":0}}' --json
 agent-browser --session docs-case-start \
   eval 'document.body.innerText.includes("cache probe")'
 
-npx @genie-react/cli call query_notifications '{"limit":10}' --json
-npx @genie-react/cli call devtools_interaction_stop \
+npx @genie-react/cli call query_notifications --session docs-case-start '{"limit":10}' --json
+npx @genie-react/cli call devtools_interaction_stop --session docs-case-start \
   "{\"interactionId\":\"$interaction_id\",\"domains\":[\"react\",\"query\"],\"quietMs\":200,\"timeoutMs\":5000}" \
   --json
 ```
@@ -101,9 +100,9 @@ Use the real UI to refetch, wait for that exact query, then verify both cache an
 
 ```bash
 agent-browser --session docs-case-start find role button click --name 'Refetch'
-npx @genie-react/cli call devtools_wait \
+npx @genie-react/cli call devtools_wait --session docs-case-start \
   '{"condition":"query-settled","queryKey":["demo","greeting"],"timeoutMs":5000}' --json
-npx @genie-react/cli call query_get_data \
+npx @genie-react/cli call query_get_data --session docs-case-start \
   '{"queryKey":["demo","greeting"]}' --json
 agent-browser --session docs-case-start \
   eval 'document.body.innerText.includes("Hello from TanStack Query")'
@@ -125,7 +124,7 @@ The final browser check returned `true`.
 
 ```bash
 agent-browser --session docs-case-start close
-unset GENIE_BRIDGE_URL GENIE_SESSION interaction_id begin
+unset GENIE_BRIDGE_URL interaction_id begin
 ```
 
 ## Outcome

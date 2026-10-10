@@ -1,3 +1,18 @@
+/** Zod emits the safe-integer range for every `.int()`; it carries no contract information, so advertised schemas omit it. */
+export function withoutSafeIntegerBounds(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(withoutSafeIntegerBounds)
+  if (!schema || typeof schema !== 'object') return schema
+  return Object.fromEntries(
+    Object.entries(schema)
+      .filter(
+        ([key, value]) =>
+          !(key === 'minimum' && value === Number.MIN_SAFE_INTEGER) &&
+          !(key === 'maximum' && value === Number.MAX_SAFE_INTEGER),
+      )
+      .map(([key, value]) => [key, withoutSafeIntegerBounds(value)]),
+  )
+}
+
 /** Describe advertised constraints from the same schema that validates calls. */
 export function schemaConstraints(schema: unknown): string {
   const parts: string[] = []

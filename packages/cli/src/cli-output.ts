@@ -1,6 +1,7 @@
 import { renderBoundedJson } from './result-selection'
+import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 
-export const DEFAULT_MAX_BYTES = 262_144
+export const DEFAULT_MAX_BYTES = 102_400
 
 /** One complete JSON value per line, independent of terminal detection. */
 export function writeJson(value: unknown, maxBytes = DEFAULT_MAX_BYTES): void {
@@ -12,7 +13,7 @@ export function writeDiagnostic(reason: string, message: string, data?: unknown)
   process.stderr.write(
     `${renderBoundedJson(
       {
-        schemaVersion: '1.0',
+        schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: 'diagnostic',
         reason,
         message,

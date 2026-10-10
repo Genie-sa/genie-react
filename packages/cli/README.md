@@ -13,7 +13,7 @@ pnpm dev
 npx @genie-react/cli status --sessions-only
 ```
 
-If more than one tab is open, add `?_genie=my-agent` to your app URL. Then use `--session my-agent` on each command, or set `GENIE_SESSION=my-agent` once.
+If more than one tab is open, add `?_genie=my-agent` to your app URL. Then pass `--session my-agent` to each command.
 
 The alias survives navigation, reloads, and reconnects. From a workspace root, the CLI selects one live app or stops with an explicit list when several are live.
 

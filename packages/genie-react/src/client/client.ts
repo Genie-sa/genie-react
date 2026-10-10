@@ -3,20 +3,23 @@ import {
   type AgentToolContract,
   type AppBoundMessage,
   type AppInfo,
+  type AppMessage,
   decodeAppBoundMessage,
   encodeMessage,
   errorMessage,
-  formatToolValidationError,
   GENIE_PROTOCOL_VERSION,
   GENIE_WS_PATH,
-  minimalExampleArgs,
   newId,
+  safeDiagnostic,
   type ToolDescriptor,
-  type ValidationCallHint,
+  type ToolErrorDetails,
+  toolValidationFailure,
+  unknownArgumentsFailure,
 } from '../protocol'
-import { schemaConstraints } from '../protocol/schema-description'
+import { schemaConstraints, withoutSafeIntegerBounds } from '../protocol/schema-description'
 import type { CollectorContext, ErasedCollectorTool, GenieCollector } from './collector'
 import {
+  advanceSessionIdentity,
   forkSessionIdentity,
   runtimeSessionIdentity,
   runtimeSessionName,
@@ -34,6 +37,24 @@ export interface SocketLike {
 }
 
 export type SocketFactory = (url: string) => SocketLike
+
+interface PageLifecycleTarget {
+  addEventListener(type: 'pagehide' | 'pageshow', listener: (event: PageTransition) => void): void
+  removeEventListener(
+    type: 'pagehide' | 'pageshow',
+    listener: (event: PageTransition) => void,
+  ): void
+}
+
+interface PageTransition {
+  persisted?: boolean
+}
+
+interface PrerenderingDocument {
+  prerendering?: boolean
+  addEventListener(type: 'prerenderingchange', listener: () => void): void
+  removeEventListener(type: 'prerenderingchange', listener: () => void): void
+}
 
 export interface GenieClientOptions {
   url?: string
@@ -84,18 +105,46 @@ export class GenieClient {
     if (this.started) return
     this.started = true
     this.exposeGlobal()
-    this.connect()
+    pageLifecycleTarget()?.addEventListener('pagehide', this.onPageHide)
+    pageLifecycleTarget()?.addEventListener('pageshow', this.onPageShow)
+    // A speculative prerender must not take the default target or supersede the page the user still sees.
+    const prerendering = prerenderingDocument()
+    if (prerendering) prerendering.addEventListener('prerenderingchange', this.onActivate)
+    else this.connect()
   }
 
   stop(): void {
     this.started = false
+    pageLifecycleTarget()?.removeEventListener('pagehide', this.onPageHide)
+    pageLifecycleTarget()?.removeEventListener('pageshow', this.onPageShow)
+    prerenderingDocument()?.removeEventListener('prerenderingchange', this.onActivate)
+    this.disconnect()
+    for (const cleanup of this.cleanups.values()) cleanup()
+    this.cleanups.clear()
+  }
+
+  // A hidden page is unloading or entering the back/forward cache; a frozen document would otherwise hold its socket open and keep receiving calls.
+  private readonly onPageHide = (): void => this.disconnect()
+
+  private readonly onPageShow = (event: PageTransition): void => {
+    if (!event.persisted || !this.started || this.socket) return
+    advanceSessionIdentity(this.sessionIdentity)
+    this.connect()
+  }
+
+  private readonly onActivate = (): void => {
+    if (!this.started || this.socket) return
+    // The prerender wrote its identity to a session-storage clone that activation discards.
+    advanceSessionIdentity(this.sessionIdentity)
+    this.connect()
+  }
+
+  private disconnect(): void {
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
     this.stopHeartbeat()
-    for (const cleanup of this.cleanups.values()) cleanup()
-    this.cleanups.clear()
     const socket = this.socket
     this.socket = null
     if (socket) {
@@ -304,17 +353,23 @@ export class GenieClient {
         ok: false,
         error: `Tool "${toolName}" is currently unavailable — ${availability.reason}`,
         errorCode: 'tool-unavailable',
+        errorDetails: { unavailableReason: safeDiagnostic(availability.reason, 500) },
       })
       return
     }
     const args = remapNameAlias(tool.contract.input, rawArgs)
-    const rejectedKeys = unknownArgKeysError(toolName, tool.contract.input, args)
+    const rejectedKeys = unknownArgKeys(tool.contract.input, args)
     if (rejectedKeys) {
       this.send({
         kind: 'app/response',
         id,
         ok: false,
-        error: rejectedKeys,
+        ...unknownArgumentsFailure(
+          toolName,
+          rejectedKeys.unknown,
+          rejectedKeys.known,
+          tool.contract.input,
+        ),
         errorCode: 'invalid-args',
       })
       return
@@ -329,8 +384,7 @@ export class GenieClient {
         kind: 'app/response',
         id,
         ok: false,
-        error: invocationError(toolName, error, tool.contract.input),
-        errorCode: isZodErrorLike(error) ? 'invalid-args' : 'tool-error',
+        ...invocationFailure(toolName, error, tool.contract.input, args),
       })
     }
   }
@@ -353,6 +407,21 @@ export class GenieClient {
       register: (collector) => this.registerCollector(collector as GenieCollector),
     }
   }
+}
+
+function pageLifecycleTarget(): PageLifecycleTarget | undefined {
+  const target = (globalThis as { window?: Partial<PageLifecycleTarget> }).window
+  return typeof target?.addEventListener === 'function' &&
+    typeof target.removeEventListener === 'function'
+    ? (target as PageLifecycleTarget)
+    : undefined
+}
+
+function prerenderingDocument(): PrerenderingDocument | undefined {
+  const page = (globalThis as { document?: Partial<PrerenderingDocument> }).document
+  return page?.prerendering === true && typeof page.addEventListener === 'function'
+    ? (page as PrerenderingDocument)
+    : undefined
 }
 
 function initialSessionName(): string | undefined {
@@ -427,48 +496,47 @@ function remapNameAlias(input: AgentToolContract['input'], args: unknown): unkno
 }
 
 /** Zod objects strip unrecognized keys silently — an agent typo like `maxDepth` for `depth` would otherwise no-op; reject it loudly instead. */
-function unknownArgKeysError(
-  toolName: string,
+function unknownArgKeys(
   input: AgentToolContract['input'],
   args: unknown,
-): string | null {
+): { unknown: string[]; known: string[] } | null {
   const known = objectShapeKeys(input)
   if (!known || typeof args !== 'object' || args === null) return null
   const unknown = Object.keys(args).filter((key) => !known.includes(key))
-  if (unknown.length === 0) return null
-  const rejected = unknown.map((key) => `"${key}"`).join(', ')
-  return `Unknown argument${unknown.length === 1 ? '' : 's'} ${rejected} for "${toolName}" — valid keys: ${known.join(', ') || '(none)'}`
+  return unknown.length === 0 ? null : { unknown, known }
 }
 
-function invocationError(
+function invocationFailure(
   toolName: string,
   error: unknown,
-  input?: AgentToolContract['input'],
-): string {
+  input: AgentToolContract['input'],
+  args: unknown,
+): Pick<Extract<AppMessage, { kind: 'app/response' }>, 'error' | 'errorCode' | 'errorDetails'> {
   if (isZodErrorLike(error)) {
-    return formatToolValidationError(toolName, error.issues, input && validationCallHint(input))
+    return {
+      ...toolValidationFailure(toolName, error.issues, { input, args: args ?? {} }),
+      errorCode: 'invalid-args',
+    }
   }
-  return errorMessage(error)
+  const app = genieToolErrorDetails(error)
+  return {
+    error: errorMessage(error),
+    errorCode: 'tool-error',
+    ...(app ? { errorDetails: { app } } : {}),
+  }
 }
 
-/** A rejected call should teach the retry: name the required keys and echo a minimal valid invocation. */
-function validationCallHint(input: AgentToolContract['input']): ValidationCallHint | undefined {
-  let schema: unknown
-  try {
-    schema = z.toJSONSchema(input, { io: 'input' })
-  } catch {
-    return undefined
-  }
-  if (typeof schema !== 'object' || schema === null) return undefined
-  const { properties, required } = schema as {
-    properties?: Record<string, unknown>
-    required?: string[]
-  }
-  if (!properties) return undefined
-  const requiredKeys = (required ?? []).filter((key) => key in properties)
+/** Duck-typed by name: the app's `GenieToolError` can come from a different bundle than this client (e.g. the standalone hub script). */
+function genieToolErrorDetails(error: unknown): ToolErrorDetails['app'] {
+  if (!(error instanceof Error) || error.name !== 'GenieToolError') return undefined
+  const detail =
+    'detail' in error && typeof error.detail === 'string' ? error.detail : error.message
+  const code = 'code' in error && typeof error.code === 'string' ? error.code : undefined
+  const hint = 'hint' in error && typeof error.hint === 'string' ? error.hint : undefined
   return {
-    requiredKeys,
-    exampleArgs: minimalExampleArgs(properties, new Set(requiredKeys), schema),
+    message: safeDiagnostic(detail, 500),
+    ...(code ? { code: safeDiagnostic(code, 64) } : {}),
+    ...(hint ? { hint: safeDiagnostic(hint, 500) } : {}),
   }
 }
 
@@ -521,10 +589,14 @@ function toDescriptor(tool: ErasedCollectorTool): ToolDescriptor {
     : base
 }
 
-/** JSON Schema conversion can throw on schemas from a mismatched zod copy; a missing schema degrades discovery (warned loudly), a throw would kill the hello. */
+/** Output schemas share repeated subschemas through `$defs`, keeping summary/full unions within the default CLI byte cap. JSON Schema conversion can throw on schemas from a mismatched zod copy; a missing schema degrades discovery (warned loudly), a throw would kill the hello. */
 function safeToJsonSchema(toolName: string, schema: z.ZodType, io: 'input' | 'output'): unknown {
   try {
-    return io === 'input' ? z.toJSONSchema(schema, { io: 'input' }) : z.toJSONSchema(schema)
+    return withoutSafeIntegerBounds(
+      io === 'input'
+        ? z.toJSONSchema(schema, { io: 'input' })
+        : z.toJSONSchema(schema, { reused: 'ref' }),
+    )
   } catch (error) {
     console.warn(
       `[genie] tool "${toolName}": could not derive the ${io} JSON Schema (${errorMessage(error)}) — the tool stays callable and validated, but agents cannot discover its ${io} contract`,

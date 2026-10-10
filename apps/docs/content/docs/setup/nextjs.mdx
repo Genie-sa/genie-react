@@ -35,6 +35,10 @@ export async function register(): Promise<void> {
 }
 ```
 
+The hub accepts loopback pages (`localhost`, `127.0.0.1`) on the port Next.js serves the app from.
+For another hostname or port, pass the origin as
+`registerGenie({ allowedOrigins: ['https://app.example.test'] })`.
+
 This loads the core session, React, memory, performance, and timeline tools. Query tools require
 the separate registration below. The timeline initially has browser request and React lanes; inspect
 its lane availability before expecting Query or Router events.
@@ -125,10 +129,9 @@ Open the page that mounts the Query provider and has fetched at least one query.
 `http://localhost:3000/query-demo?_genie=next-check`.
 
 ```bash title="Terminal 2"
-export GENIE_SESSION=next-check
-status_json="$(npx @genie-react/cli status)"
-tools_json="$(npx @genie-react/cli tools)"
-query_json="$(npx @genie-react/cli call query_list '{"limit":10}')"
+status_json="$(npx @genie-react/cli status --session next-check)"
+tools_json="$(npx @genie-react/cli tools --session next-check)"
+query_json="$(npx @genie-react/cli call query_list --session next-check '{"limit":10}')"
 jq '{
   connected,
   ready,
@@ -150,7 +153,7 @@ jq -e '
   .total > 0 and
   any(.queries[]; .status == "success" and .observerCount > 0)
 ' <<<"$query_json" >/dev/null
-unset GENIE_SESSION query_json status_json tools_json
+unset query_json status_json tools_json
 ```
 
 Example selected fields, with formatting added for readability:

@@ -19,9 +19,8 @@ pnpm --filter @genie-react/vite-demo dev
 ```bash
 agent-browser --session docs-case-states open \
   'http://localhost:3040/?_genie=docs-case-states'
-export GENIE_BRIDGE_URL=ws://localhost:3040/__genie/ws
-export GENIE_SESSION=docs-case-states
-npx @genie-react/cli call devtools_wait \
+export GENIE_BRIDGE_URL=ws://127.0.0.1:3040/__genie/ws
+npx @genie-react/cli call devtools_wait --session docs-case-states \
   '{"condition":"ready","timeoutMs":10000}'
 
 shot_dir="${TMPDIR:-/tmp}/genie-state-review"
@@ -33,17 +32,17 @@ mkdir -p "$shot_dir"
 Discover exact mounted instances. Never copy component IDs from an older run.
 
 ```bash
-theme_id="$(npx @genie-react/cli call react_find_components \
+theme_id="$(npx @genie-react/cli call react_find_components --session docs-case-states \
   '{"query":"ThemeReadout","exact":true}' --json | \
   jq -er '.matches | if length == 1 then .[0].id else error("expected one ThemeReadout") end')"
 
-memo_id="$(npx @genie-react/cli call react_find_components \
+memo_id="$(npx @genie-react/cli call react_find_components --session docs-case-states \
   '{"query":"MemoChild","exact":true}' --json | \
   jq -er '.matches | if length == 1 then .[0].id else error("expected one MemoChild") end')"
 
-npx @genie-react/cli call react_inspect_context \
+npx @genie-react/cli call react_inspect_context --session docs-case-states \
   "{\"id\":$theme_id,\"depth\":3}" --json
-npx @genie-react/cli call react_inspect_component \
+npx @genie-react/cli call react_inspect_component --session docs-case-states \
   "{\"id\":$memo_id,\"depth\":3}" --json
 agent-browser --session docs-case-states screenshot "$shot_dir/00-baseline.png"
 ```
@@ -85,7 +84,7 @@ The agent now has a baseline from the mounted app, not a guess from source defau
 Test a Context variant:
 
 ```bash
-npx @genie-react/cli call react_override_context \
+npx @genie-react/cli call react_override_context --session docs-case-states \
   "{\"id\":$theme_id,\"context\":\"ThemeContext\",\"value\":{\"label\":\"review\",\"accent\":\"#ff4d8d\"}}" \
   --json
 agent-browser --session docs-case-states get text body | rg 'theme label: review'
@@ -95,11 +94,11 @@ agent-browser --session docs-case-states screenshot "$shot_dir/01-context-review
 Test a prop variant:
 
 ```bash
-npx @genie-react/cli call react_override_props \
+npx @genie-react/cli call react_override_props --session docs-case-states \
   "{\"id\":$memo_id,\"props\":{\"badge\":{\"text\":\"approval\"}}}" --json
 agent-browser --session docs-case-states get text body | rg 'memo child badge: approval'
 agent-browser --session docs-case-states screenshot "$shot_dir/02-prop-approval.png"
-npx @genie-react/cli call react_list_overrides '{}' --json
+npx @genie-react/cli call react_list_overrides --session docs-case-states '{}' --json
 ```
 
 Selected live output:
@@ -131,10 +130,10 @@ For loading and error screenshots, use [Verify routes and forced states](/docs/c
 ## Restore the app
 
 ```bash
-npx @genie-react/cli call react_reset_overrides '{}' --json
+npx @genie-react/cli call react_reset_overrides --session docs-case-states '{}' --json
 agent-browser --session docs-case-states get text body | rg -F 'theme label: lab'
 agent-browser --session docs-case-states get text body | rg -F 'memo child badge: lab'
-npx @genie-react/cli call react_list_overrides '{}' --json
+npx @genie-react/cli call react_list_overrides --session docs-case-states '{}' --json
 ```
 
 ```json
@@ -155,7 +154,7 @@ npx @genie-react/cli call react_list_overrides '{}' --json
 ```bash
 printf 'Screenshots: %s\n' "$shot_dir"
 agent-browser --session docs-case-states close
-unset GENIE_BRIDGE_URL GENIE_SESSION memo_id shot_dir theme_id
+unset GENIE_BRIDGE_URL memo_id shot_dir theme_id
 ```
 
 ## Outcome

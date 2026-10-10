@@ -1,4 +1,6 @@
 import { writeJson } from './cli-output'
+import { genieCommand } from './package-manager'
+import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 
 export interface HubOptions {
   port?: number
@@ -12,12 +14,12 @@ export async function runHub(options: HubOptions = {}): Promise<number> {
   const failure = (reason: string, message: string): void => {
     writeJson(
       {
-        schemaVersion: '1.0',
+        schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: 'error',
         reason,
         message,
         userActionRequired: true,
-        next: { command: 'genie-react doctor', argv: ['genie-react', 'doctor'] },
+        next: genieCommand(['doctor']),
       },
       options.maxBytes,
     )
@@ -40,16 +42,14 @@ export async function runHub(options: HubOptions = {}): Promise<number> {
   const emit = (event: 'ready' | 'reused' | 'stopped'): void => {
     writeJson(
       {
-        schemaVersion: '1.0',
+        schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: 'ok',
         event,
         reason: `hub_${event}`,
         message: event === 'stopped' ? 'Stopped the local hub.' : 'The local hub is available.',
         userActionRequired: false,
         data,
-        ...(event === 'stopped'
-          ? {}
-          : { next: { command: 'genie-react status', argv: ['genie-react', 'status'] } }),
+        ...(event === 'stopped' ? {} : { next: genieCommand(['status']) }),
       },
       options.maxBytes,
     )

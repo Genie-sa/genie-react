@@ -274,6 +274,9 @@ describe('GenieClient', () => {
     expect(response.error).toContain('Invalid arguments for "echo"')
     expect(response.error).toContain('/message:')
     expect(response.errorCode).toBe('invalid-args')
+    expect(response.errorDetails.issues).toEqual([
+      expect.objectContaining({ path: '/message', expected: 'string', received: 'number' }),
+    ])
   })
 
   it('remaps component/query/name aliases onto the schema key the tool wants', async () => {
@@ -305,6 +308,12 @@ describe('GenieClient', () => {
     expect(response.error).toContain('Unknown argument "maxDepth"')
     expect(response.error).toContain('valid keys: message')
     expect(response.errorCode).toBe('invalid-args')
+    expect(response.errorDetails).toEqual({
+      unknownKeys: ['maxDepth'],
+      validKeys: ['message'],
+      requiredKeys: ['message'],
+      exampleArgs: { message: '<message>' },
+    })
   })
 
   describe('reconnect lifecycle', () => {
@@ -334,6 +343,76 @@ describe('GenieClient', () => {
 
       expect(sockets).toHaveLength(3)
       client.stop()
+    })
+
+    it('releases its socket on pagehide and rejoins as a newer generation from the back/forward cache', () => {
+      vi.useFakeTimers()
+      const page = new EventTarget()
+      vi.stubGlobal('window', page)
+      const sockets: FakeSocket[] = []
+      const client = createGenieClient({
+        collectors: [],
+        reconnectDelayMs: 100,
+        sessionIdentity: { logicalSessionId: 'tab', documentGeneration: 2 },
+        socketFactory: () => {
+          const socket = new FakeSocket()
+          sockets.push(socket)
+          return socket
+        },
+      })
+      try {
+        client.start()
+        sockets[0]?.open()
+        page.dispatchEvent(new Event('pagehide'))
+        vi.advanceTimersByTime(5_000)
+        expect(sockets).toHaveLength(1)
+        expect(sockets[0]?.readyState).toBe(3)
+
+        page.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: false }))
+        expect(sockets).toHaveLength(1)
+        page.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }))
+        sockets[1]?.open()
+        expect(sockets[1]?.decoded()[0]).toMatchObject({
+          kind: 'app/hello',
+          logicalSessionId: 'tab',
+          documentGeneration: 3,
+        })
+      } finally {
+        client.stop()
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('stays off the hub while prerendered and joins as a newer generation on activation', () => {
+      const page = Object.assign(new EventTarget(), { prerendering: true, title: '' })
+      vi.stubGlobal('document', page)
+      const sockets: FakeSocket[] = []
+      const client = createGenieClient({
+        collectors: [],
+        sessionIdentity: { logicalSessionId: 'tab', documentGeneration: 4 },
+        socketFactory: () => {
+          const socket = new FakeSocket()
+          sockets.push(socket)
+          return socket
+        },
+      })
+      try {
+        client.start()
+        expect(sockets).toHaveLength(0)
+
+        page.prerendering = false
+        page.dispatchEvent(new Event('prerenderingchange'))
+        sockets[0]?.open()
+        expect(sockets).toHaveLength(1)
+        expect(sockets[0]?.decoded()[0]).toMatchObject({
+          kind: 'app/hello',
+          logicalSessionId: 'tab',
+          documentGeneration: 5,
+        })
+      } finally {
+        client.stop()
+        vi.unstubAllGlobals()
+      }
     })
 
     it('ignores a delayed close from the socket stopped before a restart', () => {

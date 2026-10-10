@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { createSessionIdentity, createSessionName, forkSessionIdentity } from './session-identity'
+import {
+  advanceSessionIdentity,
+  createSessionIdentity,
+  createSessionName,
+  forkSessionIdentity,
+} from './session-identity'
 
 class MemoryStorage {
   private readonly values = new Map<string, string>()
@@ -33,6 +38,17 @@ describe('session identity', () => {
 
     expect(identity).toEqual({ logicalSessionId: 'forked-logical-id', documentGeneration: 1 })
     expect(reloaded).toEqual({ logicalSessionId: 'forked-logical-id', documentGeneration: 2 })
+  })
+
+  it('restores a cached document as the newest tab generation', () => {
+    const storage = new MemoryStorage()
+    const cached = createSessionIdentity(storage)
+    createSessionIdentity(storage)
+
+    advanceSessionIdentity(cached, storage)
+
+    expect(cached).toEqual({ logicalSessionId: cached.logicalSessionId, documentGeneration: 3 })
+    expect(createSessionIdentity(storage).documentGeneration).toBe(4)
   })
 
   it('still creates a usable identity when session storage is blocked', () => {

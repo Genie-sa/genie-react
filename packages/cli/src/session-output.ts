@@ -37,14 +37,15 @@ export function summarizeStatus(
     if (session.logicalSessionCollision === true) parts.push('(logical identity collision)')
     if (typeof session.forkedFromLogicalSessionId === 'string')
       parts.push(`forked-from=${session.forkedFromLogicalSessionId}`)
+    if (session.originUnverified === true && typeof session.origin === 'string')
+      parts.push(`(unverified origin ${session.origin})`)
     if (typeof session.staleMs === 'number')
       parts.push(
         `(stale — no heartbeat for ${Math.round(session.staleMs / 1000)}s, likely a dead tab)`,
       )
     lines.push(parts.join(' · '))
   }
-  if (options.targetSessionId === undefined)
-    lines.push('target one: --session <target> (or set GENIE_SESSION once per shell)')
+  if (options.targetSessionId === undefined) lines.push('target one: --session <target>')
   for (const warning of warnings) lines.push(`! ${warning}`)
   return lines.join('\n')
 }
@@ -75,6 +76,8 @@ export function summarizeSessionsOnly(
     parts.push(session.ready === false ? 'initializing' : 'ready')
     if (session.sessionId === options.targetSessionId) parts.push('target')
     else if (session.current === true) parts.push('current')
+    if (session.originUnverified === true && typeof session.origin === 'string')
+      parts.push(`unverified origin ${session.origin}`)
     if (typeof session.staleMs === 'number')
       parts.push(`stale (no heartbeat for ${Math.round(session.staleMs / 1000)}s)`)
     lines.push(`  ${parts.join(' · ')}`)

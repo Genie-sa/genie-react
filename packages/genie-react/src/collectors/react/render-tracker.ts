@@ -1,5 +1,4 @@
 import {
-  didFiberCommit,
   type Fiber,
   type FiberRoot,
   getFiberId,
@@ -9,6 +8,7 @@ import {
   isCompositeFiber,
   isHostFiber,
   type RenderPhase,
+  setFiberId,
   traverseRenderedFibers,
   type Unsubscribe,
 } from 'bippy'
@@ -18,7 +18,7 @@ import {
   setExternalStoreObservation,
 } from '../causal/external-store-registry'
 import { clonePlainData, safeStructuredClone } from '../structured-clone'
-import { getTimings } from './bippy-compat'
+import { didFiberCommit, getTimings } from './bippy-compat'
 import { type CommitWorkBudget, commitWorkExhaustions, consumeCommitWork } from './commit-budget'
 import { recordResultingEffectCommit } from './effect-events'
 import {
@@ -215,6 +215,8 @@ const DEFAULT_OBSERVATION_CONFIGURATION: RenderObservationConfiguration = {
 
 let observationConfiguration = safeStructuredClone(DEFAULT_OBSERVATION_CONFIGURATION)
 let observationRootIds = new Set<number>()
+/** Bippy releases ids as React reports each unmount parent-first, so descendants read their deleted ancestors' root membership here, through either buffer a stale `return` may point at. */
+let unmountedRootMembership = new WeakMap<Fiber, boolean>()
 
 const ADAPTIVE_FIBER_CEILING = 20_000
 const ADAPTIVE_OPERATION_CEILING = 2_000_000
@@ -222,7 +224,13 @@ const ADAPTIVE_TIME_CEILING_MS = 500
 
 const DID_CAPTURE = 0b1000_0000
 const RECENT_CAUSE_EVENT_LIMIT = 1_000
-const pendingUnmounts: { rendererId: number; fiber: Fiber; targeted: boolean }[] = []
+interface PendingUnmount {
+  rendererId: number
+  fiber: Fiber
+  fiberId: number
+  targeted: boolean
+}
+const pendingUnmounts: PendingUnmount[] = []
 const pendingHostUnmountRenderers = new Set<number>()
 let uncertainTraversalRoots = new WeakMap<FiberRoot, string | null>()
 
@@ -399,7 +407,7 @@ export function disposeRenderTracking(): void {
   clearMeasurementSpans()
   renderPages = new Map()
   noteAnalysisInvalidation()
-  for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(pending.fiber)
+  for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(restoreFiberId(pending))
   pendingUnmounts.length = 0
   invalidateLiveInstancesForRefresh()
   instrumentation?.()
@@ -501,7 +509,7 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   targetedFibersSkipped = 0
   droppedTargetUnmountFibers = 0
   adaptiveBudgetScale = 1
-  for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(pending.fiber)
+  for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(restoreFiberId(pending))
   pendingUnmounts.length = 0
   clears++
   clearEffects()
@@ -557,6 +565,7 @@ function configureRenderObservation(options: RenderObservationOptions): void {
     },
   }
   observationRootIds = new Set(observationConfiguration.roots)
+  unmountedRootMembership = new WeakMap()
 }
 
 function grown(configured: number, scale: number, ceiling: number): number {
@@ -575,23 +584,21 @@ function effectiveObservationBudget(): RenderObservationConfiguration['budget'] 
 }
 
 function isObservationTarget(fiber: Fiber): boolean {
-  if (
-    observationConfiguration.components.length === 0 &&
-    observationConfiguration.roots.length === 0
-  ) {
-    return false
-  }
-  if (
-    observationConfiguration.components.length > 0 &&
-    observationConfiguration.components.some((needle) =>
-      nameOf(fiber).toLowerCase().includes(needle),
-    )
-  ) {
-    return true
-  }
-  if (observationConfiguration.roots.length === 0) return false
+  return matchesObservedComponent(fiber) || isWithinObservationRoot(fiber)
+}
+
+function matchesObservedComponent(fiber: Fiber): boolean {
+  return observationConfiguration.components.some((needle) =>
+    nameOf(fiber).toLowerCase().includes(needle),
+  )
+}
+
+function isWithinObservationRoot(fiber: Fiber): boolean {
+  if (observationRootIds.size === 0) return false
   let current: Fiber | null = fiber
   for (let depth = 0; current && depth < 100; depth += 1) {
+    const recorded = unmountedRootMembership.get(current)
+    if (recorded !== undefined) return recorded
     try {
       if (observationRootIds.has(getFiberId(current))) return true
     } catch {
@@ -614,6 +621,7 @@ export async function getRendersReport(
 
 interface RenderMeasurement {
   measurementEnvironment: ReturnType<typeof getMeasurementEnvironment>
+  sort: RenderQuery['sort']
   appOnly: boolean
   tracking: boolean
   renderCollection: string
@@ -735,6 +743,7 @@ export async function getRendersMeasurement(
   }
   const measurement: RenderMeasurement = {
     measurementEnvironment,
+    sort: query.sort,
     appOnly: query.appOnly === true,
     tracking,
     renderCollection: renderCollectionStatus(),
@@ -1318,7 +1327,7 @@ function prepareCauseEventEvidence(
 }
 
 function recordPendingUnmounts(rendererId: number, budget: CommitAnalysisBudget): void {
-  const retained: { rendererId: number; fiber: Fiber; targeted: boolean }[] = []
+  const retained: PendingUnmount[] = []
   for (const pending of pendingUnmounts) {
     if (pending.rendererId !== rendererId) {
       retained.push(pending)
@@ -1337,7 +1346,7 @@ function recordPendingUnmounts(rendererId: number, budget: CommitAnalysisBudget)
     }
     if (!isCompositeFiber(pending.fiber)) continue
     const instance = noteInstanceRender(
-      pending.fiber,
+      restoreFiberId(pending),
       'unmount',
       commits,
       getDocumentCommitId(),
@@ -1350,11 +1359,16 @@ function recordPendingUnmounts(rendererId: number, budget: CommitAnalysisBudget)
   pendingUnmounts.push(...retained)
 }
 
-/** Queue only component lifecycles; host-node unmounts cannot produce cohort tombstones. */
+/** Record every fiber's root membership for its descendants, but queue only component lifecycles; host-node unmounts cannot produce cohort tombstones. */
 export function queuePendingUnmount(rendererId: number, fiber: Fiber): void {
+  const withinRoot = isWithinObservationRoot(fiber)
+  if (observationRootIds.size > 0) {
+    unmountedRootMembership.set(fiber, withinRoot)
+    if (fiber.alternate) unmountedRootMembership.set(fiber.alternate, withinRoot)
+  }
   if (!isCompositeFiber(fiber)) return
-  const targeted = isObservationTarget(fiber)
-  pendingUnmounts.push({ rendererId, fiber, targeted })
+  const targeted = withinRoot || matchesObservedComponent(fiber)
+  pendingUnmounts.push({ rendererId, fiber, fiberId: getFiberId(fiber), targeted })
   if (pendingUnmounts.length <= observationConfiguration.lifecycle.bufferLimit) return
   const protectedTargetIndices = new Set<number>()
   let remainingReservation = observationConfiguration.lifecycle.targetReserve
@@ -1372,10 +1386,16 @@ export function queuePendingUnmount(rendererId: number, fiber: Fiber): void {
   droppedPendingUnmountFibers += 1
 }
 
+/** Bippy 0.7.3+ forgets a fiber's id once its unmount callbacks return; the deferred lifecycle needs the mounted id. */
+function restoreFiberId({ fiber, fiberId }: PendingUnmount): Fiber {
+  setFiberId(fiber, fiberId)
+  return fiber
+}
+
 function discardPendingUnmounts(rendererId: number): void {
-  const retained: { rendererId: number; fiber: Fiber; targeted: boolean }[] = []
+  const retained: PendingUnmount[] = []
   for (const pending of pendingUnmounts) {
-    if (pending.rendererId === rendererId) discardExcludedInstanceUnmount(pending.fiber)
+    if (pending.rendererId === rendererId) discardExcludedInstanceUnmount(restoreFiberId(pending))
     else retained.push(pending)
   }
   pendingUnmounts.length = 0

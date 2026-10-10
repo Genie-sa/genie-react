@@ -5,7 +5,7 @@ import { createGenieClient, reactCollector, sessionCollector } from 'genie-react
 import { memoryCollector, queryCollector } from 'genie-react/collectors'
 import { App } from './lab'
 
-const HUB_WS_URL = 'ws://localhost:4390/__genie/ws'
+const HUB_WS_URL = 'ws://127.0.0.1:4390/__genie/ws'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },

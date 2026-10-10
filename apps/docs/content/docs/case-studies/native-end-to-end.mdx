@@ -41,7 +41,7 @@ genie() {
 }
 
 status_json="$(genie status --json)"
-export GENIE_SESSION="$(
+session_id="$(
   jq -er '
     [
       .sessions[]
@@ -57,14 +57,14 @@ export GENIE_SESSION="$(
       end
   ' <<<"$status_json"
 )"
-genie status --json
+genie status --session "$session_id" --json
 ```
 
 Check these selected status fields before continuing:
 
 ```json
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "connected": true,
   "ready": true,
   "app": { "name": "Expo demo" }
@@ -81,7 +81,7 @@ timing, the [timeline workflow](/docs/workflows/interaction-timeline) explains n
 Start a clean observation with enough budget for the native tree:
 
 ```bash
-genie call react_clear_renders \
+genie call react_clear_renders --session "$session_id" \
   '{
     "components":["App"],
     "budget":{
@@ -117,7 +117,7 @@ Selected visible result:
 Read the cause:
 
 ```bash
-genie call react_render_causes \
+genie call react_render_causes --session "$session_id" \
   '{"component":"App","limit":20,"appOnly":false}' --json
 ```
 
@@ -168,17 +168,17 @@ Write one exact cache value, then check both the live observer and visible text:
 ```bash
 agent-device scroll down --pixels 700 --session genie-expo-check
 
-genie call query_set_data \
+genie call query_set_data --session "$session_id" \
   '{"queryKey":["expo-tool-audit"],"data":{"label":"agent-proof","revision":2}}' \
   --json
 
-genie call devtools_wait \
+genie call devtools_wait --session "$session_id" \
   '{"condition":"react-quiet","quietMs":300,"timeoutMs":5000}' \
   --json --fail-on-result-error
 agent-device wait text 'query:success:agent-proof:2' 5000 \
   --session genie-expo-check
 
-genie call query_get \
+genie call query_get --session "$session_id" \
   '{"queryKey":["expo-tool-audit"]}' --json
 
 agent-device get text 'id="fixture-query-value"' \
@@ -234,7 +234,7 @@ agent-device wait text 'query:success:server-value:1' 5000 \
 agent-device get text 'id="fixture-query-value"' \
   --session genie-expo-check --json
 agent-device close --session genie-expo-check
-unset GENIE_BRIDGE_URL GENIE_SESSION status_json
+unset GENIE_BRIDGE_URL status_json
 unset -f genie
 ```
 

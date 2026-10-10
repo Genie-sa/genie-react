@@ -136,6 +136,41 @@ describe('protocol codecs', () => {
     expect(plain.retryInMs).toBeUndefined()
   })
 
+  it('carries structured errorDetails and drops a malformed shape instead of the frame', () => {
+    const details = {
+      issues: [
+        { path: '/role', message: 'Invalid option', allowed: ['admin'], received: 'string' },
+      ],
+      requiredKeys: ['role'],
+      exampleArgs: { role: 'admin' },
+      app: { code: 'NO_OP', message: 'already empty', hint: 'seed first' },
+    }
+    const structured = decodeAgentBoundMessage(
+      encodeMessage({
+        kind: 'bridge/result',
+        id: 'r-4',
+        ok: false,
+        errorCode: 'invalid-args',
+        errorDetails: details,
+      }),
+    )
+    if (structured.kind !== 'bridge/result') throw new Error('unreachable')
+    expect(structured.errorDetails).toEqual(details)
+
+    const malformed = decodeAgentBoundMessage(
+      encodeMessage({
+        kind: 'bridge/result',
+        id: 'r-5',
+        ok: false,
+        errorCode: 'tool-error',
+        errorDetails: { issues: 'not-an-array' },
+      }),
+    )
+    if (malformed.kind !== 'bridge/result') throw new Error('unreachable')
+    expect(malformed.errorCode).toBe('tool-error')
+    expect(malformed.errorDetails).toBeUndefined()
+  })
+
   it('rejects an unknown errorCode on a bridge/result', () => {
     expect(() =>
       decodeAgentBoundMessage(
@@ -176,6 +211,7 @@ describe('capture protocol', () => {
       name: 'before fix',
       include: ['react', 'effects', 'query', 'router', 'memory'],
       maxAttempts: 3,
+      view: 'summary',
     })
     expect(() =>
       devtoolsCaptureCreateContract.input.parse({
@@ -349,6 +385,7 @@ describe('interaction protocol', () => {
       domains: ['react'],
       quietMs: 500,
       timeoutMs: 10_000,
+      view: 'summary',
     })
     expect(() =>
       devtoolsInteractionStopContract.input.parse({
@@ -356,5 +393,18 @@ describe('interaction protocol', () => {
         domains: ['react', 'react'],
       }),
     ).toThrow()
+    expect(() =>
+      devtoolsInteractionStopContract.input.parse({
+        interactionId: 'int_1',
+        sections: ['renders'],
+      }),
+    ).toThrow(/sections requires view/)
+    expect(
+      devtoolsInteractionStopContract.input.parse({
+        interactionId: 'int_1',
+        view: 'full',
+        sections: ['causes'],
+      }),
+    ).toMatchObject({ view: 'full', sections: ['causes'] })
   })
 })

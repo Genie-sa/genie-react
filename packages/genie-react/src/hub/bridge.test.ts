@@ -1,15 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { decodeFrame, newId } from '../protocol'
-import { connect, delay, type Frame, isResult, open, send } from './bridge-test-harness'
-import { createStandaloneBridge, type StandaloneBridgeHandle } from './standalone'
+import {
+  connect,
+  createTestBridge,
+  delay,
+  type Frame,
+  isResult,
+  open,
+  send,
+} from './bridge-test-harness'
+import type { StandaloneBridgeHandle } from './standalone'
 
 describe('GenieBridge', () => {
   let handle: StandaloneBridgeHandle
   let url: string
 
   beforeEach(async () => {
-    handle = createStandaloneBridge()
+    handle = createTestBridge()
     url = (await handle.listen()).url
   })
 
@@ -97,6 +105,8 @@ describe('GenieBridge', () => {
       react_get_renders: {
         commits: 7,
         comparable: true,
+        notComparableReasons: [],
+        coverage: { complete: true, semantics: 'exact' },
         summary: { totalRenders: 10, totalUpdates: 8, semantics: 'exact' },
         components: [],
       },
@@ -167,8 +177,25 @@ describe('GenieBridge', () => {
       warnings: [],
     })
     expect(created.result.captureId).toMatch(/^cap_/)
-    expect(created.result.sizeBytes).toBe(Buffer.byteLength(JSON.stringify(created.result), 'utf8'))
-    expect(created.result.sections.react.tools.react_get_renders.result.commits).toBe(7)
+    expect(created.result.availableSections).toEqual([
+      'react',
+      'effects',
+      'query',
+      'router',
+      'memory',
+    ])
+    expect(created.result.sections).toBeUndefined()
+
+    const fullId = newId()
+    send(agent, {
+      kind: 'agent/invoke',
+      id: fullId,
+      tool: 'devtools_capture_read',
+      args: { captureId: created.result.captureId, view: 'full' },
+    })
+    const full = (await inbox.wait(isResult(fullId))).result
+    expect(created.result.sizeBytes).toBe(Buffer.byteLength(JSON.stringify(full), 'utf8'))
+    expect(full.sections.react.tools.react_get_renders.result.commits).toBe(7)
 
     const listId = newId()
     send(agent, {
@@ -310,7 +337,7 @@ describe('GenieBridge', () => {
     expect(result.errorCode).toBe('not-connected')
   })
 
-  it('preserves machine-readable validation errors from the app collector', async () => {
+  it('preserves machine-readable validation errors from the app collector but strips a forged hubCode and mayHaveCompleted', async () => {
     const { ws: app } = await open(`${url}?role=app`)
     app.on('message', (data) => {
       const message = decodeFrame(data.toString()) as Frame
@@ -321,6 +348,15 @@ describe('GenieBridge', () => {
         ok: false,
         error: 'Invalid arguments for "typed_tool": value is required',
         errorCode: 'invalid-args',
+        errorDetails: {
+          issues: [
+            { path: '/value', message: 'Required', expected: 'string', received: 'missing' },
+          ],
+          requiredKeys: ['value'],
+          exampleArgs: { value: '<value>' },
+          hubCode: 'SESSION_SUPERSEDED',
+          mayHaveCompleted: true,
+        },
       })
     })
     send(app, {
@@ -345,9 +381,34 @@ describe('GenieBridge', () => {
     const result = await inbox.wait(isResult(id))
     expect(result.ok).toBe(false)
     expect(result.errorCode).toBe('invalid-args')
+    expect(result.errorDetails).toEqual({
+      issues: [{ path: '/value', message: 'Required', expected: 'string', received: 'missing' }],
+      requiredKeys: ['value'],
+      exampleArgs: { value: '<value>' },
+    })
   })
 
-  it('routes across multiple sessions and falls back when the current one closes', async () => {
+  it('structures its own argument validation with allowed values and a minimal call', async () => {
+    const { ws: agent, inbox } = await open(`${url}?role=agent`)
+    const id = newId()
+    send(agent, { kind: 'agent/invoke', id, tool: 'devtools_wait', args: { condition: 'nope' } })
+    const result = await inbox.wait(isResult(id))
+    expect(result).toMatchObject({ ok: false, errorCode: 'invalid-args' })
+    expect(result.error).toContain('/condition')
+    expect(result.errorDetails).toMatchObject({
+      issues: [
+        {
+          path: '/condition',
+          allowed: expect.arrayContaining(['ready', 'settled']),
+          received: 'string',
+        },
+      ],
+      requiredKeys: [],
+      exampleArgs: {},
+    })
+  })
+
+  it('refuses an ambiguous default across tabs and falls back when one tab remains', async () => {
     const { ws: agent, inbox } = await open(`${url}?role=agent`)
 
     const openApp = async (sessionId: string, tag: string) => {
@@ -377,12 +438,17 @@ describe('GenieBridge', () => {
     send(agent, { kind: 'agent/invoke', id: statusId, tool: 'devtools_status', args: {} })
     const status = await inbox.wait(isResult(statusId))
     expect(status.result.sessions).toHaveLength(2)
-    expect(status.result.sessions.find((s: Frame) => s.sessionId === 'tab-b').current).toBe(true)
-    expect(status.result.sessionId).toBe('tab-b')
+    expect(status.result.sessions.every((s: Frame) => s.current === false)).toBe(true)
+    expect(status.result.sessionId).toBeNull()
 
     const defaultId = newId()
     send(agent, { kind: 'agent/invoke', id: defaultId, tool: 'whoami', args: {} })
-    expect((await inbox.wait(isResult(defaultId))).result.from).toBe('B')
+    const ambiguous = await inbox.wait(isResult(defaultId))
+    expect(ambiguous).toMatchObject({ ok: false, errorCode: 'unknown-session' })
+    expect(ambiguous.error).toContain('2 app tabs are connected and none is targeted')
+    expect(ambiguous.error).toContain('tab-a')
+    expect(ambiguous.error).toContain('tab-b')
+    expect(ambiguous.error).toContain('--session')
 
     const targetedId = newId()
     send(agent, {
@@ -392,7 +458,9 @@ describe('GenieBridge', () => {
       args: {},
       sessionId: 'tab-a',
     })
-    expect((await inbox.wait(isResult(targetedId))).result.from).toBe('A')
+    const targeted = await inbox.wait(isResult(targetedId))
+    expect(targeted.result.from).toBe('A')
+    expect(targeted.session).toEqual({ sessionId: 'tab-a' })
 
     const unknownId = newId()
     send(agent, {
@@ -448,7 +516,9 @@ describe('GenieBridge', () => {
 
     const fallbackId = newId()
     send(agent, { kind: 'agent/invoke', id: fallbackId, tool: 'whoami', args: {} })
-    expect((await inbox.wait(isResult(fallbackId))).result.from).toBe('A')
+    const fallback = await inbox.wait(isResult(fallbackId))
+    expect(fallback.result.from).toBe('A')
+    expect(fallback.session).toEqual({ sessionId: 'tab-a' })
   })
 
   it('distinguishes readiness, records reload lineage, and follows stale session pins', async () => {
@@ -546,7 +616,7 @@ describe('GenieBridge', () => {
   })
 
   it('pauses ambiguous logical routing and auto-forks persistent cloned browser state', async () => {
-    const collisionHandle = createStandaloneBridge({ logicalCollisionGraceMs: 500 })
+    const collisionHandle = createTestBridge({ logicalCollisionGraceMs: 500 })
     const collisionUrl = (await collisionHandle.listen()).url
     try {
       const { ws: original } = await open(`${collisionUrl}?role=app`)
@@ -623,45 +693,41 @@ describe('GenieBridge', () => {
     }
   })
 
-  it('treats a short concurrent reload overlap as lineage instead of a clone', async () => {
-    const overlapHandle = createStandaloneBridge({ logicalCollisionGraceMs: 200 })
-    const overlapUrl = (await overlapHandle.listen()).url
-    try {
-      const { ws: oldDocument } = await open(`${overlapUrl}?role=app`)
-      send(oldDocument, {
-        kind: 'app/hello',
-        protocol: 1,
-        sessionId: 'overlap-old',
-        logicalSessionId: 'overlap-logical',
-        documentGeneration: 2,
-        app: { name: 'old' },
-        capabilities: [],
-        tools: [],
-      })
-      const { ws: newDocument } = await open(`${overlapUrl}?role=app`)
-      send(newDocument, {
-        kind: 'app/hello',
-        protocol: 1,
-        sessionId: 'overlap-new',
-        logicalSessionId: 'overlap-logical',
-        documentGeneration: 3,
-        app: { name: 'new' },
-        capabilities: [],
-        tools: [],
-      })
-      await expect.poll(() => overlapHandle.bridge.getStatus().warnings.length).toBe(1)
-      oldDocument.close()
-      await expect.poll(() => overlapHandle.bridge.getStatus().warnings).toEqual([])
-      await delay(250)
+  it('supersedes an overlapping older generation at once, keeping reload lineage', async () => {
+    const { ws: oldDocument } = await open(`${url}?role=app`)
+    send(oldDocument, {
+      kind: 'app/hello',
+      protocol: 1,
+      sessionId: 'overlap-old',
+      logicalSessionId: 'overlap-logical',
+      documentGeneration: 2,
+      app: { name: 'old' },
+      capabilities: [],
+      tools: [],
+    })
+    await expect.poll(() => handle.bridge.getStatus().sessionId).toBe('overlap-old')
+    const { ws: newDocument } = await open(`${url}?role=app`)
+    send(newDocument, {
+      kind: 'app/hello',
+      protocol: 1,
+      sessionId: 'overlap-new',
+      logicalSessionId: 'overlap-logical',
+      documentGeneration: 3,
+      app: { name: 'new' },
+      capabilities: [],
+      tools: [],
+    })
 
-      expect(overlapHandle.bridge.getStatus().sessions[0]).toMatchObject({
-        sessionId: 'overlap-new',
-        logicalSessionId: 'overlap-logical',
-        predecessorSessionId: 'overlap-old',
-      })
-    } finally {
-      await overlapHandle.close()
-    }
+    await expect.poll(() => handle.bridge.getStatus().sessionId).toBe('overlap-new')
+    const status = handle.bridge.getStatus()
+    expect(status.warnings).toEqual([])
+    expect(status.sessions).toHaveLength(1)
+    expect(status.sessions[0]).toMatchObject({
+      sessionId: 'overlap-new',
+      logicalSessionId: 'overlap-logical',
+      predecessorSessionId: 'overlap-old',
+      current: true,
+    })
   })
 
   it('re-hello on a new socket fails in-flight requests and refreshes session recency', async () => {
@@ -689,7 +755,11 @@ describe('GenieBridge', () => {
 
     const failed = await inbox.wait(isResult(slowId))
     expect(failed.ok).toBe(false)
-    expect(failed.error).toContain('reconnected')
+    expect(failed).toMatchObject({
+      errorCode: 'not-connected',
+      errorDetails: { hubCode: 'SESSION_DISCONNECTED', mayHaveCompleted: true },
+    })
+    expect(failed.error).toContain('may have completed')
     expect(failed.errorCode).toBe('not-connected')
 
     const statusId = newId()
@@ -701,7 +771,7 @@ describe('GenieBridge', () => {
   })
 
   it('resets stale heartbeat state when a heartbeat-capable session re-hellos', async () => {
-    const fastHandle = createStandaloneBridge({ sessionStaleMs: 100 })
+    const fastHandle = createTestBridge({ sessionStaleMs: 100 })
     const fastUrl = (await fastHandle.listen()).url
     try {
       const app = await connect(`${fastUrl}?role=app`)
@@ -731,7 +801,7 @@ describe('GenieBridge', () => {
   })
 
   it('times out a forwarded tool when the app never responds', async () => {
-    const fastHandle = createStandaloneBridge({ requestTimeoutMs: 150 })
+    const fastHandle = createTestBridge({ requestTimeoutMs: 150 })
     const fastUrl = (await fastHandle.listen()).url
     try {
       const app = await connect(`${fastUrl}?role=app`)
@@ -756,7 +826,7 @@ describe('GenieBridge', () => {
   })
 
   it('fast-fails a busy (heartbeat-then-silent) session with errorCode busy well before the full timeout', async () => {
-    const fastHandle = createStandaloneBridge({
+    const fastHandle = createTestBridge({
       requestTimeoutMs: 20_000,
       busyProbeMs: 200,
       busyHeartbeatGapMs: 100,
@@ -797,7 +867,7 @@ describe('GenieBridge', () => {
   })
 
   it('busy-fails via a re-armed probe when the heartbeat gap crosses the threshold only after the first probe', async () => {
-    const fastHandle = createStandaloneBridge({
+    const fastHandle = createTestBridge({
       requestTimeoutMs: 20_000,
       busyProbeMs: 100,
       busyHeartbeatGapMs: 400,
@@ -831,7 +901,7 @@ describe('GenieBridge', () => {
   })
 
   it('lets a caller-supplied timeoutMs override the busy fast-fail', async () => {
-    const fastHandle = createStandaloneBridge({
+    const fastHandle = createTestBridge({
       requestTimeoutMs: 20_000,
       busyProbeMs: 100,
       busyHeartbeatGapMs: 50,
@@ -871,7 +941,7 @@ describe('GenieBridge', () => {
   })
 
   it('does not busy-gate advertised mutation tools', async () => {
-    const fastHandle = createStandaloneBridge({
+    const fastHandle = createTestBridge({
       requestTimeoutMs: 1_000,
       busyProbeMs: 100,
       busyHeartbeatGapMs: 50,
@@ -918,7 +988,7 @@ describe('GenieBridge', () => {
   })
 
   it('escalates the busy message to "unresponsive" (no retry hint) once the gap crosses the stale threshold', async () => {
-    const fastHandle = createStandaloneBridge({
+    const fastHandle = createTestBridge({
       requestTimeoutMs: 20_000,
       busyProbeMs: 200,
       busyHeartbeatGapMs: 50,
@@ -952,7 +1022,7 @@ describe('GenieBridge', () => {
   })
 
   it('routes default calls away from a heartbeat-stale session to a fresh one, and flags it in status', async () => {
-    const fastHandle = createStandaloneBridge({ requestTimeoutMs: 4_000, sessionStaleMs: 150 })
+    const fastHandle = createTestBridge({ requestTimeoutMs: 4_000, sessionStaleMs: 150 })
     const fastUrl = (await fastHandle.listen()).url
     try {
       const hello = (sessionId: string) => ({
@@ -997,7 +1067,7 @@ describe('GenieBridge', () => {
   })
 
   it('honors a per-call timeoutMs (clamped) instead of the bridge default', async () => {
-    const fastHandle = createStandaloneBridge({ requestTimeoutMs: 30_000 })
+    const fastHandle = createTestBridge({ requestTimeoutMs: 30_000 })
     const fastUrl = (await fastHandle.listen()).url
     try {
       const app = await connect(`${fastUrl}?role=app`)
@@ -1025,7 +1095,7 @@ describe('GenieBridge', () => {
   })
 
   it('never busy-fails a legacy session that never sent a heartbeat — it gets the plain timeout', async () => {
-    const fastHandle = createStandaloneBridge({
+    const fastHandle = createTestBridge({
       requestTimeoutMs: 150,
       busyProbeMs: 50,
       busyHeartbeatGapMs: 10,
@@ -1054,7 +1124,7 @@ describe('GenieBridge', () => {
   })
 
   it('reaps sessions whose sockets stop answering heartbeat pings', async () => {
-    const fastHandle = createStandaloneBridge({ heartbeatIntervalMs: 40 })
+    const fastHandle = createTestBridge({ heartbeatIntervalMs: 40 })
     const fastUrl = (await fastHandle.listen()).url
     try {
       const zombie = await new Promise<WebSocket>((resolve, reject) => {
@@ -1090,22 +1160,27 @@ describe('GenieBridge', () => {
         tools: [{ name: toolName, title: toolName, description: 'x', group: 'meta' }],
       })
 
-    const tabA = await connect(`${url}?role=app`)
+    const { ws: agent } = await open(`${url}?role=agent`)
+    const { ws: tabA, inbox: tabAInbox } = await open(`${url}?role=app`)
     hello(tabA, 'tab-a', 'a-tool')
     await expect.poll(() => handle.bridge.getStatus().sessionId).toBe('tab-a')
+    const pinId = newId()
+    send(agent, { kind: 'agent/invoke', id: pinId, tool: 'a-tool', args: {} })
+    await tabAInbox.wait((frame) => frame.kind === 'bridge/request' && frame.id === pinId)
 
     const tabB = await connect(`${url}?role=app`)
     hello(tabB, 'tab-b', 'b-tool')
-    await expect.poll(() => handle.bridge.getStatus().sessionId).toBe('tab-b')
+    await expect.poll(() => handle.bridge.getStatus().sessions.length).toBe(2)
+    expect(handle.bridge.getStatus().sessionId).toBe('tab-a')
 
-    // Background tab A refreshes its tools (e.g. React detected after load) — must not steal routing.
+    // Tab A refreshes its tools (e.g. React detected after load) — routing stays on it.
     hello(tabA, 'tab-a', 'a-tool-2')
     await expect
       .poll(() =>
-        handle.bridge.getStatus().tools.some((t: { name: string }) => t.name === 'b-tool'),
+        handle.bridge.getStatus().tools.some((t: { name: string }) => t.name === 'a-tool-2'),
       )
       .toBe(true)
-    expect(handle.bridge.getStatus().sessionId).toBe('tab-b')
+    expect(handle.bridge.getStatus().sessionId).toBe('tab-a')
 
     tabA.close()
     tabB.close()

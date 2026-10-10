@@ -263,12 +263,13 @@ describe('cloudflare coexistence', () => {
       await configureServer.call(null, {
         config: { root, logger: { info: (message: string) => logs.push(message) } },
         httpServer,
+        middlewares: { use: () => undefined },
       })
       expect(logs.join('\n')).toContain('standalone hub')
       expect(existsSync(join(root, GENIE_DISCOVERY_FILE))).toBe(true)
 
       const module = await load.call({}, '\0virtual:genie-client')
-      expect(module).toMatch(/url: "ws:\/\/localhost:\d+\/__genie\/ws"/)
+      expect(module).toMatch(/url: "ws:\/\/127\.0\.0\.1:\d+\/__genie\/ws"/)
     } finally {
       httpServer.emit('close')
       await new Promise((resolve) => setTimeout(resolve, 100))
