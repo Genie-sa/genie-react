@@ -21,6 +21,31 @@ function session(sessionId: string): InteractionSession {
 }
 
 describe('InteractionManager', () => {
+  it('structures its own failures with a hub code and the rejected argument', async () => {
+    const manager = new InteractionManager({
+      resolveSession: () => ({ sessionId: 'no-collector', app: {}, tools: [] }),
+      unknownSessionError: () => 'unknown',
+      isCurrentSession: () => true,
+      request: async () => ({ ok: true }),
+      settle: async () => ({ ok: true, waitedMs: 0, domains: {} }),
+    })
+    expect(
+      await manager.invoke('devtools_interaction_stop', { interactionId: 'int_gone' }),
+    ).toMatchObject({
+      ok: false,
+      errorCode: 'invalid-args',
+      errorDetails: {
+        hubCode: 'INTERACTION_UNKNOWN',
+        issues: [{ path: '/interactionId', received: 'string' }],
+      },
+    })
+    expect(await manager.invoke('devtools_interaction_begin', { name: 'x' })).toMatchObject({
+      ok: false,
+      errorCode: 'tool-error',
+      errorDetails: { hubCode: 'REACT_COLLECTOR_MISSING' },
+    })
+  })
+
   it('reserves the document before awaiting its clear response and releases failed starts', async () => {
     const active = session('one-document')
     let resolveClear!: (value: { ok: boolean; result?: unknown; error?: string }) => void
@@ -40,7 +65,11 @@ describe('InteractionManager', () => {
     const first = manager.invoke('devtools_interaction_begin', { name: 'first' })
     const second = manager.invoke('devtools_interaction_begin', { name: 'second' })
     expect(clears).toBe(1)
-    expect(await second).toMatchObject({ ok: false, errorCode: 'invalid-args' })
+    expect(await second).toMatchObject({
+      ok: false,
+      errorCode: 'invalid-args',
+      errorDetails: { hubCode: 'INTERACTION_ACTIVE' },
+    })
     resolveClear({ ok: false, error: 'clear failed' })
     expect(await first).toMatchObject({ ok: false })
     const retry = manager.invoke('devtools_interaction_begin', { name: 'retry' })

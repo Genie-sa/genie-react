@@ -12,6 +12,7 @@ import {
   devtoolsCaptureListContract,
   devtoolsCapturePinContract,
   devtoolsCaptureReadContract,
+  type HubErrorCode,
   newId,
   type ToolDescriptor,
   type ToolErrorDetails,
@@ -155,24 +156,14 @@ export class CaptureManager<TSession extends CaptureSession> {
                 ? captureReadSummary(capture)
                 : selectedCapture(capture, parsed.data.sections),
           }
-        : {
-            ok: false,
-            error: `No retained capture ${JSON.stringify(parsed.data.captureId)}. Run devtools_capture_list to inspect retained IDs.`,
-            errorCode: 'invalid-args',
-          }
+        : notRetained([{ path: '/captureId', captureId: parsed.data.captureId }])
     }
 
     if (tool === devtoolsCapturePinContract.name) {
       const parsed = devtoolsCapturePinContract.input.safeParse(args ?? {})
       if (!parsed.success) return invalidArguments(devtoolsCapturePinContract, args, parsed.error)
       const capture = this.captures.get(parsed.data.captureId)
-      if (!capture) {
-        return {
-          ok: false,
-          error: `No retained capture ${JSON.stringify(parsed.data.captureId)}. Run devtools_capture_list to inspect retained IDs.`,
-          errorCode: 'invalid-args',
-        }
-      }
+      if (!capture) return notRetained([{ path: '/captureId', captureId: parsed.data.captureId }])
       capture.pinned = parsed.data.pinned
       capture.sizeBytes = captureSizeBytes(capture)
       return { ok: true, result: captureSummary(capture) }
@@ -182,15 +173,15 @@ export class CaptureManager<TSession extends CaptureSession> {
       const parsed = devtoolsCaptureCompareContract.input.safeParse(args ?? {})
       if (!parsed.success)
         return invalidArguments(devtoolsCaptureCompareContract, args, parsed.error)
-      const requestedIds = [...parsed.data.baselineCaptureIds, ...parsed.data.candidateCaptureIds]
-      const missing = requestedIds.filter((captureId) => !this.captures.has(captureId))
-      if (missing.length > 0) {
-        return {
-          ok: false,
-          error: `No retained capture${missing.length === 1 ? '' : 's'} ${missing.map((captureId) => JSON.stringify(captureId)).join(', ')}. Run devtools_capture_list to inspect retained IDs.`,
-          errorCode: 'invalid-args',
-        }
-      }
+      const missing = (['baselineCaptureIds', 'candidateCaptureIds'] as const)
+        .flatMap((cohort) =>
+          parsed.data[cohort].map((captureId, index) => ({
+            path: `/${cohort}/${index}`,
+            captureId,
+          })),
+        )
+        .filter(({ captureId }) => !this.captures.has(captureId))
+      if (missing.length > 0) return notRetained(missing)
       const getCapture = (captureId: string): CaptureArtifact => {
         const capture = this.captures.get(captureId)
         if (!capture) throw new Error(`Retained capture ${captureId} disappeared.`)
@@ -431,6 +422,22 @@ export class CaptureManager<TSession extends CaptureSession> {
       if (oldest === undefined) break
       this.captures.delete(oldest)
     }
+  }
+}
+
+function notRetained(missing: readonly { path: string; captureId: string }[]): CaptureInvocation {
+  return {
+    ok: false,
+    error: `No retained capture${missing.length === 1 ? '' : 's'} ${missing.map(({ captureId }) => JSON.stringify(captureId)).join(', ')}. Run devtools_capture_list to inspect retained IDs.`,
+    errorCode: 'invalid-args',
+    errorDetails: {
+      hubCode: 'CAPTURE_NOT_RETAINED' satisfies HubErrorCode,
+      issues: missing.map(({ path }) => ({
+        path,
+        message: 'No retained capture has this ID.',
+        received: 'string',
+      })),
+    },
   }
 }
 

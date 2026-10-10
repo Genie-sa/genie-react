@@ -4,6 +4,7 @@ import {
   type AppInfo,
   devtoolsInteractionBeginContract,
   devtoolsInteractionStopContract,
+  type HubErrorCode,
   INTERACTION_SCHEMA_VERSION,
   newId,
   type ToolDescriptor,
@@ -156,6 +157,7 @@ export class InteractionManager<TSession extends InteractionSession> {
         ok: false,
         error: `Session ${JSON.stringify(session.sessionId)} already has a starting or recording interaction. Stop it before beginning another; clearing now would invalidate its boundary.`,
         errorCode: 'invalid-args',
+        errorDetails: { hubCode: 'INTERACTION_ACTIVE' satisfies HubErrorCode },
       }
     }
     if (this.active.size + this.starting.size >= MAX_ACTIVE_INTERACTIONS) {
@@ -163,6 +165,7 @@ export class InteractionManager<TSession extends InteractionSession> {
         ok: false,
         error: `The bridge already has ${MAX_ACTIVE_INTERACTIONS} active interactions. Stop an existing interaction before starting another.`,
         errorCode: 'tool-error',
+        errorDetails: { hubCode: 'INTERACTION_LIMIT' satisfies HubErrorCode },
       }
     }
     if (!hasTool(session, 'react_clear_renders')) {
@@ -171,6 +174,7 @@ export class InteractionManager<TSession extends InteractionSession> {
         error:
           'The selected app does not advertise react_clear_renders; interaction capture requires the React collector.',
         errorCode: 'tool-error',
+        errorDetails: { hubCode: 'REACT_COLLECTOR_MISSING' satisfies HubErrorCode },
       }
     }
 
@@ -269,6 +273,16 @@ export class InteractionManager<TSession extends InteractionSession> {
         ok: false,
         error: `Unknown or expired interaction ${JSON.stringify(input.interactionId)}. Begin a new one with devtools_interaction_begin.`,
         errorCode: 'invalid-args',
+        errorDetails: {
+          hubCode: 'INTERACTION_UNKNOWN' satisfies HubErrorCode,
+          issues: [
+            {
+              path: '/interactionId',
+              message: 'No active or recently completed interaction has this ID.',
+              received: 'string',
+            },
+          ],
+        },
       }
     }
     if (sessionTarget) {
@@ -279,6 +293,16 @@ export class InteractionManager<TSession extends InteractionSession> {
           ok: false,
           error: `Interaction ${JSON.stringify(input.interactionId)} belongs to physical session ${JSON.stringify(active.session.sessionId)}, not ${JSON.stringify(targeted.sessionId)}.`,
           errorCode: 'invalid-args',
+          errorDetails: {
+            hubCode: 'INTERACTION_SESSION_MISMATCH' satisfies HubErrorCode,
+            issues: [
+              {
+                path: '/interactionId',
+                message: 'The interaction belongs to a different session than the one targeted.',
+                received: 'string',
+              },
+            ],
+          },
         }
       }
     }

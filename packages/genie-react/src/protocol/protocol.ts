@@ -149,6 +149,21 @@ export const toolErrorIssueSchema = z.object({
 })
 export type ToolErrorIssue = z.infer<typeof toolErrorIssueSchema>
 
+/** Failures the hub reports for its own tools; agents map each to fixed recovery guidance. */
+export const HUB_ERROR_CODES = [
+  'CAPTURE_NOT_RETAINED',
+  'INTERACTION_ACTIVE',
+  'INTERACTION_LIMIT',
+  'INTERACTION_SESSION_MISMATCH',
+  'INTERACTION_UNKNOWN',
+  'REACT_COLLECTOR_MISSING',
+] as const
+export type HubErrorCode = (typeof HUB_ERROR_CODES)[number]
+
+export function isHubErrorCode(value: unknown): value is HubErrorCode {
+  return HUB_ERROR_CODES.some((code) => code === value)
+}
+
 /** Structured specifics behind a failed call, so an agent can repair it without parsing `error` prose. */
 export const toolErrorDetailsSchema = z.object({
   issues: z.array(toolErrorIssueSchema).optional(),
@@ -162,6 +177,8 @@ export const toolErrorDetailsSchema = z.object({
     .object({ code: z.string().optional(), message: z.string(), hint: z.string().optional() })
     .optional(),
   unavailableReason: z.string().optional(),
+  /** A `HubErrorCode` for a failure the hub authored; agents ignore codes they do not recognize. */
+  hubCode: z.string().optional(),
 })
 export type ToolErrorDetails = z.infer<typeof toolErrorDetailsSchema>
 
