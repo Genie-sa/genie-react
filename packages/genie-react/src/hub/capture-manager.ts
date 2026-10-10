@@ -21,6 +21,7 @@ import {
   toolValidationFailure,
 } from '../protocol'
 import { compareCaptureCohorts } from './capture-comparison'
+import { withFullView } from './full-view'
 import { recordOf, stringField } from './interaction-summary'
 
 const MAX_RETAINED_CAPTURES = 20
@@ -32,7 +33,7 @@ type CaptureReadSummary = z.infer<typeof captureReadSummarySchema>
 
 interface CaptureRecipeTool {
   name: string
-  args: unknown
+  args: Record<string, unknown>
 }
 
 interface CaptureRequestResult {
@@ -73,13 +74,13 @@ interface CaptureManagerOptions<TSession extends CaptureSession> {
 
 const REACT_COMMIT_PROBE: CaptureRecipeTool = {
   name: 'react_get_renders',
-  args: { sort: 'renders', limit: 50, appOnly: true, view: 'full' },
+  args: { sort: 'renders', limit: 50, appOnly: true },
 }
 
 const CAPTURE_RECIPES: Record<CaptureDomain, CaptureRecipeTool[]> = {
   react: [
     REACT_COMMIT_PROBE,
-    { name: 'react_render_causes', args: { limit: 50, appOnly: true, view: 'full' } },
+    { name: 'react_render_causes', args: { limit: 50, appOnly: true } },
     { name: 'react_profile_report', args: { limit: 50 } },
   ],
   effects: [
@@ -365,16 +366,17 @@ export class CaptureManager<TSession extends CaptureSession> {
     recipe: CaptureRecipeTool,
   ): Promise<CaptureToolResult> {
     const startedAt = Date.now()
+    const args = withFullView(session.tools, recipe.name, recipe.args)
     if (!session.tools.some((tool) => tool.name === recipe.name)) {
       return {
         status: 'unavailable',
         capturedAt: new Date().toISOString(),
         durationMs: 0,
         error: `Tool ${JSON.stringify(recipe.name)} is not advertised by this app.`,
-        args: structuredClone(recipe.args),
+        args: structuredClone(args),
       }
     }
-    const response = await this.options.request(session, recipe.name, recipe.args)
+    const response = await this.options.request(session, recipe.name, args)
     if (!response.ok && response.errorCode === 'not-connected') {
       throw new Error('The app document changed during capture. Retry against the ready successor.')
     }
@@ -389,7 +391,7 @@ export class CaptureManager<TSession extends CaptureSession> {
             maxEntries: 1_000,
             maxStringLength: 10_000,
           }),
-          args: dehydrate(recipe.args, {
+          args: dehydrate(args, {
             depth: 8,
             maxEntries: 200,
             maxStringLength: 2_000,
@@ -400,7 +402,7 @@ export class CaptureManager<TSession extends CaptureSession> {
           capturedAt: new Date().toISOString(),
           durationMs,
           error: response.error ?? `Tool ${JSON.stringify(recipe.name)} failed.`,
-          args: dehydrate(recipe.args, {
+          args: dehydrate(args, {
             depth: 8,
             maxEntries: 200,
             maxStringLength: 2_000,

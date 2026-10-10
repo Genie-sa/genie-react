@@ -115,6 +115,9 @@ describe('GenieBridge interaction capture', () => {
         title: name,
         description: name,
         group: 'react.render',
+        ...(name === 'react_get_renders' || name === 'react_render_causes'
+          ? { inputJsonSchema: { type: 'object', properties: { view: { type: 'string' } } } }
+          : {}),
       })),
     })
     const { ws: agent, inbox } = await open(`${url}?role=agent`)

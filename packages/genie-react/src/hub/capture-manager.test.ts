@@ -7,13 +7,20 @@ import {
 } from '../protocol'
 import { CaptureManager, type CaptureSession, verifyCaptureIntegrity } from './capture-manager'
 
+const viewInput = { type: 'object', properties: { view: { type: 'string' } } }
 const tools: ToolDescriptor[] = [
   'react_get_renders',
   'react_render_causes',
   'react_profile_report',
   'query_list',
   'query_is_fetching',
-].map((name) => ({ name, title: name, description: name, group: 'react' }))
+].map((name) => ({
+  name,
+  title: name,
+  description: name,
+  group: 'react',
+  ...(name.startsWith('react_') ? { inputJsonSchema: viewInput } : {}),
+}))
 
 const session: CaptureSession = {
   sessionId: 'session-1',
@@ -31,9 +38,10 @@ const comparableRenders = {
 
 function manager(
   renders: Record<string, unknown> = comparableRenders,
+  target: CaptureSession = session,
 ): CaptureManager<CaptureSession> {
   return new CaptureManager({
-    resolveSession: () => session,
+    resolveSession: () => target,
     unknownSessionError: (target) => `unknown ${target}`,
     isCurrentSession: () => true,
     request: async (_session, tool, args) => ({
@@ -138,6 +146,24 @@ describe('capture manager artifacts', () => {
         notComparableReasons: ['app-source-classification-incomplete'],
         coverage: { complete: false, semantics: 'lower-bound' },
       },
+    })
+  })
+
+  it('asks an app that predates view for its default shape instead of an argument it would reject', async () => {
+    const legacy = {
+      ...session,
+      tools: tools.map(({ inputJsonSchema: _input, ...descriptor }) => descriptor),
+    }
+    const created = await createCapture(manager(comparableRenders, legacy), 'legacy')
+
+    expect(created.sections.react?.tools.react_get_renders?.args).toEqual({
+      sort: 'renders',
+      limit: 50,
+      appOnly: true,
+    })
+    expect(created.sections.react?.tools.react_render_causes?.args).toEqual({
+      limit: 50,
+      appOnly: true,
     })
   })
 

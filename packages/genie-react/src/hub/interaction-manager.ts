@@ -13,6 +13,7 @@ import {
   toolValidationFailure,
   type WaitDomain,
 } from '../protocol'
+import { withFullView } from './full-view'
 import {
   numberField,
   recordOf,
@@ -339,17 +340,20 @@ export class InteractionManager<TSession extends InteractionSession> {
       input.quietMs,
       input.timeoutMs,
     )
-    const renders = await this.captureTool(active.session, 'react_get_renders', {
-      sort: 'renders',
-      limit: 100,
-      appOnly: false,
-      view: 'full',
-    })
-    const causes = await this.captureTool(active.session, 'react_render_causes', {
-      limit: 200,
-      appOnly: false,
-      view: 'full',
-    })
+    const renders = await this.captureTool(
+      active.session,
+      'react_get_renders',
+      withFullView(active.session.tools, 'react_get_renders', {
+        sort: 'renders',
+        limit: 100,
+        appOnly: false,
+      }),
+    )
+    const causes = await this.captureTool(
+      active.session,
+      'react_render_causes',
+      withFullView(active.session.tools, 'react_render_causes', { limit: 200, appOnly: false }),
+    )
     const effectTool = hasTool(active.session, 'react_effect_timeline')
       ? 'react_effect_timeline'
       : 'react_effect_events'
