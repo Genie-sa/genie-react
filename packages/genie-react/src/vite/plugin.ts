@@ -1,3 +1,4 @@
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import type { AddressInfo } from 'node:net'
 import { dirname, join, resolve } from 'node:path'
@@ -21,7 +22,7 @@ export interface GenieViteOptions {
   react?: boolean
   /** Override the bridge's per-request timeout in ms (default 20000). */
   requestTimeoutMs?: number
-  /** Browser origins allowed to connect as apps beyond the dev server's own origin and loopback pages. */
+  /** Browser origins allowed to connect as apps beyond the dev server's own origin (e.g. a tunnel or proxy host). */
   allowedOrigins?: readonly string[]
 }
 
@@ -46,6 +47,54 @@ export function hasCloudflarePlugin(plugins: readonly { name: string }[]): boole
 function isClientEntry(id: string): boolean {
   const path = id.split('?')[0] ?? id
   return path.includes('tanstack-start') && path.includes('client-entry')
+}
+
+// Vite replaces (not merges) its default deny list when one is configured, so an unset list must restate the defaults; this is Vite 8's list, a superset of 5–7's.
+const VITE_DEFAULT_FS_DENY = [
+  '.env',
+  '.env.*',
+  '*.{crt,pem,key,p12,pfx,cer,der}',
+  '.npmrc',
+  '.yarnrc.yml',
+  '**/.git/**',
+]
+const GENIE_STATE_FS_DENY = '**/.genie/**'
+const GENIE_STATE_SEGMENT = '.genie'
+const MAX_URL_DECODES = 3
+
+/** True when any decoding of the request path reaches a `.genie` segment; undecodable or deeply re-encoded paths count as reaching it. */
+export function isGenieStateRequest(url: string): boolean {
+  let path = url.split(/[?#]/, 1)[0] ?? ''
+  for (let round = 0; round <= MAX_URL_DECODES; round++) {
+    const reachesState = path
+      .split(/[\\/]/)
+      // Windows resolves `.genie.` and `.genie ` to `.genie`.
+      .some((segment) => segment.replace(/[. ]+$/, '').toLowerCase() === GENIE_STATE_SEGMENT)
+    if (reachesState) return true
+    let decoded: string
+    try {
+      decoded = decodeURIComponent(path)
+    } catch {
+      return true
+    }
+    if (decoded === path) return false
+    path = decoded
+  }
+  return true
+}
+
+// Registered ahead of Vite's own middlewares: fs.deny alone is skipped under `server.fs.strict: false`.
+function denyGenieState(
+  request: IncomingMessage,
+  response: ServerResponse,
+  next: () => void,
+): void {
+  if (!isGenieStateRequest(request.url ?? '/')) {
+    next()
+    return
+  }
+  response.statusCode = 404
+  response.end()
 }
 
 const VIRTUAL_ID = 'virtual:genie-client'
@@ -225,7 +274,15 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
           exclude: ['genie-react'],
           include: [...NESTED_OPTIMIZED_DEPS, ...installedTanstackIncludes(root)],
         },
-        server: { fs: { allow: [searchForWorkspaceRoot(root), genieRoot] } },
+        server: {
+          fs: {
+            allow: [searchForWorkspaceRoot(root), genieRoot],
+            // Plugin config merges by concatenation, so only the genie entry is added to a list the app already set.
+            deny: userConfig.server?.fs?.deny
+              ? [GENIE_STATE_FS_DENY]
+              : [...VITE_DEFAULT_FS_DENY, GENIE_STATE_FS_DENY],
+          },
+        },
       }
     },
 
@@ -256,6 +313,7 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
 
     async configureServer(server) {
       if (!enabled) return
+      server.middlewares.use(denyGenieState)
       const httpServer = server.httpServer
       if (!httpServer) return
 
@@ -292,7 +350,11 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
         bridge?.handleUpgrade(request, socket, head)
       })
       httpServer.once('listening', () => {
-        void writeDiscovery(server, httpServer.address(), currentBridge.agentToken)
+        writeDiscovery(server, httpServer.address(), currentBridge.agentToken).catch((error) => {
+          server.config.logger.error(
+            `[genie] could not publish the bridge for the genie CLI: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        })
       })
       httpServer.once('close', () => {
         bridge?.close()

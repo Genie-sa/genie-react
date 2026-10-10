@@ -263,6 +263,7 @@ describe('cloudflare coexistence', () => {
       await configureServer.call(null, {
         config: { root, logger: { info: (message: string) => logs.push(message) } },
         httpServer,
+        middlewares: { use: () => undefined },
       })
       expect(logs.join('\n')).toContain('standalone hub')
       expect(existsSync(join(root, GENIE_DISCOVERY_FILE))).toBe(true)
