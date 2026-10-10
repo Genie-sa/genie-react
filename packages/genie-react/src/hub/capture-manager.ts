@@ -22,7 +22,7 @@ import {
 } from '../protocol'
 import { compareCaptureCohorts } from './capture-comparison'
 import { withFullView } from './full-view'
-import { recordOf, stringField } from './interaction-summary'
+import { recordOf, stringField } from './wire-guards'
 
 const MAX_RETAINED_CAPTURES = 20
 const MAX_CAPTURE_BYTES = 2_000_000

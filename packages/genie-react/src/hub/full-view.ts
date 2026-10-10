@@ -1,5 +1,5 @@
 import type { ToolDescriptor } from '../protocol'
-import { recordOf } from './interaction-summary'
+import { recordOf } from './wire-guards'
 
 /** Requests `view:"full"` only from apps that advertise it: older apps reject the unknown key and already return the full shape. */
 export function withFullView(

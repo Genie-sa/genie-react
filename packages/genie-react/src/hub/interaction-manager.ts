@@ -14,13 +14,8 @@ import {
   type WaitDomain,
 } from '../protocol'
 import { withFullView } from './full-view'
-import {
-  numberField,
-  recordOf,
-  selectInteractionSections,
-  stringField,
-  summarizeInteraction,
-} from './interaction-summary'
+import { selectInteractionSections, summarizeInteraction } from './interaction-summary'
+import { numberField, recordOf, stringField } from './wire-guards'
 
 const MAX_ACTIVE_INTERACTIONS = 20
 const MAX_COMPLETED_INTERACTIONS = 20

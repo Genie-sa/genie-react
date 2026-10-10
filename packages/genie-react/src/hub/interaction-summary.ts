@@ -10,6 +10,7 @@ import {
   RENDER_CAUSE_EVIDENCE,
   roundMilliseconds,
 } from '../protocol'
+import { numberField, recordOf, stringField } from './wire-guards'
 
 const SUMMARY_COMPONENTS = 10
 const SUMMARY_EFFECTS = 5
@@ -219,20 +220,4 @@ function recordsOf(value: unknown): Record<string, unknown>[] {
     const record = recordOf(entry)
     return record ? [record] : []
   })
-}
-
-export function recordOf(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null
-}
-
-export function numberField(record: Record<string, unknown> | null, key: string): number | null {
-  const value = record?.[key]
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-export function stringField(record: Record<string, unknown> | null, key: string): string | null {
-  const value = record?.[key]
-  return typeof value === 'string' ? value : null
 }
