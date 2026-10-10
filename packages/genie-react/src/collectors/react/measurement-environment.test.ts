@@ -30,7 +30,9 @@ describe('measurement environment', () => {
     { types: [1, 1], bundle: 'development' },
     { types: [0, 1], bundle: 'mixed' },
     { types: [], bundle: 'unknown' },
-    { types: [1, 2], bundle: 'unknown' },
+    { types: [1, 2], bundle: 'development' },
+    { types: [1, -1], bundle: 'unknown' },
+    { types: [undefined], bundle: 'unknown' },
   ])('reports $bundle for renderer bundle types $types', ({ types, bundle }) => {
     types.forEach((bundleType, index) => {
       mocks.renderers.set(index, { bundleType } as ReactRenderer)

@@ -18,8 +18,9 @@ function rendererBundle(): MeasurementEnvironment['bundle'] {
   let production = false
   try {
     for (const renderer of getRDTHook().renderers.values()) {
-      if (renderer.bundleType === 1) development = true
-      else if (renderer.bundleType === 0) production = true
+      const { bundleType } = renderer
+      if (typeof bundleType === 'number' && bundleType > 0) development = true
+      else if (bundleType === 0) production = true
       else return 'unknown'
     }
   } catch {
