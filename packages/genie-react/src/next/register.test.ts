@@ -37,7 +37,7 @@ describe('registerGenie', () => {
 
     const discovery = JSON.parse(await readFile(join(dir, GENIE_DISCOVERY_FILE), 'utf8'))
     expect(discovery.port).toBe(port)
-    expect(discovery.url).toBe(`ws://localhost:${port}/__genie/ws`)
+    expect(discovery.url).toBe(`ws://127.0.0.1:${port}/__genie/ws`)
     expect(process.env.GENIE_HUB_PORT).toBe(String(port))
     expect(await status(port, GENIE_CLIENT_PATH)).toBeGreaterThanOrEqual(200)
   })

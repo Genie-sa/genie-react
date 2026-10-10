@@ -1,11 +1,8 @@
-import {
-  GENIE_CLIENT_PATH,
-  GENIE_DEFAULT_HUB_PORT,
-  GENIE_INFO_PATH,
-  GENIE_WS_PATH,
-} from '../protocol'
-import { writeDiscoveryFile } from './discovery'
+import { GENIE_CLIENT_PATH, GENIE_DEFAULT_HUB_PORT, GENIE_INFO_PATH } from '../protocol'
+import { bridgeUrlFor, writeDiscoveryFile } from './discovery'
 import { createStandaloneBridge, type StandaloneBridgeHandle } from './standalone'
+
+const HUB_HOST = '127.0.0.1'
 
 export interface StartHubOptions {
   /** App root the hub belongs to; discovery is written here (defaults to cwd). */
@@ -46,19 +43,20 @@ export async function startGenieHub(options: StartHubOptions = {}): Promise<Star
       loopbackAppPorts: options.loopbackAppPorts,
     })
     try {
-      const bound = await handle.listen(port)
+      const bound = await handle.listen(port, HUB_HOST)
+      const published = urls(bound.host, bound.port)
       await writeDiscoveryFile(rootDir, {
-        url: hubUrl(bound.port),
+        url: published.url,
         port: bound.port,
         token: handle.bridge.agentToken,
       })
-      return { status: 'started', handle, port: bound.port, ...urls(bound.port) }
+      return { status: 'started', handle, port: bound.port, ...published }
     } catch (error) {
       await handle.close()
       if (!isAddrInUse(error)) throw error
       const occupant = await probeHubInfo(port)
       // The owning hub already wrote discovery with its token; rewriting it here would publish this process's pid and no token.
-      if (occupant?.rootDir === rootDir) return { status: 'reused', port, ...urls(port) }
+      if (occupant?.rootDir === rootDir) return { status: 'reused', port, ...urls(HUB_HOST, port) }
     }
   }
   throw new Error(
@@ -71,7 +69,7 @@ export async function startGenieHub(options: StartHubOptions = {}): Promise<Star
 /** Identifies who occupies a port: a genie hub answers GENIE_INFO_PATH with its rootDir; anything else is foreign. */
 async function probeHubInfo(port: number): Promise<{ rootDir: string } | null> {
   try {
-    const response = await fetch(`http://127.0.0.1:${port}${GENIE_INFO_PATH}`, {
+    const response = await fetch(`http://${HUB_HOST}:${port}${GENIE_INFO_PATH}`, {
       signal: AbortSignal.timeout(500),
     })
     if (!response.ok) return null
@@ -99,12 +97,11 @@ function envAllowedOrigins(): string[] {
     .filter((origin) => origin !== '')
 }
 
-function hubUrl(port: number): string {
-  return `ws://localhost:${port}${GENIE_WS_PATH}`
-}
-
-function urls(port: number): { url: string; clientUrl: string } {
-  return { url: hubUrl(port), clientUrl: `http://localhost:${port}${GENIE_CLIENT_PATH}` }
+function urls(host: string, port: number): { url: string; clientUrl: string } {
+  return {
+    url: bridgeUrlFor(host, port),
+    clientUrl: `http://${host}:${port}${GENIE_CLIENT_PATH}`,
+  }
 }
 
 function isAddrInUse(error: unknown): boolean {

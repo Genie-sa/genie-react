@@ -103,7 +103,7 @@ export function runInitCommand(options: InitCommandOptions = {}): number {
                 integration: {
                   module: 'genie-react/next',
                   export: 'GenieScript',
-                  scriptUrl: `http://localhost:${GENIE_DEFAULT_HUB_PORT}${GENIE_CLIENT_PATH}`,
+                  scriptUrl: `http://127.0.0.1:${GENIE_DEFAULT_HUB_PORT}${GENIE_CLIENT_PATH}`,
                   developmentOnly: true,
                 },
               }

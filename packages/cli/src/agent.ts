@@ -19,7 +19,7 @@ import {
   isTokenTransportSafe,
   normalizeBridgeUrl,
   resolveBridge,
-  resolveBridgeToken,
+  resolveExplicitBridge,
 } from './discovery'
 import {
   CLI_OUTPUT_SCHEMA_VERSION,
@@ -188,8 +188,9 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
   let token: string | undefined
   let source: string
   if (opts.url) {
-    url = normalizeBridgeUrl(opts.url)
-    token = opts.token ?? (await resolveBridgeToken(url, cwd))
+    const explicit = await resolveExplicitBridge(normalizeBridgeUrl(opts.url), cwd)
+    url = explicit.url
+    token = opts.token ?? explicit.token
     source = 'flag'
   } else {
     const bridge = await resolveBridge(cwd)
@@ -207,7 +208,7 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
     token = undefined
     writeDiagnostic(
       'insecure-bridge-url',
-      'The agent token is only sent over wss:// or to a localhost bridge. Forward the hub to localhost (for example ssh -L) or put it behind wss://.',
+      'The agent token is only sent over wss:// or to a loopback IP address. Use ws://127.0.0.1:<port>, forward a remote hub there (for example ssh -L), or put it behind wss://.',
     )
   } else if (token === undefined && (source === 'file' || source === 'workspace')) {
     writeDiagnostic(

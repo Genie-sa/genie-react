@@ -1,6 +1,7 @@
 import { chmod, mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import { isIPv6 } from 'node:net'
 import { dirname, join } from 'node:path'
-import { GENIE_DISCOVERY_FILE } from '../protocol'
+import { GENIE_DISCOVERY_FILE, GENIE_WS_PATH } from '../protocol'
 import { removeAgentToken, writeAgentToken } from './agent-token'
 
 export interface HubDiscovery {
@@ -8,6 +9,12 @@ export interface HubDiscovery {
   port: number
   /** Agent token the hub requires; stored in a per-user private file, never under the web-served project root. */
   token: string
+}
+
+/** Agent URL as the bound IP literal, never `localhost` (a squatter on the other address family would get the token); `0.0.0.0` → 127.0.0.1, `::` → [::1], which `::` owns even without dual-stack. */
+export function bridgeUrlFor(address: string, port: number): string {
+  const host = address === '0.0.0.0' ? '127.0.0.1' : address === '::' ? '::1' : address
+  return `ws://${isIPv6(host) ? `[${host}]` : host}:${port}${GENIE_WS_PATH}`
 }
 
 /** Publishes the hub for the genie CLI: endpoint in `.genie/bridge.json`, token in the private token store; returns the discovery path. */

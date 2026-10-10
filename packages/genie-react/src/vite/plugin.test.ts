@@ -269,7 +269,7 @@ describe('cloudflare coexistence', () => {
       expect(existsSync(join(root, GENIE_DISCOVERY_FILE))).toBe(true)
 
       const module = await load.call({}, '\0virtual:genie-client')
-      expect(module).toMatch(/url: "ws:\/\/localhost:\d+\/__genie\/ws"/)
+      expect(module).toMatch(/url: "ws:\/\/127\.0\.0\.1:\d+\/__genie\/ws"/)
     } finally {
       httpServer.emit('close')
       await new Promise((resolve) => setTimeout(resolve, 100))

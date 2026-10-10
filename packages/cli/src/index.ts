@@ -1071,7 +1071,7 @@ function printUniversalSetup(log: Logger): void {
   log.info(`${PREVIEW}No Vite config or Next.js detected — universal setup for any React app:`)
   log.info(`  1. run the hub: npx ${CLI_PACKAGE} hub`)
   log.info(
-    `  2. add first in <head>: <script src="http://localhost:${GENIE_DEFAULT_HUB_PORT}${GENIE_CLIENT_PATH}"></script>`,
+    `  2. add first in <head>: <script src="http://127.0.0.1:${GENIE_DEFAULT_HUB_PORT}${GENIE_CLIENT_PATH}"></script>`,
   )
   log.info('     (the hub prints this tag with its actual port if 4390 was busy)')
 }

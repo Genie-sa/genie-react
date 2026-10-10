@@ -87,8 +87,7 @@ interface LocatedDiscovery {
 export async function resolveBridge(cwd: string = process.cwd()): Promise<ResolvedBridge> {
   const fromEnv = process.env.GENIE_BRIDGE_URL
   if (fromEnv) {
-    const url = normalizeBridgeUrl(fromEnv)
-    return { url, token: await resolveBridgeToken(url, cwd), source: 'env' }
+    return { ...(await resolveExplicitBridge(normalizeBridgeUrl(fromEnv), cwd)), source: 'env' }
   }
 
   const fromFile = await readDiscoveryUpward(cwd)
@@ -116,24 +115,32 @@ export async function resolveBridgeUrl(cwd: string = process.cwd()): Promise<str
   return (await resolveBridge(cwd)).url
 }
 
-/** Token for an explicit URL (--url / GENIE_BRIDGE_URL): GENIE_BRIDGE_TOKEN wins, else the token of the discovered hub publishing that endpoint. */
-export async function resolveBridgeToken(
+/** An explicit URL (--url / GENIE_BRIDGE_URL) adopts the address literal of a discovered hub at that endpoint, so a typed `localhost` cannot reach a squatter; GENIE_BRIDGE_TOKEN wins over that hub's token. */
+export async function resolveExplicitBridge(
   url: string,
   cwd: string = process.cwd(),
-): Promise<string | undefined> {
-  const fromEnv = process.env.GENIE_BRIDGE_TOKEN
-  if (fromEnv) return fromEnv
-  const nearest = await readDiscoveryUpward(cwd)
-  if (nearest && sameEndpoint(nearest.url, url)) return tokenFor(nearest)
-  const descendants = await readWorkspaceDiscoveries(cwd)
-  const match = descendants.find((discovery) => sameEndpoint(discovery.url, url))
-  return match && tokenFor(match)
+): Promise<{ url: string; token?: string }> {
+  const discovered = await findDiscoveredEndpoint(url, cwd)
+  const token = process.env.GENIE_BRIDGE_TOKEN || (discovered && (await tokenFor(discovered)))
+  return { url: discovered?.url ?? url, token: token || undefined }
 }
 
-/** The agent token never travels in cleartext off this machine: only wss:// or a loopback ws:// endpoint may carry it. */
+async function findDiscoveredEndpoint(
+  url: string,
+  cwd: string,
+): Promise<LocatedDiscovery | undefined> {
+  const nearest = await readDiscoveryUpward(cwd)
+  if (nearest && sameEndpoint(nearest.url, url)) return nearest
+  const descendants = await readWorkspaceDiscoveries(cwd)
+  return descendants.find((discovery) => sameEndpoint(discovery.url, url))
+}
+
+/** The token travels only over wss:// or to a loopback IP literal: off-machine cleartext is sniffable, and a `localhost` name may resolve to a squatter on the other address family. */
 export function isTokenTransportSafe(url: string): boolean {
   const { protocol, hostname } = new URL(url)
-  return protocol === 'wss:' || isLoopbackHostname(hostname)
+  return (
+    protocol === 'wss:' || hostname === '[::1]' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)
+  )
 }
 
 // `.genie/bridge.json` sits in the app root, whose realpath keys the private token file.
@@ -143,15 +150,7 @@ function tokenFor(discovery: LocatedDiscovery): Promise<string | undefined> {
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
-function isLoopbackHostname(hostname: string): boolean {
-  return (
-    LOOPBACK_HOSTS.has(hostname) ||
-    hostname.endsWith('.localhost') ||
-    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)
-  )
-}
-
-// Discovery always says `localhost`; a user-typed 127.0.0.1 or [::1] for the same port is the same hub.
+// Discovery publishes the bound loopback literal; a user-typed `localhost`, 127.0.0.1 or [::1] for that port means the same hub.
 function sameEndpoint(a: string, b: string): boolean {
   const left = new URL(a)
   const right = new URL(b)

@@ -10,8 +10,8 @@ import {
   isTokenTransportSafe,
   normalizeBridgeUrl,
   resolveBridge,
-  resolveBridgeToken,
   resolveBridgeUrl,
+  resolveExplicitBridge,
 } from './discovery'
 
 const ENV_KEYS = ['GENIE_BRIDGE_URL', 'GENIE_BRIDGE_PORT', 'GENIE_BRIDGE_TOKEN'] as const
@@ -138,17 +138,31 @@ describe('resolveBridgeUrl', () => {
   })
 
   it('pairs an explicit url with GENIE_BRIDGE_TOKEN first, else the hub publishing that endpoint', async () => {
-    await writeDiscovery(JSON.stringify({ url: 'ws://localhost:4321/__genie/ws', port: 4321 }))
+    await writeDiscovery(JSON.stringify({ url: 'ws://127.0.0.1:4321/__genie/ws', port: 4321 }))
     await writeAgentToken(cwd, 'file-token')
-    expect(await resolveBridgeToken('ws://127.0.0.1:4321/__genie/ws', cwd)).toBe('file-token')
-    expect(await resolveBridgeToken('ws://localhost:9999/__genie/ws', cwd)).toBeUndefined()
-    expect(await resolveBridgeToken('ws://remote.example:4321/__genie/ws', cwd)).toBeUndefined()
+    expect(await resolveExplicitBridge('ws://localhost:4321/__genie/ws', cwd)).toEqual({
+      url: 'ws://127.0.0.1:4321/__genie/ws',
+      token: 'file-token',
+    })
+    expect(
+      (await resolveExplicitBridge('ws://localhost:9999/__genie/ws', cwd)).token,
+    ).toBeUndefined()
+    expect(
+      (await resolveExplicitBridge('ws://remote.example:4321/__genie/ws', cwd)).token,
+    ).toBeUndefined()
 
     process.env.GENIE_BRIDGE_URL = 'ws://localhost:4321/__genie/ws'
-    expect((await resolveBridge(cwd)).token).toBe('file-token')
+    expect(await resolveBridge(cwd)).toEqual({
+      url: 'ws://127.0.0.1:4321/__genie/ws',
+      token: 'file-token',
+      source: 'env',
+    })
     process.env.GENIE_BRIDGE_TOKEN = 'env-token'
     expect((await resolveBridge(cwd)).token).toBe('env-token')
-    expect(await resolveBridgeToken('ws://remote.example:4321/__genie/ws', cwd)).toBe('env-token')
+    expect(await resolveExplicitBridge('ws://remote.example:4321/__genie/ws', cwd)).toEqual({
+      url: 'ws://remote.example:4321/__genie/ws',
+      token: 'env-token',
+    })
   })
 
   it('pairs an explicit url with a matching descendant bridge token from a monorepo root', async () => {
@@ -167,7 +181,9 @@ describe('resolveBridgeUrl', () => {
       await writeAgentToken(appRoot, `${name}-token`)
     }
 
-    expect(await resolveBridgeToken('ws://localhost:4322/__genie/ws', cwd)).toBe('shop-token')
+    expect((await resolveExplicitBridge('ws://localhost:4322/__genie/ws', cwd)).token).toBe(
+      'shop-token',
+    )
   })
 
   it('discovers one live descendant bridge when invoked from a monorepo root', async () => {
@@ -248,13 +264,11 @@ describe('normalizeBridgeUrl', () => {
 })
 
 describe('isTokenTransportSafe', () => {
-  it('allows the token over wss:// anywhere and over ws:// only to loopback', () => {
+  it('allows the token over wss:// anywhere and over ws:// only to loopback IP literals', () => {
     for (const url of [
-      'ws://localhost:5173/__genie/ws',
       'ws://127.0.0.1:4390/__genie/ws',
       'ws://127.1.2.3:4390/__genie/ws',
       'ws://[::1]:4390/__genie/ws',
-      'ws://app.localhost:5173/__genie/ws',
       'wss://dev.example.test/__genie/ws',
     ]) {
       expect(isTokenTransportSafe(url)).toBe(true)
@@ -263,6 +277,8 @@ describe('isTokenTransportSafe', () => {
       'ws://192.168.1.20:5173/__genie/ws',
       'ws://dev.example.test/__genie/ws',
       'ws://localhost.evil.example/__genie/ws',
+      'ws://localhost:5173/__genie/ws',
+      'ws://app.localhost:5173/__genie/ws',
     ]) {
       expect(isTokenTransportSafe(url)).toBe(false)
     }

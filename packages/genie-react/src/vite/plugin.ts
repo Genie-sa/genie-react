@@ -5,13 +5,14 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type Plugin, type Rollup, searchForWorkspaceRoot, type ViteDevServer } from 'vite'
 import {
+  bridgeUrlFor,
   GenieBridge,
   removeDiscoveryFile,
   type StartHubResult,
   startGenieHub,
   writeDiscoveryFile,
 } from '../hub'
-import { GENIE_GLOBAL_KEY, GENIE_WS_PATH } from '../protocol'
+import { GENIE_GLOBAL_KEY } from '../protocol'
 
 export interface GenieViteOptions {
   /** Overrides the app name reported to the agent (defaults to the document title). */
@@ -468,8 +469,7 @@ async function writeDiscovery(
   token: string,
 ): Promise<void> {
   if (!address || typeof address === 'string') return
-  // `localhost` (not a fixed IP) so the CLI connects whether Vite bound IPv4 or IPv6 loopback.
-  const url = `ws://localhost:${address.port}${GENIE_WS_PATH}`
+  const url = bridgeUrlFor(address.address, address.port)
   await writeDiscoveryFile(server.config.root, { url, port: address.port, token })
   server.config.logger.info(`[genie] bridge ready at ${url}`)
 }
