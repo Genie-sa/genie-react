@@ -1,0 +1,53 @@
+{
+  "id": "query-key-mismatch",
+  "split": "dev",
+  "mode": "diagnose",
+  "screen": "tasks",
+  "prompt": "On the Tasks screen, when I add a task it says \"Saved\" but the new task doesn't show up in the list until I reload the page. Why?",
+  "truth": {
+    "components": ["AddTaskForm", "TaskList", "useAddTask"],
+    "files": ["src/screens/tasks/taskQueries.ts"],
+    "causePatterns": [
+      "invalidat",
+      "key|\\[\\s*['\"]tasks?",
+      "match|differ|wrong|typo|singular|incorrect|instead|\\bvs\\b"
+    ],
+    "summary": "useAddTask invalidates ['task', 'list'] but the list query key is ['tasks', 'list'], so the list is never refetched."
+  },
+  "referenceAnswer": {
+    "component": "AddTaskForm",
+    "cause": "useAddTask invalidates the ['task', 'list'] query key, which does not match the list query key ['tasks', 'list'], so the list never refetches.",
+    "file": "src/screens/tasks/taskQueries.ts"
+  },
+  "acceptedAnswers": [
+    {
+      "component": "useAddTask",
+      "cause": "useAddTask invalidates ['task','list'] instead of ['tasks','list'].",
+      "file": "src/screens/tasks/taskQueries.ts"
+    },
+    {
+      "component": "AddTaskForm (useMutation)",
+      "cause": "onSuccess invalidates ['task', 'list'] vs the list's ['tasks', 'list'].",
+      "file": "src/screens/tasks/taskQueries.ts"
+    }
+  ],
+  "decoyAnswers": [
+    {
+      "component": "TaskList",
+      "cause": "The API never persists the new task.",
+      "file": "src/api.ts"
+    },
+    {
+      "component": "AddTaskForm",
+      "cause": "useAddTask never invalidates the tasks list query key after the mutation succeeds.",
+      "file": "src/screens/tasks/taskQueries.ts"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/screens/tasks/taskQueries.ts",
+      "find": "queryKey: ['task', 'list']",
+      "replace": "queryKey: taskKeys.list()"
+    }
+  ]
+}

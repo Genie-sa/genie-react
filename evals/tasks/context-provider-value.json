@@ -1,0 +1,59 @@
+{
+  "id": "context-provider-value",
+  "split": "dev",
+  "mode": "diagnose",
+  "screen": "dashboard",
+  "prompt": "On the Dashboard, all of the widget cards re-render roughly once a second even when I'm not touching anything. What's causing it?",
+  "truth": {
+    "components": ["WidgetCard", "PreferencesProvider"],
+    "files": ["src/screens/dashboard/PreferencesProvider.tsx"],
+    "causePatterns": ["value|object|\\{", "context|provider", "@identity"],
+    "summary": "PreferencesProvider re-renders every second for its sync clock and passes a new `{ density, setDensity }` object as the context value, so every consumer re-renders."
+  },
+  "referenceAnswer": {
+    "component": "WidgetCard",
+    "cause": "PreferencesProvider creates a new context value object on every render (it re-renders each second for the sync clock), so all consumers re-render.",
+    "file": "src/screens/dashboard/PreferencesProvider.tsx"
+  },
+  "acceptedAnswers": [
+    {
+      "component": "PreferencesProvider",
+      "cause": "PreferencesProvider passes a fresh { density, setDensity } to the context provider each time its sync clock ticks.",
+      "file": "src/screens/dashboard/PreferencesProvider.tsx"
+    }
+  ],
+  "decoyAnswers": [
+    {
+      "component": "DashboardScreen",
+      "cause": "The widgets array is recreated on each render.",
+      "file": "src/screens/dashboard/DashboardScreen.tsx"
+    },
+    {
+      "component": "PreferencesProvider",
+      "cause": "The provider's setInterval updates state every second, causing a new render of the provider.",
+      "file": "src/screens/dashboard/PreferencesProvider.tsx"
+    },
+    {
+      "component": "WidgetCard, DensityToggle, DashboardScreen",
+      "cause": "PreferencesProvider creates a new context value object on every render.",
+      "file": "src/screens/dashboard/PreferencesProvider.tsx"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/screens/dashboard/PreferencesProvider.tsx",
+      "find": "import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'",
+      "replace": "import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react'"
+    },
+    {
+      "file": "src/screens/dashboard/PreferencesProvider.tsx",
+      "find": "  const [syncedSecondsAgo, setSyncedSecondsAgo] = useState(0)\n",
+      "replace": "  const [syncedSecondsAgo, setSyncedSecondsAgo] = useState(0)\n  const preferences = useMemo(() => ({ density, setDensity }), [density])\n"
+    },
+    {
+      "file": "src/screens/dashboard/PreferencesProvider.tsx",
+      "find": "value={{ density, setDensity }}",
+      "replace": "value={preferences}"
+    }
+  ]
+}
