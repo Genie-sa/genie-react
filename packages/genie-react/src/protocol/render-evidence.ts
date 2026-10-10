@@ -1,5 +1,10 @@
 /** Per-component render counters that bear on memoization; summaries list the non-zero ones. */
-export const RENDER_MEMO_COUNTERS = ['noObservedInputChange', 'referenceOnlyPropRenders'] as const
+export const RENDER_MEMO_COUNTERS = [
+  'noObservedInputChange',
+  'referenceOnlyPropRenders',
+  'functionIdentityPropRenders',
+  'undeterminedReferencePropRenders',
+] as const
 export type RenderMemoCounter = (typeof RENDER_MEMO_COUNTERS)[number]
 export const RENDER_CAUSE_EVIDENCE = ['exact', 'inferred', 'unknown'] as const
 

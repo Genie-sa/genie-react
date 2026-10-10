@@ -55,6 +55,7 @@ const row = {
   selfTime: 0.5,
   noObservedInputChange: 2,
   referenceOnlyPropRenders: 0,
+  functionIdentityPropRenders: 1,
   assessment: { inputEvidence: 'changed' },
   inputCoverage: {
     complete: false,
@@ -103,6 +104,7 @@ describe('interaction summary', () => {
         updates: 5,
         selfTime: 0.5,
         noObservedInputChange: 2,
+        functionIdentityPropRenders: 1,
         inputEvidence: 'changed',
         inputCoverage: { complete: false, propsNotEnumerated: true },
         topCause: {

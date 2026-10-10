@@ -508,6 +508,14 @@ export const renderComponentSummarySchema = z.object({
     .number()
     .optional()
     .describe('Kept at zero under sort:"unstable" or "referenceOnly", which rank by it.'),
+  functionIdentityPropRenders: z
+    .number()
+    .optional()
+    .describe('Memo renders driven by a new function identity, such as an inline callback.'),
+  undeterminedReferencePropRenders: z
+    .number()
+    .optional()
+    .describe('Memo renders whose reference-changed props could not be classified.'),
   selfTime: z.number(),
   totalTime: z.number(),
   cumulativeSelfTime: z.number().optional().describe('Omitted when it equals selfTime.'),
