@@ -1,5 +1,4 @@
 import { join } from 'node:path'
-import { BROWSER_ALLOWED_DOMAINS } from './agents.mjs'
 import { release, track } from './cleanup.mjs'
 import { delay, run } from './process.mjs'
 
@@ -12,18 +11,10 @@ const READY_TIMEOUT_MS = 20_000
 const CLI_PATH = 'node_modules/@genie-react/cli/dist/cli.js'
 
 /**
- * Matches the agent's agent-browser settings exactly: a daemon reached with different launch settings restarts the
- * browser on a blank page, discarding the app the harness opened.
  * @param {string} session
  */
 function browserEnv(session) {
-  const inherited = Object.entries(process.env).filter(([key]) => !key.startsWith('AGENT_BROWSER_'))
-  return {
-    ...Object.fromEntries(inherited),
-    AGENT_BROWSER_SESSION: session,
-    AGENT_BROWSER_ALLOWED_DOMAINS: BROWSER_ALLOWED_DOMAINS,
-    GENIE_SESSION: session,
-  }
+  return { ...process.env, AGENT_BROWSER_SESSION: session, GENIE_SESSION: session }
 }
 
 /**

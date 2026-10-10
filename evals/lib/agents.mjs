@@ -16,7 +16,6 @@ const BROWSER_FILE_COMMANDS = [
   'auth',
   'cookies set',
 ]
-export const BROWSER_ALLOWED_DOMAINS = '127.0.0.1,localhost'
 const PROTECTED_PATHS = [
   'vite.config.ts',
   'vite.config.js',
@@ -127,7 +126,7 @@ export function agentEnv(source, { dir, browserSession, toolDirs }) {
     ...env,
     PATH: [...new Set(path)].join(delimiter),
     AGENT_BROWSER_SESSION: browserSession,
-    AGENT_BROWSER_ALLOWED_DOMAINS: BROWSER_ALLOWED_DOMAINS,
+    AGENT_BROWSER_ALLOWED_DOMAINS: '127.0.0.1,localhost',
     npm_config_verify_deps_before_run: 'false',
     pnpm_config_verify_deps_before_run: 'false',
   }
