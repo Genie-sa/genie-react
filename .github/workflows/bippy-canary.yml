@@ -1,0 +1,123 @@
+# Early warning for unreleased bippy changes; not a required check, so a red run never blocks a merge.
+name: bippy canary
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - packages/genie-react/src/collectors/react/**
+      - packages/genie-react/src/collectors/timeline/**
+      - packages/genie-react/package.json
+      - packages/genie-react/tsdown.config.ts
+      - .github/workflows/bippy-canary.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bippy-canary-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  canary:
+    name: genie-react against bippy@dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The job installs a package outside the lockfile, so it must never save a cache other workflows restore.
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          cache: false
+
+      - name: Install bippy@dev
+        id: bippy
+        run: |
+          version=$(npm view bippy@dev version)
+          if [[ -z $version ]]; then
+            echo "::error::npm returned no version for bippy@dev"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          pnpm --filter genie-react add --save-exact "bippy@$version"
+
+      - name: Typecheck
+        id: typecheck
+        continue-on-error: true
+        run: pnpm --filter genie-react typecheck 2>&1 | tee "$RUNNER_TEMP/typecheck.log"
+
+      - name: Test bippy collectors
+        id: test
+        continue-on-error: true
+        run: >
+          pnpm exec vitest run
+          packages/genie-react/src/collectors/react
+          packages/genie-react/src/collectors/timeline
+          --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/vitest.json"
+
+      - name: Build
+        id: build
+        continue-on-error: true
+        run: pnpm --filter genie-react build 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Report
+        if: always()
+        env:
+          BIPPY_VERSION: ${{ steps.bippy.outputs.version || 'unresolved' }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          TEST: ${{ steps.test.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+        run: |
+          excerpt() {
+            local log
+            log=$(perl -pe 's/\e\[[0-9;]*m//g' "$2")
+            grep -E "$1" <<<"$log" || tail -n 40 <<<"$log"
+          }
+          {
+            echo "## genie-react against \`bippy@$BIPPY_VERSION\`"
+            echo
+            echo "| Check | Outcome |"
+            echo "| --- | --- |"
+            echo "| Typecheck | $TYPECHECK |"
+            echo "| Collector tests | $TEST |"
+            echo "| Build | $BUILD |"
+            if [[ $TYPECHECK == failure ]]; then
+              echo -e "\n### Type errors\n\n\`\`\`"
+              excerpt 'error TS' "$RUNNER_TEMP/typecheck.log"
+              echo '```'
+            fi
+            if [[ $TEST == failure ]]; then
+              echo -e "\n### Failing tests\n"
+              if [[ -s $RUNNER_TEMP/vitest.json ]]; then
+                jq -r --arg root "$GITHUB_WORKSPACE/" '
+                  def firstline: . // "" | split("\n")[0];
+                  .testResults[]
+                  | (.name | ltrimstr($root)) as $file
+                  | if (.assertionResults | length) == 0 then
+                      select(.status == "failed") | "- `\($file)`: \(.message | firstline)"
+                    else
+                      .assertionResults[]
+                      | select(.status == "failed")
+                      | "- `\($file)` › \(.fullName): \(.failureMessages[0] | firstline)"
+                    end
+                ' "$RUNNER_TEMP/vitest.json" || echo "_vitest JSON unreadable_"
+              else
+                echo "_vitest wrote no JSON report_"
+              fi
+            fi
+            if [[ $BUILD == failure ]]; then
+              echo -e "\n### Build errors\n\n\`\`\`"
+              excerpt '^ ?ERROR|^\[[A-Z_]+\]' "$RUNNER_TEMP/build.log"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          [[ "$TYPECHECK $TEST $BUILD" == "success success success" ]]
