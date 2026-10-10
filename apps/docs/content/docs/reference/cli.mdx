@@ -58,7 +58,8 @@ npx @genie-react/cli status --session checkout-agent
 npx @genie-react/cli status --url ws://localhost:4390/__genie/ws
 ```
 
-Use `GENIE_SESSION` and `GENIE_BRIDGE_URL` to set these once per shell.
+Pass `--session` on every command. `GENIE_SESSION` and `GENIE_BRIDGE_URL` also work, but agent
+permission allowlists often reject `export` inside compound commands.
 
 ## Stable failures
 

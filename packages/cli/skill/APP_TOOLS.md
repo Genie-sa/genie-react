@@ -102,14 +102,13 @@ Registration waits for a late Genie client. Unregistering leaves a bounded unava
 
 ## 5. Verify the agent-facing behavior
 
-With the app running, use the exact installed CLI:
+With the app open in the session selected in SKILL.md step 1:
 
 ```bash
-pnpm exec genie-react doctor
-pnpm exec genie-react tools app
-pnpm exec genie-react tools app.auth
-pnpm exec genie-react tools app_login_as
-pnpm exec genie-react call app_login_as '{"role":"admin"}'
+npx genie-react tools app --session my-agent
+npx genie-react tools app.auth --session my-agent
+npx genie-react tools app_login_as --session my-agent
+npx genie-react call app_login_as '{"role":"admin"}' --session my-agent
 ```
 
 Check all of the following:

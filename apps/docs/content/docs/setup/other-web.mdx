@@ -68,9 +68,8 @@ Open the app with `?_genie=manual-check`, then use a second terminal:
 
 ```bash
 export GENIE_BRIDGE_URL='ws://localhost:4390/__genie/ws'
-export GENIE_SESSION=manual-check
-npx @genie-react/cli status
-npx @genie-react/cli tools
+npx @genie-react/cli status --session manual-check
+npx @genie-react/cli tools --session manual-check
 ```
 
 Continue when the selected session is ready and the inventory includes the collectors you supplied.

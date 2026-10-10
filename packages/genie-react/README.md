@@ -22,7 +22,7 @@ npx @genie-react/cli status --sessions-only
 
 Genie runs in development only. It does not ship in your production build.
 
-If more than one tab is open, add `?_genie=my-agent` to the app URL. Use `--session my-agent` on each command, or set `GENIE_SESSION=my-agent` once. The same target keeps working after a reconnect.
+If more than one tab is open, add `?_genie=my-agent` to the app URL. Pass `--session my-agent` to each command. The same target keeps working after a reconnect.
 
 ## Find wasted renders
 
