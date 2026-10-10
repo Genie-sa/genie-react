@@ -1,11 +1,14 @@
 // Side-effect entry — import as the page's very first module so the DevTools hook installs BEFORE React loads and commit callbacks are delivered.
 import 'bippy/install-hook-only'
+import { installProxyTagging } from '../causal/proxy-tagging'
 import { installErrorCapture, uninstallErrorCapture } from './error-tracker'
 import { guardCommitStream } from './hook-guard'
 import { disposeUnmountPruning, ensureUnmountPruning } from './overrides'
 import { disposeRefreshTracking, startRefreshTracking } from './refresh-tracker'
 import { disposeRenderTracking, startRenderTracking } from './render-tracker'
 
+// First, so every app Proxy created after this entry is recognised and never reflected on.
+installProxyTagging()
 installErrorCapture()
 startRefreshTracking()
 startRenderTracking()

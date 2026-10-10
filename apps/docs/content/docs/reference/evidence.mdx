@@ -15,7 +15,12 @@ Genie reports the strength and coverage of runtime evidence. Read these fields b
 | `coverage.complete`                 | The measurement has no known global coverage gap.       | When false, inspect question-specific evidence.        |
 | `coverage.inputAttributionComplete` | Every captured render has complete input evidence.     | Only then rule out an input cause.                     |
 | `attribution.status: stale`         | React committed while evidence was read.               | Wait for React to settle and retry.                    |
-| `propsNotEnumerated`                | Props may be a Proxy, so Genie did not enumerate them. | Inspect a known prop or path.                          |
+| `propsNotEnumerated`                | Props were not a plain object; Genie left them unread. | Inspect a known prop or path.                          |
+
+Genie tags every `Proxy` created after its hook loads and never reads a tagged proxy's keys, in props
+or in prop values. A `Proxy` created before Genie loaded is indistinguishable from its target. In
+development, `Function.prototype.toString.call(Proxy)` drops the name but still reports
+`[native code]`.
 
 ## Coverage is per question
 

@@ -79,6 +79,8 @@ describe('react_get_renders output contract', () => {
           noObservedInputChange: 0,
           referenceOnlyPropRenders: 0,
           unstableRenders: 0,
+          functionIdentityPropRenders: 0,
+          undeterminedReferencePropRenders: 0,
           forget: false,
           compiler: {
             memoCacheObserved: false,

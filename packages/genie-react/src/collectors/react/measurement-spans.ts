@@ -123,6 +123,8 @@ export function recordMeasurementRender(
       | 'unnecessary'
       | 'referenceOnlyPropRenders'
       | 'unstableRenders'
+      | 'functionIdentityPropRenders'
+      | 'undeterminedReferencePropRenders'
       | 'cumulativeSelfTime'
       | 'cumulativeTotalTime',
   ) => record[key] - (previous?.[key] ?? 0)
@@ -139,6 +141,10 @@ export function recordMeasurementRender(
     referenceOnlyPropRenders:
       (existing?.referenceOnlyPropRenders ?? 0) + delta('referenceOnlyPropRenders'),
     unstableRenders: (existing?.unstableRenders ?? 0) + delta('unstableRenders'),
+    functionIdentityPropRenders:
+      (existing?.functionIdentityPropRenders ?? 0) + delta('functionIdentityPropRenders'),
+    undeterminedReferencePropRenders:
+      (existing?.undeterminedReferencePropRenders ?? 0) + delta('undeterminedReferencePropRenders'),
     cumulativeSelfTime: (existing?.cumulativeSelfTime ?? 0) + selfTime,
     cumulativeTotalTime: (existing?.cumulativeTotalTime ?? 0) + totalTime,
     selfTime: Math.max(existing?.selfTime ?? 0, selfTime),

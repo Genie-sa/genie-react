@@ -1,4 +1,8 @@
-import type { ToolOutput } from '../../protocol'
+import {
+  RENDER_INPUT_SCAN_TRUNCATED,
+  RENDER_PROPS_NOT_ENUMERATED,
+  type ToolOutput,
+} from '../../protocol'
 import type { reactRendersDiffContract } from './contracts'
 import type { SourceClassificationCoverage } from './render-reports'
 
@@ -98,8 +102,8 @@ export function renderEvidenceComparability(
   if (coverage.skippedCommitFibers > 0) reasons.push('skipped-commit-fibers')
   if (coverage.droppedUnmountFibers > 0) reasons.push('dropped-unmount-fibers')
   if (coverage.analysisFailedFibers > 0) reasons.push('fiber-analysis-failed')
-  if (coverage.truncatedInputFibers > 0) reasons.push('render-input-scan-truncated')
-  if (coverage.propsNotEnumeratedFibers > 0) reasons.push('render-props-not-enumerated')
+  if (coverage.truncatedInputFibers > 0) reasons.push(RENDER_INPUT_SCAN_TRUNCATED)
+  if (coverage.propsNotEnumeratedFibers > 0) reasons.push(RENDER_PROPS_NOT_ENUMERATED)
   if (coverage.budgetExhaustedCommits > 0) reasons.push('commit-analysis-budget-exhausted')
   if (attributionStatus === 'stale') reasons.push('report-attribution-stale')
   return { comparable: reasons.length === 0, notComparableReasons: reasons }
