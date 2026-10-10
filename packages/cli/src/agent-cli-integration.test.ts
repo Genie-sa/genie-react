@@ -178,8 +178,8 @@ describe('agent CLI integration', () => {
       reason: 'invalid-args',
       userActionRequired: true,
       next: {
-        command: 'genie-react tools query_rows',
-        argv: ['genie-react', 'tools', 'query_rows'],
+        command: 'pnpm exec genie-react tools query_rows',
+        argv: ['pnpm', 'exec', 'genie-react', 'tools', 'query_rows'],
       },
     })
     expect(output).not.toContain('secret')
@@ -243,11 +243,11 @@ describe('agent CLI integration', () => {
       status: 'error',
       reason: 'invalid_input',
       message:
-        'The tool or group is unavailable. Run genie-react tools to inspect available groups.',
+        'The tool or group is unavailable. Run pnpm exec genie-react tools to inspect available groups.',
       userActionRequired: true,
       next: {
-        command: 'genie-react tools',
-        argv: ['genie-react', 'tools'],
+        command: 'pnpm exec genie-react tools',
+        argv: ['pnpm', 'exec', 'genie-react', 'tools'],
       },
     })
     expect(stdout.mock.calls.flat().join('')).not.toContain('secret')
@@ -291,7 +291,10 @@ describe('agent CLI integration', () => {
         status: 'error',
         reason: 'invalid_input',
         userActionRequired: true,
-        next: { command: `genie-react tools ${tool}`, argv: ['genie-react', 'tools', tool] },
+        next: {
+          command: `pnpm exec genie-react tools ${tool}`,
+          argv: ['pnpm', 'exec', 'genie-react', 'tools', tool],
+        },
       })
       expect(stderr.mock.calls.flat().join('')).toBe('')
       stdout.mockClear()
@@ -314,7 +317,10 @@ describe('agent CLI integration', () => {
       status: 'error',
       reason: 'invalid_input',
       userActionRequired: true,
-      next: { command: 'genie-react batch --help', argv: ['genie-react', 'batch', '--help'] },
+      next: {
+        command: 'pnpm exec genie-react batch --help',
+        argv: ['pnpm', 'exec', 'genie-react', 'batch', '--help'],
+      },
     })
     expect(stderr.mock.calls.flat().join('')).toBe('')
   })
@@ -344,8 +350,8 @@ describe('agent CLI integration', () => {
       reason: 'invalid_input',
       userActionRequired: true,
       next: {
-        command: 'genie-react tools query_rows',
-        argv: ['genie-react', 'tools', 'query_rows'],
+        command: 'pnpm exec genie-react tools query_rows',
+        argv: ['pnpm', 'exec', 'genie-react', 'tools', 'query_rows'],
       },
     })
     expect(stderr.mock.calls.flat().join('')).toBe('')

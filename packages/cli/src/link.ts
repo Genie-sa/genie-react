@@ -6,9 +6,10 @@ import {
   installAgentSkill,
   readSkillFiles,
   renderSkillFiles,
+  SKILL_PATH_CONFLICT,
 } from './agent-skill'
 import { writeDiagnostic, writeJson } from './cli-output'
-import { detectPackageManager } from './package-manager'
+import { genieCommand } from './package-manager'
 
 // The unpublished "local link" install path: symlinks a checkout into node_modules so `genie-react` and this CLI resolve normally.
 
@@ -37,10 +38,7 @@ export function runLink(opts: LinkOptions = {}): number {
         message,
         userActionRequired: true,
         data: { packages, changesMayHaveApplied },
-        next: {
-          command: 'genie-react link <path-to-genie-react>',
-          argv: ['genie-react', 'link', '<path-to-genie-react>'],
-        },
+        next: genieCommand(['link', '<path-to-genie-react>'], cwd),
       },
       opts.maxBytes,
     )
@@ -90,7 +88,7 @@ export function runLink(opts: LinkOptions = {}): number {
           skillPaths: skillPaths ?? [],
           buildRequired: missingDist,
         },
-        next: { command: 'genie-react init --dry-run', argv: ['genie-react', 'init', '--dry-run'] },
+        next: genieCommand(['init', '--dry-run'], cwd),
       },
       opts.maxBytes,
     )
@@ -106,8 +104,17 @@ export function runLink(opts: LinkOptions = {}): number {
 function linkAgentSkill(cwd: string, packagesDir: string): string[] | null {
   const files = readSkillFiles(join(packagesDir, 'cli', 'skill'))
   if (!files) return null
-  installAgentSkill(cwd, renderSkillFiles(files, detectPackageManager(cwd)), false)
-  return files.map(([name]) => join(cwd, CANONICAL_SKILL_DIRECTORY, name))
+  const artifacts = installAgentSkill(cwd, renderSkillFiles(files, cwd), false)
+  for (const { path, reason } of artifacts) {
+    if (reason === SKILL_PATH_CONFLICT)
+      writeDiagnostic(reason, "This path is not Genie's skill; remove it, then rerun link.", {
+        path,
+      })
+  }
+  const canonical = join(cwd, CANONICAL_SKILL_DIRECTORY)
+  return artifacts
+    .filter(({ path, status }) => status !== 'manual' && dirname(path) === canonical)
+    .map(({ path }) => path)
 }
 
 function dropGenieBin(cwd: string, packagesDir: string): string | null {

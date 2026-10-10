@@ -83,7 +83,7 @@ it('returns a single sanitized failure when startup rejects', async () => {
     status: 'error',
     reason: 'hub_start_failed',
     userActionRequired: true,
-    next: { argv: ['genie-react', 'doctor'] },
+    next: { argv: ['pnpm', 'exec', 'genie-react', 'doctor'] },
   })
   expect(String(stdout.mock.calls[0]?.[0])).not.toContain('PRIVATE_STARTUP_ERROR')
   expect(stderr).not.toHaveBeenCalled()

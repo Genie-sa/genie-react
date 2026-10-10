@@ -94,6 +94,8 @@ function capture(): { logger: Logger; lines: string[] } {
 }
 
 const silent: Logger = { info: () => {}, error: () => {} }
+const staleSkill = (version: string) =>
+  `---\nname: genie\nmetadata:\n  version: "${version}"\n  package: "@genie-react/cli"\n---\nstale\n`
 
 describe('detectFramework', () => {
   it('classifies a project with @tanstack/react-start as tanstack-start', async () => {
@@ -198,7 +200,7 @@ describe('runInit — plain React + Vite', () => {
     const { logger, lines } = capture()
     runInit({ cwd: dir, dryRun: true, logger })
     const text = lines.join('\n')
-    expect(text).toContain('pnpm add -D genie-react @genie-react/cli')
+    expect(text).toContain('npm install -D genie-react @genie-react/cli')
   })
 
   it('still prints the <Genie /> render step — only it surfaces the memory + plugin tools', async () => {
@@ -418,10 +420,10 @@ describe('runInit — idempotency and dry-run', () => {
     runInit({ cwd: dir, logger: silent })
     expect(await readFile(activeAppTools, 'utf8')).toBe(bundledAppTools)
 
-    await writeFile(activeSkill, '---\nmetadata:\n  version: "0.8.0"\n---\nstale\n')
+    await writeFile(activeSkill, staleSkill('0.8.0'))
     const stale = runDoctor({ cwd: dir, logger: silent })
     expect(stale.skill.current).toBe(false)
-    expect(stale.remediation.join('\n')).toContain('npx @genie-react/cli init')
+    expect(stale.remediation.join('\n')).toContain('npx genie-react init')
 
     runInit({ cwd: dir, logger: silent })
     expect(await readFile(activeSkill, 'utf8')).toBe(bundledSkill)
@@ -502,7 +504,7 @@ describe('runInit — agent skill locations', () => {
   it('refreshes an existing .claude copy in place and doctor reports its drift', async () => {
     const dir = await project({
       ...VITE_APP,
-      '.claude/skills/genie/SKILL.md': '---\nmetadata:\n  version: "0.12.3"\n---\nstale\n',
+      '.claude/skills/genie/SKILL.md': staleSkill('0.12.3'),
     })
     runInit({ cwd: dir, logger: silent })
     const claudeSkill = join(dir, '.claude/skills/genie/SKILL.md')
@@ -510,7 +512,7 @@ describe('runInit — agent skill locations', () => {
     expect(await readFile(claudeSkill, 'utf8')).toBe(await bundled('SKILL.md'))
     expect(runDoctor({ cwd: dir, logger: silent }).skill.current).toBe(true)
 
-    await writeFile(claudeSkill, 'edited by hand\n')
+    await writeFile(claudeSkill, staleSkill('0.14.0'))
     const drifted = runDoctor({ cwd: dir, logger: silent })
     expect(drifted.ok).toBe(false)
     expect(drifted.skill.current).toBe(false)
@@ -518,7 +520,7 @@ describe('runInit — agent skill locations', () => {
     const claudeCheck = drifted.checks.find(({ label }) => label.startsWith('Claude Code skill'))
     expect(claudeCheck).toMatchObject({ ok: false, critical: true })
     expect(claudeCheck?.detail).toContain('drifted')
-    expect(drifted.remediation.join('\n')).toContain('npx @genie-react/cli init')
+    expect(drifted.remediation.join('\n')).toContain('npx genie-react init')
 
     runInit({ cwd: dir, logger: silent })
     expect(runDoctor({ cwd: dir, logger: silent }).skill.current).toBe(true)
@@ -532,7 +534,7 @@ describe('runInit — agent skill locations', () => {
     const doctor = runDoctor({ cwd: dir, logger: silent })
     expect(doctor.skill.locations[0]?.current).toBe(true)
     expect(doctor.checks.find(({ label }) => label.startsWith('Claude Code skill'))?.detail).toBe(
-      '.claude/skills/genie missing; run: npx @genie-react/cli init',
+      '.claude/skills/genie missing; run: npx genie-react init',
     )
   })
 
@@ -553,12 +555,14 @@ describe('runInit — agent skill locations', () => {
   })
 
   it.each([
-    ['package-lock.json', 'npx genie-react'],
-    ['pnpm-lock.yaml', 'pnpm exec genie-react'],
-    ['yarn.lock', 'yarn genie-react'],
-    ['bun.lock', 'bunx genie-react'],
-  ])('writes commands for the package manager that owns %s', async (lockfile, invocation) => {
-    const dir = await project({ ...VITE_APP, [lockfile]: '' })
+    ['no lockfile', {}, 'npx genie-react'],
+    ['package-lock.json', { 'package-lock.json': '{}' }, 'npx genie-react'],
+    ['pnpm-lock.yaml', { 'pnpm-lock.yaml': '' }, 'pnpm exec genie-react'],
+    ['a Yarn Berry yarn.lock', { 'yarn.lock': '__metadata:\n  version: 8\n' }, 'yarn genie-react'],
+    ['a Yarn 1 yarn.lock', { 'yarn.lock': '# yarn lockfile v1\n' }, 'yarn --silent genie-react'],
+    ['bun.lock', { 'bun.lock': '' }, 'bunx genie-react'],
+  ])('uses one command prefix for %s across skill and hints', async (_, lockfile, invocation) => {
+    const dir = await project({ ...VITE_APP, ...lockfile })
     runInit({ cwd: dir, logger: silent })
 
     for (const name of ['SKILL.md', 'APP_TOOLS.md']) {
@@ -567,6 +571,40 @@ describe('runInit — agent skill locations', () => {
       if (invocation !== 'npx genie-react') expect(installed).not.toContain('npx genie-react')
     }
     expect(runDoctor({ cwd: dir, logger: silent }).skill.current).toBe(true)
+
+    await rm(join(dir, '.claude'), { recursive: true })
+    expect(runDoctor({ cwd: dir, logger: silent }).remediation).toContain(
+      `.claude/skills/genie missing; run: ${invocation} init`,
+    )
+  })
+
+  it.each([
+    [
+      'a foreign directory',
+      async (path: string) => {
+        await mkdir(path, { recursive: true })
+        await writeFile(join(path, 'SKILL.md'), 'another skill\n')
+      },
+    ],
+    [
+      'a dangling symlink',
+      async (path: string) => {
+        await mkdir(dirname(path), { recursive: true })
+        await symlink(join(path, '..', 'missing'), path, 'dir')
+      },
+    ],
+  ])('has doctor name %s as a path conflict to remove, not an init loop', async (_, occupy) => {
+    const dir = await project(VITE_APP)
+    await occupy(join(dir, '.claude/skills/genie'))
+
+    expect(runInit({ cwd: dir, logger: silent }).artifacts).toContainEqual(
+      expect.objectContaining({ status: 'manual', reason: 'skill_path_conflict' }),
+    )
+    const doctor = runDoctor({ cwd: dir, logger: silent })
+    expect(doctor.skill.locations[1]).toMatchObject({ conflict: true, current: false })
+    const remediation = doctor.remediation.join('\n')
+    expect(remediation).toMatch(/^skill_path_conflict: \.claude\/skills\/genie\b/m)
+    expect(remediation).toContain('remove .claude/skills/genie, then run: npx genie-react init')
   })
 })
 

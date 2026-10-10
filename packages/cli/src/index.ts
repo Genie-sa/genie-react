@@ -16,13 +16,14 @@ import {
   installAgentSkill,
   readSkillFiles,
   renderSkillFiles,
+  SKILL_PATH_CONFLICT,
   type SkillArtifact,
   type SkillLocation,
   skillVersion,
 } from './agent-skill'
 import { type BridgeDiscovery, isPidAlive, parseBridgeDiscovery, resolveBridge } from './discovery'
 import { isRecord } from './guards'
-import { detectPackageManager } from './package-manager'
+import { genieCommand, packageManagerCommands } from './package-manager'
 
 export interface Logger {
   info: (message: string) => void
@@ -185,9 +186,9 @@ export function runInit(options: InitOptions = {}): InitResult {
 
   // No Vite, no Next: the hub + script-tag path IS the setup, so don't fail or print Vite-only guidance.
   if (framework === 'unknown' && viteConfig.action === 'missing') {
-    printUniversalSetup(log)
+    printUniversalSetup(log, cwd)
     const artifacts = [...ensureGenieIgnored(ctx), ...ensureAgentSkill(ctx)]
-    printUniversalNextSteps(log, packageManagerHints(cwd))
+    printUniversalNextSteps(log, cwd)
     return {
       ok: true,
       dryRun,
@@ -206,10 +207,10 @@ export function runInit(options: InitOptions = {}): InitResult {
     )
   }
   const artifacts = [...ensureGenieIgnored(ctx), ...ensureAgentSkill(ctx)]
-  printNextSteps(log, framework, rootRoute, packageManagerHints(cwd))
+  printNextSteps(log, framework, rootRoute, cwd)
   if (!dryRun && !options.yes) {
     log.info(
-      "\nTip: run 'npx @genie-react/cli doctor' to verify, or 'npx @genie-react/cli init --dry-run' to preview changes.",
+      `\nTip: run '${genieCommand(['doctor'], cwd).command}' to verify, or '${genieCommand(['init', '--dry-run'], cwd).command}' to preview changes.`,
     )
   }
 
@@ -245,7 +246,7 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
           label: `universal setup: hub discovery file (${GENIE_DISCOVERY_FILE})`,
           ok: discovered,
           critical: true,
-          detail: discovered ? undefined : `not found — run: npx ${CLI_PACKAGE} hub`,
+          detail: discovered ? undefined : `not found — run: ${genieCommand(['hub'], cwd).command}`,
         })
       } else {
         checks.push({
@@ -321,7 +322,9 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
 
   const ok = checks.every((check) => !check.critical || check.ok)
   if (!ok) {
-    log.info("\nSome checks failed. Run 'npx @genie-react/cli init' to wire things up.")
+    log.info(
+      `\nSome checks failed. Run '${genieCommand(['init'], cwd).command}' to wire things up.`,
+    )
   }
 
   const remediation = checks
@@ -858,8 +861,9 @@ function printNextSteps(
   log: Logger,
   framework: Framework,
   rootRoute: RootRouteOutcome,
-  pm: PackageManagerHints,
+  cwd: string,
 ): void {
+  const pm = packageManagerHints(cwd)
   // 'skip' (plain React + Vite) still wants the render step: only <Genie /> surfaces the memory + plugin tools there.
   const componentHandled = rootRoute.action === 'edit' || rootRoute.action === 'already'
   let step = 1
@@ -874,10 +878,14 @@ function printNextSteps(
   }
   log.info(`  ${step++}. start your dev server:`)
   log.info(`       ${pm.dev}`)
-  log.info(`  ${step++}. drive the live tools from your shell:`)
-  log.info('       npx @genie-react/cli status')
-  log.info('       npx @genie-react/cli tools')
-  log.info('       npx @genie-react/cli call react_get_renders \'{"sort":"renders"}\'')
+  printLiveToolCommands(log, cwd, step)
+}
+
+function printLiveToolCommands(log: Logger, cwd: string, step: number): void {
+  log.info(`  ${step}. drive the live tools from your shell:`)
+  for (const args of [['status'], ['tools'], ['call', 'react_get_renders', '{"sort":"renders"}']]) {
+    log.info(`       ${genieCommand(args, cwd).command}`)
+  }
 }
 
 function runNextInit(ctx: ApplyContext, options: InitOptions): InitResult {
@@ -888,9 +896,9 @@ function runNextInit(ctx: ApplyContext, options: InitOptions): InitResult {
   applyNextLayoutOutcome(layout, ctx)
   applyInstrumentationOutcome(instrumentation, ctx)
   const artifacts = [...ensureGenieIgnored(ctx), ...ensureAgentSkill(ctx)]
-  printNextStepsForNext(log, packageManagerHints(cwd))
+  printNextStepsForNext(log, cwd)
   if (!dryRun && !options.yes) {
-    log.info("\nTip: run 'npx @genie-react/cli doctor' to verify the wiring.")
+    log.info(`\nTip: run '${genieCommand(['doctor'], cwd).command}' to verify the wiring.`)
   }
 
   const layoutWired = layout.action === 'already' || layout.action === 'edit'
@@ -1025,7 +1033,8 @@ function applyInstrumentationOutcome(outcome: RootRouteOutcome, ctx: ApplyContex
   }
 }
 
-function printNextStepsForNext(log: Logger, pm: PackageManagerHints): void {
+function printNextStepsForNext(log: Logger, cwd: string): void {
+  const pm = packageManagerHints(cwd)
   let step = 1
   log.info('\nNext steps:')
   log.info(`  ${step++}. install Genie (if you have not yet):`)
@@ -1034,30 +1043,29 @@ function printNextStepsForNext(log: Logger, pm: PackageManagerHints): void {
     `  ${step++}. start your dev server (instrumentation.ts starts the genie-react hub automatically):`,
   )
   log.info(`       ${pm.dev}`)
-  log.info(`       # without instrumentation.ts, run the hub yourself: npx ${CLI_PACKAGE} hub`)
-  log.info(`  ${step++}. drive the live tools from your shell:`)
-  log.info(`       npx ${CLI_PACKAGE} status`)
-  log.info(`       npx ${CLI_PACKAGE} call react_get_renders '{"sort":"renders"}'`)
+  log.info(
+    `       # without instrumentation.ts, run the hub yourself: ${genieCommand(['hub'], cwd).command}`,
+  )
+  printLiveToolCommands(log, cwd, step)
 }
 
-function printUniversalSetup(log: Logger): void {
+function printUniversalSetup(log: Logger, cwd: string): void {
   log.info(`${PREVIEW}No Vite config or Next.js detected — universal setup for any React app:`)
-  log.info(`  1. run the hub: npx ${CLI_PACKAGE} hub`)
+  log.info(`  1. run the hub: ${genieCommand(['hub'], cwd).command}`)
   log.info(
     `  2. add first in <head>: <script src="http://localhost:${GENIE_DEFAULT_HUB_PORT}${GENIE_CLIENT_PATH}"></script>`,
   )
   log.info('     (the hub prints this tag with its actual port if 4390 was busy)')
 }
 
-function printUniversalNextSteps(log: Logger, pm: PackageManagerHints): void {
+function printUniversalNextSteps(log: Logger, cwd: string): void {
+  const pm = packageManagerHints(cwd)
   let step = 1
   log.info('\nNext steps:')
   log.info(`  ${step++}. install Genie (if you have not yet):`)
   log.info(`       ${pm.add} ${GENIE_PACKAGE} ${CLI_PACKAGE}`)
   log.info(`  ${step++}. start the hub and your dev server, open the app in a browser`)
-  log.info(`  ${step++}. drive the live tools from your shell:`)
-  log.info(`       npx ${CLI_PACKAGE} status`)
-  log.info(`       npx ${CLI_PACKAGE} call react_get_renders '{"sort":"renders"}'`)
+  printLiveToolCommands(log, cwd, step)
 }
 
 function printViteManual(log: Logger): void {
@@ -1133,7 +1141,7 @@ function ensureAgentSkill(ctx: ApplyContext): InitArtifact[] {
       ? ` (symlink to ${CANONICAL_SKILL_DIRECTORY})`
       : ''
     if (changed.some(({ status }) => status === 'manual')) {
-      ctx.log.info(`${WARN} ${directory} exists and is not Genie's skill; remove it and rerun init`)
+      ctx.log.info(`${WARN} ${directory} is not Genie's skill; remove it, then rerun init`)
     } else if (changed.some(({ status }) => status === 'planned')) {
       ctx.log.info(`${PREVIEW}Would install the agent skill at ${directory}${via}`)
     } else if (changed.some(({ status }) => status === 'applied')) {
@@ -1146,21 +1154,24 @@ function ensureAgentSkill(ctx: ApplyContext): InitArtifact[] {
 /** The bundled skill rendered for this project's package manager; null when the package lost its skill files. */
 function readBundledSkill(cwd: string) {
   const files = readSkillFiles(fileURLToPath(new URL('../skill', import.meta.url)))
-  return files && renderSkillFiles(files, detectPackageManager(cwd))
+  return files && renderSkillFiles(files, cwd)
 }
 
 function skillCheck(label: string, location: SkillLocation, cwd: string): DoctorCheck {
   const path = relative(cwd, location.path)
   const via = location.symlink ? ' (symlink)' : ''
+  const init = genieCommand(['init'], cwd).command
   return {
     label,
     ok: location.current,
     critical: true,
     detail: location.current
       ? `${path}${via} · sha256 ${location.hash?.slice(0, 12)}`
-      : location.hash
-        ? `${path}${via} drifted: ${location.version ?? 'unversioned'} / ${location.hash.slice(0, 12)}; run: npx ${CLI_PACKAGE} init`
-        : `${path} missing; run: npx ${CLI_PACKAGE} init`,
+      : location.conflict
+        ? `${SKILL_PATH_CONFLICT}: ${path}${via} is not Genie's skill; remove ${path}, then run: ${init}`
+        : location.hash
+          ? `${path}${via} drifted: ${location.version ?? 'unversioned'} / ${location.hash.slice(0, 12)}; run: ${init}`
+          : `${path} missing; run: ${init}`,
   }
 }
 
@@ -1180,32 +1191,18 @@ function inGitRepo(cwd: string): boolean {
   }
 }
 
-interface PackageManagerHints {
-  add: string
-  dev: string
-}
-
 export function initNextCommands(cwd: string, framework: Framework) {
-  const pm = packageManagerHints(cwd)
-  const install = [...pm.add.split(' '), ...requiredPackages(framework)]
-  const dev = pm.dev.split(' ')
+  const pm = packageManagerCommands(cwd)
+  const install = [...pm.add, ...requiredPackages(framework)]
   return {
     install: { command: install.join(' '), argv: install, condition: 'if packages are missing' },
-    dev: { command: pm.dev, argv: dev },
+    dev: { command: pm.dev.join(' '), argv: [...pm.dev] },
   }
 }
 
-function packageManagerHints(cwd: string): PackageManagerHints {
-  switch (detectPackageManager(cwd) ?? 'pnpm') {
-    case 'yarn':
-      return { add: 'yarn add -D', dev: 'yarn dev' }
-    case 'bun':
-      return { add: 'bun add -d', dev: 'bun dev' }
-    case 'npm':
-      return { add: 'npm install -D', dev: 'npm run dev' }
-    case 'pnpm':
-      return { add: 'pnpm add -D', dev: 'pnpm dev' }
-  }
+function packageManagerHints(cwd: string) {
+  const pm = packageManagerCommands(cwd)
+  return { add: pm.add.join(' '), dev: pm.dev.join(' ') }
 }
 
 function rel(ctx: ApplyContext, path: string): string {

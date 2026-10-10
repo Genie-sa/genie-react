@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -30,7 +30,11 @@ describe('runLink', () => {
     expect(await readFile(activeAppToolsPath, 'utf8')).toBe(bundledAppTools)
     expect(await readFile(join(target, '.claude/skills/genie/SKILL.md'), 'utf8')).toBe(bundled)
 
-    await writeFile(activePath, 'stale guidance\n', 'utf8')
+    await writeFile(
+      activePath,
+      '---\nname: genie\nmetadata:\n  package: "@genie-react/cli"\n---\nstale guidance\n',
+      'utf8',
+    )
     await writeFile(activeAppToolsPath, 'stale reference\n', 'utf8')
     expect(runLink({ cwd: target, genieRoot: process.cwd() })).toBe(0)
     expect(await readFile(activePath, 'utf8')).toBe(bundled)
@@ -77,8 +81,24 @@ it('does not expose hostile checkout strings in recovery commands or raw filesys
     reason: 'invalid_checkout',
     userActionRequired: true,
     data: { changesMayHaveApplied: false },
-    next: { argv: ['genie-react', 'link', '<path-to-genie-react>'] },
+    next: { argv: ['npx', 'genie-react', 'link', '<path-to-genie-react>'] },
   })
   expect(String(stdout.mock.calls[0]?.[0])).not.toContain('PRIVATE_TOKEN')
   expect(stderr).not.toHaveBeenCalled()
+})
+
+it('reports a foreign skill directory instead of overwriting it', async () => {
+  target = await mkdtemp(join(tmpdir(), 'genie-link-conflict-'))
+  const foreign = join(target, '.agents/skills/genie')
+  await mkdir(foreign, { recursive: true })
+  await writeFile(join(foreign, 'SKILL.md'), 'another skill\n')
+  const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+  const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+
+  expect(runLink({ cwd: target, genieRoot: process.cwd() })).toBe(0)
+  expect(JSON.parse(String(stdout.mock.lastCall?.[0])).data.skillPaths).toEqual([])
+  expect(stderr.mock.calls.map(([line]) => JSON.parse(String(line)))).toContainEqual(
+    expect.objectContaining({ reason: 'skill_path_conflict', data: { path: foreign } }),
+  )
+  expect(await readFile(join(foreign, 'SKILL.md'), 'utf8')).toBe('another skill\n')
 })

@@ -28,9 +28,16 @@ runs without prompts. `--yes` is accepted for existing automation and makes the 
 
 The skill lands in `.agents/skills/genie`, which Codex, Cursor, and other Agent Skills clients read.
 Claude Code reads only `.claude/skills`, so `init` also links `.claude/skills/genie` to that copy, or
-copies it where symlinks are unavailable. The skill's commands use the package manager found from
-your lockfile, such as `npx genie-react` for npm or `pnpm exec genie-react` for pnpm. `doctor`
-reports either location when it drifts from the installed CLI; rerun `init` to refresh it.
+copies it where symlinks are unavailable. The skill's commands, and every command the CLI suggests,
+use the package manager found from your lockfile: `npx genie-react` for npm, `pnpm exec genie-react`
+for pnpm, `yarn genie-react` for Yarn 2+, `yarn --silent genie-react` for Yarn 1, or `bunx
+genie-react` for Bun. Without a lockfile they use npm. `doctor` reports either location when it
+drifts from the installed CLI; rerun `init` to refresh it.
+
+`init` writes only into an empty directory or one that already holds Genie's skill. It never
+follows a symlink out of the project. Any other file, directory, or symlink at either location is
+left untouched and reported as a manual step with `reason: "skill_path_conflict"` and its `path`.
+`doctor` reports the same conflict. Remove that path, then rerun `init`.
 
 Read `data.artifacts`, `data.manualSteps`, and `userActionRequired` in the receipt. A successful exit
 can still require manual wiring. Plain Vite apps, for example, need `<Genie />` near the app root for
