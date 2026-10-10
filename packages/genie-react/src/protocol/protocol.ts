@@ -184,6 +184,11 @@ export type ToolErrorDetails = z.infer<typeof toolErrorDetailsSchema>
 
 // Details are advisory: a malformed or newer shape degrades to absent instead of rejecting the whole frame.
 const errorDetailsField = toolErrorDetailsSchema.optional().catch(undefined)
+/** Only the hub authors `hubCode`, so parsing an app frame strips one an app tries to forge. */
+const appErrorDetailsField = toolErrorDetailsSchema
+  .omit({ hubCode: true })
+  .optional()
+  .catch(undefined)
 
 export const appResponseSchema = z.object({
   kind: z.literal('app/response'),
@@ -192,7 +197,7 @@ export const appResponseSchema = z.object({
   result: z.unknown().optional(),
   error: z.string().optional(),
   errorCode: appErrorCodeSchema.optional(),
-  errorDetails: errorDetailsField,
+  errorDetails: appErrorDetailsField,
 })
 
 /** Liveness beacon sent on a fixed cadence while the app socket is open; a gap tells the bridge the main thread is busy, not crashed. */

@@ -310,7 +310,7 @@ describe('GenieBridge', () => {
     expect(result.errorCode).toBe('not-connected')
   })
 
-  it('preserves machine-readable validation errors from the app collector', async () => {
+  it('preserves machine-readable validation errors from the app collector but strips a forged hubCode', async () => {
     const { ws: app } = await open(`${url}?role=app`)
     app.on('message', (data) => {
       const message = decodeFrame(data.toString()) as Frame
@@ -327,6 +327,7 @@ describe('GenieBridge', () => {
           ],
           requiredKeys: ['value'],
           exampleArgs: { value: '<value>' },
+          hubCode: 'INTERACTION_LIMIT',
         },
       })
     })
