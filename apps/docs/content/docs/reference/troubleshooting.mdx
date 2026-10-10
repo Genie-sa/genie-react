@@ -24,15 +24,33 @@ Use `status --verbose` for connection diagnostics; `doctor` accepts `--live` for
 
 ## The hub refuses the connection
 
-A refused agent connection fails with a message about the agent token. The hub restarted or a
-different hub answered. Run the command from the app folder so the CLI rereads
-`.genie/bridge.json`. With `--url` or `GENIE_BRIDGE_URL` from elsewhere, set `GENIE_BRIDGE_TOKEN` to
-that file's `token`.
+A refused agent connection fails with a message about the agent token. The hub restarted, a
+different hub answered, or `genie-react` and `@genie-react/cli` are different versions. Run the
+command from the app folder so the CLI rediscovers the hub. With `--url` or `GENIE_BRIDGE_URL` for a
+hub outside this folder tree, set `GENIE_BRIDGE_TOKEN`.
 
-The hub also refuses browser pages from other sites. Pages served from `localhost`, `127.0.0.1`,
-`[::1]` or `*.localhost` connect on any port. A page whose IP address matches the dev server's own
-address connects too, as with `vite --host`. Other hostnames, such as a tunnel or a custom local
-domain, need an allowed origin:
+Agents must run on the same machine as the hub. The hub refuses agent connections from other
+machines even when they present the right token.
+
+### An older CLI against a newer hub
+
+A `@genie-react/cli` release older than the app's `genie-react` cannot authenticate. Its commands
+retry for 11 to 14 seconds and then report `No app is connected` even though the app is open.
+The dev server log shows `[genie:warn] rejected connection: missing agent token`. Update
+`@genie-react/cli` to the same version as `genie-react`.
+
+The reverse, a newer CLI against an older hub, still works. The CLI then writes an
+`unauthenticated-bridge` diagnostic because that hub accepts any local page as an agent; update
+`genie-react`.
+
+### Browser pages
+
+The hub also refuses browser pages from other origins. The Vite bridge accepts pages from the dev
+server's own origin, including its IP address with `vite --host`. The standalone hub used by
+Next.js accepts loopback pages on the Next.js port. `genie-react hub` accepts loopback pages
+(`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`) on any port and marks those sessions with
+`originUnverified` in `status`. Other hostnames, such as a tunnel or a custom local domain, need an
+allowed origin:
 
 - Vite: `genie({ allowedOrigins: ['https://app.example.test'] })`, or the host in Vite's
   `server.allowedHosts`.

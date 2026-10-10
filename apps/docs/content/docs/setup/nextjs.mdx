@@ -35,8 +35,9 @@ export async function register(): Promise<void> {
 }
 ```
 
-Pages served from `localhost` or `127.0.0.1` connect to the hub on any port. For another hostname,
-pass it as `registerGenie({ allowedOrigins: ['https://app.example.test'] })`.
+The hub accepts loopback pages (`localhost`, `127.0.0.1`) on the port Next.js serves the app from.
+For another hostname or port, pass the origin as
+`registerGenie({ allowedOrigins: ['https://app.example.test'] })`.
 
 This loads the core session, React, memory, performance, and timeline tools. Query tools require
 the separate registration below. The timeline initially has browser request and React lanes; inspect
