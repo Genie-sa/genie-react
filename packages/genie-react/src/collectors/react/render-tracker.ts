@@ -1272,14 +1272,18 @@ function countPropOnlyMemoRender(
   coverageComplete: boolean,
 ): void {
   if (propChanges.length === 0) return
-  if (coverageComplete && propChanges.every((change) => isFunctionIdentityChange(fiber, change))) {
-    record.functionIdentityPropRenders += 1
-    return
-  }
-  if (coverageComplete && propChanges.every((change) => change.referenceOnly)) {
-    record.referenceOnlyPropRenders += 1
-    record.unstableRenders += 1
-    return
+  if (coverageComplete) {
+    const functionChanged = propChanges.map((change) => isFunctionIdentityChange(fiber, change))
+    if (propChanges.every((change, index) => change.referenceOnly || functionChanged[index])) {
+      // A new closure is the one change that cannot be proven equal, so it outranks reference-only siblings.
+      if (functionChanged.includes(true)) {
+        record.functionIdentityPropRenders += 1
+      } else {
+        record.referenceOnlyPropRenders += 1
+        record.unstableRenders += 1
+      }
+      return
+    }
   }
   if (propChanges.every((change) => change.referenceOnly || isUndeterminedReference(change))) {
     record.undeterminedReferencePropRenders += 1

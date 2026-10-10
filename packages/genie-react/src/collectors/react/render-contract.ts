@@ -403,18 +403,18 @@ const renderComponentSchema = z.object({
   referenceOnlyPropRenders: z
     .number()
     .describe(
-      'Renders of memo, PureComponent, or shouldComponentUpdate components whose only input changes were props with a new reference and a complete bounded diff that found no value change. Excludes truncated diffs; see undeterminedReferencePropRenders.',
+      'Renders of memo, PureComponent, or shouldComponentUpdate components whose only input changes were non-function props with a new reference that a complete bounded diff found equal. Excludes truncated diffs and partial scans; see undeterminedReferencePropRenders. A custom shouldComponentUpdate is never called, so such a class may have rendered by its own rules.',
     ),
   unstableRenders: z.number().describe('Legacy alias for referenceOnlyPropRenders.'),
   functionIdentityPropRenders: z
     .number()
     .describe(
-      'Renders of memo, PureComponent, or shouldComponentUpdate components whose only changed props were functions with a new identity, such as inline callbacks. Not counted as reference-only because closures can differ.',
+      'Renders of memo, PureComponent, or shouldComponentUpdate components whose only input changes, under complete coverage, were props with a new reference: at least one a function with a new identity, such as an inline callback, and the rest reference-only. Not counted as reference-only because closures can differ.',
     ),
   undeterminedReferencePropRenders: z
     .number()
     .describe(
-      'Renders of memo, PureComponent, or shouldComponentUpdate components whose only input changes were reference-changed props that a truncated diff or partial input scan could not classify as reference-only.',
+      'Renders of memo, PureComponent, or shouldComponentUpdate components whose only input changes were reference-changed props that a partial input scan, or a truncated diff of a non-function value, could not classify as reference-only.',
     ),
   forget: z
     .boolean()

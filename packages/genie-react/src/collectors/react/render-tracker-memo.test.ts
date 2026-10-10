@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, render } from '@testing-library/react'
 import { type Fiber, getFiberFromHostInstance, getLatestFiber } from 'bippy'
-import { createElement, forwardRef, memo, PureComponent, type ReactNode } from 'react'
+import { Component, createElement, forwardRef, memo, PureComponent, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createCommitAnalysisBudget } from './render-commit-budget'
 import { clearRenders, getRenders, recordRender } from './render-tracker'
@@ -33,12 +33,24 @@ const SimpleMemoRow = memo(function SimpleMemoRow(props: RowProps): ReactNode {
 const CallbackRow = memo(function CallbackRow(props: RowProps): ReactNode {
   return row(props)
 })
+const MixedRow = memo(function MixedRow(props: RowProps): ReactNode {
+  return row(props)
+})
 const ForwardMemoRow = memo(
   forwardRef<HTMLSpanElement, RowProps>(function ForwardMemoRow(props, _ref): ReactNode {
     return row(props)
   }),
 )
 class PureRow extends PureComponent<RowProps> {
+  override render(): ReactNode {
+    return row(this.props)
+  }
+}
+// Genie never calls user code to learn what a custom shouldComponentUpdate compares.
+class AlwaysUpdateRow extends Component<RowProps> {
+  override shouldComponentUpdate(): boolean {
+    return true
+  }
   override render(): ReactNode {
     return row(this.props)
   }
@@ -53,8 +65,10 @@ function App(): ReactNode {
     createElement(Plain, { id: 'plain', style: { color: 'red' } }),
     createElement(SimpleMemoRow, { id: 'simple', style: { color: 'red' } }),
     createElement(CallbackRow, { id: 'callback', style: STABLE_STYLE, onSelect: () => {} }),
+    createElement(MixedRow, { id: 'mixed', style: { color: 'red' }, onSelect: () => {} }),
     createElement(ForwardMemoRow, { id: 'forward', style: { color: 'red' } }),
     createElement(PureRow, { id: 'pure', style: { color: 'red' } }),
+    createElement(AlwaysUpdateRow, { id: 'always', style: { color: 'red' } }),
   )
 }
 
@@ -79,8 +93,10 @@ describe('memo-aware render causes against a live React tree', () => {
       Plain: ownerFiber(host('plain'), Plain),
       SimpleMemoRow: ownerFiber(host('simple'), SimpleMemoRow),
       CallbackRow: ownerFiber(host('callback'), CallbackRow),
+      MixedRow: ownerFiber(host('mixed'), MixedRow),
       ForwardMemoRow: ownerFiber(host('forward'), ForwardMemoRow),
       PureRow: ownerFiber(host('pure'), PureRow),
+      AlwaysUpdateRow: ownerFiber(host('always'), AlwaysUpdateRow),
     }
     expect(
       Object.fromEntries(Object.entries(fibers).map(([name, f]) => [name, canBailOutOnProps(f)])),
@@ -88,8 +104,10 @@ describe('memo-aware render causes against a live React tree', () => {
       Plain: false,
       SimpleMemoRow: true,
       CallbackRow: true,
+      MixedRow: true,
       ForwardMemoRow: true,
       PureRow: true,
+      AlwaysUpdateRow: true,
     })
 
     const budget = createCommitAnalysisBudget(undefined, { now: () => 0 })
@@ -125,11 +143,17 @@ describe('memo-aware render causes against a live React tree', () => {
       functionIdentityPropRenders: 1,
       causes: [{ kind: 'props', name: 'onSelect', referenceOnly: false }],
     })
+    expect(byName.get('MixedRow')).toMatchObject({
+      referenceOnlyPropRenders: 0,
+      functionIdentityPropRenders: 1,
+      undeterminedReferencePropRenders: 0,
+    })
     expect(byName.get('ForwardMemoRow')).toMatchObject({ referenceOnlyPropRenders: 1 })
     expect(byName.get('PureRow')).toMatchObject({
       necessity: 'unknown',
       referenceOnlyPropRenders: 1,
       causes: [{ kind: 'props', name: 'style', referenceOnly: true }],
     })
+    expect(byName.get('AlwaysUpdateRow')).toMatchObject({ referenceOnlyPropRenders: 1 })
   })
 })
