@@ -27,7 +27,9 @@ Use `status --verbose` for connection diagnostics; `doctor` accepts `--live` for
 A refused agent connection fails with a message about the agent token. The hub restarted, a
 different hub answered, or `genie-react` and `@genie-react/cli` are different versions. Run the
 command from the app folder so the CLI rediscovers the hub. With `--url` or `GENIE_BRIDGE_URL` for a
-hub outside this folder tree, set `GENIE_BRIDGE_TOKEN`.
+hub outside this folder tree, set `GENIE_BRIDGE_TOKEN` and use the hub's IP address, such as
+`ws://127.0.0.1:4390/__genie/ws`. The CLI does not send the token to a `localhost` name it cannot
+match to a discovered hub, and writes an `insecure-bridge-url` diagnostic instead.
 
 Agents must run on the same machine as the hub. The hub refuses agent connections from other
 machines even when they present the right token.

@@ -89,7 +89,7 @@ After Expo has opened the app, inspect the machine-readable session state from a
 pin subsequent calls to the one ready `Expo demo` session:
 
 ```bash title="Terminal 3 — agent checks"
-export GENIE_BRIDGE_URL='ws://localhost:4390/__genie/ws'
+export GENIE_BRIDGE_URL='ws://127.0.0.1:4390/__genie/ws'
 
 status_json="$(
   pnpm --filter @genie-react/expo-demo exec genie-react status

@@ -55,7 +55,7 @@ npx @genie-react/cli call react_get_tree '{}' \
 
 ```bash
 npx @genie-react/cli status --session checkout-agent
-npx @genie-react/cli status --url ws://localhost:4390/__genie/ws
+npx @genie-react/cli status --url ws://127.0.0.1:4390/__genie/ws
 ```
 
 Use `GENIE_SESSION` and `GENIE_BRIDGE_URL` to set these once per shell.
@@ -68,10 +68,17 @@ access control. The CLI finds the app root through
 `.genie/bridge.json`: the nearest one above the working directory, or one below a workspace root. A
 dev server or hub restart writes a new token, which the next command picks up.
 
+`.genie/bridge.json` publishes the address the dev server or hub actually bound, such as
+`ws://127.0.0.1:4390/__genie/ws` or `ws://[::1]:5173/__genie/ws`, never `localhost`. The name
+`localhost` can resolve to the other address family first, where another local process could listen
+on the same port and capture the token.
+
 A discovered URL only ever uses its own hub's token. For a URL from `--url` or `GENIE_BRIDGE_URL`,
 `GENIE_BRIDGE_TOKEN` wins; without it the CLI uses the token of a discovered hub at that address.
-The CLI sends the token only over `wss://` or to a loopback `ws://` address; forward a remote hub to
-`localhost` (for example `ssh -L`) instead. `doctor` output never includes the token.
+When a discovered hub matches the URL, the CLI connects to the hub's published address, so a typed
+`localhost` still works from the app folder. Otherwise the CLI sends the token only over `wss://` or
+to a loopback IP address, so pass `--url ws://127.0.0.1:<port>/__genie/ws`. For a remote hub, forward
+it to `127.0.0.1` (for example `ssh -L`). `doctor` output never includes the token.
 
 ## Stable failures
 
