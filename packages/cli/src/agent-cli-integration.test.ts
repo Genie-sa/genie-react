@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createStandaloneBridge } from 'genie-react/hub'
@@ -168,12 +168,15 @@ describe('agent CLI integration', () => {
     expect(await runCall('query_rows', '{}', { url, fields: ['id'] })).toBe(0)
     expect(stdout.mock.calls.flat().join('')).toBe('{"id":7}\n')
     stdout.mockClear()
-    const cwd = mkdtempSync(join(tmpdir(), 'genie-spill-'))
-    cleanups.push(() => rmSync(cwd, { recursive: true, force: true }))
+    const runtime = mkdtempSync(join(tmpdir(), 'genie-spill-'))
+    vi.stubEnv('XDG_RUNTIME_DIR', runtime)
+    cleanups.push(() => {
+      vi.unstubAllEnvs()
+      rmSync(runtime, { recursive: true, force: true })
+    })
     expect(
       await runCall('query_rows', '{"large":true,"limit":50}', {
         url,
-        cwd,
         session: 'json-session',
       }),
     ).toBe(0)
@@ -186,7 +189,7 @@ describe('agent CLI integration', () => {
       maxBytes: DEFAULT_MAX_BYTES,
       largestPaths: [{ path: '/rows', items: 1 }],
     })
-    expect(envelope.outputPath.startsWith(join(cwd, '.genie', 'out'))).toBe(true)
+    expect(envelope.outputPath.startsWith(join(realpathSync(runtime), 'genie-react-'))).toBe(true)
     expect(JSON.parse(readFileSync(envelope.outputPath, 'utf8')).rows[0].detail).toHaveLength(
       100_000,
     )

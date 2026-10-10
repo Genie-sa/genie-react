@@ -95,7 +95,7 @@ const OPTION_DETAILS: Record<OptionName, OptionDetail> = {
   },
   'max-bytes': {
     description:
-      'Bound stdout bytes including newlines; an oversized call or tools result is written to .genie/out and replaced by a truncation envelope with its path and retry suggestions',
+      'Bound stdout bytes including newlines; an oversized call or tools result is written to a private per-user temp directory and replaced by a truncation envelope with its path and retry suggestions',
     default: DEFAULT_MAX_BYTES,
     minimum: 512,
     maximum: 50000000,

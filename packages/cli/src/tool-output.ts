@@ -1,5 +1,6 @@
 import type { BridgeStatusMessage } from 'genie-react/protocol'
 import { isRecord } from './guards'
+import { shellQuote } from './output-recovery'
 
 export type ToolDescriptor = BridgeStatusMessage['tools'][number]
 
@@ -203,7 +204,7 @@ export function toolDetail(
     output: {
       kind: 'outline',
       fields: outlineJsonSchema(outputJsonSchema),
-      next: { command: argv.join(' '), argv },
+      next: { command: argv.map(shellQuote).join(' '), argv },
     },
   }
 }

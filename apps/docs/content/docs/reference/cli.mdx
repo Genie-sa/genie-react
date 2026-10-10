@@ -149,8 +149,8 @@ Output defaults to 102,400 bytes per JSON document or default JSONL record. An e
 `--max-bytes` bounds the whole command. `--max-bytes` accepts 512–50,000,000 bytes. Oversized
 output becomes an explicit `status:"truncated"` envelope with `largestPaths` and runnable
 `suggestions` (summary view, smaller `limit`, `--select` branch, or a raised limit). An oversized
-`call` or `tools` result is also written whole to `outputPath` under `.genie/out/`, which keeps the
-newest 20 files. Never treat the envelope itself as complete evidence.
+`call` or `tools` result is also written whole to `outputPath` in a private per-user directory,
+`genie-react-<uid>/out` under `$XDG_RUNTIME_DIR` or the OS temp dir, which keeps the newest 20 files. Never treat the envelope itself as complete evidence.
 
 ```bash
 npx @genie-react/cli call --help

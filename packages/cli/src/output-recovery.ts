@@ -1,11 +1,15 @@
-import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import type { OutputSuggestion, Overflow, OverflowRecovery } from './result-selection'
 
-export const SPILL_DIRECTORY = '.genie/out'
 const RETAINED_SPILLS = 20
 const MAX_SUGGESTED_BYTES = 50_000_000
 const MIN_SUGGESTED_BRANCH_BYTES = 1_024
+const MAX_SUGGESTED_PATH_LENGTH = 200
+const PRIVATE_DIRECTORY_MODE = 0o700
+const PRIVATE_FILE_MODE = 0o600
+const SPILL_NAME = /^[a-zA-Z0-9_.-]{1,80}-\d{13}-\d+\.json$/
 
 export interface CallInvocation {
   /** CLI words before the tool arguments, e.g. `['call', 'react_get_renders']`. */
@@ -15,20 +19,23 @@ export interface CallInvocation {
   flags: string[]
   /** The caller's own `--select`; its envelope paths cannot be re-selected from the original result. */
   select?: string
+  /** The caller's explicit `--max-bytes`; retries keep it so they run under the cap they were sized for. */
+  maxBytes?: number
 }
 
-/** Keep the complete oversized result on disk (Playwright CLI style) and point the agent at narrower retries. */
+/** Keep the complete oversized result in a private per-user directory (Playwright CLI style) and point the agent at narrower retries. */
 export function recoverOverflow(
   overflow: Overflow,
   invocation: CallInvocation,
-  { cwd, label, maxBytes }: { cwd: string; label: string; maxBytes: number },
+  { label, maxBytes }: { label: string; maxBytes: number },
 ): OverflowRecovery {
   return {
-    outputPath: spillOutput(cwd, label, overflow.serialized),
+    outputPath: spillOutput(label, overflow.serialized),
     suggestions: overflowSuggestions(overflow, invocation, maxBytes),
   }
 }
 
+/** Retry suggestions; app-derived paths appear only as quoted argv values, never in the `reason` text. */
 export function overflowSuggestions(
   overflow: Overflow,
   invocation: CallInvocation,
@@ -49,40 +56,50 @@ export function overflowSuggestions(
       )
     }
   }
-  const branch =
-    invocation.select === undefined
-      ? overflow.largestPaths.find(
-          (path) => path.bytes >= MIN_SUGGESTED_BRANCH_BYTES && path.bytes < maxBytes,
-        )
-      : undefined
+  const selectable = invocation.select === undefined
+  const branchIndex = selectable
+    ? overflow.largestPaths.findIndex(
+        ({ path, bytes }) =>
+          bytes >= MIN_SUGGESTED_BRANCH_BYTES &&
+          bytes < maxBytes &&
+          path.length <= MAX_SUGGESTED_PATH_LENGTH,
+      )
+    : -1
+  const branch = overflow.largestPaths[branchIndex]
   if (branch) {
     suggestions.push(
-      suggestion(invocation, `Read only ${branch.path} (${branch.bytes} bytes).`, args, [
-        '--select',
-        branch.path,
-      ]),
+      suggestion(
+        invocation,
+        `Read only the largest selectable branch (largestPaths[${branchIndex}]).`,
+        args,
+        { select: branch.path },
+      ),
     )
   }
   const heaviest = overflow.largestPaths[0]
   if (
-    invocation.select === undefined &&
+    selectable &&
+    heaviest !== branch &&
     heaviest?.items !== undefined &&
     heaviest.items > 0 &&
-    heaviest !== branch
+    heaviest.path.length <= MAX_SUGGESTED_PATH_LENGTH
   ) {
     suggestions.push(
-      suggestion(invocation, `Inspect one item of ${heaviest.path}.`, args, [
-        '--select',
-        `${heaviest.path}/0`,
-      ]),
+      suggestion(
+        invocation,
+        'Inspect the first item of the largest array (largestPaths[0]).',
+        args,
+        {
+          select: `${heaviest.path}/0`,
+        },
+      ),
     )
   }
   if (overflow.originalBytes <= MAX_SUGGESTED_BYTES) {
     suggestions.push(
-      suggestion(invocation, 'Accept the complete result on stdout.', args, [
-        '--max-bytes',
-        String(overflow.originalBytes),
-      ]),
+      suggestion(invocation, 'Accept the complete result on stdout.', args, {
+        maxBytes: overflow.originalBytes,
+      }),
     )
   }
   return suggestions
@@ -92,42 +109,91 @@ function suggestion(
   invocation: CallInvocation,
   reason: string,
   args: Record<string, unknown> | undefined,
-  extraFlags: string[] = [],
+  overrides: { select?: string; maxBytes?: number } = {},
 ): OutputSuggestion {
+  const select = overrides.select ?? invocation.select
+  const maxBytes = overrides.maxBytes ?? invocation.maxBytes
   const argv = [
     'genie-react',
     ...invocation.command,
     ...(args === undefined ? [] : [JSON.stringify(args)]),
     ...invocation.flags,
-    ...(invocation.select === undefined ? [] : ['--select', invocation.select]),
-    ...extraFlags,
+    ...(select === undefined ? [] : ['--select', select]),
+    ...(maxBytes === undefined ? [] : ['--max-bytes', String(maxBytes)]),
   ]
   return { reason, argv, command: argv.map(shellQuote).join(' ') }
 }
 
-function spillOutput(cwd: string, label: string, serialized: string): string | undefined {
-  const directory = join(cwd, SPILL_DIRECTORY)
+/** `$XDG_RUNTIME_DIR` or the OS temp dir, then `genie-react-<uid>/out`: never inside a project that a dev server may serve. */
+export function spillDirectory(): string {
+  const base = realpathSync(process.env.XDG_RUNTIME_DIR || tmpdir())
+  return join(base, `genie-react-${process.getuid?.() ?? 'user'}`, 'out')
+}
+
+function spillOutput(label: string, serialized: string): string | undefined {
+  const directory = spillDirectory()
   const safeLabel = label.replace(/[^a-zA-Z0-9_.-]+/g, '-').slice(0, 80)
   const path = join(directory, `${safeLabel}-${Date.now()}-${process.pid}.json`)
   try {
-    mkdirSync(directory, { recursive: true, mode: 0o700 })
-    writeFileSync(path, `${serialized}\n`, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
-    pruneSpills(directory)
-    return path
+    ensurePrivateDirectory(dirname(directory))
+    ensurePrivateDirectory(directory)
+    writeFileSync(path, `${serialized}\n`, {
+      encoding: 'utf8',
+      flag: 'wx',
+      mode: PRIVATE_FILE_MODE,
+    })
   } catch {
     return undefined
   }
+  pruneSpills(directory)
+  return path
 }
 
+/** Refuses a directory that another user pre-created, swapped for a symlink, or opened up in a shared temp dir. */
+function ensurePrivateDirectory(directory: string): void {
+  try {
+    mkdirSync(directory, { mode: PRIVATE_DIRECTORY_MODE })
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
+  }
+  const info = lstatSync(directory)
+  if (!info.isDirectory() || !isOwnedByCurrentUser(info.uid)) {
+    throw new Error(`${directory} is not a directory owned by the current user`)
+  }
+  if (process.getuid !== undefined && (info.mode & 0o077) !== 0) {
+    throw new Error(`${directory} is accessible to other users`)
+  }
+}
+
+/** Removes only our own regular spill files beyond the newest few; anything else in the directory is left alone. */
 function pruneSpills(directory: string): void {
-  const spills = readdirSync(directory)
-    .filter((name) => name.endsWith('.json'))
-    .map((name) => ({
-      path: join(directory, name),
-      modified: statSync(join(directory, name)).mtimeMs,
-    }))
-    .sort((left, right) => right.modified - left.modified)
-  for (const stale of spills.slice(RETAINED_SPILLS)) rmSync(stale.path, { force: true })
+  let names: string[]
+  try {
+    names = readdirSync(directory).filter((name) => SPILL_NAME.test(name))
+  } catch {
+    return
+  }
+  const spills = names.flatMap((name) => {
+    const path = join(directory, name)
+    try {
+      const info = lstatSync(path)
+      return info.isFile() && isOwnedByCurrentUser(info.uid)
+        ? [{ path, modified: info.mtimeMs }]
+        : []
+    } catch {
+      return []
+    }
+  })
+  spills.sort((left, right) => right.modified - left.modified)
+  for (const stale of spills.slice(RETAINED_SPILLS)) {
+    try {
+      rmSync(stale.path)
+    } catch {}
+  }
+}
+
+function isOwnedByCurrentUser(uid: number): boolean {
+  return process.getuid === undefined || uid === process.getuid()
 }
 
 export function shellQuote(value: string): string {

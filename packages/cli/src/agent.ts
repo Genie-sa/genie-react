@@ -261,11 +261,11 @@ export function renderResult(
   return renderBoundedJson(projected ?? null, maxBytes, recover)
 }
 
-/** Oversized results spill to `.genie/out` beside the app and suggest narrower retries built from this invocation. */
+/** Oversized results spill to the private per-user output directory and suggest narrower retries built from this invocation. */
 function overflowRecovery(
   opts: AgentOptions,
   label: string,
-  invocation: Omit<CallInvocation, 'flags' | 'select'>,
+  invocation: Pick<CallInvocation, 'command' | 'args'>,
 ): (overflow: Overflow) => OverflowRecovery {
   const flags = [
     ...(opts.url === undefined ? [] : ['--url', opts.url]),
@@ -274,12 +274,8 @@ function overflowRecovery(
   return (overflow) =>
     recoverOverflow(
       overflow,
-      { ...invocation, flags, select: opts.select },
-      {
-        cwd: opts.cwd ?? process.cwd(),
-        label,
-        maxBytes: opts.maxBytes ?? DEFAULT_MAX_BYTES,
-      },
+      { ...invocation, flags, select: opts.select, maxBytes: opts.maxBytes },
+      { label, maxBytes: opts.maxBytes ?? DEFAULT_MAX_BYTES },
     )
 }
 
