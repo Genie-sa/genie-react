@@ -123,6 +123,23 @@ function capture(id: string, metrics: FixtureMetrics, reactVersion = '19.2.7'): 
   }
 }
 
+function withRenderEvidence(
+  artifact: CaptureArtifact,
+  reasons: string[],
+  coverage: Record<string, unknown> = {},
+): void {
+  const result = artifact.sections.react?.tools.react_get_renders?.result as Record<string, unknown>
+  result.comparable = false
+  result.notComparableReasons = reasons
+  result.coverage = {
+    complete: false,
+    inputAttributionComplete: false,
+    semantics: 'lower-bound',
+    coverageDomain: 'render-causality',
+    ...coverage,
+  }
+}
+
 function compare(
   baseline: CaptureArtifact[],
   candidate: CaptureArtifact[],
@@ -460,6 +477,110 @@ describe('compareCaptureCohorts', () => {
         excludedCaptureIds: { 'c-partial': ['render-props-not-enumerated'] },
       },
     ])
+  })
+
+  it('keeps refusing render counts when attribution reasons accompany a measurement gap', () => {
+    const mixed = capture('c-mixed', { renders: 10, unnecessary: 0, selfTimeMs: 1 })
+    withRenderEvidence(mixed, ['render-props-not-enumerated', 'skipped-commit-fibers'])
+
+    const comparison = compare(
+      [capture('b-mixed', { renders: 10, unnecessary: 0, selfTimeMs: 1 })],
+      [mixed],
+      ['react.renders', 'react.unnecessary'],
+      [{ metric: 'react.renders', maxRegressionPct: 0 }],
+      1,
+    )
+
+    expect(comparison.overall).toBe('not-comparable')
+    expect(comparison.metrics).toMatchObject([
+      {
+        metric: 'react.renders',
+        comparable: false,
+        excludedCaptureIds: { 'c-mixed': ['skipped-commit-fibers'] },
+      },
+      {
+        metric: 'react.unnecessary',
+        comparable: false,
+        excludedCaptureIds: {
+          'c-mixed': ['render-props-not-enumerated', 'skipped-commit-fibers'],
+        },
+      },
+    ])
+  })
+
+  it('compares commits and updates when the input scan was only partially attributed', () => {
+    const partial = (id: string) => {
+      const artifact = capture(id, {
+        commits: 4,
+        updates: 6,
+        renders: 8,
+        unnecessary: 0,
+        selfTimeMs: 1,
+      })
+      withRenderEvidence(artifact, ['render-input-scan-truncated'])
+      return artifact
+    }
+
+    const comparison = compare(
+      [partial('b-scan')],
+      [partial('c-scan')],
+      ['react.commits', 'react.updates', 'react.unnecessary'],
+      [
+        { metric: 'react.commits', maxRegressionPct: 0 },
+        { metric: 'react.updates', maxRegressionPct: 0 },
+      ],
+      1,
+    )
+
+    expect(comparison.metrics).toMatchObject([
+      { metric: 'react.commits', comparable: true, verdict: 'pass', excludedCaptureIds: {} },
+      { metric: 'react.updates', comparable: true, verdict: 'pass', excludedCaptureIds: {} },
+      {
+        metric: 'react.unnecessary',
+        comparable: false,
+        excludedCaptureIds: {
+          'b-scan': ['render-input-scan-truncated'],
+          'c-scan': ['render-input-scan-truncated'],
+        },
+      },
+    ])
+  })
+
+  it('names captures that lack the metric value', () => {
+    const comparison = compare(
+      [capture('b-value', { renders: 10 })],
+      [capture('c-value', {})],
+      ['react.renders'],
+      [],
+      1,
+    )
+
+    expect(comparison.metrics[0]).toMatchObject({
+      missingCandidateCaptureIds: ['c-value'],
+      excludedCaptureIds: { 'c-value': ['metric-value-unavailable'] },
+    })
+  })
+
+  it('still flags an observation budget mismatch when attribution is partial', () => {
+    const withBudget = (id: string, fiberLimit: number) => {
+      const artifact = capture(id, { renders: 10 })
+      withRenderEvidence(artifact, ['render-props-not-enumerated'], {
+        observationBudget: { fiberLimit, operationLimit: 20_000 },
+      })
+      return artifact
+    }
+
+    const comparison = compare(
+      [withBudget('b-budget', 2_000)],
+      [withBudget('c-budget', 4_000)],
+      ['react.renders'],
+      [],
+      1,
+    )
+
+    expect(comparison.metrics[0]?.notComparableReasons).toContain(
+      'render-coverage-policy-mismatch-between-cohorts',
+    )
   })
 
   it('refuses FPS cohorts whose inferred refresh rates differ between samples', () => {

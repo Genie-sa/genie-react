@@ -1,9 +1,10 @@
-import type {
-  CaptureArtifact,
-  CaptureComparison,
-  CaptureMetric,
-  devtoolsCaptureCompareContract,
-  ToolInput,
+import {
+  type CaptureArtifact,
+  type CaptureComparison,
+  type CaptureMetric,
+  type devtoolsCaptureCompareContract,
+  INPUT_ATTRIBUTION_REASONS,
+  type ToolInput,
 } from '../protocol'
 
 type ComparisonInput = ToolInput<typeof devtoolsCaptureCompareContract>
@@ -35,10 +36,7 @@ const METRIC_DIRECTIONS: Record<CaptureMetric, MetricResult['direction']> = {
 const CAUSE_DEPENDENT_METRICS: ReadonlySet<CaptureMetric> = new Set(['react.unnecessary'])
 
 // Partial render-cause attribution leaves render counts and timings exact, so only cause-derived metrics are gated by it.
-const INPUT_ATTRIBUTION_REASONS: ReadonlySet<string> = new Set([
-  'render-input-scan-truncated',
-  'render-props-not-enumerated',
-])
+const ATTRIBUTION_ONLY_REASONS: ReadonlySet<string> = new Set(INPUT_ATTRIBUTION_REASONS)
 
 export function compareCaptureCohorts(
   baseline: CaptureArtifact[],
@@ -267,7 +265,7 @@ function metricEvidence(
       const reasons = stringArray(
         result.notComparableReasons,
         'render-evidence-not-comparable',
-      ).filter((reason) => causeDependent || !INPUT_ATTRIBUTION_REASONS.has(reason))
+      ).filter((reason) => causeDependent || !ATTRIBUTION_ONLY_REASONS.has(reason))
       if (reasons.length > 0) {
         return { comparable: false, reasons, refreshRate: null, coverageSignature }
       }

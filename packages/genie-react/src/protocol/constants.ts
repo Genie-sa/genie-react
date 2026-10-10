@@ -30,3 +30,11 @@ export const DEFAULT_MAX_ENTRIES = 100
 
 export type ConnectionRole = 'app' | 'agent'
 export const ROLE_QUERY_PARAM = 'role'
+
+export const RENDER_INPUT_SCAN_TRUNCATED = 'render-input-scan-truncated'
+export const RENDER_PROPS_NOT_ENUMERATED = 'render-props-not-enumerated'
+/** Render-evidence reasons that limit only cause attribution; render counts and timings stay exact. */
+export const INPUT_ATTRIBUTION_REASONS = [
+  RENDER_INPUT_SCAN_TRUNCATED,
+  RENDER_PROPS_NOT_ENUMERATED,
+] as const
