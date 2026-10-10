@@ -6,6 +6,10 @@ inputs:
     description: npm registry to authenticate against (only needed for publishing).
     required: false
     default: ""
+  cache:
+    description: Restore and save the pnpm store cache. Disable for jobs that install packages outside the lockfile.
+    required: false
+    default: "true"
 runs:
   using: composite
   steps:
@@ -16,7 +20,7 @@ runs:
       uses: actions/setup-node@v4
       with:
         node-version-file: .nvmrc
-        cache: pnpm
+        cache: ${{ inputs.cache == 'true' && 'pnpm' || '' }}
         registry-url: ${{ inputs.registry-url }}
 
     - name: Install dependencies
