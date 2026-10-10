@@ -216,7 +216,8 @@ describe('commandMetrics', () => {
     expect(metrics.otherCommands).toBe(1)
     expect(metrics.failedCommands).toBe(1)
     expect(metrics.genieErrorReasons).toEqual({ 'session-not-ready': 1, busy: 1 })
-    expect(metrics.genieEvidenceCommands).toBe(0)
+    expect(metrics.genieToolCalls).toBe(2)
+    expect(metrics.genieSuccessfulToolCalls).toBe(0)
   })
 
   it('excludes denied commands and counts successful tool calls as runtime evidence', () => {
@@ -239,6 +240,156 @@ describe('commandMetrics', () => {
     expect(metrics.deniedCommands).toBe(1)
     expect(metrics.genieCalls).toBe(2)
     expect(metrics.failedCommands).toBe(0)
-    expect(metrics.genieEvidenceCommands).toBe(1)
+    expect(metrics.genieSuccessfulToolCalls).toBe(1)
+  })
+})
+
+describe('permission denials', () => {
+  it('marks commands named by the result event as denied, whatever the message wording', () => {
+    const transcript = parseClaudeEvents([
+      {
+        type: 'assistant',
+        message: {
+          id: 'msg_1',
+          content: [
+            { type: 'tool_use', id: 'tool_1', name: 'Bash', input: { command: 'npx tsc' } },
+            { type: 'tool_use', id: 'tool_2', name: 'Bash', input: { command: 'cat src/a.ts' } },
+          ],
+        },
+      },
+      {
+        type: 'user',
+        message: {
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'tool_1',
+              is_error: true,
+              content: 'Claude Code blocked this command.',
+            },
+            {
+              type: 'tool_result',
+              tool_use_id: 'tool_2',
+              is_error: true,
+              content: 'cat: src/a.ts: No such file or directory',
+            },
+          ],
+        },
+      },
+      {
+        type: 'result',
+        subtype: 'success',
+        result: 'done',
+        permission_denials: [
+          { tool_name: 'Bash', tool_use_id: 'tool_1', tool_input: { command: 'npx tsc' } },
+        ],
+      },
+    ])
+    expect(transcript.commands.map((command) => command.denied)).toEqual([true, false])
+    expect(commandMetrics(transcript.commands)).toMatchObject({
+      deniedCommands: 1,
+      failedCommands: 1,
+    })
+  })
+
+  it('recognises denial messages that name the command when the result event is missing', () => {
+    const transcript = parseClaudeEvents([
+      {
+        type: 'assistant',
+        message: {
+          id: 'msg_1',
+          content: [
+            { type: 'tool_use', id: 'tool_1', name: 'Bash', input: { command: 'npx tsc' } },
+          ],
+        },
+      },
+      {
+        type: 'user',
+        message: {
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'tool_1',
+              is_error: true,
+              content:
+                'Permission to use Bash with command npx tsc has been denied because Claude Code is running in dontAsk mode.',
+            },
+          ],
+        },
+      },
+    ])
+    expect(transcript.commands[0]?.denied).toBe(true)
+  })
+})
+
+describe('runtime evidence', () => {
+  it('counts batch items from JSONL output, including failed items', () => {
+    const metrics = commandMetrics([
+      {
+        command: `genie-react batch '[{"tool":"react_clear_renders"},{"tool":"react_get_renders"},{"tool":"react_error_state"}]'`,
+        output: [
+          '{"schemaVersion":"1.0","tool":"react_clear_renders","ok":true,"status":"ok","result":{}}',
+          '{"schemaVersion":"1.0","tool":"react_get_renders","ok":true,"status":"ok","result":{"components":[]}}',
+          '{"schemaVersion":"1.0","tool":"react_error_state","ok":false,"status":"error","reason":"busy"}',
+        ].join('\n'),
+        isError: true,
+        denied: false,
+      },
+    ])
+    expect(metrics.genieToolCalls).toBe(3)
+    expect(metrics.genieSuccessfulToolCalls).toBe(2)
+    expect(metrics.genieErrorReasons).toEqual({ busy: 1 })
+  })
+
+  it('reads a --json batch array and pretty-printed error envelopes', () => {
+    const batch = JSON.stringify(
+      [
+        { tool: 'react_get_renders', ok: true, status: 'ok', result: {} },
+        { tool: 'react_render_causes', ok: false, status: 'error', reason: 'invalid-args' },
+      ],
+      null,
+      2,
+    )
+    const envelope = JSON.stringify(
+      { schemaVersion: '1.0', status: 'error', reason: 'not_connected', message: 'No app' },
+      null,
+      2,
+    )
+    const metrics = commandMetrics([
+      {
+        command: `genie-react batch --json '[{"tool":"react_get_renders"},{"tool":"react_render_causes"}]' | jq .`,
+        output: batch,
+        isError: false,
+        denied: false,
+      },
+      {
+        command: "genie-react call react_error_state '{}' | jq .",
+        output: envelope,
+        isError: false,
+        denied: false,
+      },
+    ])
+    expect(metrics.genieToolCalls).toBe(3)
+    expect(metrics.genieSuccessfulToolCalls).toBe(1)
+    expect(metrics.genieErrorReasons).toEqual({ 'invalid-args': 1, not_connected: 1 })
+  })
+
+  it('counts a truncated successful call and a whole-batch connection failure', () => {
+    const metrics = commandMetrics([
+      {
+        command: "genie-react call react_render_causes '{}' | head -c 20",
+        output: '{"tracking":true,"co',
+        isError: false,
+        denied: false,
+      },
+      {
+        command: 'echo \'[{"tool":"a"},{"tool":"b"}]\' | genie-react batch',
+        output: '{"schemaVersion":"1.0","status":"error","reason":"not_connected"}',
+        isError: true,
+        denied: false,
+      },
+    ])
+    expect(metrics.genieToolCalls).toBe(2)
+    expect(metrics.genieSuccessfulToolCalls).toBe(1)
   })
 })

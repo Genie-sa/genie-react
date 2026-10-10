@@ -1,3 +1,4 @@
+import { parseJsonValues } from './json.mjs'
 import { basename, programWords, splitShellCommands, unwrapShellInvocation } from './shell.mjs'
 
 /**
@@ -25,7 +26,8 @@ import { basename, programWords, splitShellCommands, unwrapShellInvocation } fro
  *   otherCommands: number,
  *   failedCommands: number,
  *   deniedCommands: number,
- *   genieEvidenceCommands: number,
+ *   genieToolCalls: number,
+ *   genieSuccessfulToolCalls: number,
  *   genieErrorReasons: Record<string, number>,
  * }} CommandMetrics
  */
@@ -160,6 +162,10 @@ export function parseClaudeEvents(events) {
       if (isRecord(event.usage)) transcript.usage = usageFromAnthropic(event.usage)
       if (Array.isArray(event.permission_denials)) {
         transcript.permissionDenials = event.permission_denials.map(describeDenial)
+        for (const denial of event.permission_denials) {
+          const command = isRecord(denial) ? commandsById.get(denial.tool_use_id) : undefined
+          if (command) command.denied = true
+        }
       }
       if (event.is_error === true || (event.subtype && event.subtype !== 'success')) {
         transcript.failure = String(event.subtype ?? 'error')
@@ -307,12 +313,53 @@ function describeGenieInvocation(words) {
   return { subcommand, tool }
 }
 
-const GENIE_ERROR = /"status"\s*:\s*"error"[^\n]*?"reason"\s*:\s*"([^"]+)"/g
-const PERMISSION_DENIED = /^Permission to use \w+ has been denied/
+const PERMISSION_DENIED = /^Permission to use \w+\b[\s\S]*? has been denied/
+
+/**
+ * Counts the items in a `genie-react batch` JSON argument; a spec piped on stdin counts as one call.
+ * @param {string[]} words
+ * @returns {number}
+ */
+function batchSize(words) {
+  const spec = words.slice(1).find((word) => word.startsWith('['))
+  try {
+    const items = JSON.parse(spec ?? '')
+    return Array.isArray(items) && items.length > 0 ? items.length : 1
+  } catch {
+    return 1
+  }
+}
+
+/**
+ * @typedef {{ ok: number, errors: string[], sawBatchItems: boolean }} GenieOutcomes
+ */
+
+/**
+ * Classifies the JSON values a command printed: batch items carry `tool` and `status`, and error envelopes carry `status: "error"`.
+ * @param {string} output
+ * @returns {GenieOutcomes}
+ */
+function genieOutcomes(output) {
+  /** @type {GenieOutcomes} */
+  const outcomes = { ok: 0, errors: [], sawBatchItems: false }
+  const visit = (/** @type {unknown} */ value) => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item)
+      return
+    }
+    if (!isRecord(value)) return
+    const isBatchItem = typeof value.tool === 'string' && typeof value.status === 'string'
+    if (isBatchItem) outcomes.sawBatchItems = true
+    if (value.status === 'error') outcomes.errors.push(String(value.reason ?? 'unknown'))
+    else if (isBatchItem && value.status === 'ok') outcomes.ok += 1
+  }
+  for (const value of parseJsonValues(output)) visit(value)
+  return outcomes
+}
 
 /**
  * Counts executed genie-react and agent-browser invocations, including several chained in one Bash call.
- * A command is runtime evidence when it ran more `genie-react call`s than it printed error envelopes.
+ * Tool calls are `call` invocations plus `batch` items; a call succeeded unless the command failed or printed an error envelope for it.
  * @param {ShellCommand[]} commands
  * @returns {CommandMetrics}
  */
@@ -326,7 +373,8 @@ export function commandMetrics(commands) {
     otherCommands: 0,
     failedCommands: 0,
     deniedCommands: 0,
-    genieEvidenceCommands: 0,
+    genieToolCalls: 0,
+    genieSuccessfulToolCalls: 0,
     genieErrorReasons: {},
   }
   for (const { command, output, isError, denied } of commands) {
@@ -347,6 +395,7 @@ export function commandMetrics(commands) {
         metrics.genieCalls += 1
         const invocation = describeGenieInvocation(program)
         if (invocation.subcommand === 'call') toolCalls += 1
+        if (invocation.subcommand === 'batch') toolCalls += batchSize(program)
         metrics.genieInvocations.push(invocation)
       } else if (name === 'agent-browser') {
         usedKnownTool = true
@@ -357,11 +406,15 @@ export function commandMetrics(commands) {
     }
     if (!usedKnownTool) metrics.otherCommands += 1
     if (!usedGenie) continue
-    const errors = [...output.matchAll(GENIE_ERROR)].map((match) => match[1] ?? 'unknown')
-    for (const reason of errors) {
+    metrics.genieToolCalls += toolCalls
+    const outcomes = genieOutcomes(output)
+    for (const reason of outcomes.errors) {
       metrics.genieErrorReasons[reason] = (metrics.genieErrorReasons[reason] ?? 0) + 1
     }
-    if (!isError && toolCalls > errors.length) metrics.genieEvidenceCommands += 1
+    if (outcomes.sawBatchItems) metrics.genieSuccessfulToolCalls += outcomes.ok
+    else if (!isError) {
+      metrics.genieSuccessfulToolCalls += Math.max(0, toolCalls - outcomes.errors.length)
+    }
   }
   return metrics
 }
