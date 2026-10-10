@@ -1,0 +1,97 @@
+# Early warning for unreleased bippy changes; not a required check, so a red run never blocks a merge.
+name: bippy canary
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - packages/genie-react/src/collectors/react/**
+      - .github/workflows/bippy-canary.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bippy-canary-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  canary:
+    name: genie-react against bippy@dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Install bippy@dev
+        id: bippy
+        run: |
+          version=$(npm view bippy@dev version)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          pnpm --filter genie-react add --save-exact "bippy@$version"
+
+      - name: Typecheck
+        id: typecheck
+        continue-on-error: true
+        run: pnpm --filter genie-react typecheck 2>&1 | tee "$RUNNER_TEMP/typecheck.log"
+
+      - name: Test React collector
+        id: test
+        continue-on-error: true
+        run: >
+          pnpm exec vitest run packages/genie-react/src/collectors/react
+          --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/vitest.json"
+
+      - name: Build
+        id: build
+        continue-on-error: true
+        run: pnpm --filter genie-react build 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Report
+        if: always()
+        env:
+          BIPPY_VERSION: ${{ steps.bippy.outputs.version || 'unresolved' }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          TEST: ${{ steps.test.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+        run: |
+          {
+            echo "## genie-react against \`bippy@$BIPPY_VERSION\`"
+            echo
+            echo "| Check | Outcome |"
+            echo "| --- | --- |"
+            echo "| Typecheck | $TYPECHECK |"
+            echo "| React collector tests | $TEST |"
+            echo "| Build | $BUILD |"
+            if [[ $TYPECHECK == failure ]]; then
+              echo -e "\n### Type errors\n\n\`\`\`"
+              grep 'error TS' "$RUNNER_TEMP/typecheck.log" || true
+              echo '```'
+            fi
+            if [[ $TEST == failure && -f $RUNNER_TEMP/vitest.json ]]; then
+              echo -e "\n### Failing tests\n"
+              jq -r --arg root "$GITHUB_WORKSPACE/" '
+                .testResults[]
+                | (.name | ltrimstr($root)) as $file
+                | .assertionResults[]
+                | select(.status == "failed")
+                | "- `\($file)` › \(.fullName): \(.failureMessages[0] // "" | split("\n")[0])"
+              ' "$RUNNER_TEMP/vitest.json"
+            fi
+            if [[ $BUILD == failure ]]; then
+              echo -e "\n### Build errors\n\n\`\`\`"
+              perl -pe 's/\e\[[0-9;]*m//g' "$RUNNER_TEMP/build.log" | grep -E '^ ?ERROR|^\[[A-Z_]+\]' || true
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          [[ "$TYPECHECK $TEST $BUILD" == "success success success" ]]
