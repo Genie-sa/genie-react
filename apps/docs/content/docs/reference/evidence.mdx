@@ -17,6 +17,9 @@ Genie reports the strength and coverage of runtime evidence. Read these fields b
 | `attribution.status: stale`         | React committed while evidence was read.               | Wait for React to settle and retry.                    |
 | `propsNotEnumerated`                | Props were not a plain object; Genie left them unread. | Inspect a known prop or path.                          |
 
+Genie tags every `Proxy` created after its hook loads and never reads a tagged proxy's keys, in props
+or in prop values. A `Proxy` created before Genie loaded is indistinguishable from its target.
+
 ## Coverage is per question
 
 A timing profile can be complete while input attribution is partial. A before/after diff reports

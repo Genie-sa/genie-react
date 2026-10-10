@@ -229,6 +229,14 @@ npx @genie-react/cli call react_get_renders \
 coverage explain the render. Compatibility counts such as `unnecessary` are not proof that a render
 is safe to remove.
 
+Props cause a render only for components that can skip it on equal props: `memo` components and
+classes that extend `PureComponent` or define `shouldComponentUpdate`. Any other component re-renders
+with its parent, so its first cause is `parent` and its changed props follow as observed inputs.
+`referenceOnlyPropRenders` counts renders of those components whose changed props kept equal values
+under a complete diff. `functionIdentityPropRenders` counts renders where only function props changed
+identity, usually inline callbacks. `undeterminedReferencePropRenders` counts renders whose reference
+changes a truncated diff could not classify.
+
 ## `react_render_causes`
 
 Returns joinable render events and their observed causes.
