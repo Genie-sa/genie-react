@@ -66,8 +66,9 @@ export function diffWithBudget(
   before: unknown,
   after: unknown,
   budget: RenderEvidenceBudget,
+  plainObjectDepth = 0,
 ): DeepDiffResult {
-  return deepDiff(before, after, { budget: budget.deepDiff })
+  return deepDiff(before, after, { budget: budget.deepDiff, plainObjectDepth })
 }
 
 export function inputCoverage(budget: RenderEvidenceBudget): RenderInputCoverage {

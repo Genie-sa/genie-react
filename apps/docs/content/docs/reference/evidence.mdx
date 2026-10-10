@@ -15,7 +15,7 @@ Genie reports the strength and coverage of runtime evidence. Read these fields b
 | `coverage.complete`                 | The measurement has no known global coverage gap.       | When false, inspect question-specific evidence.        |
 | `coverage.inputAttributionComplete` | Every captured render has complete input evidence.     | Only then rule out an input cause.                     |
 | `attribution.status: stale`         | React committed while evidence was read.               | Wait for React to settle and retry.                    |
-| `propsNotEnumerated`                | Props may be a Proxy, so Genie did not enumerate them. | Inspect a known prop or path.                          |
+| `propsNotEnumerated`                | Props were not a plain object; Genie left them unread. | Inspect a known prop or path.                          |
 
 ## Coverage is per question
 

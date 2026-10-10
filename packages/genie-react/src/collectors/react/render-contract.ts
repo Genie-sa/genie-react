@@ -69,7 +69,7 @@ const deepDiffSchema = z.object({
   truncated: z
     .boolean()
     .describe(
-      'True when paths are incomplete. Arbitrary object internals stay opaque; arrays and documented store fields can expose exact paths.',
+      'True when paths are incomplete. Arbitrary object internals stay opaque; arrays, first-level plain-object props, and documented store fields can expose exact paths.',
     ),
 })
 
@@ -218,7 +218,7 @@ const renderInputCoverageSchema = z.object({
   propsNotEnumerated: z
     .boolean()
     .describe(
-      'The props container identity changed, but its arbitrary keys were not read because it may be a Proxy.',
+      'The changed props container was not a plain object (class instance or exotic object), so its keys were not read.',
     ),
 })
 
@@ -402,7 +402,9 @@ const renderComponentSchema = z.object({
   noObservedInputChange: z.number(),
   referenceOnlyPropRenders: z
     .number()
-    .describe('Legacy field. Automatic capture does not enumerate arbitrary prop containers.'),
+    .describe(
+      'Renders whose only React input changes were props with a new reference but no observed value change.',
+    ),
   unstableRenders: z.number().describe('Legacy alias for referenceOnlyPropRenders.'),
   forget: z
     .boolean()
@@ -480,7 +482,7 @@ export const renderCoverageSchema = z.object({
     .int()
     .nonnegative()
     .describe(
-      'Renders whose changed props container was left opaque to avoid invoking app Proxy traps.',
+      'Renders whose changed props container was not a plain object, so its keys were left unread.',
     ),
   budgetExhaustedCommits: z.number().int().nonnegative(),
   budgetExhaustedSubsystems: z.array(

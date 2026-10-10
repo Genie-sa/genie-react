@@ -1,4 +1,9 @@
-import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
+import {
+  isDataDescriptor,
+  isPlainObject,
+  plainOwnKeys,
+  safeOwnPropertyDescriptor,
+} from '../causal/safe-object'
 
 export { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 
@@ -24,6 +29,8 @@ export interface DeepDiffOptions {
   maxDepth?: number
   maxVisited?: number
   maxChanges?: number
+  /** Plain objects shallower than this depth are walked by own enumerable keys; deeper ones stay opaque. */
+  plainObjectDepth?: number
   budget?: DeepDiffBudget
 }
 
@@ -55,7 +62,7 @@ const MAX_POINTER_SEGMENT_CODE_UNITS = 120
 const MAX_POINTER_CODE_UNITS = 500
 const MAX_EXACT_BIGINT = 10n ** 100n
 
-type ContainerKind = 'array'
+type ContainerKind = 'array' | 'object'
 
 interface DiffState {
   changes: DeepDiffChange[]
@@ -66,6 +73,7 @@ interface DiffState {
   maxDepth: number
   maxVisited: number
   maxChanges: number
+  plainObjectDepth: number
   remainingPropertyScans: number
   activePairs: WeakMap<object, WeakSet<object>>
   outerBudget: DeepDiffBudget | undefined
@@ -83,7 +91,7 @@ export function createDeepDiffBudget(
   }
 }
 
-/** Compare scalars and arrays with bounded RFC 6901 paths; arbitrary objects stay opaque. */
+/** Compare scalars, arrays, and opted-in plain objects with bounded RFC 6901 paths; other objects stay opaque. */
 export function deepDiff(
   before: unknown,
   after: unknown,
@@ -105,6 +113,7 @@ export function deepDiff(
       boundedLimit(options.maxChanges, DEFAULT_MAX_CHANGES, HARD_MAX_CHANGES),
       budget?.remainingChanges ?? HARD_MAX_CHANGES,
     ),
+    plainObjectDepth: boundedLimit(options.plainObjectDepth, 0, HARD_MAX_DEPTH),
     remainingPropertyScans:
       2 *
       Math.min(
@@ -133,13 +142,13 @@ function walk(
   if (!consumeVisit(state)) return true
   if (Object.is(before, after)) return false
 
-  const beforeKind = containerKind(before)
-  const afterKind = containerKind(after)
+  const beforeKind = containerKind(before, depth, state)
+  const afterKind = containerKind(after, depth, state)
   if (beforeKind !== null && beforeKind === afterKind) {
-    return walkContainers(before as object, after as object, path, depth, state)
+    return walkContainers(before as object, after as object, beforeKind, path, depth, state)
   }
 
-  if (isUnsupportedReference(before) || isUnsupportedReference(after)) {
+  if (isOpaqueReference(before, beforeKind) || isOpaqueReference(after, afterKind)) {
     /* Structural reflection can invoke unbounded Proxy traps. Keep only incomplete identity. */
     state.truncated = true
     recordChange(state, { kind: 'reference-only', path })
@@ -157,6 +166,7 @@ function walk(
 function walkContainers(
   before: object,
   after: object,
+  kind: ContainerKind,
   path: string,
   depth: number,
   state: DiffState,
@@ -171,15 +181,13 @@ function walkContainers(
     return true
   }
 
-  const beforeScan = scanArrayProperties(before, state)
-  const afterScan = scanArrayProperties(after, state)
+  const scan = kind === 'array' ? scanArrayProperties : scanPlainObjectProperties
+  const beforeScan = scan(before, state)
+  const afterScan = scan(after, state)
   if (!beforeScan.complete || !afterScan.complete) state.truncated = true
 
   addActivePair(state, before, after)
-  let childChanged =
-    Array.isArray(before) && Array.isArray(after)
-      ? recordArrayLengthChange(before, after, path, state)
-      : false
+  let childChanged = kind === 'array' ? recordArrayLengthChange(before, after, path, state) : false
   try {
     const beforeByKey = new Map(
       beforeScan.properties.map(({ key, descriptor }) => [key, descriptor] as const),
@@ -303,28 +311,45 @@ function recordChange(state: DiffState, change: DeepDiffChange): void {
   state.changes.push(change)
 }
 
-function containerKind(value: unknown): ContainerKind | null {
-  return Array.isArray(value) ? 'array' : null
+function containerKind(value: unknown, depth: number, state: DiffState): ContainerKind | null {
+  if (Array.isArray(value)) return 'array'
+  return depth < state.plainObjectDepth && isPlainObject(value) ? 'object' : null
 }
 
-function isUnsupportedReference(value: unknown): boolean {
+function isOpaqueReference(value: unknown, kind: ContainerKind | null): boolean {
   return (
-    typeof value === 'function' ||
-    (typeof value === 'object' && value !== null && containerKind(value) === null)
+    kind === null && (typeof value === 'function' || (typeof value === 'object' && value !== null))
   )
 }
 
-function scanArrayProperties(
-  value: object,
-  state: DiffState,
-): { properties: { key: string; descriptor: PropertyDescriptor }[]; complete: boolean } {
+interface PropertyScan {
+  properties: { key: string; descriptor: PropertyDescriptor }[]
+  complete: boolean
+}
+
+function scanArrayProperties(value: object, state: DiffState): PropertyScan {
   const lengthDescriptor = safeOwnPropertyDescriptor(value, 'length')
   if (!isDataDescriptor(lengthDescriptor) || typeof lengthDescriptor.value !== 'number') {
     return { properties: [], complete: false }
   }
   const length = Math.max(0, Math.floor(lengthDescriptor.value))
-  const properties: { key: string; descriptor: PropertyDescriptor }[] = []
-  const limit = Math.min(length, state.maxVisited, state.remainingPropertyScans)
+  return scanOwnProperties(value, length, String, state)
+}
+
+function scanPlainObjectProperties(value: object, state: DiffState): PropertyScan {
+  const keys = plainOwnKeys(value)
+  if (keys === undefined) return { properties: [], complete: false }
+  return scanOwnProperties(value, keys.length, (index) => keys[index] ?? '', state)
+}
+
+function scanOwnProperties(
+  value: object,
+  count: number,
+  keyAt: (index: number) => string,
+  state: DiffState,
+): PropertyScan {
+  const properties: PropertyScan['properties'] = []
+  const limit = Math.min(count, state.maxVisited, state.remainingPropertyScans)
   for (let index = 0; index < limit; index += 1) {
     if (state.outerBudget?.consumeVisit && !state.outerBudget.consumeVisit()) {
       state.truncated = true
@@ -332,11 +357,12 @@ function scanArrayProperties(
       return { properties, complete: false }
     }
     state.remainingPropertyScans -= 1
-    const descriptor = safeOwnPropertyDescriptor(value, String(index))
+    const key = keyAt(index)
+    const descriptor = safeOwnPropertyDescriptor(value, key)
     if (descriptor === undefined) return { properties, complete: false }
-    if (descriptor?.enumerable) properties.push({ key: String(index), descriptor })
+    if (descriptor?.enumerable) properties.push({ key, descriptor })
   }
-  return { properties, complete: limit === length }
+  return { properties, complete: limit === count }
 }
 
 function snapshotValue(value: unknown, state: DiffState): DeepDiffValue {

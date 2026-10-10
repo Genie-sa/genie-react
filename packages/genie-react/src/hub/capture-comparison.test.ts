@@ -299,6 +299,7 @@ describe('compareCaptureCohorts', () => {
     expect(result.metrics[0]).toMatchObject({
       candidate: { samples: 0, median: null },
       missingCandidateCaptureIds: ['c1'],
+      excludedCaptureIds: { c1: ['document-hidden-during-sample'] },
     })
     expect(result.warnings[0]).toContain('2 runtime fingerprints')
   })
@@ -406,6 +407,59 @@ describe('compareCaptureCohorts', () => {
     expect(fpsComparison.metrics[0]?.notComparableReasons).toContain(
       'inferred-refresh-rate-mode-mismatch',
     )
+  })
+
+  it('compares render counts and timings when only render-cause attribution is incomplete', () => {
+    const partialAttribution = (id: string, renders: number) => {
+      const artifact = capture(id, { renders, unnecessary: 0, selfTimeMs: renders })
+      const result = artifact.sections.react?.tools.react_get_renders?.result as Record<
+        string,
+        unknown
+      >
+      result.comparable = false
+      result.notComparableReasons = ['render-props-not-enumerated']
+      result.coverage = {
+        complete: false,
+        inputAttributionComplete: false,
+        semantics: 'lower-bound',
+        coverageDomain: 'render-causality',
+      }
+      return artifact
+    }
+    const fullAttribution = capture('b-full', { renders: 10, unnecessary: 0, selfTimeMs: 10 })
+    const fullResult = fullAttribution.sections.react?.tools.react_get_renders?.result as Record<
+      string,
+      unknown
+    >
+    fullResult.coverage = {
+      complete: true,
+      inputAttributionComplete: true,
+      semantics: 'exact',
+      coverageDomain: 'render-causality',
+    }
+
+    const comparison = compare(
+      [fullAttribution],
+      [partialAttribution('c-partial', 10)],
+      ['react.renders', 'react.selfTimeMs', 'react.unnecessary'],
+      [
+        { metric: 'react.renders', maxRegressionPct: 0 },
+        { metric: 'react.selfTimeMs', maxRegressionPct: 0 },
+      ],
+      1,
+    )
+
+    expect(comparison.overall).toBe('pass')
+    expect(comparison.metrics).toMatchObject([
+      { metric: 'react.renders', comparable: true, verdict: 'pass', excludedCaptureIds: {} },
+      { metric: 'react.selfTimeMs', comparable: true, verdict: 'pass' },
+      {
+        metric: 'react.unnecessary',
+        comparable: false,
+        missingCandidateCaptureIds: ['c-partial'],
+        excludedCaptureIds: { 'c-partial': ['render-props-not-enumerated'] },
+      },
+    ])
   })
 
   it('refuses FPS cohorts whose inferred refresh rates differ between samples', () => {

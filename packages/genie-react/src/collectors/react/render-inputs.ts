@@ -1,4 +1,5 @@
 import type { Fiber, MemoizedState, Props } from 'bippy'
+import { plainOwnKeys } from '../causal/safe-object'
 import { type DeepDiffResult, isDataDescriptor, safeOwnPropertyDescriptor } from './deep-diff'
 import { classifyHook, isStatefulHook } from './fiber'
 import {
@@ -12,6 +13,9 @@ import {
 } from './render-budget'
 import { diffContextChanges, HOOK_WALK_LIMIT, stateValue } from './render-causes'
 import { isClassComponentFiber } from './work-tags'
+
+// One level covers the inline `{...}` literals that defeat memo without reflecting deep into app objects.
+const PROP_PLAIN_OBJECT_DEPTH = 1
 
 export interface PropRenderChange {
   name: string
@@ -81,12 +85,74 @@ export function diffProps(
   const next: Props | null = fiber.memoizedProps
   const prev: Props | null = fiber.alternate?.memoizedProps ?? null
   if (!next || !prev || typeof next !== 'object' || typeof prev !== 'object') return []
+  if (Object.is(next, prev)) return []
 
-  if (!Object.is(next, prev)) {
-    /* Arbitrary props cannot be enumerated without Proxy traps; fixed inputs are read separately. */
+  const prevKeys = plainOwnKeys(prev)
+  const nextKeys = plainOwnKeys(next)
+  if (!prevKeys || !nextKeys) {
     markPropsNotEnumerated(evidence)
+    return []
   }
-  return []
+
+  const changes: PropRenderChange[] = []
+  for (const name of new Set([...prevKeys, ...nextKeys])) {
+    if (name === 'children') continue
+    if (!scanInputEvidence(evidence, 'props')) break
+    const before = readPropSlot(prev, name)
+    const after = readPropSlot(next, name)
+    if (!before || !after) {
+      truncateInputScan(evidence)
+      continue
+    }
+    if (before.present === after.present && Object.is(before.value, after.value)) continue
+    if (!retainInputEvidence(evidence)) continue
+    changes.push(propChange(name, before, after, evidence))
+  }
+  return changes
+}
+
+interface PropSlot {
+  present: boolean
+  value: unknown
+}
+
+/** Undefined means the slot is an accessor or unreadable, so its value is unknown. */
+function readPropSlot(props: object, name: string): PropSlot | undefined {
+  const descriptor = safeOwnPropertyDescriptor(props, name)
+  if (descriptor === null) return { present: false, value: undefined }
+  return isDataDescriptor(descriptor) ? { present: true, value: descriptor.value } : undefined
+}
+
+function propChange(
+  name: string,
+  before: PropSlot,
+  after: PropSlot,
+  evidence: RenderEvidenceBudget,
+): PropRenderChange {
+  const deepDiff = diffWithBudget(before.value, after.value, evidence, PROP_PLAIN_OBJECT_DEPTH)
+  const referenceChanged =
+    before.present && after.present && isReference(before.value) && isReference(after.value)
+  const referenceOnly =
+    referenceChanged &&
+    !deepDiff.truncated &&
+    deepDiff.changes.length > 0 &&
+    deepDiff.changes.every((change) => change.kind === 'reference-only')
+  return {
+    name,
+    kind: 'props',
+    referenceChanged,
+    referenceOnly,
+    unstable: referenceChanged,
+    beforePresent: before.present,
+    afterPresent: after.present,
+    before: stateValue(before.value, evidence),
+    after: stateValue(after.value, evidence),
+    deepDiff,
+  }
+}
+
+function isReference(value: unknown): boolean {
+  return typeof value === 'function' || (typeof value === 'object' && value !== null)
 }
 
 /** Reports changed useState/useReducer slots in one guarded hook-chain pass. */

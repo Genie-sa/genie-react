@@ -106,12 +106,29 @@ describe('diffProps', () => {
     expect(diffProps(fiber)).toEqual([])
   })
 
-  it('does not guess arbitrary prop fields from an identity change', () => {
+  it('reports a primitive prop value change', () => {
     const fiber = asFiber({
       memoizedProps: { n: 2 },
       alternate: { memoizedProps: { n: 1 } },
     })
-    expect(diffProps(fiber)).toEqual([])
+    expect(diffProps(fiber)).toEqual([
+      {
+        name: 'n',
+        kind: 'props',
+        referenceChanged: false,
+        referenceOnly: false,
+        unstable: false,
+        beforePresent: true,
+        afterPresent: true,
+        before: 1,
+        after: 2,
+        deepDiff: {
+          changes: [{ kind: 'value', path: '', before: 1, after: 2 }],
+          visited: 1,
+          truncated: false,
+        },
+      },
+    ])
   })
 
   it('returns nothing on first render (no alternate props)', () => {
@@ -1014,7 +1031,7 @@ describe('recordRender unnecessary accounting', () => {
     expect((await byName()).get('DerivedOnly')).toMatchObject({ changes: [], unnecessary: 1 })
   })
 
-  it('claims no observed input change only when the props container is stable', async () => {
+  it('claims no observed input change only when no prop value changed', async () => {
     const shared = { node: true }
     const pureProps = { a: 1, children: shared }
     render(
@@ -1022,6 +1039,14 @@ describe('recordRender unnecessary accounting', () => {
         name: 'Pure',
         props: pureProps,
         prevProps: pureProps,
+      }),
+      'update',
+    )
+    render(
+      componentFiber({
+        name: 'FreshContainer',
+        props: { a: 1, children: shared },
+        prevProps: { a: 1, children: shared },
       }),
       'update',
     )
@@ -1045,16 +1070,16 @@ describe('recordRender unnecessary accounting', () => {
     const records = await byName()
     expect(records.get('Pure')?.unnecessary).toBe(1)
     expect(records.get('Pure')?.changes).toEqual([])
+    expect(records.get('FreshContainer')).toMatchObject({
+      changes: [],
+      unnecessary: 1,
+      inputCoverage: { complete: true },
+    })
 
     expect(records.get('Changed')?.unnecessary).toBe(0)
     expect(records.get('Changed')).toMatchObject({
-      changes: [],
-      inputCoverage: {
-        complete: false,
-        scanTruncated: false,
-        propsNotEnumerated: true,
-      },
-      assessment: { inputEvidence: 'incomplete' },
+      changes: [{ name: 'a', kind: 'props', before: 1, after: 2 }],
+      inputCoverage: { complete: true, propsNotEnumerated: false },
     })
 
     expect(records.get('ChildOnly')?.unnecessary).toBe(0)
@@ -1340,27 +1365,60 @@ describe('recordRender reference-only prop accounting', () => {
   const byName = async () =>
     new Map((await getRenders({ sort: 'renders', limit: 50 })).map((r) => [r.name, r]))
 
-  it('does not claim an allocation from opaque prop containers', async () => {
+  it('counts deep-equal object and array props as a reference-only allocation', async () => {
     const shared = { node: true }
     render(
       componentFiber({
-        name: 'UnstableOnly',
-        props: { items: [1, 2], children: shared },
-        prevProps: { items: [1, 2], children: shared },
+        name: 'MemoChild',
+        props: { badge: { label: 'new', tone: 1 }, items: [1, 2], children: shared },
+        prevProps: { badge: { label: 'new', tone: 1 }, items: [1, 2], children: shared },
       }),
       'update',
     )
-    const record = (await byName()).get('UnstableOnly')
-    expect(record?.referenceOnlyPropRenders).toBe(0)
-    expect(record?.unstableRenders).toBe(0)
+    const record = (await byName()).get('MemoChild')
+    expect(record?.referenceOnlyPropRenders).toBe(1)
+    expect(record?.unstableRenders).toBe(1)
     expect(record?.unnecessary).toBe(0)
-    expect(record?.changes).toEqual([])
+    expect(record?.causes).toMatchObject([
+      {
+        kind: 'props',
+        name: 'badge',
+        referenceOnly: true,
+        deepDiff: { changes: [{ kind: 'reference-only', path: '' }], truncated: false },
+      },
+      { kind: 'props', name: 'items', referenceOnly: true },
+    ])
     expect(record?.inputCoverage).toEqual({
-      complete: false,
+      complete: true,
       omittedInputs: 0,
       scanTruncated: false,
-      propsNotEnumerated: true,
+      propsNotEnumerated: false,
     })
+  })
+
+  it('does not claim an allocation when an object prop value changed', async () => {
+    render(
+      componentFiber({
+        name: 'BadgeValue',
+        props: { badge: { label: 'next' } },
+        prevProps: { badge: { label: 'prev' } },
+      }),
+      'update',
+    )
+    const record = (await byName()).get('BadgeValue')
+    expect(record?.referenceOnlyPropRenders).toBe(0)
+    expect(record?.causes).toMatchObject([
+      {
+        kind: 'props',
+        name: 'badge',
+        referenceChanged: true,
+        referenceOnly: false,
+        deepDiff: {
+          changes: [{ kind: 'value', path: '/label', before: 'prev', after: 'next' }],
+          truncated: false,
+        },
+      },
+    ])
   })
 
   it('does not flag when state also changed', async () => {
@@ -1405,25 +1463,25 @@ describe('recordRender reference-only prop accounting', () => {
 })
 
 describe('bounded render input evidence', () => {
-  it('marks arbitrary prop-field discovery incomplete without retaining guesses', async () => {
+  it('retains changed props up to the evidence budget and discloses the rest', async () => {
     const before = Object.fromEntries(Array.from({ length: 55 }, (_, index) => [`p${index}`, 0]))
     const after = Object.fromEntries(Array.from({ length: 55 }, (_, index) => [`p${index}`, 1]))
     render(componentFiber({ name: 'ManyInputs', props: after, prevProps: before }), 'update')
 
     const report = (await getRenders({ sort: 'renders', limit: 10 }))[0]
-    expect(report?.causes).toMatchObject([
-      { kind: 'unknown', reason: 'causal-analysis-incomplete' },
-    ])
+    expect(report?.causes).toHaveLength(50)
+    expect(report?.causes.every((cause) => cause.kind === 'props')).toBe(true)
     expect(report?.inputCoverage).toEqual({
       complete: false,
-      omittedInputs: 0,
+      omittedInputs: 5,
       scanTruncated: false,
-      propsNotEnumerated: true,
+      propsNotEnumerated: false,
     })
     expect(report?.assessment.inputEvidence).toBe('incomplete')
     expect(report?.unnecessary).toBe(0)
-    expect(getTruncatedInputFiberCount()).toBe(0)
-    expect(getPropsNotEnumeratedFiberCount()).toBe(1)
+    expect(report?.referenceOnlyPropRenders).toBe(0)
+    expect(getTruncatedInputFiberCount()).toBe(1)
+    expect(getPropsNotEnumeratedFiberCount()).toBe(0)
   })
 })
 
@@ -1473,7 +1531,7 @@ describe('getRenders', () => {
     expect((await getRenders({ sort: 'selfTime', limit: 10 }))[0]?.name).toBe('Beta')
   })
 
-  it('does not manufacture unstable candidates for the legacy sort', async () => {
+  it('ranks deep-equal prop churn first for the legacy unstable sort', async () => {
     clearRenders()
     const stableItems = [1]
     const calm = componentFiber({
@@ -1494,8 +1552,10 @@ describe('getRenders', () => {
     render(churny, 'update')
 
     const ranked = await getRenders({ sort: 'unstable', limit: 10 })
-    expect(ranked.map((record) => record.name)).toEqual(['Calm', 'Churny'])
-    expect(ranked.every((record) => record.unstableRenders === 0)).toBe(true)
+    expect(ranked.map((record) => [record.name, record.unstableRenders])).toEqual([
+      ['Churny', 2],
+      ['Calm', 0],
+    ])
   })
 })
 
@@ -1593,7 +1653,11 @@ describe('snapshot + rendersDiff', () => {
   })
 
   it('keeps exact timing coverage complete when only prop attribution is opaque', async () => {
-    render(componentFiber({ name: 'Row', props: { value: 2 }, prevProps: { value: 1 } }), 'update')
+    const opaqueProps = (value: number) => Object.assign(Object.create({ exotic: true }), { value })
+    render(
+      componentFiber({ name: 'Row', props: opaqueProps(2), prevProps: opaqueProps(1) }),
+      'update',
+    )
 
     const snapshot = await takeSnapshot('opaque-props', false)
     expect(snapshot.coverage).toMatchObject({

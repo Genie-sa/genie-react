@@ -139,7 +139,7 @@ Read evidence literally:
 
 Summary `semantics` is decisive: `exact` supports a count, `lower-bound` means more work may exist, and `unknown` means an empty result is not a clean pass. Require `comparable:true` before a before/after claim.
 
-`propsNotEnumerated` is intentional, not retryable. Genie does not enumerate an arbitrary props container because it may be a Proxy. Inspect a named component prop or path instead. Never use partial input attribution to prove that a render had no cause.
+`propsNotEnumerated` is intentional, not retryable. Genie diffs plain-object props one level deep without running getters, but leaves class-instance or exotic props containers unread. Inspect a named component prop or path instead. Never use partial input attribution to prove that a render had no cause.
 
 `react_component_cohort` separates mounted-idle, updated, unmounted, and absent instances. Check `omittedByLimit` before calling the result complete.
 
