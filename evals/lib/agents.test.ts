@@ -66,7 +66,8 @@ describe('claudeSandboxSettings', () => {
     dir: '/tmp/trial',
     readableRoots: ['/tmp/deps'],
     deniedReadRoots: ['/repo', '/tmp'],
-    browserSocketDir: '/home/me/.agent-browser',
+    spillDir: '/tmp/runtime/genie-react-501/out',
+    browserSocket: '/home/me/.agent-browser/genie-eval-run-task-1.sock',
   }
 
   it('denies reads of the repo and temp roots and keeps network local', () => {
@@ -79,16 +80,16 @@ describe('claudeSandboxSettings', () => {
       network: {
         allowedDomains: ['localhost', '127.0.0.1'],
         allowLocalBinding: true,
-        allowUnixSockets: ['/home/me/.agent-browser'],
+        allowUnixSockets: ['/home/me/.agent-browser/genie-eval-run-task-1.sock'],
       },
     })
   })
 
-  it('allows writes only to src, and only in fix mode', () => {
+  it('allows writes to output spills, and to src only in fix mode', () => {
     const diagnose = claudeSandboxSettings({ ...base, mode: 'diagnose' }).sandbox.filesystem
-    expect(diagnose.allowWrite).toEqual([])
+    expect(diagnose.allowWrite).toEqual(['/tmp/runtime/genie-react-501/out'])
     const fix = claudeSandboxSettings({ ...base, mode: 'fix' }).sandbox.filesystem
-    expect(fix.allowWrite).toEqual(['/tmp/trial/src'])
+    expect(fix.allowWrite).toEqual(['/tmp/trial/src', '/tmp/runtime/genie-react-501/out'])
     expect(fix.denyWrite).toEqual(
       expect.arrayContaining([
         '/tmp/trial/vite.config.ts',

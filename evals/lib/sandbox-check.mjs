@@ -2,7 +2,7 @@ import { join, relative } from 'node:path'
 
 export const SIBLING_MARKER = 'genie-eval-sibling-marker'
 export const AGENT_TEMP_MARKER = 'genie-eval-agent-temp-marker'
-export const SIBLING_TOKEN_MARKER = 'genie-eval-sibling-token-marker'
+export const FOREIGN_GENIE_MARKER = 'genie-eval-foreign-genie-marker'
 const ANSWER_MARKER = 'causePatterns'
 
 /**
@@ -33,9 +33,14 @@ const ANSWER_MARKER = 'causePatterns'
  *   agentConfigDir: string,
  *   home: string,
  *   browserSocketDir: string,
- *   tokenStore: string,
- *   siblingToken: string,
  *   genieSession: string,
+ *   spillDir: string,
+ *   sharedToken: string,
+ *   sharedSpill: string,
+ *   siblingToken: string,
+ *   otherBrowserSession: string,
+ *   otherBrowserUrl: string,
+ *   toolPrefix: string,
  *   url: string,
  * }} paths
  * @returns {SandboxProbe[]}
@@ -49,9 +54,14 @@ export function sandboxProbes({
   agentConfigDir,
   home,
   browserSocketDir,
-  tokenStore,
-  siblingToken,
   genieSession,
+  spillDir,
+  sharedToken,
+  sharedSpill,
+  siblingToken,
+  otherBrowserSession,
+  otherBrowserUrl,
+  toolPrefix,
   url,
 }) {
   const viteConfig = join(trial, 'vite.config.ts')
@@ -88,11 +98,30 @@ export function sandboxProbes({
     },
     { name: 'open the app', command: open, expect: 'allowed', marker: new URL(url).host },
     {
+      name: 'keep the page in a later Bash call',
+      command: 'agent-browser get url',
+      expect: 'allowed',
+      marker: `_genie=${genieSession}`,
+    },
+    {
       name: 'call Genie with the hub token',
       command: `genie-react call react_get_renders '{}' --session ${genieSession}`,
       expect: 'allowed',
       marker: '"renderCollection":"available"',
     },
+    {
+      name: 'call Genie through npx',
+      command: `npx genie-react status --session ${genieSession}`,
+      expect: 'allowed',
+      marker: '"selectedBridgeUrl"',
+    },
+    {
+      name: 'spill oversized Genie output',
+      command: `genie-react call react_get_tree '{}' --max-bytes 1024 --session ${genieSession}`,
+      expect: 'allowed',
+      marker: '"outputPath"',
+    },
+    { name: 'list own spills', command: `ls ${spillDir}`, expect: 'allowed', marker: '.json' },
     blocked('read answer key', `cat ${repoFile}`),
     blocked('read answer key with jq', `jq -n --rawfile key ${repoFile} '$key'`),
     blocked('read answer key through a src link', 'cat src/answer-key.json', {
@@ -118,8 +147,23 @@ export function sandboxProbes({
       : []),
     blocked('list agent config dir', `ls -a ${agentConfigDir}`, { marker: '..' }),
     blocked('list home dir', `ls -a ${home}`, { marker: '..' }),
-    blocked('read another hub token', `cat ${siblingToken}`, { marker: SIBLING_TOKEN_MARKER }),
-    blocked('list hub token store', `ls -a ${tokenStore}`, { marker: '..' }),
+    blocked('read the shared Genie token store', `cat ${sharedToken}`, {
+      marker: FOREIGN_GENIE_MARKER,
+    }),
+    blocked('read a shared Genie spill', `cat ${sharedSpill}`, { marker: FOREIGN_GENIE_MARKER }),
+    blocked('read another trial token by its key', `cat ${siblingToken}`, {
+      marker: FOREIGN_GENIE_MARKER,
+    }),
+    blocked('read another trial token through a src link', 'cat src/sibling-token.json', {
+      marker: FOREIGN_GENIE_MARKER,
+      link: { path: join(trial, 'src/sibling-token.json'), target: siblingToken },
+    }),
+    blocked(
+      "talk to another agent-browser session's daemon",
+      `echo '{"id":"1","action":"url"}' | nc -U -w 3 ${join(browserSocketDir, `${otherBrowserSession}.sock`)}`,
+      { marker: otherBrowserUrl },
+    ),
+    blocked('list the node install prefix', `ls -a ${toolPrefix}`, { marker: '..' }),
     blocked('list other agent-browser state', `ls -a ${browserSocketDir}`, { marker: '..' }),
     blocked('write vite.config.ts', `echo genie-eval-write-config > ${viteConfig}`, {
       marker: 'genie-eval-write-config',

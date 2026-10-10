@@ -174,20 +174,22 @@ export function agentEnv(source, { dir, browserSession, browserSocketDir, toolDi
 
 /**
  * Claude Code settings that run every Bash command in the OS sandbox, network limited to the local dev server and
- * the agent-browser daemon socket, and no reads of the repository or sibling temp directories.
- * Writes are limited to `src/` in fix mode and never reach files the unsandboxed harness executes or trusts (Vite
- * config, manifests, git metadata, or `.genie/bridge.json`, which the harness's own Genie calls use).
+ * the trial's own agent-browser socket, and no reads of the repository or sibling temp directories.
+ * Writes are limited to `src/` in fix mode plus the CLI's output spill directory, and never reach files the
+ * unsandboxed harness executes or trusts (Vite config, manifests, git metadata, or `.genie/bridge.json`, which the
+ * harness's own Genie calls use).
  * Bash still needs an allow rule, so commands outside the allowlist are denied and counted.
- * @param {{ dir: string, mode: 'diagnose' | 'fix', readableRoots: string[], deniedReadRoots: string[], browserSocketDir: string }} options
+ * @param {{ dir: string, mode: 'diagnose' | 'fix', readableRoots: string[], deniedReadRoots: string[], spillDir: string, browserSocket: string }} options
  */
 export function claudeSandboxSettings({
   dir,
   mode,
   readableRoots,
   deniedReadRoots,
-  browserSocketDir,
+  spillDir,
+  browserSocket,
 }) {
-  const writable = mode === 'fix' ? ['src'] : []
+  const writable = mode === 'fix' ? [join(dir, 'src')] : []
   return {
     sandbox: {
       enabled: true,
@@ -195,7 +197,7 @@ export function claudeSandboxSettings({
       allowUnsandboxedCommands: false,
       autoAllowBashIfSandboxed: false,
       filesystem: {
-        allowWrite: writable.map((path) => join(dir, path)),
+        allowWrite: [...writable, spillDir],
         denyWrite: PROTECTED_PATHS.map((path) => join(dir, path)),
         denyRead: deniedReadRoots,
         allowRead: [dir, ...readableRoots],
@@ -203,7 +205,7 @@ export function claudeSandboxSettings({
       network: {
         allowedDomains: ['localhost', '127.0.0.1'],
         allowLocalBinding: true,
-        allowUnixSockets: [browserSocketDir],
+        allowUnixSockets: [browserSocket],
       },
     },
   }

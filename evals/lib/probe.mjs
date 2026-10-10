@@ -77,15 +77,19 @@ export async function closeBrowserSession(session) {
 }
 
 /**
- * @param {string} dir
+ * @typedef {{ dir: string, runtimeDir: string }} App the trial root and the runtime dir its hub keeps its token in
+ */
+
+/**
+ * @param {App} app
  * @param {string} session
  * @param {string[]} args
  * @returns {Promise<Record<string, any>>}
  */
-async function genie(dir, session, args) {
-  const result = await run(process.execPath, [join(dir, CLI_PATH), ...args], {
-    cwd: dir,
-    env: browserEnv(session),
+async function genie(app, session, args) {
+  const result = await run(process.execPath, [join(app.dir, CLI_PATH), ...args], {
+    cwd: app.dir,
+    env: { ...browserEnv(session), XDG_RUNTIME_DIR: app.runtimeDir },
     timeoutMs: 60_000,
   })
   try {
@@ -105,13 +109,13 @@ function count(value) {
 }
 
 /**
- * @param {string} dir
+ * @param {App} app
  * @param {string} session
  */
-async function waitForGenieSession(dir, session) {
+async function waitForGenieSession(app, session) {
   const deadline = Date.now() + READY_TIMEOUT_MS
   while (Date.now() < deadline) {
-    const status = await genie(dir, session, ['status', '--sessions-only'])
+    const status = await genie(app, session, ['status', '--sessions-only'])
     if (status.ready === true) return
     await delay(250)
   }
@@ -120,10 +124,11 @@ async function waitForGenieSession(dir, session) {
 
 /**
  * Re-runs the user's interaction against the app and asserts the fixed behaviour with Genie evidence.
- * @param {{ dir: string, url: string, screen: string, probe: Probe, session: string }} options
+ * @param {App & { url: string, screen: string, probe: Probe, session: string }} options
  * @returns {Promise<{ pass: boolean, checks: Check[] }>}
  */
-export async function runProbe({ dir, url, screen, probe, session }) {
+export async function runProbe({ dir, runtimeDir, url, screen, probe, session }) {
+  const app = { dir, runtimeDir }
   /** @type {Check[]} */
   const checks = []
   const target = new URL(url)
@@ -131,9 +136,9 @@ export async function runProbe({ dir, url, screen, probe, session }) {
   target.searchParams.set('_genie', session)
   try {
     await openBrowserSession(session, target.toString())
-    await waitForGenieSession(dir, session)
+    await waitForGenieSession(app, session)
     if (probe.renders) {
-      await genie(dir, session, [
+      await genie(app, session, [
         'call',
         'react_clear_renders',
         JSON.stringify({ components: [probe.renders.component] }),
@@ -144,8 +149,8 @@ export async function runProbe({ dir, url, screen, probe, session }) {
 
     if (probe.renders) {
       const { component, maxUpdates } = probe.renders
-      await genie(dir, session, ['call', 'react_quiesce', '{"idleMs":500,"timeoutMs":10000}'])
-      const renders = await genie(dir, session, [
+      await genie(app, session, ['call', 'react_quiesce', '{"idleMs":500,"timeoutMs":10000}'])
+      const renders = await genie(app, session, [
         'call',
         'react_get_renders',
         JSON.stringify({ component, limit: 50 }),
@@ -159,7 +164,7 @@ export async function runProbe({ dir, url, screen, probe, session }) {
         pass: renders.tracking === true && updates <= maxUpdates,
         detail: `${component} updates=${updates}, max=${maxUpdates}`,
       })
-      const cohort = await genie(dir, session, [
+      const cohort = await genie(app, session, [
         'call',
         'react_component_cohort',
         JSON.stringify({ component }),
@@ -172,7 +177,7 @@ export async function runProbe({ dir, url, screen, probe, session }) {
       })
     }
     if (probe.noCaughtErrors) {
-      const state = await genie(dir, session, ['call', 'react_error_state', '{}'])
+      const state = await genie(app, session, ['call', 'react_error_state', '{}'])
       const caught = Array.isArray(state.caughtErrors) ? state.caughtErrors.length : -1
       checks.push({
         name: 'probe.noCaughtErrors',

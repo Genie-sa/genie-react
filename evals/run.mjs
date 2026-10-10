@@ -30,8 +30,8 @@ import { renderMarkdown, summarizeTasks } from './lib/report.mjs'
 import {
   AGENT_TEMP_MARKER,
   evaluateSandboxProbe,
+  FOREIGN_GENIE_MARKER,
   SIBLING_MARKER,
-  SIBLING_TOKEN_MARKER,
   sandboxProbes,
   sandboxPrompt,
 } from './lib/sandbox-check.mjs'
@@ -89,18 +89,44 @@ const OPTIONAL_TOOLS = ['pnpm', 'jq']
 const TEMP_ROOT = realpathSync(tmpdir())
 const CLAUDE_SANDBOX_TEMP = process.env.CLAUDE_TMPDIR ?? `/tmp/claude-${process.getuid?.() ?? 0}`
 const HOST_ROOTS = [TEMP_ROOT, ...withRealpaths([homedir()])]
-const RUNTIME_DIR = process.env.XDG_RUNTIME_DIR || tmpdir()
-const TOKEN_STORE = join(RUNTIME_DIR, `genie-react-${process.getuid?.() ?? 'user'}`)
+const PROXY_VARIABLES = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'ALL_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'all_proxy',
+]
+const GENIE_USER_DIR = `genie-react-${process.getuid?.() ?? 'user'}`
+const SHARED_GENIE_DIR = join(process.env.XDG_RUNTIME_DIR || tmpdir(), GENIE_USER_DIR)
 
 /**
- * The agent token the trial's hub published, keyed like genie-react's private store by the app root's realpath.
- * This one file is the agent's only read access to the store; siblings hold other hubs' tokens.
- * @param {string} dir the trial root, already a realpath
+ * genie-react's private store key for an app root: the sha256 of its realpath.
+ * @param {string} dir a realpath
  */
-function hubTokenFile(dir) {
-  const file = join(TOKEN_STORE, `${createHash('sha256').update(dir).digest('hex')}.json`)
-  if (!existsSync(file)) throw new Error(`the trial's hub published no agent token at ${file}`)
-  return file
+function tokenName(dir) {
+  return `${createHash('sha256').update(dir).digest('hex')}.json`
+}
+
+/**
+ * Claude's sandbox gives every Bash call proxy variables with a fresh credential, and agent-browser relaunches its
+ * browser on a blank tab whenever the proxy it is given changes. The client only talks to its daemon over a Unix
+ * socket, so this shim, first on the agent's PATH, drops them.
+ * @param {string} runtimeDir
+ * @param {string} browser the real agent-browser
+ */
+async function agentBrowserShim(runtimeDir, browser) {
+  const dir = join(runtimeDir, 'bin')
+  await mkdir(dir)
+  const unset = PROXY_VARIABLES.map((name) => `-u ${name}`).join(' ')
+  await writeFile(
+    join(dir, 'agent-browser'),
+    `#!/bin/sh\nexec /usr/bin/env ${unset} '${browser}' "$@"\n`,
+    {
+      mode: 0o755,
+    },
+  )
+  return dir
 }
 
 /**
@@ -308,6 +334,7 @@ async function validateProbe(task, consumer) {
     try {
       const result = await runProbe({
         dir,
+        runtimeDir: server.runtimeDir,
         url: server.url,
         screen: task.screen,
         probe,
@@ -330,7 +357,7 @@ async function validateProbe(task, consumer) {
 }
 
 /**
- * @typedef {{ executable: string, toolDirs: string[], toolRoots: string[], deniedReadRoots: string[] }} AgentContext
+ * @typedef {{ executable: string, browser: string, toolDirs: string[], toolRoots: string[], deniedReadRoots: string[] }} AgentContext
  * @typedef {AgentContext & { runId: string, transcriptDir: string, consumer: Consumer }} RunContext
  * @typedef {Awaited<ReturnType<typeof prepareTrialWorkspace>>} Workspace
  * @typedef {Awaited<ReturnType<typeof startDevServer>>} DevServer
@@ -364,14 +391,14 @@ async function agentContext(options) {
     ...agentStateDirs(process.env, homedir()),
     CLAUDE_SANDBOX_TEMP,
   ])
-  const toolRoots = withRealpaths(toolDirs.map((dir) => dirname(dir)))
+  const toolRoots = withRealpaths(toolDirs.flatMap((dir) => [dir, join(dirname(dir), 'lib')]))
   const exposed = enclosingRoots(toolRoots, [...deniedReadRoots, ...HOST_ROOTS])
   if (exposed.length > 0) {
     throw new Error(
       `tool installs at ${exposed.join(', ')} enclose a directory the agent must not read; move agent-browser, node, pnpm, or jq into a dedicated prefix`,
     )
   }
-  return { executable, toolDirs, toolRoots, deniedReadRoots }
+  return { executable, browser, toolDirs, toolRoots, deniedReadRoots }
 }
 
 /**
@@ -397,6 +424,13 @@ async function withTrial({ label, mode, screen }, options, context, body) {
     const url = `${server.url}?screen=${screen}&_genie=${GENIE_SESSION}`
     log(`▶ ${label} in ${workspace.dir} (${url})`)
     await openBrowserSession(browserSession, url)
+    const genieDir = join(server.runtimeDir, GENIE_USER_DIR)
+    if (!existsSync(join(genieDir, tokenName(workspace.dir)))) {
+      throw new Error(`the trial's hub published no agent token in ${genieDir}`)
+    }
+    const spillDir = join(genieDir, 'out')
+    await mkdir(spillDir, { mode: 0o700 })
+    const shimDir = await agentBrowserShim(server.runtimeDir, context.browser)
     const settingsPath = join(transcriptDir, `${label}.settings.json`)
     const settings = claudeSandboxSettings({
       dir: workspace.dir,
@@ -404,14 +438,15 @@ async function withTrial({ label, mode, screen }, options, context, body) {
       readableRoots: [
         consumer.root,
         ...claudeTrialTemp(workspace.dir),
-        ...withRealpaths([hubTokenFile(workspace.dir)]),
+        server.runtimeDir,
         ...context.toolRoots,
         ...BROWSER_SESSION_FILES.map((suffix) =>
           join(BROWSER_SOCKET_DIR, `${browserSession}.${suffix}`),
         ),
       ],
       deniedReadRoots: [...context.deniedReadRoots, ...HOST_ROOTS],
-      browserSocketDir: BROWSER_SOCKET_DIR,
+      spillDir,
+      browserSocket: join(BROWSER_SOCKET_DIR, `${browserSession}.sock`),
     })
     await writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`)
     const command = agentCommand({
@@ -424,17 +459,18 @@ async function withTrial({ label, mode, screen }, options, context, body) {
       maxBudgetUsd: options.maxBudgetUsd,
       browserSession,
       browserSocketDir: BROWSER_SOCKET_DIR,
-      toolDirs: context.toolDirs,
+      toolDirs: [shimDir, ...context.toolDirs],
       settingsPath,
       appOrigin: new URL(server.url).origin,
-      readableRoots: [consumer.root],
+      readableRoots: [consumer.root, server.runtimeDir],
       deniedReadRoots: context.deniedReadRoots,
-      runtimeDir: RUNTIME_DIR,
+      runtimeDir: server.runtimeDir,
     })
     const transcriptPath = join(transcriptDir, `${label}.jsonl`)
     return await body({ workspace, server, url, browserSession, transcriptPath, command })
   } finally {
     await closeBrowserSession(browserSession)
+    if (server) await writeFile(join(transcriptDir, `${label}.vite.log`), server.log())
     await server?.stop()
     if (workspace && !options.keep) await removeWorkspace(workspace.dir)
   }
@@ -504,6 +540,7 @@ async function executeTrial(task, trial, options, context) {
       if (task.probe) {
         const probe = await runProbe({
           dir: workspace.dir,
+          runtimeDir: server.runtimeDir,
           url: server.url,
           screen: task.screen,
           probe: task.probe,
@@ -640,11 +677,22 @@ async function sandboxCheck(tasks, options) {
     ? join(CLAUDE_SANDBOX_TEMP, `genie-eval-sandbox-check-${process.pid}.txt`)
     : null
   if (agentTempFile) await writeFile(agentTempFile, `${AGENT_TEMP_MARKER}\n`)
-  const siblingToken = join(TOKEN_STORE, `genie-eval-sandbox-check-${process.pid}.json`)
+  const plant = `genie-eval-sandbox-check-${process.pid}.json`
+  const sharedToken = join(SHARED_GENIE_DIR, plant)
+  const sharedSpill = join(SHARED_GENIE_DIR, 'out', plant)
+  const siblingToken = join(sibling, 'runtime', GENIE_USER_DIR, tokenName(sibling))
+  const foreign = [sharedToken, sharedSpill, siblingToken]
+  const otherBrowserSession = `genie-eval-sandbox-other-${process.pid}`
   try {
+    for (const file of foreign) {
+      await mkdir(dirname(file), { recursive: true, mode: 0o700 })
+      await writeFile(file, `${FOREIGN_GENIE_MARKER}\n`, { mode: 0o600 })
+    }
     const context = { ...agent, runId, transcriptDir, consumer }
     const spec = { label: 'sandbox', mode: /** @type {const} */ ('fix'), screen: task.screen }
     const results = await withTrial(spec, options, context, async (trial) => {
+      const otherBrowserUrl = `${trial.server.url}?screen=cart`
+      await openBrowserSession(otherBrowserSession, otherBrowserUrl)
       const probes = sandboxProbes({
         trial: trial.workspace.dir,
         consumerModules: consumer.modules,
@@ -654,12 +702,16 @@ async function sandboxCheck(tasks, options) {
         agentConfigDir: process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'),
         home: homedir(),
         browserSocketDir: BROWSER_SOCKET_DIR,
-        tokenStore: TOKEN_STORE,
-        siblingToken,
         genieSession: GENIE_SESSION,
+        spillDir: join(trial.server.runtimeDir, GENIE_USER_DIR, 'out'),
+        sharedToken,
+        sharedSpill,
+        siblingToken,
+        otherBrowserSession,
+        otherBrowserUrl,
+        toolPrefix: dirname(dirname(process.execPath)),
         url: trial.url,
       })
-      await writeFile(siblingToken, `${SIBLING_TOKEN_MARKER}\n`, { mode: 0o600 })
       for (const { link } of probes) if (link) await symlink(link.target, link.path)
       const sandboxOnly = trial.command.args.map((arg) =>
         arg === 'dontAsk' ? 'bypassPermissions' : arg,
@@ -696,6 +748,7 @@ async function sandboxCheck(tasks, options) {
         log(`${result.pass ? '✓' : '✗'} ${result.name} [${layer}]: ${result.detail}`)
         results.push(result)
       }
+      await closeBrowserSession(otherBrowserSession)
       return results
     })
     const failed = results.filter((result) => !result.pass)
@@ -703,7 +756,8 @@ async function sandboxCheck(tasks, options) {
     log(`✓ sandbox check passed (transcripts: ${transcriptDir})`)
   } finally {
     if (agentTempFile) await rm(agentTempFile, { force: true })
-    await rm(siblingToken, { force: true })
+    await closeBrowserSession(otherBrowserSession)
+    await Promise.all(foreign.map((file) => rm(file, { force: true })))
     await removeWorkspace(sibling)
     await removeWorkspace(consumer.root)
   }

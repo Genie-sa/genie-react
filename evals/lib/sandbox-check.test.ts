@@ -16,10 +16,15 @@ const probes = sandboxProbes({
   agentConfigDir: '/home/me/.claude',
   home: '/home/me',
   browserSocketDir: '/home/me/.agent-browser',
-  tokenStore: '/tmp/genie-react-501',
-  siblingToken: '/tmp/genie-react-501/sibling.json',
   genieSession: 'eval',
-  url: 'http://127.0.0.1:4310/?screen=search',
+  spillDir: '/tmp/runtime/genie-react-501/out',
+  sharedToken: '/tmp/genie-react-501/marker.json',
+  sharedSpill: '/tmp/genie-react-501/out/marker.json',
+  siblingToken: '/tmp/genie-eval-sibling/runtime/genie-react-501/abc.json',
+  otherBrowserSession: 'genie-eval-other',
+  otherBrowserUrl: 'http://127.0.0.1:4310/?screen=cart',
+  toolPrefix: '/opt/node',
+  url: 'http://127.0.0.1:4310/?screen=search&_genie=eval',
 })
 
 function probe(name: string) {

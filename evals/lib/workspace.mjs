@@ -278,28 +278,35 @@ export async function typecheck(dir) {
 }
 
 /**
+ * Starts Vite with its own XDG_RUNTIME_DIR, so its hub's agent token and the CLI's output spills live in a directory
+ * no other trial or developer hub shares.
  * @param {string} dir
  */
 export async function startDevServer(dir) {
   const port = await freePort()
   const vite = join(dir, 'node_modules/vite/bin/vite.js')
-  const server = start(
+  const runtimeDir = await temporaryDirectory('genie-eval-runtime-')
+  const child = start(
     process.execPath,
     [vite, '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
-    { cwd: dir },
+    { cwd: dir, env: { ...process.env, XDG_RUNTIME_DIR: runtimeDir } },
   )
+  const stop = async () => {
+    await child.stop()
+    await removeWorkspace(runtimeDir)
+  }
   const url = `http://127.0.0.1:${port}/`
   try {
     await waitForHttp(url, {
       timeoutMs: 60_000,
-      isAlive: () => !server.exited(),
-      describe: server.log,
+      isAlive: () => !child.exited(),
+      describe: child.log,
     })
   } catch (error) {
-    await server.stop()
+    await stop()
     throw error
   }
-  return { url, port, stop: server.stop, log: server.log }
+  return { url, port, runtimeDir, stop, log: child.log }
 }
 
 /**
