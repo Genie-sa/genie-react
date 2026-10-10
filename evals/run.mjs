@@ -1,21 +1,29 @@
 #!/usr/bin/env node
 import { createWriteStream, constants as fsConstants, realpathSync } from 'node:fs'
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { homedir, constants as osConstants, tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
   AGENTS,
   agentCommand,
+  agentHistoryDirs,
   buildPrompt,
   claudeSandboxSettings,
   isolationLabel,
+  outsideRoots,
 } from './lib/agents.mjs'
-import { releaseAll } from './lib/cleanup.mjs'
+import { interrupted, releaseAll } from './lib/cleanup.mjs'
 import { extractAnswer, gradeAnswer } from './lib/grade.mjs'
 import { closeBrowserSession, openBrowserSession, runProbe } from './lib/probe.mjs'
 import { killAllChildren, run } from './lib/process.mjs'
 import { renderMarkdown, summarizeTasks } from './lib/report.mjs'
+import {
+  evaluateSandboxProbes,
+  SIBLING_MARKER,
+  sandboxProbes,
+  sandboxPrompt,
+} from './lib/sandbox-check.mjs'
 import { checkTaskAgainstFixture, loadTasks, selectTasks } from './lib/tasks.mjs'
 import { commandMetrics, parseTranscript } from './lib/transcript.mjs'
 import { appendTrial, isolateTrial, readTrials } from './lib/trials.mjs'
@@ -30,6 +38,7 @@ import {
   removeWorkspace,
   repositoryRoots,
   startDevServer,
+  temporaryDirectory,
   typecheck,
   workspaceDiff,
 } from './lib/workspace.mjs'
@@ -54,6 +63,8 @@ Options:
   --timeout-ms <n>        Wall-clock cap per trial (default: 900000)
   --dry-run               Validate tasks, graders, and reference fixes without a model
   --runtime               With --dry-run, also run each probe against buggy and fixed apps
+  --sandbox-check         Run Claude once with a trial's sandbox settings and assert what it can read,
+                          write, and reach
   --skip-build            Reuse existing package builds
   --keep                  Keep trial workspaces for inspection
   -h, --help              Show this help
@@ -64,11 +75,9 @@ Results: evals/results/<run-id>.jsonl (one trial per line, written as trials fin
 const TASKS_DIR = join(REPO_ROOT, 'evals/tasks')
 const RESULTS_DIR = join(REPO_ROOT, 'evals/results')
 const BROWSER_SOCKET_DIR = join(homedir(), '.agent-browser')
-const AGENT_HISTORY_DIRS = ['.claude/projects', '.codex/sessions'].map((dir) =>
-  join(homedir(), dir),
-)
 const OPTIONAL_TOOLS = ['pnpm', 'jq']
 const TEMP_ROOT = realpathSync(tmpdir())
+const CLAUDE_SANDBOX_TEMP = process.env.CLAUDE_TMPDIR ?? `/tmp/claude-${process.getuid?.() ?? 0}`
 
 /**
  * @param {string} name
@@ -94,6 +103,7 @@ function parseOptions() {
       'timeout-ms': { type: 'string', default: '900000' },
       'dry-run': { type: 'boolean', default: false },
       runtime: { type: 'boolean', default: false },
+      'sandbox-check': { type: 'boolean', default: false },
       'skip-build': { type: 'boolean', default: false },
       keep: { type: 'boolean', default: false },
       help: { type: 'boolean', short: 'h', default: false },
@@ -110,6 +120,9 @@ function parseOptions() {
   const maxBudgetUsd = Number(values['max-budget-usd'])
   if (!(maxBudgetUsd > 0)) throw new Error('--max-budget-usd must be a positive number')
   if (values.runtime && !values['dry-run']) throw new Error('--runtime requires --dry-run')
+  if (values['sandbox-check'] && agent !== 'claude') {
+    throw new Error('--sandbox-check only applies to --agent claude')
+  }
   return {
     help: values.help,
     ids: values.task.flatMap((id) => id.split(',')).filter(Boolean),
@@ -122,6 +135,7 @@ function parseOptions() {
     timeoutMs: positiveInteger('timeout-ms', values['timeout-ms']),
     dryRun: values['dry-run'],
     runtime: values.runtime,
+    sandboxCheck: values['sandbox-check'],
     skipBuild: values['skip-build'],
     keep: values.keep,
   }
@@ -137,12 +151,14 @@ function log(message) {
 }
 
 /**
- * Finds `name` on the harness PATH; agents get a minimal PATH, so tools are passed by location.
+ * Finds `name` on the harness PATH outside `excludedRoots`; agents get a minimal PATH, so tools are passed by location.
  * @param {string} name
+ * @param {string[]} [excludedRoots]
  * @returns {Promise<string | null>}
  */
-async function findExecutable(name) {
-  for (const dir of (process.env.PATH ?? '').split(delimiter).filter(Boolean)) {
+async function findExecutable(name, excludedRoots = []) {
+  const dirs = (process.env.PATH ?? '').split(delimiter).filter(Boolean)
+  for (const dir of outsideRoots(dirs, excludedRoots)) {
     const path = join(dir, name)
     const executable = await access(path, fsConstants.X_OK).then(
       () => true,
@@ -155,10 +171,11 @@ async function findExecutable(name) {
 
 /**
  * @param {string} name
+ * @param {string[]} [excludedRoots]
  * @returns {Promise<string>}
  */
-async function requireExecutable(name) {
-  const path = await findExecutable(name)
+async function requireExecutable(name, excludedRoots) {
+  const path = await findExecutable(name, excludedRoots)
   if (path === null || (await run(path, ['--version'], { timeoutMs: 30_000 })).code !== 0) {
     throw new Error(`\`${name}\` is not installed or not on PATH`)
   }
@@ -263,15 +280,116 @@ async function validateProbe(task, consumer) {
 }
 
 /**
+ * @typedef {{ executable: string, toolDirs: string[], deniedReadRoots: string[] }} AgentContext
+ * @typedef {AgentContext & { runId: string, transcriptDir: string, consumer: Consumer }} RunContext
+ * @typedef {Awaited<ReturnType<typeof prepareTrialWorkspace>>} Workspace
+ * @typedef {Awaited<ReturnType<typeof startDevServer>>} DevServer
  * @typedef {{
- *   runId: string,
- *   transcriptDir: string,
- *   consumer: Consumer,
- *   executable: string,
- *   toolDirs: string[],
- *   deniedReadRoots: string[],
- * }} RunContext
+ *   workspace: Workspace,
+ *   server: DevServer,
+ *   url: string,
+ *   browserSession: string,
+ *   transcriptPath: string,
+ *   command: import('./lib/agents.mjs').AgentCommand,
+ * }} Trial
  */
+
+/**
+ * Locates the agent and its tools outside the repository and lists the paths it must not read.
+ * @param {Options} options
+ * @returns {Promise<AgentContext>}
+ */
+async function agentContext(options) {
+  const roots = await repositoryRoots()
+  const browser = await requireExecutable('agent-browser', roots)
+  const executable = await requireExecutable(options.agent, roots)
+  const optionalTools = await Promise.all(OPTIONAL_TOOLS.map((name) => findExecutable(name, roots)))
+  const tools = [process.execPath, browser, ...optionalTools.filter((path) => path !== null)]
+  return {
+    executable,
+    toolDirs: outsideRoots(
+      tools.map((path) => dirname(path)),
+      roots,
+    ),
+    deniedReadRoots: [...roots, ...agentHistoryDirs(process.env, homedir())],
+  }
+}
+
+/**
+ * Prepares a trial workspace, dev server, browser session, and sandboxed agent command, runs `body`, and tears
+ * everything down.
+ * @template T
+ * @param {{ label: string, mode: Task['mode'], screen: string }} spec
+ * @param {Options} options
+ * @param {RunContext} context
+ * @param {(trial: Trial) => Promise<T>} body
+ * @returns {Promise<T>}
+ */
+async function withTrial({ label, mode, screen }, options, context, body) {
+  const { runId, transcriptDir, consumer } = context
+  const browserSession = `genie-eval-${runId}-${label}`
+  /** @type {Workspace | undefined} */
+  let workspace
+  /** @type {DevServer | undefined} */
+  let server
+  try {
+    workspace = await prepareTrialWorkspace({ label, agent: options.agent, consumer })
+    server = await startDevServer(workspace.dir)
+    const url = `${server.url}?screen=${screen}`
+    log(`▶ ${label} in ${workspace.dir} (${url})`)
+    await openBrowserSession(browserSession, url)
+    const settingsPath = join(transcriptDir, `${label}.settings.json`)
+    const settings = claudeSandboxSettings({
+      dir: workspace.dir,
+      mode,
+      readableRoots: [consumer.root, CLAUDE_SANDBOX_TEMP],
+      deniedReadRoots: [...context.deniedReadRoots, TEMP_ROOT],
+      browserSocketDir: BROWSER_SOCKET_DIR,
+    })
+    await writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`)
+    const command = agentCommand({
+      agent: options.agent,
+      executable: context.executable,
+      mode,
+      dir: workspace.dir,
+      model: options.model,
+      maxTurns: options.maxTurns,
+      maxBudgetUsd: options.maxBudgetUsd,
+      browserSession,
+      toolDirs: context.toolDirs,
+      settingsPath,
+      readableRoots: [consumer.root],
+      deniedReadRoots: context.deniedReadRoots,
+    })
+    const transcriptPath = join(transcriptDir, `${label}.jsonl`)
+    return await body({ workspace, server, url, browserSession, transcriptPath, command })
+  } finally {
+    await closeBrowserSession(browserSession)
+    await server?.stop()
+    if (workspace && !options.keep) await removeWorkspace(workspace.dir)
+  }
+}
+
+/**
+ * Runs the agent with `prompt`, streaming its output to the transcript file.
+ * @param {Trial} trial
+ * @param {string} prompt
+ * @param {Options} options
+ */
+async function runAgent({ workspace, command, transcriptPath, browserSession }, prompt, options) {
+  const transcriptFile = createWriteStream(transcriptPath)
+  const result = await run(command.command, command.args, {
+    cwd: workspace.dir,
+    env: command.env,
+    input: prompt,
+    timeoutMs: options.timeoutMs,
+    onStdout: (chunk) => transcriptFile.write(chunk),
+  })
+  await new Promise((resolve) => transcriptFile.end(resolve))
+  await closeBrowserSession(browserSession)
+  const transcript = parseTranscript(options.agent, await readFile(transcriptPath, 'utf8'))
+  return { result, transcript }
+}
 
 /**
  * @param {Task} task
@@ -280,60 +398,11 @@ async function validateProbe(task, consumer) {
  * @param {RunContext} context
  */
 async function executeTrial(task, trial, options, context) {
-  const { runId, transcriptDir, consumer } = context
   const label = `${task.id}-${trial}`
-  const browserSession = `genie-eval-${runId}-${label}`
-  const transcriptPath = join(transcriptDir, `${label}.jsonl`)
-  /** @type {Awaited<ReturnType<typeof prepareTrialWorkspace>> | undefined} */
-  let workspace
-  /** @type {Awaited<ReturnType<typeof startDevServer>> | undefined} */
-  let server
-
-  try {
-    workspace = await prepareTrialWorkspace({ label, agent: options.agent, consumer })
-    server = await startDevServer(workspace.dir)
-    const url = `${server.url}?screen=${task.screen}`
-    log(`▶ ${label} in ${workspace.dir} (${url})`)
-    await openBrowserSession(browserSession, url)
-    const settingsPath = join(transcriptDir, `${label}.settings.json`)
-    await writeFile(
-      settingsPath,
-      `${JSON.stringify(
-        claudeSandboxSettings({
-          dir: workspace.dir,
-          readableRoots: [consumer.root],
-          deniedReadRoots: [...context.deniedReadRoots, TEMP_ROOT],
-          browserSocketDir: BROWSER_SOCKET_DIR,
-        }),
-        null,
-        2,
-      )}\n`,
-    )
-    const command = agentCommand({
-      agent: options.agent,
-      executable: context.executable,
-      mode: task.mode,
-      dir: workspace.dir,
-      model: options.model,
-      maxTurns: options.maxTurns,
-      maxBudgetUsd: options.maxBudgetUsd,
-      browserSession,
-      toolDirs: context.toolDirs,
-      settingsPath,
-      deniedReadRoots: context.deniedReadRoots,
-    })
-    const transcriptFile = createWriteStream(transcriptPath)
-    const result = await run(command.command, command.args, {
-      cwd: workspace.dir,
-      env: command.env,
-      input: buildPrompt(task, url),
-      timeoutMs: options.timeoutMs,
-      onStdout: (chunk) => transcriptFile.write(chunk),
-    })
-    await new Promise((resolve) => transcriptFile.end(resolve))
-    await closeBrowserSession(browserSession)
-
-    const transcript = parseTranscript(options.agent, await readFile(transcriptPath, 'utf8'))
+  const spec = { label, mode: task.mode, screen: task.screen }
+  return withTrial(spec, options, context, async (current) => {
+    const { workspace, server, url, browserSession, transcriptPath } = current
+    const { result, transcript } = await runAgent(current, buildPrompt(task, url), options)
     const metrics = commandMetrics(transcript.commands)
     const grade = gradeAnswer(extractAnswer(transcript.finalText), task.truth, {
       projectRoot: workspace.dir,
@@ -397,6 +466,7 @@ async function executeTrial(task, trial, options, context) {
       failedCommands: metrics.failedCommands,
       deniedCommands: metrics.deniedCommands,
       runtimeEvidence: metrics.genieSuccessfulToolCalls > 0,
+      deniedBeforeGenie: metrics.deniedBeforeGenieSuccess,
       genieInvocations: metrics.genieInvocations,
       browserSubcommands: metrics.browserSubcommands,
       genieErrorReasons: metrics.genieErrorReasons,
@@ -417,11 +487,7 @@ async function executeTrial(task, trial, options, context) {
       `${pass ? '✓' : '✗'} ${label}: genie=${metrics.genieCalls} tool-calls=${metrics.genieSuccessfulToolCalls}/${metrics.genieToolCalls} browser=${metrics.browserCalls} denied=${metrics.deniedCommands} tokens=${transcript.usage.total} ${(result.durationMs / 1000).toFixed(0)}s${failure ? ` (${failure})` : ''}`,
     )
     return record
-  } finally {
-    await closeBrowserSession(browserSession)
-    await server?.stop()
-    if (workspace && !options.keep) await removeWorkspace(workspace.dir)
-  }
+  })
 }
 
 /**
@@ -429,22 +495,13 @@ async function executeTrial(task, trial, options, context) {
  * @param {Options} options
  */
 async function liveRun(tasks, options) {
-  const browser = await requireExecutable('agent-browser')
-  const executable = await requireExecutable(options.agent)
-  const optionalTools = await Promise.all(OPTIONAL_TOOLS.map(findExecutable))
-  const toolDirs = [
-    process.execPath,
-    browser,
-    ...optionalTools.filter((path) => path !== null),
-  ].map((path) => dirname(path))
-  const deniedReadRoots = [...(await repositoryRoots()), ...AGENT_HISTORY_DIRS]
+  const agent = await agentContext(options)
   const consumer = await installConsumer(options)
-
   const runId = new Date().toISOString().replace(/[:.]/g, '-')
   const transcriptDir = join(RESULTS_DIR, runId)
   const trialsPath = join(RESULTS_DIR, `${runId}.jsonl`)
   await mkdir(transcriptDir, { recursive: true })
-  const context = { runId, transcriptDir, consumer, executable, toolDirs, deniedReadRoots }
+  const context = { ...agent, runId, transcriptDir, consumer }
 
   try {
     for (const task of tasks) {
@@ -460,6 +517,7 @@ async function liveRun(tasks, options) {
         const record = await isolateTrial(identity, () =>
           executeTrial(task, trial, options, context),
         )
+        if (interrupted()) throw new Error('interrupted')
         if (record.failure?.startsWith('harness:')) log(`✗ ${task.id}-${trial}: ${record.failure}`)
         await appendTrial(trialsPath, record)
       }
@@ -489,6 +547,51 @@ async function liveRun(tasks, options) {
   return trials.every((trial) => trial.pass)
 }
 
+/**
+ * Runs Claude once with a trial's generated settings and a fixed command list, then checks each command's
+ * outcome against the intended sandbox boundary.
+ * @param {Task[]} tasks
+ * @param {Options} options
+ */
+async function sandboxCheck(tasks, options) {
+  const [task] = tasks
+  if (!task) throw new Error('no tasks selected')
+  const agent = await agentContext(options)
+  const consumer = await installConsumer(options)
+  const runId = `sandbox-check-${new Date().toISOString().replace(/[:.]/g, '-')}`
+  const transcriptDir = join(RESULTS_DIR, runId)
+  await mkdir(transcriptDir, { recursive: true })
+  const sibling = await temporaryDirectory('genie-eval-sibling-')
+  await writeFile(join(sibling, 'marker.txt'), `${SIBLING_MARKER}\n`)
+  try {
+    const context = { ...agent, runId, transcriptDir, consumer }
+    const spec = { label: 'sandbox', mode: /** @type {const} */ ('fix'), screen: task.screen }
+    const results = await withTrial(spec, options, context, async (trial) => {
+      const probes = sandboxProbes({
+        trial: trial.workspace.dir,
+        repoFile: task.path,
+        sibling,
+        url: trial.url,
+      })
+      for (const { link } of probes) if (link) await symlink(link.target, link.path)
+      const { transcript } = await runAgent(trial, sandboxPrompt(probes), options)
+      /** @type {Record<string, string>} */
+      const files = {}
+      for (const probe of probes) {
+        if (probe.file) files[probe.file] = await readFile(probe.file, 'utf8').catch(() => '')
+      }
+      return evaluateSandboxProbes(probes, transcript.commands, files)
+    })
+    for (const result of results) log(`${result.pass ? '✓' : '✗'} ${result.name}: ${result.detail}`)
+    const failed = results.filter((result) => !result.pass)
+    if (failed.length > 0) throw new Error(`sandbox check failed ${failed.length} probe(s)`)
+    log(`✓ sandbox check passed (transcript: ${transcriptDir})`)
+  } finally {
+    await removeWorkspace(sibling)
+    await removeWorkspace(consumer.root)
+  }
+}
+
 async function main() {
   const options = parseOptions()
   if (options.help) {
@@ -503,6 +606,10 @@ async function main() {
 
   if (options.dryRun) {
     await dryRun(tasks, options)
+    return
+  }
+  if (options.sandboxCheck) {
+    await sandboxCheck(tasks, options)
     return
   }
   if (!(await liveRun(tasks, options))) process.exitCode = 1

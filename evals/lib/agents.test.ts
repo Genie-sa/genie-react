@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { agentCommand, agentEnv, claudeSandboxSettings } from './agents.mjs'
+import {
+  agentCommand,
+  agentEnv,
+  agentHistoryDirs,
+  claudeSandboxSettings,
+  outsideRoots,
+} from './agents.mjs'
 
 const options = {
   executable: '/opt/bin/claude',
@@ -10,6 +16,7 @@ const options = {
   browserSession: 'genie-eval-run-task-1',
   toolDirs: ['/opt/node/bin', '/opt/tools/bin', '/opt/node/bin'],
   settingsPath: '/repo/evals/results/run/task-1.settings.json',
+  readableRoots: ['/tmp/deps'],
   deniedReadRoots: ['/repo', '/home/me/.claude/projects'],
 }
 
@@ -46,32 +53,69 @@ describe('agentEnv', () => {
 })
 
 describe('claudeSandboxSettings', () => {
-  it('confines writes to the trial and denies reads of the repo and temp roots', () => {
-    expect(
-      claudeSandboxSettings({
-        dir: '/tmp/trial',
-        readableRoots: ['/tmp/deps'],
-        deniedReadRoots: ['/repo', '/tmp'],
-        browserSocketDir: '/home/me/.agent-browser',
-      }),
-    ).toEqual({
-      sandbox: {
-        enabled: true,
-        failIfUnavailable: true,
-        allowUnsandboxedCommands: false,
-        autoAllowBashIfSandboxed: false,
-        filesystem: {
-          allowWrite: ['/tmp/trial'],
-          denyRead: ['/repo', '/tmp'],
-          allowRead: ['/tmp/trial', '/tmp/deps'],
-        },
-        network: {
-          allowedDomains: ['localhost', '127.0.0.1'],
-          allowLocalBinding: true,
-          allowUnixSockets: ['/home/me/.agent-browser'],
-        },
+  const base = {
+    dir: '/tmp/trial',
+    readableRoots: ['/tmp/deps'],
+    deniedReadRoots: ['/repo', '/tmp'],
+    browserSocketDir: '/home/me/.agent-browser',
+  }
+
+  it('denies reads of the repo and temp roots and keeps network local', () => {
+    expect(claudeSandboxSettings({ ...base, mode: 'diagnose' }).sandbox).toMatchObject({
+      enabled: true,
+      failIfUnavailable: true,
+      allowUnsandboxedCommands: false,
+      autoAllowBashIfSandboxed: false,
+      filesystem: { denyRead: ['/repo', '/tmp'], allowRead: ['/tmp/trial', '/tmp/deps'] },
+      network: {
+        allowedDomains: ['localhost', '127.0.0.1'],
+        allowLocalBinding: true,
+        allowUnixSockets: ['/home/me/.agent-browser'],
       },
     })
+  })
+
+  it('allows writes only to Genie state and, in fix mode, src', () => {
+    const diagnose = claudeSandboxSettings({ ...base, mode: 'diagnose' }).sandbox.filesystem
+    expect(diagnose.allowWrite).toEqual(['/tmp/trial/.genie'])
+    const fix = claudeSandboxSettings({ ...base, mode: 'fix' }).sandbox.filesystem
+    expect(fix.allowWrite).toEqual(['/tmp/trial/.genie', '/tmp/trial/src'])
+    expect(fix.denyWrite).toEqual(
+      expect.arrayContaining([
+        '/tmp/trial/vite.config.ts',
+        '/tmp/trial/package.json',
+        '/tmp/trial/tsconfig.json',
+        '/tmp/trial/index.html',
+        '/tmp/trial/.git',
+        '/tmp/trial/.claude',
+        '/tmp/trial/.agents',
+        '/tmp/trial/node_modules',
+      ]),
+    )
+  })
+})
+
+describe('outsideRoots', () => {
+  it('drops directories inside a repository root but keeps look-alike siblings', () => {
+    expect(
+      outsideRoots(
+        ['/repo/node_modules/.bin', '/repo', '/repo-tools/bin', '/usr/local/bin'],
+        ['/repo'],
+      ),
+    ).toEqual(['/repo-tools/bin', '/usr/local/bin'])
+  })
+})
+
+describe('agentHistoryDirs', () => {
+  it('follows CLAUDE_CONFIG_DIR and CODEX_HOME', () => {
+    expect(agentHistoryDirs({}, '/home/me')).toEqual([
+      '/home/me/.claude/projects',
+      '/home/me/.codex/sessions',
+    ])
+    expect(agentHistoryDirs({ CLAUDE_CONFIG_DIR: '/cfg', CODEX_HOME: '/cx' }, '/home/me')).toEqual([
+      '/cfg/projects',
+      '/cx/sessions',
+    ])
   })
 })
 
@@ -85,6 +129,11 @@ describe('agentCommand', () => {
     expect(diagnose.args).not.toContain('Read')
     expect(diagnose.args).not.toContain('Bash(cd *)')
     expect(diagnose.args).not.toContain('Bash(export *)')
+    expect(diagnose.args).not.toContain('Bash(sort *)')
+    expect(diagnose.args).toEqual(
+      expect.arrayContaining(['Bash(agent-browser upload *)', 'Bash(agent-browser download *)']),
+    )
+    expect(diagnose.args).toContain('Read(//tmp/deps/**)')
     expect(diagnose.args.some((arg) => arg.startsWith('Edit'))).toBe(false)
 
     const fix = agentCommand({ ...options, agent: 'claude', mode: 'fix' })

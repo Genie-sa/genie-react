@@ -1,9 +1,37 @@
-import { delimiter, join } from 'node:path'
+import { delimiter, isAbsolute, join, relative, sep } from 'node:path'
 
 export const AGENTS = /** @type {const} */ (['claude', 'codex'])
 
 const GENIE_COMMANDS = ['genie-react', 'pnpm exec genie-react', 'npx genie-react']
-const SHELL_HELPERS = ['sleep', 'echo', 'cat', 'head', 'tail', 'grep', 'jq', 'wc', 'sort', 'ls']
+const SHELL_HELPERS = ['sleep', 'echo', 'cat', 'head', 'tail', 'grep', 'jq', 'wc', 'ls']
+const BROWSER_FILE_COMMANDS = [
+  'upload',
+  'download',
+  'pdf',
+  'har',
+  'trace',
+  'profiler',
+  'record',
+  'state',
+  'auth',
+  'cookies set',
+]
+export const BROWSER_ALLOWED_DOMAINS = '127.0.0.1,localhost'
+const PROTECTED_PATHS = [
+  'vite.config.ts',
+  'vite.config.js',
+  'vite.config.mjs',
+  'vite.config.mts',
+  'package.json',
+  'tsconfig.json',
+  'tsconfig.app.json',
+  'tsconfig.node.json',
+  'index.html',
+  '.git',
+  '.claude',
+  '.agents',
+  'node_modules',
+]
 const SYSTEM_PATH = ['/usr/bin', '/bin', '/usr/sbin', '/sbin']
 const INHERITED_ENV = new Set([
   'HOME',
@@ -42,10 +70,41 @@ const INHERITED_ENV_PREFIXES = ['ANTHROPIC_']
  *   browserSession: string,
  *   toolDirs: string[],
  *   settingsPath: string,
+ *   readableRoots: string[],
  *   deniedReadRoots: string[],
  * }} AgentRunOptions
  * @typedef {{ command: string, args: string[], env: NodeJS.ProcessEnv }} AgentCommand
  */
+
+/**
+ * @param {string} path
+ * @param {string} root
+ */
+function isWithin(path, root) {
+  const offset = relative(root, path)
+  return offset !== '..' && !offset.startsWith(`..${sep}`) && !isAbsolute(offset)
+}
+
+/**
+ * Drops directories inside any of `roots`, so a PATH entry such as the repo's `node_modules/.bin` never reaches the agent.
+ * @param {string[]} dirs
+ * @param {string[]} roots
+ */
+export function outsideRoots(dirs, roots) {
+  return dirs.filter((dir) => !roots.some((root) => isWithin(dir, root)))
+}
+
+/**
+ * Where Claude and Codex keep session transcripts, which can hold earlier trials' answers.
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} home
+ */
+export function agentHistoryDirs(env, home) {
+  return [
+    join(env.CLAUDE_CONFIG_DIR ?? join(home, '.claude'), 'projects'),
+    join(env.CODEX_HOME ?? join(home, '.codex'), 'sessions'),
+  ]
+}
 
 /**
  * Builds the agent environment from an allowlist so nothing names the repository: auth and locale pass through,
@@ -68,19 +127,28 @@ export function agentEnv(source, { dir, browserSession, toolDirs }) {
     ...env,
     PATH: [...new Set(path)].join(delimiter),
     AGENT_BROWSER_SESSION: browserSession,
-    AGENT_BROWSER_ALLOWED_DOMAINS: '127.0.0.1,localhost',
+    AGENT_BROWSER_ALLOWED_DOMAINS: BROWSER_ALLOWED_DOMAINS,
     npm_config_verify_deps_before_run: 'false',
     pnpm_config_verify_deps_before_run: 'false',
   }
 }
 
 /**
- * Claude Code settings that run every Bash command in the OS sandbox: writes only in the trial, no reads of the
- * repository or sibling temp directories, network limited to the local dev server and the agent-browser daemon socket.
+ * Claude Code settings that run every Bash command in the OS sandbox, network limited to the local dev server and
+ * the agent-browser daemon socket, and no reads of the repository or sibling temp directories.
+ * Writes are limited to `.genie` and, in fix mode, `src/`, and never reach files the unsandboxed harness executes or
+ * trusts (Vite config, manifests, git metadata).
  * Bash still needs an allow rule, so commands outside the allowlist are denied and counted.
- * @param {{ dir: string, readableRoots: string[], deniedReadRoots: string[], browserSocketDir: string }} options
+ * @param {{ dir: string, mode: 'diagnose' | 'fix', readableRoots: string[], deniedReadRoots: string[], browserSocketDir: string }} options
  */
-export function claudeSandboxSettings({ dir, readableRoots, deniedReadRoots, browserSocketDir }) {
+export function claudeSandboxSettings({
+  dir,
+  mode,
+  readableRoots,
+  deniedReadRoots,
+  browserSocketDir,
+}) {
+  const writable = ['.genie', ...(mode === 'fix' ? ['src'] : [])]
   return {
     sandbox: {
       enabled: true,
@@ -88,7 +156,8 @@ export function claudeSandboxSettings({ dir, readableRoots, deniedReadRoots, bro
       allowUnsandboxedCommands: false,
       autoAllowBashIfSandboxed: false,
       filesystem: {
-        allowWrite: [dir],
+        allowWrite: writable.map((path) => join(dir, path)),
+        denyWrite: PROTECTED_PATHS.map((path) => join(dir, path)),
         denyRead: deniedReadRoots,
         allowRead: [dir, ...readableRoots],
       },
@@ -103,6 +172,7 @@ export function claudeSandboxSettings({ dir, readableRoots, deniedReadRoots, bro
 
 /**
  * Restricts Claude to the Genie CLI, agent-browser, a few shell helpers, and file tools scoped to the trial directory.
+ * The agent-browser daemon runs outside the sandbox, so its subcommands that read or write host files are denied.
  * Read rules also govern Grep and Glob; the prompt is sent on stdin.
  * @param {AgentRunOptions} options
  * @returns {AgentCommand}
@@ -115,6 +185,7 @@ function claudeCommand(options) {
     'Bash(agent-browser *)',
     ...SHELL_HELPERS.map((command) => `Bash(${command} *)`),
     'Read(./**)',
+    ...options.readableRoots.map((root) => `Read(/${root}/**)`),
     ...(options.mode === 'fix' ? ['Edit(./src/**)'] : []),
     'Skill',
   ]
@@ -144,6 +215,7 @@ function claudeCommand(options) {
       ...allowed,
       '--disallowedTools',
       ...options.deniedReadRoots.map((root) => `Read(/${root}/**)`),
+      ...BROWSER_FILE_COMMANDS.map((command) => `Bash(agent-browser ${command} *)`),
     ],
     env: agentEnv(process.env, options),
   }
@@ -208,7 +280,7 @@ export function buildPrompt(task, url) {
       : 'Do not modify any files.'
   return `${task.prompt}
 
-The app is already running at ${url} (Vite dev server with hot reload) and open in the current \`agent-browser\` session. Investigate it at runtime: use the \`genie-react\` CLI for React and TanStack Query introspection (the genie skill explains it) and \`agent-browser\` to drive the page. Both are on PATH. ${instructions}
+The app is already running at ${url} (Vite dev server with hot reload). Start by opening that URL with \`agent-browser open\`; the session is already selected. Investigate it at runtime: use the \`genie-react\` CLI for React and TanStack Query introspection (the genie skill explains it) and \`agent-browser\` to drive the page. Both are on PATH. ${instructions}
 
 End your final message with a fenced json block in exactly this shape:
 \`\`\`json

@@ -11,7 +11,17 @@ export const FIXTURE_ROOT = join(REPO_ROOT, 'evals/fixture-app')
 const FIXTURE_MODULES = join(FIXTURE_ROOT, 'node_modules')
 const PACKED_PACKAGES = [join(REPO_ROOT, 'packages/genie-react'), join(REPO_ROOT, 'packages/cli')]
 const COPY_EXCLUDES = new Set(['node_modules', '.genie', '.vite', 'dist'])
-const GIT_IDENTITY = ['-c', 'user.name=genie-eval', '-c', 'user.email=genie-eval@localhost']
+const GIT_OPTIONS = [
+  '-c',
+  'user.name=genie-eval',
+  '-c',
+  'user.email=genie-eval@localhost',
+  '-c',
+  'core.fsmonitor=false',
+  '-c',
+  'core.hooksPath=/dev/null',
+]
+const DIFF_OPTIONS = ['--no-ext-diff', '--no-textconv']
 
 /**
  * @typedef {import('./tasks.mjs').Edit} Edit
@@ -27,11 +37,12 @@ export function assertFixtureInstalled() {
 }
 
 /**
+ * Runs git with hooks and fsmonitor off, since the agent may have touched the trial's repository.
  * @param {string} cwd
  * @param {string[]} args
  */
 async function git(cwd, args) {
-  const result = await run('git', [...GIT_IDENTITY, ...args], { cwd, timeoutMs: 30_000 })
+  const result = await run('git', [...GIT_OPTIONS, ...args], { cwd, timeoutMs: 30_000 })
   if (result.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`)
   return result.stdout
 }
@@ -52,7 +63,7 @@ export async function repositoryRoots() {
 /**
  * @param {string} prefix
  */
-async function temporaryDirectory(prefix) {
+export async function temporaryDirectory(prefix) {
   const dir = await realpath(await mkdtemp(join(tmpdir(), prefix)))
   track(dir, () => rm(dir, { recursive: true, force: true }))
   return dir
@@ -65,6 +76,19 @@ async function temporaryDirectory(prefix) {
 async function chmodTree(dir, mode) {
   const result = await run('chmod', ['-R', mode, dir], { timeoutMs: 60_000, cleanup: true })
   if (result.code !== 0) throw new Error(`chmod -R ${mode} ${dir} failed: ${result.stderr.trim()}`)
+}
+
+/**
+ * Removes write access from a tracked directory; the cleanup that restores it is registered first,
+ * so an interrupt or a partial chmod still leaves the tree removable.
+ * @param {string} dir
+ */
+export async function makeReadOnly(dir) {
+  track(dir, async () => {
+    await chmodTree(dir, 'u+w')
+    await rm(dir, { recursive: true, force: true })
+  })
+  await chmodTree(dir, 'a-w')
 }
 
 /**
@@ -123,11 +147,7 @@ export async function prepareConsumer() {
       `npm install of the packed consumer failed:\n${installed.stdout}${installed.stderr}`,
     )
   }
-  await chmodTree(root, 'a-w')
-  track(root, async () => {
-    await chmodTree(root, 'u+w')
-    await rm(root, { recursive: true, force: true })
-  })
+  await makeReadOnly(root)
   const modules = join(root, 'node_modules')
   return { root, modules, cliEntry: join(modules, '@genie-react/cli/dist/cli.js'), versions }
 }
@@ -223,8 +243,8 @@ async function initializeTrialWorkspace(dir, agent, consumer) {
 export async function workspaceDiff(dir) {
   await git(dir, ['add', '-A'])
   const pathspec = ['--', '.', ':(exclude).claude', ':(exclude).agents', ':(exclude).codex']
-  const patch = await git(dir, ['diff', '--cached', ...pathspec])
-  const files = (await git(dir, ['diff', '--cached', '--name-only', ...pathspec]))
+  const patch = await git(dir, ['diff', '--cached', ...DIFF_OPTIONS, ...pathspec])
+  const files = (await git(dir, ['diff', '--cached', '--name-only', ...DIFF_OPTIONS, ...pathspec]))
     .split('\n')
     .filter(Boolean)
   return { patch, files }
