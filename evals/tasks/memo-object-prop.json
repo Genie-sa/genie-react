@@ -7,10 +7,7 @@
   "truth": {
     "components": ["StatusBadge", "SearchScreen"],
     "files": ["src/screens/search/SearchScreen.tsx"],
-    "causePatterns": [
-      "appearance|object|style",
-      "new|inline|literal|recreat|identity|referen|unstable|fresh"
-    ],
+    "causePatterns": ["appearance|object|style", "@identity"],
     "summary": "SearchScreen passes an inline `appearance` object literal to the memoized StatusBadge, so its identity changes on every render and memo never bails out."
   },
   "referenceAnswer": {
@@ -18,6 +15,13 @@
     "cause": "SearchScreen passes a new inline appearance object on every render, so memo's shallow prop comparison always fails.",
     "file": "src/screens/search/SearchScreen.tsx"
   },
+  "acceptedAnswers": [
+    {
+      "component": "StatusBadge (missing useMemo in SearchScreen)",
+      "cause": "SearchScreen recreates the appearance object on each keystroke, so memo's shallow comparison never bails out.",
+      "file": "src/screens/search/SearchScreen.tsx"
+    }
+  ],
   "decoyAnswers": [
     {
       "component": "ResultCount",

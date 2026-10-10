@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { componentNames, extractAnswer, gradeAnswer } from './grade.mjs'
+import { causePattern, componentNames, extractAnswer, gradeAnswer } from './grade.mjs'
 
 /**
  * @typedef {import('./grade.mjs').Answer} Answer
@@ -23,6 +23,7 @@ import { componentNames, extractAnswer, gradeAnswer } from './grade.mjs'
  *   prompt: string,
  *   truth: Truth,
  *   referenceAnswer: Answer,
+ *   acceptedAnswers?: Answer[],
  *   decoyAnswers: Answer[],
  *   referenceFix: Edit[],
  *   probe?: Probe,
@@ -97,7 +98,7 @@ export function validateTask(task, path) {
     else {
       for (const pattern of truth.causePatterns) {
         try {
-          new RegExp(pattern, 'i')
+          causePattern(pattern)
         } catch {
           fail(`truth.causePatterns has an invalid regex: ${pattern}`)
         }
@@ -107,6 +108,12 @@ export function validateTask(task, path) {
   }
 
   if (!isAnswer(task.referenceAnswer)) fail('referenceAnswer needs component, cause and file')
+  if (
+    task.acceptedAnswers !== undefined &&
+    !(Array.isArray(task.acceptedAnswers) && task.acceptedAnswers.every(isAnswer))
+  ) {
+    fail('acceptedAnswers must list answers with component, cause and file')
+  }
   if (!Array.isArray(task.decoyAnswers) || task.decoyAnswers.length === 0) {
     fail('decoyAnswers must list plausible wrong answers')
   } else if (!task.decoyAnswers.every(isAnswer)) {
@@ -215,7 +222,7 @@ export function selectTasks(tasks, { ids, split }) {
 
 /**
  * Checks a task against the fixture source: its screen exists, truth files exist, the reference
- * answer passes, every decoy fails, and each reference edit matches exactly once.
+ * and accepted answers pass, every decoy fails, and each reference edit matches exactly once.
  * @param {Task} task
  * @param {string} fixtureRoot
  * @returns {Promise<string[]>}
@@ -236,6 +243,11 @@ export async function checkTaskAgainstFixture(task, fixtureRoot) {
   const reference = gradeAnswer(extractAnswer(fenced), task.truth)
   if (!reference.pass) {
     problems.push(`${task.id}: reference answer fails: ${JSON.stringify(reference.checks)}`)
+  }
+  for (const accepted of task.acceptedAnswers ?? []) {
+    if (!gradeAnswer(accepted, task.truth).pass) {
+      problems.push(`${task.id}: accepted answer fails: ${JSON.stringify(accepted)}`)
+    }
   }
   for (const decoy of task.decoyAnswers) {
     if (gradeAnswer(decoy, task.truth).pass) {

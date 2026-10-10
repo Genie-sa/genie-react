@@ -7,11 +7,7 @@
   "truth": {
     "components": ["ReportTable"],
     "files": ["src/screens/reports/ReportsScreen.tsx"],
-    "causePatterns": [
-      "effect",
-      "criteria|object",
-      "new|recreat|identity|referen|unstable|fresh|every render|each render"
-    ],
+    "causePatterns": ["effect", "criteria|object", "@identity"],
     "summary": "ReportTable builds a new `criteria` object every render and lists it as a useEffect dependency; the effect calls setRows with a new array, which re-renders and re-runs the effect forever."
   },
   "referenceAnswer": {
@@ -19,6 +15,13 @@
     "cause": "The useEffect depends on a criteria object recreated every render, and it calls setRows, so render -> effect -> setState loops forever.",
     "file": "src/screens/reports/ReportsScreen.tsx"
   },
+  "acceptedAnswers": [
+    {
+      "component": "ReportTable (useEffect)",
+      "cause": "ReportTable builds the criteria object inline and lists it as a useEffect dependency, so the effect's setRows re-renders and re-runs it.",
+      "file": "src/screens/reports/ReportsScreen.tsx"
+    }
+  ],
   "decoyAnswers": [
     {
       "component": "ReportsScreen",

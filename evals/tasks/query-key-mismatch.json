@@ -7,7 +7,11 @@
   "truth": {
     "components": ["AddTaskForm", "TaskList", "useAddTask"],
     "files": ["src/screens/tasks/taskQueries.ts"],
-    "causePatterns": ["invalidat", "key", "match|differ|wrong|typo|singular|incorrect"],
+    "causePatterns": [
+      "invalidat",
+      "key|\\[\\s*['\"]tasks?",
+      "match|differ|wrong|typo|singular|incorrect|instead|\\bvs\\b"
+    ],
     "summary": "useAddTask invalidates ['task', 'list'] but the list query key is ['tasks', 'list'], so the list is never refetched."
   },
   "referenceAnswer": {
@@ -15,6 +19,18 @@
     "cause": "useAddTask invalidates the ['task', 'list'] query key, which does not match the list query key ['tasks', 'list'], so the list never refetches.",
     "file": "src/screens/tasks/taskQueries.ts"
   },
+  "acceptedAnswers": [
+    {
+      "component": "useAddTask",
+      "cause": "useAddTask invalidates ['task','list'] instead of ['tasks','list'].",
+      "file": "src/screens/tasks/taskQueries.ts"
+    },
+    {
+      "component": "AddTaskForm (useMutation)",
+      "cause": "onSuccess invalidates ['task', 'list'] vs the list's ['tasks', 'list'].",
+      "file": "src/screens/tasks/taskQueries.ts"
+    }
+  ],
   "decoyAnswers": [
     {
       "component": "TaskList",

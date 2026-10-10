@@ -29,6 +29,7 @@ describe('validateTask', () => {
         split: 'train',
         mode: 'fix',
         truth: { ...validTask.truth, components: ['Alpha'], causePatterns: ['('] },
+        acceptedAnswers: [{ component: 'AlphaCard' }],
         decoyAnswers: [{ component: 'BetaCard' }],
       },
       'tasks/other.json',
@@ -38,6 +39,7 @@ describe('validateTask', () => {
       'tasks/other.json: split must be "dev" or "held-out"',
       'tasks/other.json: truth.components entry "Alpha" must be a multi-word PascalCase or useX name',
       'tasks/other.json: truth.causePatterns has an invalid regex: (',
+      'tasks/other.json: acceptedAnswers must list answers with component, cause and file',
       'tasks/other.json: each decoyAnswers entry needs component, cause and file',
       'tasks/other.json: fix tasks need a runtime probe',
     ])
@@ -75,14 +77,17 @@ describe('task suite', async () => {
   it('reports tasks that drift from the fixture', async () => {
     const task = { ...validTask, screen: 'missing', path: 'tasks/example-task.json' } as const
     const problems = await checkTaskAgainstFixture(
-      { ...task, decoyAnswers: [validTask.decoyAnswers[0], task.referenceAnswer] } as Parameters<
-        typeof checkTaskAgainstFixture
-      >[0],
+      {
+        ...task,
+        acceptedAnswers: [validTask.decoyAnswers[0]],
+        decoyAnswers: [validTask.decoyAnswers[0], task.referenceAnswer],
+      } as Parameters<typeof checkTaskAgainstFixture>[0],
       FIXTURE_DIR,
     )
     expect(problems).toEqual([
       'example-task: screen "missing" is not registered in App.tsx',
       'example-task: truth file src/a.tsx does not exist',
+      'example-task: accepted answer fails: {"component":"BetaCard","cause":"y","file":"src/b.tsx"}',
       'example-task: decoy answer passes: {"component":"AlphaCard","cause":"x","file":"src/a.tsx"}',
       'example-task: reference edit in src/a.tsx matches 0 times, expected 1',
     ])

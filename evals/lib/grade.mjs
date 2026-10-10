@@ -10,14 +10,38 @@ import { balancedJson } from './json.mjs'
 const OBJECT_START = /\{\s*"/g
 const COMPONENT_NAME = /\b(?:use[A-Z][\w$]*|[A-Z][a-z\d]*[A-Z][\w$]*)\b/g
 const MAX_NAMED_COMPONENTS = 2
+const LIBRARY_HOOKS = new Set([
+  'useEffect',
+  'useMemo',
+  'useCallback',
+  'useState',
+  'useRef',
+  'useContext',
+  'useSyncExternalStore',
+  'useQuery',
+  'useMutation',
+  'useQueryClient',
+])
+const IDENTITY_PATTERN =
+  'new|inline|literal|recreat|identity|referen|unstable|fresh|every render|each render|Object\\.is'
 
 /**
- * Lists the distinct component or hook names (multi-word PascalCase or `useX`) mentioned in text, in order.
+ * Lists the distinct app component or hook names (multi-word PascalCase or `useX`) mentioned in text, in order.
+ * React and TanStack Query hooks are context, not answers, so they are skipped.
  * @param {string} text
  * @returns {string[]}
  */
 export function componentNames(text) {
-  return [...new Set(text.match(COMPONENT_NAME) ?? [])]
+  return [...new Set(text.match(COMPONENT_NAME) ?? [])].filter((name) => !LIBRARY_HOOKS.has(name))
+}
+
+/**
+ * Expands `@identity`, the shared "a new value each render" alternation, in a task's cause pattern.
+ * @param {string} pattern
+ * @returns {RegExp}
+ */
+export function causePattern(pattern) {
+  return new RegExp(pattern.replaceAll('@identity', IDENTITY_PATTERN), 'i')
 }
 
 /**
@@ -95,7 +119,7 @@ export function gradeAnswer(answer, truth, options = {}) {
   const names = componentNames(answer.component)
   const file = normalizeFile(answer.file, options.projectRoot)
   const missingPatterns = truth.causePatterns.filter(
-    (pattern) => !new RegExp(pattern, 'i').test(answer.cause),
+    (pattern) => !causePattern(pattern).test(answer.cause),
   )
   /** @type {Check[]} */
   const checks = [
@@ -118,7 +142,7 @@ export function gradeAnswer(answer, truth, options = {}) {
       detail:
         missingPatterns.length === 0
           ? 'all cause patterns matched'
-          : `unmatched patterns: ${missingPatterns.map((pattern) => `/${pattern}/i`).join(', ')}`,
+          : `unmatched patterns: ${missingPatterns.map((pattern) => String(causePattern(pattern))).join(', ')}`,
     },
   ]
   return { pass: checks.every((check) => check.pass), answer, checks }

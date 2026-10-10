@@ -7,11 +7,7 @@
   "truth": {
     "components": ["WidgetCard", "PreferencesProvider"],
     "files": ["src/screens/dashboard/PreferencesProvider.tsx"],
-    "causePatterns": [
-      "value|object",
-      "context|provider",
-      "new|inline|literal|recreat|identity|referen|unstable|fresh"
-    ],
+    "causePatterns": ["value|object|\\{", "context|provider", "@identity"],
     "summary": "PreferencesProvider re-renders every second for its sync clock and passes a new `{ density, setDensity }` object as the context value, so every consumer re-renders."
   },
   "referenceAnswer": {
@@ -19,6 +15,13 @@
     "cause": "PreferencesProvider creates a new context value object on every render (it re-renders each second for the sync clock), so all consumers re-render.",
     "file": "src/screens/dashboard/PreferencesProvider.tsx"
   },
+  "acceptedAnswers": [
+    {
+      "component": "PreferencesProvider",
+      "cause": "PreferencesProvider passes a fresh { density, setDensity } to the context provider each time its sync clock ticks.",
+      "file": "src/screens/dashboard/PreferencesProvider.tsx"
+    }
+  ],
   "decoyAnswers": [
     {
       "component": "DashboardScreen",

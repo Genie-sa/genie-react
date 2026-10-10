@@ -5,13 +5,9 @@
   "screen": "cart",
   "prompt": "On the Cart screen, the item count and total in the header re-render on every keystroke in the order notes box, even though the cart contents don't change. Why?",
   "truth": {
-    "components": ["CartSummary"],
+    "components": ["CartSummary", "useCartStore"],
     "files": ["src/screens/cart/CartSummary.tsx", "src/screens/cart/createStore.ts"],
-    "causePatterns": [
-      "selector",
-      "object",
-      "new|literal|recreat|identity|referen|Object\\.is|shallow|equal"
-    ],
+    "causePatterns": ["selector", "object|\\{", "@identity|shallow|equal"],
     "summary": "CartSummary's store selector returns a new { count, total } object on every call, so the store's Object.is check reports a change on every store update, including notes edits."
   },
   "referenceAnswer": {
@@ -19,6 +15,13 @@
     "cause": "The useCartStore selector returns a new object literal each call, so the Object.is equality check fails on every store update, including notes changes.",
     "file": "src/screens/cart/CartSummary.tsx"
   },
+  "acceptedAnswers": [
+    {
+      "component": "CartSummary (useCartStore selector)",
+      "cause": "The selector returns { count, total }, a fresh value per call, so every store update looks like a change.",
+      "file": "src/screens/cart/CartSummary.tsx"
+    }
+  ],
   "decoyAnswers": [
     {
       "component": "OrderNotes",
@@ -28,6 +31,11 @@
     {
       "component": "CartSummary",
       "cause": "The selector subscribes to the entire store state, so every store update re-renders the summary.",
+      "file": "src/screens/cart/CartSummary.tsx"
+    },
+    {
+      "component": "CartSummary",
+      "cause": "The selector reads the whole { items, notes } state, so notes edits re-render the summary.",
       "file": "src/screens/cart/CartSummary.tsx"
     }
   ],

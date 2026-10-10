@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  causePattern,
   componentNames,
   extractAnswer,
   gradeAnswer,
@@ -64,6 +65,25 @@ describe('componentNames', () => {
     expect(componentNames('React.memo(StatusBadge) via useAddTask and StatusBadge in App')).toEqual(
       ['StatusBadge', 'useAddTask'],
     )
+  })
+
+  it('skips React and TanStack Query hooks named as context', () => {
+    expect(componentNames('ReportTable (useEffect + useState)')).toEqual(['ReportTable'])
+    expect(componentNames('useQueryClient in AddTaskForm via useMutation')).toEqual(['AddTaskForm'])
+    expect(componentNames('CartSummary (useCartStore selector)')).toEqual([
+      'CartSummary',
+      'useCartStore',
+    ])
+  })
+})
+
+describe('causePattern', () => {
+  it('expands the shared identity alternation and matches case-insensitively', () => {
+    const pattern = causePattern('@identity|shallow')
+    expect(pattern.test('fails the object.is check')).toBe(true)
+    expect(pattern.test('recreated each render')).toBe(true)
+    expect(pattern.test('shallow compare')).toBe(true)
+    expect(pattern.test('the label prop changes')).toBe(false)
   })
 })
 
