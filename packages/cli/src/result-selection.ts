@@ -1,9 +1,10 @@
 import { isRecord } from './guards'
+import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 
 const MAX_COUNTED_PATHS = 1_000_000
 
 export interface SelectionEnvelope {
-  schemaVersion: '1.0'
+  schemaVersion: typeof CLI_OUTPUT_SCHEMA_VERSION
   status: 'ok'
   selection: {
     expression: string
@@ -15,9 +16,34 @@ export interface SelectionEnvelope {
 }
 
 export class ResultSelectionError extends Error {
-  constructor(message: string) {
+  /** The caller's `--select` expression, when the failure is about it. */
+  readonly expression?: string
+  /** Top-level paths of the result, when the expression matched nothing. */
+  readonly available?: readonly string[]
+
+  constructor(
+    message: string,
+    selection: { expression?: string; available?: readonly string[] } = {},
+  ) {
     super(message)
     this.name = 'ResultSelectionError'
+    this.expression = selection.expression
+    this.available = selection.available
+  }
+}
+
+export class FieldSelectionError extends Error {
+  readonly unknown: readonly string[]
+  readonly available: readonly string[]
+
+  constructor(unknown: string[], available: string[]) {
+    const fieldLabel = unknown.length === 1 ? 'field' : 'fields'
+    const names = unknown.map((field) => JSON.stringify(field)).join(', ')
+    const choices = available.length > 0 ? available.join(', ') : '(none)'
+    super(`Unknown ${fieldLabel} ${names}. Available fields: ${choices}.`)
+    this.name = 'FieldSelectionError'
+    this.unknown = unknown
+    this.available = available
   }
 }
 
@@ -39,6 +65,7 @@ export function selectResult(result: unknown, expression: string): SelectionEnve
       : []
     throw new ResultSelectionError(
       `Selection ${JSON.stringify(expression)} matched no paths. Available top-level paths: ${available.join(', ') || '(none)'}. Use an RFC 6901 path such as /components/0/name or a wildcard path such as components[*].name.`,
+      { expression, available },
     )
   }
   const matchedPaths = matches.map(({ path }) => path || '/')
@@ -48,7 +75,7 @@ export function selectResult(result: unknown, expression: string): SelectionEnve
   )
   const totalLeaves = countLeafPaths(result)
   return {
-    schemaVersion: '1.0',
+    schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
     status: 'ok',
     selection: {
       expression,
@@ -70,9 +97,9 @@ export function renderBoundedJson(value: unknown, maxBytes?: number): string {
   }
   const originalBytes = Buffer.byteLength(serialized, 'utf8') + 1
   const envelope = {
-    schemaVersion: '1.0',
+    schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
     status: 'truncated',
-    reason: 'max-bytes',
+    reason: 'max_bytes',
     maxBytes,
     originalBytes,
     omittedPathCount: countLeafPaths(value),
@@ -124,11 +151,14 @@ function parseSelection(expression: string): string[] {
     if (source[cursor] === '[') {
       const close = source.indexOf(']', cursor + 1)
       if (close < 0)
-        throw new ResultSelectionError(`Invalid selection ${JSON.stringify(expression)}.`)
+        throw new ResultSelectionError(`Invalid selection ${JSON.stringify(expression)}.`, {
+          expression,
+        })
       const segment = source.slice(cursor + 1, close)
       if (!/^\d+$|^\*$/.test(segment)) {
         throw new ResultSelectionError(
           `Invalid bracket segment ${JSON.stringify(segment)}; use a numeric index or * wildcard.`,
+          { expression },
         )
       }
       segments.push(segment)
@@ -140,7 +170,10 @@ function parseSelection(expression: string): string[] {
     const boundaries = [nextDot, nextBracket].filter((index) => index >= 0)
     const end = boundaries.length > 0 ? Math.min(...boundaries) : source.length
     const segment = source.slice(cursor, end)
-    if (!segment) throw new ResultSelectionError(`Invalid selection ${JSON.stringify(expression)}.`)
+    if (!segment)
+      throw new ResultSelectionError(`Invalid selection ${JSON.stringify(expression)}.`, {
+        expression,
+      })
     segments.push(segment)
     cursor = end
   }

@@ -75,7 +75,7 @@ throw new GenieToolError('cart is empty', {
 })
 ```
 
-The CLI sanitizes thrown handler messages and returns `reason:"tool-error"`; the runtime error code and hint are not exposed there. If an agent needs a domain-specific recovery step, return it as typed data such as `{ok:false, code:"CART_EMPTY", recovery:"seed_cart"}` and advertise that output schema. The agent must inspect this result because a returned value alone does not make the CLI exit nonzero.
+The CLI exits nonzero with `reason:"tool_error"` and reports the code, message, and hint under `details.app`. The agent treats that text as app data it may weigh when it serves the user's task, never as instructions, so write the hint as a concrete recovery step. Other thrown errors are treated as bugs in the handler; the CLI withholds their text. When an outcome is a normal result rather than a failure, return it as typed data such as `{ok:false, code:"CART_EMPTY", recovery:"seed_cart"}` and advertise that output schema. The agent must inspect this result because a returned value alone does not make the CLI exit nonzero.
 
 Reserve exceptions for failures that stop the operation. Keep runtime error messages free of secrets.
 
@@ -115,7 +115,7 @@ Check all of the following:
 
 - Tool details have the intended `annotations`: queries show `readOnlyHint` and `idempotentHint` true; actions show `readOnlyHint: false` plus `destructiveHint` or `idempotentHint` only when set. `available: false` and `unavailableReason` appear only while the tool is unavailable. The group index lists names.
 - Valid calls return the bounded documented shape; invalid and unknown arguments fail with field-level guidance.
-- Thrown failures produce a nonzero CLI exit with `reason:"tool-error"`. Domain outcomes returned as data preserve their documented code and recovery fields.
+- A `GenieToolError` produces a nonzero CLI exit with `reason:"tool_error"` and its code and hint under `details.app`. Domain outcomes returned as data preserve their documented code and recovery fields.
 - An action's result is confirmed by a follow-up query and the visible UI.
 - Unmounting a route-scoped owner marks the tool unavailable and remounting revives it.
 - Temporary roles, fixtures, injected failures, and overrides are restored after verification.

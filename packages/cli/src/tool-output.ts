@@ -6,7 +6,7 @@ export type ToolDescriptor = BridgeStatusMessage['tools'][number]
 export type ToolsSelection =
   | { kind: 'tool'; tool: ToolDescriptor }
   | { kind: 'group'; tools: ToolDescriptor[] }
-  | { kind: 'unknown'; message: string }
+  | { kind: 'unknown'; message: string; suggestions: string[] }
 
 /** Exact tool name → its full contract; a group or group family (`app` covers `app.cart`, `react` covers `react.tree`) → that listing; else suggestions, never a full dump. */
 export function resolveToolsSelector(tools: ToolDescriptor[], selector: string): ToolsSelection {
@@ -17,17 +17,51 @@ export function resolveToolsSelector(tools: ToolDescriptor[], selector: string):
   )
   if (inGroup.length > 0) return { kind: 'group', tools: inGroup }
 
-  const needle = selector.toLowerCase()
-  const near = tools
-    .map((candidate) => candidate.name)
-    .filter((name) => name.includes(needle))
-    .slice(0, 5)
+  const near = suggestToolNames(
+    tools.map((candidate) => candidate.name),
+    selector,
+  )
   const groups = [...new Set(tools.map((candidate) => candidate.group))].sort()
   const hint = near.length > 0 ? `Did you mean: ${near.join(', ')}? ` : ''
   return {
     kind: 'unknown',
     message: `Unknown tool or group "${selector}". ${hint}Groups: ${groups.join(', ')}`,
+    suggestions: near,
   }
+}
+
+/** Closest names to a mistyped one: substring matches first, then small edit distances; empty when nothing is plausibly meant. */
+export function suggestToolNames(names: readonly string[], query: string, limit = 5): string[] {
+  const needle = query.toLowerCase()
+  const maxDistance = Math.max(2, Math.floor(needle.length / 4))
+  return names
+    .map((name) => {
+      const candidate = name.toLowerCase()
+      const contains = candidate.includes(needle) || needle.includes(candidate)
+      return { name, contains, distance: editDistance(needle, candidate) }
+    })
+    .filter(({ contains, distance }) => contains || distance <= maxDistance)
+    .sort(
+      (a, b) =>
+        Number(b.contains) - Number(a.contains) ||
+        a.distance - b.distance ||
+        a.name.localeCompare(b.name),
+    )
+    .slice(0, limit)
+    .map(({ name }) => name)
+}
+
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index)
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i]
+    for (let j = 1; j <= b.length; j++) {
+      const substitution = (previous[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1)
+      current[j] = Math.min((previous[j] ?? 0) + 1, (current[j - 1] ?? 0) + 1, substitution)
+    }
+    previous = current
+  }
+  return previous[b.length] ?? 0
 }
 
 const ACTION_PREFIXES: Record<string, string[]> = {

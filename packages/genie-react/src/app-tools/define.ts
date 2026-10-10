@@ -1,10 +1,12 @@
 import { z } from 'zod'
 import type { AgentToolContract } from '../protocol'
 
-/** Structured failure an app tool handler can throw; `code` and `hint` fold into the agent-visible message, so recovery guidance travels with the error. */
+/** Structured failure an app tool handler can throw; `code`, `detail`, and `hint` reach the agent as structured error details, and fold into `message` for logs. */
 export class GenieToolError extends Error {
   readonly code: string | undefined
   readonly hint: string | undefined
+  /** The message as thrown, without the folded code and hint. */
+  readonly detail: string
 
   constructor(message: string, options: { code?: string; hint?: string } = {}) {
     const prefix = options.code ? `[${options.code}] ` : ''
@@ -13,6 +15,7 @@ export class GenieToolError extends Error {
     this.name = 'GenieToolError'
     this.code = options.code
     this.hint = options.hint
+    this.detail = message
   }
 }
 

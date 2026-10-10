@@ -114,7 +114,55 @@ describe('registerGenieTools', () => {
     expect(response.ok).toBe(false)
     expect(response.errorCode).toBe('invalid-args')
     expect(response.error).toContain('count')
+    expect(response.errorDetails).toEqual({
+      issues: [
+        {
+          path: '/count',
+          message: expect.stringContaining('50'),
+          received: 'number',
+        },
+      ],
+      requiredKeys: [],
+      exampleArgs: {},
+    })
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('names the enum values and the received type for a rejected option', async () => {
+    const { socket } = startClient()
+    registerGenieTools(
+      defineGenieTool({
+        name: 'login_as',
+        description: 'Signs the demo app in as a role so permission paths can be exercised.',
+        kind: 'action',
+        input: z.object({ role: z.enum(['admin', 'viewer']) }),
+        handler: ({ role }) => ({ role }),
+      }),
+    )
+    await flush()
+    socket.receive({ kind: 'bridge/request', id: 'e1', tool: 'app_login_as', args: {} })
+    socket.receive({
+      kind: 'bridge/request',
+      id: 'e2',
+      tool: 'app_login_as',
+      args: { role: 'root' },
+    })
+    await flush()
+
+    expect(lastResponse(socket, 'e1').errorDetails).toEqual({
+      issues: [
+        expect.objectContaining({
+          path: '/role',
+          allowed: ['admin', 'viewer'],
+          received: 'missing',
+        }),
+      ],
+      requiredKeys: ['role'],
+      exampleArgs: { role: 'admin' },
+    })
+    expect(lastResponse(socket, 'e2').errorDetails.issues).toEqual([
+      expect.objectContaining({ path: '/role', allowed: ['admin', 'viewer'], received: 'string' }),
+    ])
   })
 
   it('tombstones an unregistered tool: still listed, unavailable, with a recovery hint', async () => {
@@ -133,6 +181,7 @@ describe('registerGenieTools', () => {
     expect(response.ok).toBe(false)
     expect(response.errorCode).toBe('tool-unavailable')
     expect(response.error).toContain('currently unavailable')
+    expect(response.errorDetails).toEqual({ unavailableReason: tool.unavailableReason })
   })
 
   it('revives a tombstoned tool on re-registration', async () => {
@@ -215,13 +264,16 @@ describe('registerGenieTools', () => {
     socket.receive({ kind: 'bridge/request', id: 'r6', tool: 'app_explode', args: {} })
     await flush()
 
-    expect(lastResponse(socket, 'r5').error).toBe(
-      '[CART_EMPTY] cart is empty — hint: call app_seed_cart first',
-    )
-    const wrapped = lastResponse(socket, 'r6').error
-    expect(wrapped).toContain('app_explode')
-    expect(wrapped).toContain('boom')
-    expect(wrapped).toContain("app's own tool code")
+    const structured = lastResponse(socket, 'r5')
+    expect(structured.error).toBe('[CART_EMPTY] cart is empty — hint: call app_seed_cart first')
+    expect(structured.errorDetails).toEqual({
+      app: { code: 'CART_EMPTY', message: 'cart is empty', hint: 'call app_seed_cart first' },
+    })
+    const wrapped = lastResponse(socket, 'r6')
+    expect(wrapped.error).toContain('app_explode')
+    expect(wrapped.error).toContain('boom')
+    expect(wrapped.error).toContain("app's own tool code")
+    expect(wrapped.errorDetails).toBeUndefined()
   })
 
   it('always invokes the latest handler after re-registration', async () => {
@@ -253,10 +305,14 @@ describe('result guards', () => {
     socket.receive({ kind: 'bridge/request', id: 'g1', tool: 'app_dump_everything', args: {} })
     await flush()
 
-    const error = lastResponse(socket, 'g1').error
-    expect(error).toContain('over its 128KB result cap')
-    expect(error).toContain('top-level keys: rows, note')
-    expect(error).toContain('raise maxResultBytes')
+    const response = lastResponse(socket, 'g1')
+    expect(response.error).toContain('over its 128KB result cap')
+    expect(response.error).toContain('top-level keys: rows, note')
+    expect(response.error).toContain('raise maxResultBytes')
+    expect(response.errorDetails.app).toMatchObject({
+      code: 'RESULT_TOO_LARGE',
+      hint: expect.stringContaining('raise maxResultBytes'),
+    })
   })
 
   it('measures the cap in bytes, not UTF-16 code units', async () => {

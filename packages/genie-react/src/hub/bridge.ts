@@ -5,6 +5,7 @@ import { WebSocket, WebSocketServer } from 'ws'
 import {
   type AgentErrorCode,
   type AgentMessage,
+  type AgentToolContract,
   type AppInfo,
   type AppMessage,
   agentMessageSchema,
@@ -16,7 +17,6 @@ import {
   devtoolsStatusContract,
   devtoolsWaitContract,
   encodeMessage,
-  formatToolValidationError,
   GENIE_WS_PATH,
   metaToolDescriptors,
   newId,
@@ -24,6 +24,8 @@ import {
   reactQuiesceContract,
   type SessionSummary,
   type ToolDescriptor,
+  type ToolErrorDetails,
+  toolValidationFailure,
   WAIT_CONDITIONS,
   type WaitCondition,
   type WaitDomain,
@@ -99,6 +101,7 @@ interface AppResponse {
   result?: unknown
   error?: string
   errorCode?: AgentErrorCode
+  errorDetails?: ToolErrorDetails
   retryInMs?: number
   busyTelemetry?: BusyTelemetry
 }
@@ -564,6 +567,7 @@ export class GenieBridge {
           result: message.result,
           error: message.error,
           errorCode: message.ok ? undefined : (message.errorCode ?? 'tool-error'),
+          errorDetails: message.ok ? undefined : message.errorDetails,
         })
         return
       }
@@ -715,14 +719,7 @@ export class GenieBridge {
     if (tool === devtoolsStatusContract.name) {
       const parsed = devtoolsStatusContract.input.safeParse(args ?? {})
       if (!parsed.success) {
-        this.result(
-          agent,
-          id,
-          false,
-          undefined,
-          formatToolValidationError(devtoolsStatusContract.name, parsed.error.issues),
-          { errorCode: 'invalid-args' },
-        )
+        this.invalidArguments(agent, id, devtoolsStatusContract, parsed.error.issues, args)
         return
       }
       const target = sessionId ? this.resolveSession(sessionId) : this.currentSession()
@@ -754,7 +751,9 @@ export class GenieBridge {
         response.ok,
         response.ok ? response.result : undefined,
         response.ok ? undefined : response.error,
-        response.ok ? undefined : { errorCode: response.errorCode },
+        response.ok
+          ? undefined
+          : { errorCode: response.errorCode, errorDetails: response.errorDetails },
       )
       return
     }
@@ -767,7 +766,9 @@ export class GenieBridge {
         response.ok,
         response.ok ? response.result : undefined,
         response.ok ? undefined : response.error,
-        response.ok ? undefined : { errorCode: response.errorCode },
+        response.ok
+          ? undefined
+          : { errorCode: response.errorCode, errorDetails: response.errorDetails },
       )
       return
     }
@@ -793,14 +794,7 @@ export class GenieBridge {
   ): Promise<void> {
     const parsed = reactQuiesceContract.input.safeParse(args ?? {})
     if (!parsed.success) {
-      this.result(
-        agent,
-        id,
-        false,
-        undefined,
-        formatToolValidationError(reactQuiesceContract.name, parsed.error.issues),
-        { errorCode: 'invalid-args' },
-      )
+      this.invalidArguments(agent, id, reactQuiesceContract, parsed.error.issues, args)
       return
     }
     const started = Date.now()
@@ -893,14 +887,7 @@ export class GenieBridge {
   ): Promise<void> {
     const parsed = devtoolsWaitContract.input.safeParse(args ?? {})
     if (!parsed.success) {
-      this.result(
-        agent,
-        id,
-        false,
-        undefined,
-        formatToolValidationError(devtoolsWaitContract.name, parsed.error.issues),
-        { errorCode: 'invalid-args' },
-      )
+      this.invalidArguments(agent, id, devtoolsWaitContract, parsed.error.issues, args)
       return
     }
     const input = parsed.data
@@ -1239,6 +1226,7 @@ export class GenieBridge {
       (response) =>
         this.result(agent, id, response.ok, response.result, response.error, {
           errorCode: response.errorCode,
+          errorDetails: response.errorDetails,
           retryInMs: response.retryInMs,
           busyTelemetry: response.busyTelemetry,
         }),
@@ -1487,7 +1475,7 @@ export class GenieBridge {
     ok: boolean,
     result?: unknown,
     error?: string,
-    extra?: { errorCode?: AgentErrorCode; retryInMs?: number; busyTelemetry?: BusyTelemetry },
+    extra?: Omit<AppResponse, 'ok' | 'result' | 'error'>,
   ): void {
     this.send(agent, {
       kind: 'bridge/result',
@@ -1496,8 +1484,26 @@ export class GenieBridge {
       result,
       error,
       errorCode: extra?.errorCode,
+      errorDetails: extra?.errorDetails,
       retryInMs: extra?.retryInMs,
       busyTelemetry: extra?.busyTelemetry,
+    })
+  }
+
+  private invalidArguments(
+    agent: WebSocket,
+    id: string,
+    contract: AgentToolContract,
+    issues: Parameters<typeof toolValidationFailure>[1],
+    args: unknown,
+  ): void {
+    const failure = toolValidationFailure(contract.name, issues, {
+      input: contract.input,
+      args: args ?? {},
+    })
+    this.result(agent, id, false, undefined, failure.error, {
+      errorCode: 'invalid-args',
+      errorDetails: failure.errorDetails,
     })
   }
 

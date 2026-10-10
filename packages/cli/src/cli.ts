@@ -19,6 +19,7 @@ import { runDoctor, runLiveDoctor } from './index'
 import { runLink } from './link'
 import { installOutputFailureHandler, setOutputContext } from './output-safety'
 import { genieCommand } from './package-manager'
+import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 import { runInitCommand } from './setup-output'
 
 installOutputFailureHandler()
@@ -177,7 +178,10 @@ async function main(): Promise<number> {
   }
   const maxBytes = values['max-bytes'] ? Number(values['max-bytes']) : undefined
   if (values.version) {
-    writeJson({ schemaVersion: '1.0', status: 'ok', version: readVersion() }, maxBytes)
+    writeJson(
+      { schemaVersion: CLI_OUTPUT_SCHEMA_VERSION, status: 'ok', version: readVersion() },
+      maxBytes,
+    )
     return 0
   }
   if (!command || values.help) {
@@ -226,7 +230,7 @@ async function main(): Promise<number> {
           'doctor',
           {
             ...result,
-            schemaVersion: '1.0',
+            schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
             status: result.ok ? 'ok' : 'error',
             reason: result.ok ? 'checks_passed' : 'checks_failed',
             message: result.ok

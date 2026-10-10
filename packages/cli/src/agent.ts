@@ -13,14 +13,27 @@ import {
   devtoolsWaitContract,
   reactQuiesceContract,
 } from 'genie-react/protocol'
-import { BridgeCallError, GenieAgentLink, INVOKE_GRACE_MS } from './agent-link'
+import { GenieAgentLink, INVOKE_GRACE_MS } from './agent-link'
 import { DEFAULT_MAX_BYTES, writeDiagnostic, writeJson } from './cli-output'
 import { normalizeBridgeUrl, resolveBridge } from './discovery'
+import {
+  CLI_OUTPUT_SCHEMA_VERSION,
+  describeFailure,
+  type Failure,
+  type FailureContext,
+  type FailureOptions,
+  type FailureReason,
+  formatAgentFailure,
+  nextCommand,
+  safeToolNames,
+  suggestionGuidance,
+  toolHelpNext,
+} from './failure'
 import { isRecord, isRecordArray } from './guards'
 import { setOutputContext } from './output-safety'
 import { genieCommand } from './package-manager'
 import {
-  ResultSelectionError,
+  FieldSelectionError,
   renderBoundedJson,
   renderBoundedText,
   selectResult,
@@ -32,6 +45,7 @@ export {
   summarizeCaptureComparison,
   summarizeCaptureList,
 } from './capture-output'
+export { CLI_OUTPUT_SCHEMA_VERSION, formatAgentFailure } from './failure'
 export * from './react-output'
 export { summarizeSessionsOnly, summarizeStatus } from './session-output'
 export { relatedActions, resolveToolsSelector } from './tool-output'
@@ -74,49 +88,6 @@ export interface AgentOptions {
   cliVersion?: string
 }
 
-export const CLI_OUTPUT_SCHEMA_VERSION = '1.0'
-
-type AgentFailureReason =
-  | 'invalid_input'
-  | 'not_connected'
-  | 'operational_failure'
-  | 'busy'
-  | 'timeout'
-  | 'not-connected'
-  | 'unknown-session'
-  | 'invalid-args'
-  | 'tool-error'
-  | 'tool-unavailable'
-
-interface AgentFailureOptions {
-  userActionRequired?: boolean
-  retryInMs?: number
-  next?: { command: string; argv: string[] }
-  correctedExample?: { tool: string; args: Record<string, unknown> }
-  busyTelemetry?: BridgeCallError['busyTelemetry']
-}
-
-/** Stable failure payload for every command mode. */
-export function formatAgentFailure(
-  reason: AgentFailureReason,
-  message: string,
-  options: AgentFailureOptions = {},
-): string {
-  return JSON.stringify({
-    schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
-    status: 'error',
-    reason,
-    message,
-    userActionRequired: options.userActionRequired ?? false,
-    ...(options.retryInMs === undefined ? {} : { retryInMs: options.retryInMs }),
-    ...(options.next === undefined ? {} : { next: options.next }),
-    ...(options.correctedExample === undefined
-      ? {}
-      : { correctedExample: options.correctedExample }),
-    ...(options.busyTelemetry === undefined ? {} : { busyTelemetry: options.busyTelemetry }),
-  })
-}
-
 /** Priority: --session flag → GENIE_SESSION env, so a same-app agent pins its own tab once per shell instead of repeating the flag. */
 export function resolveSession(explicit?: string): string | undefined {
   return explicit ?? process.env.GENIE_SESSION ?? undefined
@@ -143,9 +114,9 @@ export function requiresReadySession(tool: string): boolean {
 
 function emitFailure(
   opts: AgentOptions,
-  reason: AgentFailureReason,
+  reason: FailureReason,
   message: string,
-  options?: AgentFailureOptions,
+  options?: FailureOptions,
 ): void {
   out(
     renderBoundedText(
@@ -155,13 +126,48 @@ function emitFailure(
   )
 }
 
-const SAFE_TOOL_NAME = /^[a-z][a-z0-9_.-]{0,127}$/
+/** Reports a caught failure, prefixed with the operation that failed. */
+async function emitCaughtFailure(
+  opts: AgentOptions,
+  operation: string,
+  error: unknown,
+  context: FailureContext,
+): Promise<void> {
+  const { reason, message, ...options } = await describeFailure(error, context)
+  emitFailure(opts, reason, `${operation} ${message}`, options)
+}
 
-function toolHelpNext(tool: string, session?: string): AgentFailureOptions['next'] | undefined {
-  if (!SAFE_TOOL_NAME.test(tool)) return undefined
-  const sessionArgs =
-    session && /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(session) ? ['--session', session] : []
-  return genieCommand(['tools', tool, ...sessionArgs])
+type FailureLookups = Required<Pick<FailureContext, 'catalog' | 'sessions'>>
+
+/** Bridge lookups that let a failure name what is actually connected and advertised; each runs at most once per command. */
+function failureLookups(link: GenieAgentLink): FailureLookups {
+  return {
+    catalog: once(async () => {
+      const { tools } = await link.invoke(devtoolsStatusContract, { includeTools: true })
+      return Array.isArray(tools) ? tools : null
+    }),
+    sessions: once(async () => {
+      const status = await link.invoke(devtoolsStatusContract, { includeTools: false }, null)
+      return Array.isArray(status.sessions) ? status.sessions : null
+    }),
+  }
+}
+
+function failureContext(
+  lookups: FailureLookups,
+  opts: AgentOptions,
+  tool?: string,
+  args?: unknown,
+): FailureContext {
+  return { ...lookups, tool, args, session: resolveSession(opts.session) }
+}
+
+function once<T>(load: () => Promise<T>): () => Promise<T> {
+  let pending: Promise<T> | undefined
+  return () => {
+    pending ??= load()
+    return pending
+  }
 }
 
 async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url: string }> {
@@ -174,15 +180,15 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
     source = bridge.source
     if (bridge.source === 'fallback') {
       writeDiagnostic(
-        'bridge-fallback',
-        `No bridge discovery file was found. Trying the default local bridge; start the dev server or run ${genieCommand(['hub']).command}.`,
+        'bridge_fallback',
+        `No bridge discovery file was found. Trying the default local bridge; start the dev server or run ${genieCommand(['hub'], cwd).command}.`,
       )
     }
   }
   url = normalizeBridgeUrl(url)
   const connectTimeoutMs = opts.connectTimeoutMs ?? 8_000
   if (opts.verbose) {
-    writeDiagnostic('bridge-connect', 'Connecting to the selected bridge.', {
+    writeDiagnostic('bridge_connect', 'Connecting to the selected bridge.', {
       source,
       connectTimeoutMs,
       appWaitMs: opts.waitMs ?? 15_000,
@@ -199,7 +205,7 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
     logger: opts.verbose
       ? (message) =>
           writeDiagnostic(
-            'bridge-event',
+            'bridge_event',
             message.startsWith('connected to bridge')
               ? 'Connected to the bridge.'
               : `The bridge connection reported an error. Run ${genieCommand(['doctor', '--live']).command} to inspect connectivity.`,
@@ -234,16 +240,6 @@ export function projectFields(result: unknown, fields: string[]): string {
   const unknown = fields.filter((field) => !available.includes(field))
   if (unknown.length > 0) throw new FieldSelectionError(unknown, available)
   return source.map((row) => JSON.stringify(pickFields(row, fields))).join('\n')
-}
-
-class FieldSelectionError extends Error {
-  constructor(unknown: string[], available: string[]) {
-    const fieldLabel = unknown.length === 1 ? 'field' : 'fields'
-    const names = unknown.map((field) => JSON.stringify(field)).join(', ')
-    const choices = available.length > 0 ? available.join(', ') : '(none)'
-    super(`Unknown ${fieldLabel} ${names}. Available fields: ${choices}.`)
-    this.name = 'FieldSelectionError'
-  }
 }
 
 function firstRecordArray(result: Record<string, unknown>): Record<string, unknown>[] | null {
@@ -535,39 +531,12 @@ export async function runCall(
       ? 1
       : 0
   } catch (error) {
-    const code = error instanceof BridgeCallError ? error.errorCode : undefined
-    const reason: AgentFailureReason =
-      error instanceof FieldSelectionError || error instanceof ResultSelectionError
-        ? 'invalid_input'
-        : (code ?? 'operational_failure')
-    emitFailure(opts, reason, `Tool call failed. ${failureMessage(error)}`, {
-      retryInMs: error instanceof BridgeCallError ? error.retryInMs : undefined,
-      busyTelemetry: error instanceof BridgeCallError ? error.busyTelemetry : undefined,
-      userActionRequired:
-        reason === 'invalid_input' ||
-        reason === 'invalid-args' ||
-        reason === 'unknown-session' ||
-        reason === 'tool-unavailable' ||
-        reason === 'operational_failure',
-      ...(reason === 'tool-unavailable' || reason === 'invalid_input'
-        ? { next: toolHelpNext(tool, resolveSession(opts.session)) }
-        : {}),
-      ...(reason === 'invalid-args'
-        ? {
-            next: toolHelpNext(tool, resolveSession(opts.session)),
-            ...(tool === devtoolsWaitContract.name
-              ? {
-                  correctedExample: {
-                    tool: devtoolsWaitContract.name,
-                    args: { condition: 'ready', timeoutMs: 10_000 },
-                  },
-                }
-              : {}),
-          }
-        : reason === 'unknown-session' || reason === 'operational_failure'
-          ? { next: genieCommand(['status']) }
-          : {}),
-    })
+    await emitCaughtFailure(
+      opts,
+      'Tool call failed.',
+      error,
+      failureContext(failureLookups(link), opts, tool, args),
+    )
     return 1
   } finally {
     link.close()
@@ -633,12 +602,13 @@ export async function runCaptureExport(
 
   const { link } = await connect(opts)
   const temporaryPath = `${outputPath}.tmp-${process.pid}-${Date.now()}`
+  const readArgs = {
+    captureId,
+    view: 'full' as const,
+    ...(opts.sections === undefined ? {} : { sections: opts.sections }),
+  }
   try {
-    const result = await link.invoke(devtoolsCaptureReadContract, {
-      captureId,
-      view: 'full',
-      ...(opts.sections === undefined ? {} : { sections: opts.sections }),
-    })
+    const result = await link.invoke(devtoolsCaptureReadContract, readArgs)
     const capture = captureArtifactSchema.parse(result)
     if (!verifyCaptureIntegrity(capture)) {
       throw new Error(
@@ -665,21 +635,17 @@ export async function runCaptureExport(
     return 0
   } catch (error) {
     await rm(temporaryPath, { force: true }).catch(() => undefined)
-    const code = error instanceof BridgeCallError ? error.errorCode : undefined
-    emitFailure(
-      opts,
-      code ?? 'operational_failure',
-      `Capture export failed. ${failureMessage(error)}`,
-      {
-        retryInMs: error instanceof BridgeCallError ? error.retryInMs : undefined,
-        busyTelemetry: error instanceof BridgeCallError ? error.busyTelemetry : undefined,
-        userActionRequired: code !== 'busy' && code !== 'timeout',
-        next:
-          code === 'invalid-args'
-            ? genieCommand(['call', 'devtools_capture_list', '{}'])
-            : undefined,
-      },
+    const { reason, message, ...options } = await describeFailure(
+      error,
+      failureContext(failureLookups(link), opts, devtoolsCaptureReadContract.name, readArgs),
     )
+    emitFailure(opts, reason, `Capture export failed. ${message}`, {
+      ...options,
+      next:
+        reason === 'invalid_args'
+          ? nextCommand('call', devtoolsCaptureListContract.name, '{}')
+          : options.next,
+    })
     return 1
   } finally {
     link.close()
@@ -693,31 +659,6 @@ async function pathExists(path: string): Promise<boolean> {
   } catch {
     return false
   }
-}
-
-/** Bridge error strings can contain app data; trusted instructions depend only on known codes. */
-function failureMessage(error: unknown): string {
-  if (error instanceof FieldSelectionError)
-    return 'The requested fields are unavailable. Inspect the output schema and correct --fields.'
-  if (error instanceof ResultSelectionError)
-    return 'The output selection is invalid. Inspect the output schema and correct --select.'
-  if (error instanceof BridgeCallError && error.errorCode) {
-    const messages = {
-      'not-connected': 'No app is connected. Start the dev server and open the app.',
-      'unknown-session': `The selected session is unavailable. Run ${genieCommand(['status']).command} to select a connected session.`,
-      busy: 'The app is busy. Inspect its status before retrying.',
-      timeout:
-        'The operation timed out. Inspect app state before retrying because remote work may still complete.',
-      'invalid-args':
-        'The tool rejected its arguments. Inspect the tool schema and correct the arguments.',
-      'tool-error':
-        'The app could not complete the tool operation. Inspect app state before retrying.',
-      'tool-unavailable':
-        'The selected app does not advertise this tool. Inspect its available tools.',
-    }
-    return messages[error.errorCode]
-  }
-  return `Run ${genieCommand(['doctor', '--live']).command} to inspect connectivity and app state.`
 }
 
 interface BatchItem {
@@ -757,20 +698,9 @@ export function parseBatchItems(raw: string): { items: BatchItem[] } | { error: 
   return { items }
 }
 
-interface BatchResult {
-  tool: string
-  ok: boolean
-  status: 'ok' | 'error'
-  result?: unknown
-  reason?: string
-  message?: string
-  error?: string
-  errorCode?: string
-  userActionRequired?: boolean
-  retryInMs?: number
-  busyTelemetry?: BridgeCallError['busyTelemetry']
-  next?: AgentFailureOptions['next']
-}
+type BatchResult =
+  | { tool: string; ok: true; status: 'ok'; result: unknown }
+  | ({ tool: string; ok: false; status: 'error' } & Failure)
 
 type VersionedBatchResult = BatchResult & { schemaVersion: typeof CLI_OUTPUT_SCHEMA_VERSION }
 
@@ -797,6 +727,7 @@ export async function runBatch(
   }
 
   const { link } = await connect(opts)
+  const lookups = failureLookups(link)
   let anyFailed = false
   const results: VersionedBatchResult[] = []
   const emitBatchResult = (result: BatchResult): void => {
@@ -841,39 +772,11 @@ export async function runBatch(
         emitBatchResult({ tool: item.tool, ok: true, status: 'ok', result: projected })
       } catch (error) {
         anyFailed = true
-        const errorCode = error instanceof BridgeCallError ? error.errorCode : undefined
-        const userActionRequired =
-          error instanceof ResultSelectionError ||
-          errorCode === 'invalid-args' ||
-          errorCode === 'tool-unavailable' ||
-          errorCode === 'unknown-session' ||
-          errorCode === 'not-connected'
-        emitBatchResult({
-          tool: item.tool,
-          ok: false,
-          status: 'error',
-          reason:
-            error instanceof ResultSelectionError
-              ? 'invalid_input'
-              : (errorCode ?? 'operational_failure'),
-          message: failureMessage(error),
-          error: failureMessage(error),
-          ...(errorCode ? { errorCode } : {}),
-          userActionRequired,
-          ...(error instanceof BridgeCallError && error.retryInMs !== undefined
-            ? { retryInMs: error.retryInMs }
-            : {}),
-          ...(error instanceof BridgeCallError && error.busyTelemetry !== undefined
-            ? { busyTelemetry: error.busyTelemetry }
-            : {}),
-          ...(error instanceof ResultSelectionError ||
-          errorCode === 'invalid-args' ||
-          errorCode === 'tool-unavailable'
-            ? { next: toolHelpNext(item.tool, resolveSession(opts.session)) }
-            : errorCode === 'unknown-session' || errorCode === 'not-connected'
-              ? { next: genieCommand(['status']) }
-              : {}),
-        })
+        const failure = await describeFailure(
+          error,
+          failureContext(lookups, opts, item.tool, item.args),
+        )
+        emitBatchResult({ tool: item.tool, ok: false, status: 'error', ...failure })
       }
     }
     if (opts.json) writeJson(results, opts.maxBytes)
@@ -928,6 +831,12 @@ export async function runStatus(opts: AgentOptions = {}): Promise<number> {
         implicit: resolveSession(opts.session) === undefined,
       },
       ...(opts.marker === undefined ? {} : { marker: opts.marker }),
+      ...(sessions.length === 0
+        ? {
+            hint: 'No app session is connected. Start the dev server and open the app in a browser, then check again.',
+            next: nextCommand('doctor', '--live'),
+          }
+        : {}),
     }
     const result = opts.sessionsOnly
       ? {
@@ -968,18 +877,11 @@ export async function runStatus(opts: AgentOptions = {}): Promise<number> {
     out(renderResult('devtools_status', result, opts.json, opts.fields, opts.select, opts.maxBytes))
     return 0
   } catch (error) {
-    const invalidSelection =
-      error instanceof FieldSelectionError || error instanceof ResultSelectionError
-    emitFailure(
+    await emitCaughtFailure(
       opts,
-      invalidSelection ? 'invalid_input' : 'operational_failure',
-      `Status check failed. ${failureMessage(error)}`,
-      {
-        userActionRequired: true,
-        next: invalidSelection
-          ? toolHelpNext(devtoolsStatusContract.name, resolveSession(opts.session))
-          : genieCommand(['doctor', '--live']),
-      },
+      'Status check failed.',
+      error,
+      failureContext(failureLookups(link), opts, devtoolsStatusContract.name),
     )
     return 1
   } finally {
@@ -1024,17 +926,21 @@ export async function runTools(
           emitToolsResult(opts, value)
           return 0
         }
-        case 'unknown':
+        case 'unknown': {
+          const suggestions = safeToolNames(selection.suggestions)
+          const suggestion = suggestions[0]
           emitFailure(
             opts,
-            'invalid_input',
-            `The tool or group is unavailable. Run ${genieCommand(['tools']).command} to inspect available groups.`,
+            'unknown_tool',
+            `No advertised tool or group matches the selector. ${suggestionGuidance(suggestions.length, 'groups')}`,
             {
               userActionRequired: true,
-              next: genieCommand(['tools']),
+              next: (suggestion && toolHelpNext(suggestion, pinned)) || nextCommand('tools'),
+              ...(suggestions.length > 0 ? { details: { suggestions } } : {}),
             },
           )
           return 1
+        }
       }
     }
 
@@ -1046,18 +952,11 @@ export async function runTools(
     emitToolsResult(opts, index)
     return 0
   } catch (error) {
-    emitFailure(
+    await emitCaughtFailure(
       opts,
-      error instanceof ResultSelectionError ? 'invalid_input' : 'operational_failure',
-      `Tool discovery failed. ${failureMessage(error)}`,
-      {
-        userActionRequired: true,
-        next:
-          error instanceof ResultSelectionError
-            ? ((selector ? toolHelpNext(selector, resolveSession(opts.session)) : undefined) ??
-              genieCommand(['tools']))
-            : genieCommand(['status']),
-      },
+      'Tool discovery failed.',
+      error,
+      failureContext(failureLookups(link), opts, selector),
     )
     return 1
   } finally {

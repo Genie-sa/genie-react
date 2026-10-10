@@ -3,6 +3,7 @@ import { conflictRemedy, SKILL_PATH_CONFLICT } from './agent-skill'
 import { writeJson } from './cli-output'
 import { type InitOptions, initNextCommands, type RootRouteOutcome, runInit } from './index'
 import { genieCommand, packageManagerCommands } from './package-manager'
+import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 
 export interface InitCommandOptions extends Omit<InitOptions, 'logger'> {
   maxBytes?: number
@@ -82,7 +83,7 @@ export function runInitCommand(options: InitCommandOptions = {}): number {
       }))
     writeJson(
       {
-        schemaVersion: '1.0',
+        schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: result.ok ? 'ok' : 'action_required',
         reason: result.ok
           ? result.dryRun
@@ -118,7 +119,7 @@ export function runInitCommand(options: InitCommandOptions = {}): number {
   } catch {
     writeJson(
       {
-        schemaVersion: '1.0',
+        schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: 'error',
         reason: 'setup_failed',
         message:

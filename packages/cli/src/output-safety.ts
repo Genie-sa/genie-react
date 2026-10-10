@@ -1,4 +1,5 @@
 import { writeSync } from 'node:fs'
+import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 
 interface OutputContext {
   operation: string
@@ -15,9 +16,9 @@ export function setOutputContext(next: OutputContext): void {
 
 export function formatOutputFailureDiagnostic(error: NodeJS.ErrnoException): string {
   return JSON.stringify({
-    schemaVersion: '1.0',
+    schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
     status: 'error',
-    reason: 'output-failure',
+    reason: 'output_failure',
     userActionRequired: true,
     code: error.code ?? 'UNKNOWN',
     operation: context.operation,

@@ -1,5 +1,6 @@
 import { writeJson } from './cli-output'
 import { genieCommand } from './package-manager'
+import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 
 export interface HubOptions {
   port?: number
@@ -13,7 +14,7 @@ export async function runHub(options: HubOptions = {}): Promise<number> {
   const failure = (reason: string, message: string): void => {
     writeJson(
       {
-        schemaVersion: '1.0',
+        schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: 'error',
         reason,
         message,
@@ -41,7 +42,7 @@ export async function runHub(options: HubOptions = {}): Promise<number> {
   const emit = (event: 'ready' | 'reused' | 'stopped'): void => {
     writeJson(
       {
-        schemaVersion: '1.0',
+        schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: 'ok',
         event,
         reason: `hub_${event}`,

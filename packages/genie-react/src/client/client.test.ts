@@ -274,6 +274,9 @@ describe('GenieClient', () => {
     expect(response.error).toContain('Invalid arguments for "echo"')
     expect(response.error).toContain('/message:')
     expect(response.errorCode).toBe('invalid-args')
+    expect(response.errorDetails.issues).toEqual([
+      expect.objectContaining({ path: '/message', expected: 'string', received: 'number' }),
+    ])
   })
 
   it('remaps component/query/name aliases onto the schema key the tool wants', async () => {
@@ -305,6 +308,12 @@ describe('GenieClient', () => {
     expect(response.error).toContain('Unknown argument "maxDepth"')
     expect(response.error).toContain('valid keys: message')
     expect(response.errorCode).toBe('invalid-args')
+    expect(response.errorDetails).toEqual({
+      unknownKeys: ['maxDepth'],
+      validKeys: ['message'],
+      requiredKeys: ['message'],
+      exampleArgs: { message: '<message>' },
+    })
   })
 
   describe('reconnect lifecycle', () => {

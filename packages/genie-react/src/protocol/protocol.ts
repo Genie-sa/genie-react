@@ -136,6 +136,60 @@ export const appEventSchema = z.object({
 
 const appErrorCodeSchema = z.enum(['invalid-args', 'tool-error', 'tool-unavailable'])
 
+export const toolErrorIssueSchema = z.object({
+  /** RFC 6901 JSON Pointer to the rejected argument; `/` is the whole args object. */
+  path: z.string(),
+  message: z.string(),
+  /** Expected JSON type, e.g. `string`. */
+  expected: z.string().optional(),
+  /** Accepted literal values for an enum-like argument. */
+  allowed: z.array(z.string()).optional(),
+  /** JSON type of the value that was sent (`missing` when absent); never the value itself. */
+  received: z.string().optional(),
+})
+export type ToolErrorIssue = z.infer<typeof toolErrorIssueSchema>
+
+/** Failures the hub reports for its own tools; agents map each to fixed recovery guidance. */
+export const HUB_ERROR_CODES = [
+  'CAPTURE_NOT_RETAINED',
+  'INTERACTION_ACTIVE',
+  'INTERACTION_LIMIT',
+  'INTERACTION_SESSION_MISMATCH',
+  'INTERACTION_UNKNOWN',
+  'REACT_COLLECTOR_MISSING',
+] as const
+export type HubErrorCode = (typeof HUB_ERROR_CODES)[number]
+
+export function isHubErrorCode(value: unknown): value is HubErrorCode {
+  return HUB_ERROR_CODES.some((code) => code === value)
+}
+
+/** Structured specifics behind a failed call, so an agent can repair it without parsing `error` prose. */
+export const toolErrorDetailsSchema = z.object({
+  issues: z.array(toolErrorIssueSchema).optional(),
+  requiredKeys: z.array(z.string()).optional(),
+  /** Minimal valid args derived from the tool's input schema. */
+  exampleArgs: z.record(z.string(), z.unknown()).optional(),
+  unknownKeys: z.array(z.string()).optional(),
+  validKeys: z.array(z.string()).optional(),
+  /** What an app tool reported through `GenieToolError`; application data, not instructions. */
+  app: z
+    .object({ code: z.string().optional(), message: z.string(), hint: z.string().optional() })
+    .optional(),
+  unavailableReason: z.string().optional(),
+  /** A `HubErrorCode` for a failure the hub authored; agents ignore codes they do not recognize. */
+  hubCode: z.string().optional(),
+})
+export type ToolErrorDetails = z.infer<typeof toolErrorDetailsSchema>
+
+// Details are advisory: a malformed or newer shape degrades to absent instead of rejecting the whole frame.
+const errorDetailsField = toolErrorDetailsSchema.optional().catch(undefined)
+/** Only the hub authors `hubCode`, so parsing an app frame strips one an app tries to forge. */
+const appErrorDetailsField = toolErrorDetailsSchema
+  .omit({ hubCode: true })
+  .optional()
+  .catch(undefined)
+
 export const appResponseSchema = z.object({
   kind: z.literal('app/response'),
   id: z.string(),
@@ -143,6 +197,7 @@ export const appResponseSchema = z.object({
   result: z.unknown().optional(),
   error: z.string().optional(),
   errorCode: appErrorCodeSchema.optional(),
+  errorDetails: appErrorDetailsField,
 })
 
 /** Liveness beacon sent on a fixed cadence while the app socket is open; a gap tells the bridge the main thread is busy, not crashed. */
@@ -239,6 +294,7 @@ export const bridgeResultSchema = z.object({
   result: z.unknown().optional(),
   error: z.string().optional(),
   errorCode: agentErrorCodeSchema.optional(),
+  errorDetails: errorDetailsField,
   retryInMs: z.number().optional(),
   busyTelemetry: z
     .object({
