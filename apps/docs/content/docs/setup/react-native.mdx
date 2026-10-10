@@ -102,7 +102,7 @@ jq '{
   ]
 }' <<<"$status_json"
 
-export GENIE_SESSION="$(
+session_id="$(
   jq -er '
     [
       .sessions[]
@@ -120,10 +120,10 @@ export GENIE_SESSION="$(
 )"
 
 pnpm --filter @genie-react/expo-demo exec genie-react call \
-  react_find_components '{"query":"App","exact":true}' \
+  react_find_components '{"query":"App","exact":true}' --session "$session_id" \
   | jq '{matches}'
 
-pnpm --filter @genie-react/expo-demo exec genie-react tools
+pnpm --filter @genie-react/expo-demo exec genie-react tools --session "$session_id"
 ```
 
 If session selection fails, keep both long-running terminals open, make sure Expo has mounted the

@@ -22,24 +22,23 @@ Open and bind the page in another shell:
 agent-browser --session docs-case-router open \
   'http://localhost:3030/?_genie=docs-case-router'
 export GENIE_BRIDGE_URL=ws://localhost:3030/__genie/ws
-export GENIE_SESSION=docs-case-router
-npx @genie-react/cli call devtools_wait '{"condition":"ready","timeoutMs":10000}'
+npx @genie-react/cli call devtools_wait --session docs-case-router '{"condition":"ready","timeoutMs":10000}'
 ```
 
 ## Verify a navigation
 
 ```bash
-npx @genie-react/cli call router_build_location \
+npx @genie-react/cli call router_build_location --session docs-case-router \
   '{"to":"/suspense","search":{"source":"docs"}}'
-npx @genie-react/cli call router_navigate \
+npx @genie-react/cli call router_navigate --session docs-case-router \
   '{"to":"/suspense","search":{"source":"docs"}}'
-npx @genie-react/cli call devtools_wait \
+npx @genie-react/cli call devtools_wait --session docs-case-router \
   '{"condition":"navigation","name":"/suspense","timeoutMs":5000}'
-router_state="$(npx @genie-react/cli call router_get_state '{}' --json)"
+router_state="$(npx @genie-react/cli call router_get_state --session docs-case-router '{}' --json)"
 jq -e \
   '.pathname == "/suspense" and .locationSync == "matched"' \
   <<<"$router_state" >/dev/null
-npx @genie-react/cli call router_list_matches '{}'
+npx @genie-react/cli call router_list_matches --session docs-case-router '{}'
 agent-browser --session docs-case-router wait '[data-testid="lazy-content"]'
 agent-browser --session docs-case-router get text '[data-testid="lazy-content"]'
 ```
@@ -65,16 +64,16 @@ The agent only inspects the new page after `locationSync` is `matched`.
 Return home, find the current component ID, then override it:
 
 ```bash
-npx @genie-react/cli call router_navigate '{"to":"/"}'
-npx @genie-react/cli call devtools_wait \
+npx @genie-react/cli call router_navigate --session docs-case-router '{"to":"/"}'
+npx @genie-react/cli call devtools_wait --session docs-case-router \
   '{"condition":"navigation","name":"/","timeoutMs":5000}'
 agent-browser --session docs-case-router wait '[data-testid="unmountable"]'
 unmountable_id="$(
-  npx @genie-react/cli call react_find_components \
+  npx @genie-react/cli call react_find_components --session docs-case-router \
     '{"query":"Unmountable","exact":true}' --json |
     jq -er 'if (.matches | length) == 1 then .matches[0].id else error("expected one Unmountable") end'
 )"
-npx @genie-react/cli call react_override_props \
+npx @genie-react/cli call react_override_props --session docs-case-router \
   "$(jq -cn --argjson id "$unmountable_id" '{id:$id,props:{caption:"GENIE OVERRIDE"}}')"
 agent-browser --session docs-case-router get text \
   '[data-testid="unmountable"]'
@@ -87,18 +86,18 @@ GENIE OVERRIDE
 ## Hold Suspense and error UI
 
 ```bash
-npx @genie-react/cli call router_navigate '{"to":"/suspense"}'
-npx @genie-react/cli call devtools_wait \
+npx @genie-react/cli call router_navigate --session docs-case-router '{"to":"/suspense"}'
+npx @genie-react/cli call devtools_wait --session docs-case-router \
   '{"condition":"navigation","name":"/suspense","timeoutMs":5000}'
 agent-browser --session docs-case-router wait '[data-testid="lazy-content"]'
 lazy_panel_id="$(
-  npx @genie-react/cli call react_find_components \
+  npx @genie-react/cli call react_find_components --session docs-case-router \
     '{"query":"LazyPanel","exact":true}' --json |
     jq -er 'if (.matches | length) == 1 then .matches[0].id else error("expected one LazyPanel") end'
 )"
-npx @genie-react/cli call react_toggle_suspense_fallback \
+npx @genie-react/cli call react_toggle_suspense_fallback --session docs-case-router \
   "$(jq -cn --argjson id "$lazy_panel_id" '{id:$id,showFallback:true}')"
-npx @genie-react/cli call react_error_state '{}'
+npx @genie-react/cli call react_error_state --session docs-case-router '{}'
 agent-browser --session docs-case-router wait \
   '[data-testid="suspense-fallback"]'
 agent-browser --session docs-case-router get text \
@@ -111,18 +110,18 @@ Require an entry in `react_error_state.suspended` with `forced: true` and
 On the error route:
 
 ```bash
-npx @genie-react/cli call router_navigate '{"to":"/error"}'
-npx @genie-react/cli call devtools_wait \
+npx @genie-react/cli call router_navigate --session docs-case-router '{"to":"/error"}'
+npx @genie-react/cli call devtools_wait --session docs-case-router \
   '{"condition":"navigation","name":"/error","timeoutMs":5000}'
 agent-browser --session docs-case-router wait '[data-testid="throw"]'
 bomb_id="$(
-  npx @genie-react/cli call react_find_components \
+  npx @genie-react/cli call react_find_components --session docs-case-router \
     '{"query":"Bomb","exact":true}' --json |
     jq -er 'if (.matches | length) == 1 then .matches[0].id else error("expected one Bomb") end'
 )"
-npx @genie-react/cli call react_force_error_boundary \
+npx @genie-react/cli call react_force_error_boundary --session docs-case-router \
   "$(jq -cn --argjson id "$bomb_id" '{id:$id,forceError:true}')"
-npx @genie-react/cli call react_error_state '{}'
+npx @genie-react/cli call react_error_state --session docs-case-router '{}'
 agent-browser --session docs-case-router wait '[data-testid="error-ui"]'
 agent-browser --session docs-case-router get text '[data-testid="error-ui"]'
 ```
@@ -135,11 +134,11 @@ The agent can now check fallback text, dimensions, focus, ARIA, containment, and
 ## Restore
 
 ```bash
-npx @genie-react/cli call react_list_overrides '{}'
-npx @genie-react/cli call react_reset_overrides '{}'
-npx @genie-react/cli call router_navigate '{"to":"/"}'
+npx @genie-react/cli call react_list_overrides --session docs-case-router '{}'
+npx @genie-react/cli call react_reset_overrides --session docs-case-router '{}'
+npx @genie-react/cli call router_navigate --session docs-case-router '{"to":"/"}'
 agent-browser --session docs-case-router close
-unset GENIE_BRIDGE_URL GENIE_SESSION bomb_id lazy_panel_id router_state unmountable_id
+unset GENIE_BRIDGE_URL bomb_id lazy_panel_id router_state unmountable_id
 ```
 
 The live reset returned `remaining: 0`.

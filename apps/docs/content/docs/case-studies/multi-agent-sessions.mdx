@@ -23,11 +23,10 @@ agent-browser --session docs-session open \
   'http://127.0.0.1:3050/?_genie=live-plain-final'
 export GENIE_BRIDGE_URL=ws://127.0.0.1:4390/__genie/ws
 npx @genie-react/cli status --sessions-only
-export GENIE_SESSION=live-plain-final
-npx @genie-react/cli call devtools_wait '{"condition":"ready"}'
+npx @genie-react/cli call devtools_wait --session live-plain-final '{"condition":"ready"}'
 agent-browser --session docs-session reload
-npx @genie-react/cli call devtools_wait '{"condition":"ready"}'
-npx @genie-react/cli call react_find_components \
+npx @genie-react/cli call devtools_wait --session live-plain-final '{"condition":"ready"}'
+npx @genie-react/cli call react_find_components --session live-plain-final \
   '{"query":"App","exact":true}' --json \
   | jq -e '.matches | length == 1' >/dev/null
 agent-browser --session docs-session get text body \
@@ -58,7 +57,7 @@ The status command must fail with a JSON error instead of choosing a tab. Recove
 sessions without the ambiguous selector, then use a returned physical or logical ID:
 
 ```bash
-( unset GENIE_SESSION; npx @genie-react/cli status --sessions-only )
+npx @genie-react/cli status --sessions-only
 ```
 
 Read the error's `reason`, `message`, and `userActionRequired`. Its `next.argv`, when present,
@@ -75,5 +74,5 @@ Close the duplicate tab. Keep only the owned tab while the job runs:
 ```bash
 agent-browser --session docs-session-copy close
 agent-browser --session docs-session close
-unset GENIE_BRIDGE_URL GENIE_SESSION
+unset GENIE_BRIDGE_URL
 ```

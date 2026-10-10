@@ -45,7 +45,7 @@ Using [React Native or Expo](https://genie-react.com/docs/setup/react-native), [
 
 ## Give your agent a useful task
 
-`init` installs the Genie skill in `.agents/skills/genie`. Pair your agent with a browser or device driver so it can use the UI and check what changed.
+`init` installs the Genie skill in `.agents/skills/genie` for Codex, Cursor, and other Agent Skills clients, and links it into `.claude/skills/genie` for Claude Code. Without the CLI, `npx skills add Genie-sa/genie-react` installs the same skill. Pair your agent with [agent-browser](https://github.com/vercel-labs/agent-browser) or [agent-device](https://github.com/callstack/agent-device) so it can use the UI and check what changed.
 
 Try a prompt like:
 

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -66,7 +66,7 @@ it('reports incomplete manual wiring with an actionable failure and no source du
         expect.objectContaining({ kind: 'vite_config', status: 'manual' }),
       ]),
     },
-    next: { argv: ['genie-react', 'doctor'] },
+    next: { argv: ['npx', 'genie-react', 'doctor'] },
   })
 })
 
@@ -74,17 +74,42 @@ it('reports possible partial writes when a later setup artifact cannot be writte
   cwd = await mkdtemp(join(tmpdir(), 'genie-json-partial-'))
   await writeFile(join(cwd, 'package.json'), JSON.stringify({ dependencies: { vite: '*' } }))
   await writeFile(join(cwd, 'vite.config.ts'), 'export default { plugins: [] }')
-  await writeFile(join(cwd, '.agents'), 'blocked path')
+  const skill = join(cwd, '.agents/skills/genie')
+  await mkdir(skill, { recursive: true })
+  await writeFile(
+    join(skill, 'SKILL.md'),
+    '---\nname: genie\nmetadata:\n  package: "@genie-react/cli"\n---\nstale\n',
+  )
+  await chmod(skill, 0o555)
   const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
-  expect(runInitCommand({ cwd })).toBe(1)
+  const exitCode = runInitCommand({ cwd })
+  await chmod(skill, 0o755)
+  expect(exitCode).toBe(1)
   expect(await readFile(join(cwd, 'vite.config.ts'), 'utf8')).toContain('genie()')
   expect(JSON.parse(String(stdout.mock.calls[0]?.[0]))).toMatchObject({
     status: 'error',
     reason: 'setup_failed',
     data: { changesMayHaveApplied: true },
-    next: { argv: ['genie-react', 'init', '--dry-run'] },
+    next: { argv: ['npx', 'genie-react', 'init', '--dry-run'] },
   })
   expect(stdout).toHaveBeenCalledTimes(1)
+})
+
+it('turns a skill path it cannot own into a manual step that names the path', async () => {
+  cwd = await mkdtemp(join(tmpdir(), 'genie-json-conflict-'))
+  await writeFile(join(cwd, 'package.json'), JSON.stringify({ dependencies: { vite: '*' } }))
+  await writeFile(join(cwd, 'vite.config.ts'), 'export default { plugins: [] }')
+  await writeFile(join(cwd, '.agents'), 'blocked path')
+  const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+  expect(runInitCommand({ cwd })).toBe(0)
+  const receipt = JSON.parse(String(stdout.mock.lastCall?.[0]))
+  expect(receipt.userActionRequired).toBe(true)
+  expect(receipt.data.manualSteps).toContainEqual({
+    kind: 'agent_skill',
+    path: join(cwd, '.agents'),
+    placement: `Remove or replace the file at ${join(cwd, '.agents')}, then rerun init`,
+  })
+  expect(await readFile(join(cwd, '.agents'), 'utf8')).toBe('blocked path')
 })
 
 it('gives universal hosts hub integration data without Vite-only manual instructions', async () => {
@@ -97,7 +122,7 @@ it('gives universal hosts hub integration data without Vite-only manual instruct
       framework: 'unknown',
       integration: { scriptUrl: 'http://localhost:4390/__genie/client.js', developmentOnly: true },
     },
-    next: { argv: ['genie-react', 'hub'] },
+    next: { argv: ['npx', 'genie-react', 'hub'] },
   })
   expect(result.data.manualSteps).not.toContainEqual(
     expect.objectContaining({ module: 'genie-react/vite' }),
@@ -152,4 +177,20 @@ it('keeps plain Vite component wiring and package-manager next steps actionable'
   expect(result.data.commands.install.argv).toContain('genie-react')
   expect(result.data.commands.install.argv.slice(0, 3)).toEqual(['npm', 'install', '-D'])
   expect(result.data.commands.dev.argv).toEqual(['npm', 'run', 'dev'])
+})
+
+it('points the receipt at the detected package manager', async () => {
+  cwd = await mkdtemp(join(tmpdir(), 'genie-json-pnpm-'))
+  await writeFile(join(cwd, 'package.json'), JSON.stringify({ dependencies: { vite: '*' } }))
+  await writeFile(join(cwd, 'vite.config.ts'), 'export default { plugins: [] }')
+  await writeFile(join(cwd, 'pnpm-lock.yaml'), '')
+  const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+  runInitCommand({ cwd, dryRun: true })
+  expect(JSON.parse(String(stdout.mock.lastCall?.[0]))).toMatchObject({
+    data: { commands: { dev: { argv: ['pnpm', 'dev'] } } },
+    next: {
+      command: 'pnpm exec genie-react doctor',
+      argv: ['pnpm', 'exec', 'genie-react', 'doctor'],
+    },
+  })
 })

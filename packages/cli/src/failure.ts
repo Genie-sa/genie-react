@@ -12,6 +12,7 @@ import {
 } from 'genie-react/protocol'
 import { BridgeCallError } from './agent-link'
 import { isRecord } from './guards'
+import { genieCommand } from './package-manager'
 import { FieldSelectionError, ResultSelectionError } from './result-selection'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 import { resolveToolsSelector, suggestToolNames } from './tool-output'
@@ -97,8 +98,7 @@ export function formatAgentFailure(
 }
 
 export function nextCommand(...args: string[]): NextCommand {
-  const argv = ['genie-react', ...args]
-  return { command: argv.map(shellQuote).join(' '), argv }
+  return genieCommand(args)
 }
 
 const SAFE_TOOL_NAME = /^[a-z][a-z0-9_.-]{0,127}$/
@@ -125,11 +125,6 @@ export function toolHelpNext(tool: string, session?: string): NextCommand | unde
   if (!SAFE_TOOL_NAME.test(tool)) return undefined
   const pinned = safeSession(session)
   return nextCommand('tools', tool, ...(pinned ? ['--session', pinned] : []))
-}
-
-function shellQuote(value: string): string {
-  if (/^[a-zA-Z0-9_./:-]+$/.test(value)) return value
-  return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
 const NO_ACTION_REASONS: ReadonlySet<FailureReason> = new Set(['busy', 'timeout', 'tool_error'])
@@ -192,10 +187,11 @@ async function classify(error: unknown, context: FailureContext): Promise<Failur
   if (error instanceof FieldSelectionError) return fieldSelectionFailure(error, context)
   if (error instanceof ResultSelectionError) return selectionFailure(error, context)
   if (!(error instanceof BridgeCallError) || !error.errorCode) {
+    const next = nextCommand('doctor', '--live')
     return {
       reason: 'operational_failure',
-      message: 'Run genie-react doctor --live to inspect connectivity and app state.',
-      next: nextCommand('doctor', '--live'),
+      message: `Run ${next.command} to inspect connectivity and app state.`,
+      next,
     }
   }
 

@@ -24,8 +24,7 @@ Open and bind the page:
 agent-browser --session docs-case-vite open \
   'http://localhost:3040/?_genie=docs-case-vite'
 export GENIE_BRIDGE_URL=ws://localhost:3040/__genie/ws
-export GENIE_SESSION=docs-case-vite
-npx @genie-react/cli call devtools_wait \
+npx @genie-react/cli call devtools_wait --session docs-case-vite \
   '{"condition":"ready","timeoutMs":10000}'
 ```
 
@@ -35,14 +34,14 @@ Start a narrow observation. Targeting `App` and `HotEffectProbe` reserves the tr
 the components that matter.
 
 ```bash
-begin="$(npx @genie-react/cli call devtools_interaction_begin \
+begin="$(npx @genie-react/cli call devtools_interaction_begin --session docs-case-vite \
   '{"name":"counter click","components":["App","HotEffectProbe"]}' --json)"
 interaction_id="$(printf '%s\n' "$begin" | jq -r '.interactionId')"
 
 agent-browser --session docs-case-vite click 'button.counter'
 agent-browser --session docs-case-vite get text 'button.counter'
 
-npx @genie-react/cli call devtools_interaction_stop \
+npx @genie-react/cli call devtools_interaction_stop --session docs-case-vite \
   "{\"interactionId\":\"$interaction_id\",\"domains\":[\"react\"],\"quietMs\":200,\"timeoutMs\":5000}" \
   --json
 ```
@@ -142,12 +141,12 @@ One run proves one execution. It does not prove a hot pattern. Run the same acti
 ask for a sample-aware audit:
 
 ```bash
-npx @genie-react/cli call react_clear_renders '{}'
+npx @genie-react/cli call react_clear_renders --session docs-case-vite '{}'
 agent-browser --session docs-case-vite click 'button.counter'
 agent-browser --session docs-case-vite click 'button.counter'
 agent-browser --session docs-case-vite click 'button.counter'
 agent-browser --session docs-case-vite click 'button.counter'
-npx @genie-react/cli call react_effect_audit \
+npx @genie-react/cli call react_effect_audit --session docs-case-vite \
   '{"component":"HotEffectProbe","minUpdates":3,"minScheduleRate":1,"limit":5}'
 agent-browser --session docs-case-vite get text 'button.counter' \
   | rg -Fx 'Count is 5'
@@ -162,7 +161,7 @@ effect until the UI driver and the interaction capture prove the behavior still 
 
 ```bash
 agent-browser --session docs-case-vite close
-unset GENIE_BRIDGE_URL GENIE_SESSION interaction_id begin
+unset GENIE_BRIDGE_URL interaction_id begin
 ```
 
 ## Outcome
