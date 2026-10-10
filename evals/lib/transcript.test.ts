@@ -44,7 +44,7 @@ function claudeStream() {
             content: [
               {
                 type: 'text',
-                text: '{"schemaVersion":"1.0","status":"error","reason":"busy","message":"The app is busy."}',
+                text: '{"schemaVersion":"2.0","status":"error","reason":"busy","message":"The app is busy."}',
               },
             ],
           },
@@ -194,7 +194,7 @@ describe('commandMetrics', () => {
       {
         command: `agent-browser open x && genie-react call react_clear_renders '{}' && genie-react --max-bytes 9000 call react_get_renders '{}'`,
         output:
-          '{"schemaVersion":"1.0","status":"error","reason":"session-not-ready"}\n{"schemaVersion":"1.0","status":"error","reason":"busy"}',
+          '{"schemaVersion":"2.0","status":"error","reason":"bridge_rejected"}\n{"schemaVersion":"2.0","status":"error","reason":"busy"}',
         isError: false,
         denied: false,
       },
@@ -215,7 +215,7 @@ describe('commandMetrics', () => {
     expect(metrics.browserSubcommands).toEqual({ open: 1, type: 1 })
     expect(metrics.otherCommands).toBe(1)
     expect(metrics.failedCommands).toBe(1)
-    expect(metrics.genieErrorReasons).toEqual({ 'session-not-ready': 1, busy: 1 })
+    expect(metrics.genieErrorReasons).toEqual({ bridge_rejected: 1, busy: 1 })
     expect(metrics.genieToolCalls).toBe(2)
     expect(metrics.genieSuccessfulToolCalls).toBe(0)
   })
@@ -357,9 +357,9 @@ describe('runtime evidence', () => {
       {
         command: `genie-react batch '[{"tool":"react_clear_renders"},{"tool":"react_get_renders"},{"tool":"react_error_state"}]'`,
         output: [
-          '{"schemaVersion":"1.0","tool":"react_clear_renders","ok":true,"status":"ok","result":{}}',
-          '{"schemaVersion":"1.0","tool":"react_get_renders","ok":true,"status":"ok","result":{"components":[]}}',
-          '{"schemaVersion":"1.0","tool":"react_error_state","ok":false,"status":"error","reason":"busy"}',
+          '{"schemaVersion":"2.0","tool":"react_clear_renders","ok":true,"status":"ok","result":{}}',
+          '{"schemaVersion":"2.0","tool":"react_get_renders","ok":true,"status":"ok","result":{"components":[]}}',
+          '{"schemaVersion":"2.0","tool":"react_error_state","ok":false,"status":"error","reason":"busy"}',
         ].join('\n'),
         isError: true,
         denied: false,
@@ -374,13 +374,13 @@ describe('runtime evidence', () => {
     const batch = JSON.stringify(
       [
         { tool: 'react_get_renders', ok: true, status: 'ok', result: {} },
-        { tool: 'react_render_causes', ok: false, status: 'error', reason: 'invalid-args' },
+        { tool: 'react_render_causes', ok: false, status: 'error', reason: 'invalid_args' },
       ],
       null,
       2,
     )
     const envelope = JSON.stringify(
-      { schemaVersion: '1.0', status: 'error', reason: 'not_connected', message: 'No app' },
+      { schemaVersion: '2.0', status: 'error', reason: 'not_connected', message: 'No app' },
       null,
       2,
     )
@@ -400,7 +400,7 @@ describe('runtime evidence', () => {
     ])
     expect(metrics.genieToolCalls).toBe(3)
     expect(metrics.genieSuccessfulToolCalls).toBe(1)
-    expect(metrics.genieErrorReasons).toEqual({ 'invalid-args': 1, not_connected: 1 })
+    expect(metrics.genieErrorReasons).toEqual({ invalid_args: 1, not_connected: 1 })
   })
 
   it('counts a truncated successful call and a whole-batch connection failure', () => {
@@ -413,7 +413,7 @@ describe('runtime evidence', () => {
       },
       {
         command: 'echo \'[{"tool":"a"},{"tool":"b"}]\' | genie-react batch',
-        output: '{"schemaVersion":"1.0","status":"error","reason":"not_connected"}',
+        output: '{"schemaVersion":"2.0","status":"error","reason":"not_connected"}',
         isError: true,
         denied: false,
       },

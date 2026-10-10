@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -190,7 +190,7 @@ async function pinWorkspaceVersions(dir, versions) {
 }
 
 /**
- * Builds the agent's workspace: fixture copy, git baseline, `genie-react init`, and agent skill wiring.
+ * Builds the agent's workspace: fixture copy, git baseline, and `genie-react init`, which installs the skill for both agents.
  * @param {{ label: string, agent: 'claude' | 'codex', consumer: Consumer }} options
  */
 export async function prepareTrialWorkspace({ label, agent, consumer }) {
@@ -226,14 +226,10 @@ async function initializeTrialWorkspace(dir, agent, consumer) {
     initReceipt = JSON.parse(init.stdout)
   } catch {}
 
-  const skill = join(dir, '.agents/skills/genie')
-  if (agent === 'claude' && existsSync(skill) && !existsSync(join(dir, '.claude/skills/genie'))) {
-    await mkdir(join(dir, '.claude/skills'), { recursive: true })
-    await symlink('../../.agents/skills/genie', join(dir, '.claude/skills/genie'), 'dir')
-  }
   await git(dir, ['add', '-A'])
   await git(dir, ['commit', '-q', '--allow-empty', '-m', 'genie setup'])
-  return { dir, initReceipt, skillInstalled: existsSync(join(skill, 'SKILL.md')) }
+  const skill = join(dir, agent === 'claude' ? '.claude' : '.agents', 'skills/genie/SKILL.md')
+  return { dir, initReceipt, skillInstalled: existsSync(skill) }
 }
 
 /**
