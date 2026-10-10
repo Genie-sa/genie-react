@@ -105,16 +105,26 @@ function exampleOutput(section) {
   }
 }
 
-function validateSelectedFields(value, schema, path = '$') {
+/** Output schemas share subschemas through `$defs`; follow a local `$ref` so those branches are validated too. */
+function resolveRef(schema, root) {
+  if (!schema || typeof schema !== 'object' || typeof schema.$ref !== 'string') return schema
+  const name = schema.$ref.match(/^#\/\$defs\/(.+)$/)?.[1]
+  const resolved = name === undefined ? undefined : root?.$defs?.[name]
+  if (!resolved) throw new Error(`Unresolvable output schema reference ${schema.$ref}`)
+  return resolved
+}
+
+function validateSelectedFields(value, unresolved, path = '$', root = unresolved) {
+  const schema = resolveRef(unresolved, root)
   if (!schema || typeof schema !== 'object') return []
   for (const alternatives of [schema.anyOf, schema.oneOf]) {
     if (!Array.isArray(alternatives)) continue
-    const attempts = alternatives.map((branch) => validateSelectedFields(value, branch, path))
+    const attempts = alternatives.map((branch) => validateSelectedFields(value, branch, path, root))
     const passing = attempts.find((problems) => problems.length === 0)
     return passing ?? attempts[0]
   }
   if (Array.isArray(schema.allOf)) {
-    return schema.allOf.flatMap((branch) => validateSelectedFields(value, branch, path))
+    return schema.allOf.flatMap((branch) => validateSelectedFields(value, branch, path, root))
   }
 
   const problems = []
@@ -122,31 +132,33 @@ function validateSelectedFields(value, schema, path = '$') {
     const properties = schema.properties ?? {}
     for (const [key, child] of Object.entries(value)) {
       if (key in properties) {
-        problems.push(...validateSelectedFields(child, properties[key], `${path}.${key}`))
+        problems.push(...validateSelectedFields(child, properties[key], `${path}.${key}`, root))
       } else if (schema.additionalProperties === false) {
         problems.push(`${path}.${key} is not in the live output schema`)
       } else if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
         problems.push(
-          ...validateSelectedFields(child, schema.additionalProperties, `${path}.${key}`),
+          ...validateSelectedFields(child, schema.additionalProperties, `${path}.${key}`, root),
         )
       }
     }
   } else if (Array.isArray(value) && schema.items) {
     for (const [index, child] of value.entries()) {
-      problems.push(...validateSelectedFields(child, schema.items, `${path}[${index}]`))
+      problems.push(...validateSelectedFields(child, schema.items, `${path}[${index}]`, root))
     }
   }
   return problems
 }
 
-function validateValue(value, schema, path = '$') {
+function validateValue(value, unresolved, path = '$', root = unresolved) {
+  const schema = resolveRef(unresolved, root)
   if (!schema || typeof schema !== 'object') return []
   if (Array.isArray(schema.allOf)) {
-    return schema.allOf.flatMap((branch) => validateValue(value, branch, path))
+    return schema.allOf.flatMap((branch) => validateValue(value, branch, path, root))
   }
   for (const alternatives of [schema.anyOf, schema.oneOf]) {
     if (!Array.isArray(alternatives)) continue
-    if (alternatives.some((branch) => validateValue(value, branch, path).length === 0)) return []
+    if (alternatives.some((branch) => validateValue(value, branch, path, root).length === 0))
+      return []
     return [`${path} does not match any allowed schema branch`]
   }
 
@@ -186,7 +198,8 @@ function validateValue(value, schema, path = '$') {
       }
     }
     for (const [key, child] of Object.entries(value)) {
-      if (properties[key]) problems.push(...validateValue(child, properties[key], `${path}.${key}`))
+      if (properties[key])
+        problems.push(...validateValue(child, properties[key], `${path}.${key}`, root))
     }
   }
   if (Array.isArray(value)) {
@@ -197,7 +210,7 @@ function validateValue(value, schema, path = '$') {
       problems.push(`${path} allows at most ${schema.maxItems} items`)
     }
     for (const [index, child] of value.entries()) {
-      problems.push(...validateValue(child, schema.items, `${path}[${index}]`))
+      problems.push(...validateValue(child, schema.items, `${path}[${index}]`, root))
     }
   }
   if (typeof value === 'string') {
@@ -224,7 +237,7 @@ const toolNames = listing.groups.flatMap((group) => group.tools).sort()
 const errors = []
 
 for (const toolName of toolNames) {
-  const descriptor = runCli('tools', toolName, '--json')
+  const descriptor = runCli('tools', toolName, '--output-schema', '--max-bytes', '50000000')
   const section = sections.get(toolName)
   if (!section) {
     errors.push(`${toolName}: missing tool section`)

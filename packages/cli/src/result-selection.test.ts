@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { ResultSelectionError, renderBoundedJson, selectResult } from './result-selection'
+import {
+  largestJsonPaths,
+  ResultSelectionError,
+  renderBoundedJson,
+  selectResult,
+} from './result-selection'
 
 describe('nested result selection', () => {
   const result = {
@@ -49,5 +54,48 @@ describe('nested result selection', () => {
       reason: 'max_bytes',
       maxBytes: 512,
     })
+  })
+
+  it('names the heaviest selectable branches instead of their containers', () => {
+    const bundle = {
+      sections: {
+        renders: {
+          status: 'ok',
+          result: { components: Array.from({ length: 40 }, () => 'x'.repeat(100)) },
+        },
+        effects: { status: 'ok', result: { events: ['x'.repeat(500)] } },
+      },
+      name: 'click',
+    }
+    expect(largestJsonPaths(bundle)).toEqual([
+      { path: '/sections/renders/result/components', bytes: 4121, items: 40 },
+      { path: '/sections/effects/result/events', bytes: 504, items: 1 },
+      { path: '/name', bytes: 7 },
+      { path: '/sections/renders/status', bytes: 4 },
+      { path: '/sections/effects/status', bytes: 4 },
+    ])
+  })
+
+  it('carries recovery hints and drops optional envelope detail to stay within the limit', () => {
+    const value = { rows: Array.from({ length: 100 }, () => 'x'.repeat(50)) }
+    const suggestions = [{ reason: 'Smaller page.', command: 'genie-react call t', argv: ['t'] }]
+    const roomy = JSON.parse(
+      renderBoundedJson(value, 2_000, (overflow) => {
+        expect(overflow.largestPaths[0]).toMatchObject({ path: '/rows', items: 100 })
+        return { outputPath: '/tmp/out.json', suggestions }
+      }),
+    )
+    expect(roomy).toMatchObject({
+      outputPath: '/tmp/out.json',
+      largestPaths: [{ path: '/rows', items: 100 }],
+      suggestions,
+      topLevelPaths: ['/rows'],
+    })
+    const tight = renderBoundedJson(value, 512, () => ({
+      outputPath: '/tmp/out.json',
+      suggestions,
+    }))
+    expect(Buffer.byteLength(`${tight}\n`)).toBeLessThanOrEqual(512)
+    expect(JSON.parse(tight)).toMatchObject({ status: 'truncated', outputPath: '/tmp/out.json' })
   })
 })

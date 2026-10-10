@@ -621,6 +621,7 @@ export async function getRendersReport(
 
 interface RenderMeasurement {
   measurementEnvironment: ReturnType<typeof getMeasurementEnvironment>
+  sort: RenderQuery['sort']
   appOnly: boolean
   tracking: boolean
   renderCollection: string
@@ -742,6 +743,7 @@ export async function getRendersMeasurement(
   }
   const measurement: RenderMeasurement = {
     measurementEnvironment,
+    sort: query.sort,
     appOnly: query.appOnly === true,
     tracking,
     renderCollection: renderCollectionStatus(),

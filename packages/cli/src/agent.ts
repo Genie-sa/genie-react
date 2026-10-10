@@ -2,6 +2,7 @@ import { access, link as linkFile, rename, rm, writeFile } from 'node:fs/promise
 import { resolve } from 'node:path'
 import { verifyCaptureIntegrity } from 'genie-react/hub'
 import {
+  type AnsweringSession,
   type BridgeStatusMessage,
   type CaptureDomain,
   captureArtifactSchema,
@@ -13,7 +14,13 @@ import {
   devtoolsWaitContract,
   reactQuiesceContract,
 } from 'genie-react/protocol'
-import { BridgeRejectedError, GenieAgentLink, INVOKE_GRACE_MS } from './agent-link'
+import {
+  type AnsweredResult,
+  BridgeCallError,
+  BridgeRejectedError,
+  GenieAgentLink,
+  INVOKE_GRACE_MS,
+} from './agent-link'
 import { DEFAULT_MAX_BYTES, writeDiagnostic, writeJson } from './cli-output'
 import {
   isTokenTransportSafe,
@@ -30,20 +37,30 @@ import {
   type FailureReason,
   formatAgentFailure,
   nextCommand,
+  safeAnsweringSession,
   safeToolNames,
   suggestionGuidance,
   toolHelpNext,
 } from './failure'
 import { isRecord, isRecordArray } from './guards'
+import { type CallInvocation, recoverOverflow } from './output-recovery'
 import { setOutputContext } from './output-safety'
 import { genieCommand } from './package-manager'
 import {
   FieldSelectionError,
+  type Overflow,
+  type OverflowRecovery,
   renderBoundedJson,
   renderBoundedText,
   selectResult,
 } from './result-selection'
-import { groupIndex, resolveToolsSelector, slimDescriptor } from './tool-output'
+import {
+  groupIndex,
+  resolveToolsSelector,
+  slimDescriptor,
+  type ToolDescriptor,
+  toolDetail,
+} from './tool-output'
 
 export {
   summarizeCapture,
@@ -51,7 +68,6 @@ export {
   summarizeCaptureList,
 } from './capture-output'
 export { CLI_OUTPUT_SCHEMA_VERSION, formatAgentFailure } from './failure'
-export * from './react-output'
 export { summarizeSessionsOnly, summarizeStatus } from './session-output'
 export { relatedActions, resolveToolsSelector } from './tool-output'
 
@@ -75,6 +91,8 @@ export interface AgentOptions {
   session?: string
   /** `genie-react tools --all`: the complete flat catalog instead of the progressive group index. */
   all?: boolean
+  /** `genie-react tools --output-schema`: include complete output JSON Schemas instead of outlines. */
+  outputSchema?: boolean
   /** Per-call full-timeout budget (ms) forwarded to the bridge; clamped by it to [1000, 120000]. */
   timeoutMs?: number
   /** `--fields id,name,…`: project the first array-of-records to these keys as JSONL (implies machine output). */
@@ -250,10 +268,29 @@ export function renderResult(
   fields?: string[],
   select?: string,
   maxBytes = DEFAULT_MAX_BYTES,
+  recover?: (overflow: Overflow) => OverflowRecovery,
 ): string {
   if (fields && fields.length > 0) return renderBoundedText(projectFields(result, fields), maxBytes)
   const projected = select === undefined ? result : selectResult(result, select)
-  return renderBoundedJson(projected ?? null, maxBytes)
+  return renderBoundedJson(projected ?? null, maxBytes, recover)
+}
+
+/** Oversized results spill to the private per-user output directory and suggest narrower retries built from this invocation. */
+function overflowRecovery(
+  opts: AgentOptions,
+  label: string,
+  invocation: Pick<CallInvocation, 'command' | 'args'>,
+): (overflow: Overflow) => OverflowRecovery {
+  const flags = [
+    ...(opts.url === undefined ? [] : ['--url', opts.url]),
+    ...(opts.session === undefined ? [] : ['--session', opts.session]),
+  ]
+  return (overflow) =>
+    recoverOverflow(
+      overflow,
+      { ...invocation, flags, select: opts.select, maxBytes: opts.maxBytes },
+      { label, maxBytes: opts.maxBytes ?? DEFAULT_MAX_BYTES },
+    )
 }
 
 /** `--fields` output: the top-level object projected when any requested key exists on it; otherwise one JSONL row per record in the FIRST array-of-records field (key order, empty → zero rows). Deterministic — the projected source never depends on which array happens to have rows. */
@@ -546,10 +583,25 @@ export async function runCall(
         return 1
       }
     }
-    const result = await link.invoke(tool, args, undefined, { timeoutMs: opts.timeoutMs })
+    const answered = await link.invokeAnswered(tool, args, undefined, {
+      timeoutMs: opts.timeoutMs,
+    })
+    const { result } = answered
+    reportAnsweringTab(link, answered)
     const operationId = operationIdOf(result)
     if (operationId) setOutputContext({ operation: `call ${tool}`, operationId })
-    const rendered = renderResult(tool, result, opts.json, opts.fields, opts.select, opts.maxBytes)
+    const rendered = renderResult(
+      tool,
+      result,
+      opts.json,
+      opts.fields,
+      opts.select,
+      opts.maxBytes,
+      overflowRecovery(opts, `call-${tool}`, {
+        command: ['call', tool],
+        args: isRecord(args) ? args : undefined,
+      }),
+    )
     out(rendered)
     return opts.failOnResultError &&
       (tool === devtoolsWaitContract.name || tool === reactQuiesceContract.name) &&
@@ -725,7 +777,7 @@ export function parseBatchItems(raw: string): { items: BatchItem[] } | { error: 
 }
 
 type BatchResult =
-  | { tool: string; ok: true; status: 'ok'; result: unknown }
+  | { tool: string; ok: true; status: 'ok'; result: unknown; session?: AnsweringSession }
   | ({ tool: string; ok: false; status: 'error' } & Failure)
 
 type VersionedBatchResult = BatchResult & { schemaVersion: typeof CLI_OUTPUT_SCHEMA_VERSION }
@@ -786,16 +838,24 @@ export async function runBatch(
     for (const item of parsed.items) {
       setOutputContext({ operation: `batch ${item.tool}` })
       try {
-        const result = await link.invoke(item.tool, item.args, undefined, {
+        const answered = await link.invokeAnswered(item.tool, item.args, undefined, {
           timeoutMs: opts.timeoutMs,
         })
+        const { result, session } = answered
+        if (answered.retargeted) reportAnsweringTab(link, answered)
         const operationId = operationIdOf(result)
         setOutputContext({
           operation: `batch ${item.tool}`,
           ...(operationId ? { operationId } : {}),
         })
         const projected = opts.select === undefined ? result : selectResult(result, opts.select)
-        emitBatchResult({ tool: item.tool, ok: true, status: 'ok', result: projected })
+        emitBatchResult({
+          tool: item.tool,
+          ok: true,
+          status: 'ok',
+          result: projected,
+          session: safeAnsweringSession(session),
+        })
       } catch (error) {
         anyFailed = true
         const failure = await describeFailure(
@@ -933,6 +993,18 @@ export async function runTools(
     const status = pinned
       ? await link.invoke(devtoolsStatusContract, { includeTools: true })
       : await waitForTools(link, opts.waitMs ?? 12_000)
+    if (!pinned && status && hasAmbiguousDefault(status)) {
+      await emitCaughtFailure(
+        opts,
+        'Tool discovery failed.',
+        new BridgeCallError('ambiguous default tab', {
+          errorCode: 'unknown-session',
+          details: { hubCode: 'SESSION_AMBIGUOUS' },
+        }),
+        { sessions: async () => status.sessions },
+      )
+      return 1
+    }
     const tools = status?.tools ?? []
     if (!status || tools.length === 0) {
       emitFailure(
@@ -947,15 +1019,18 @@ export async function runTools(
       return 1
     }
 
+    const detail = (tool: ToolDescriptor) =>
+      toolDetail(tool, opts.outputSchema, toolHelpNext(tool.name, pinned, ['--output-schema']))
+
     if (selector) {
       const selection = resolveToolsSelector(tools, selector)
       switch (selection.kind) {
         case 'tool':
-          emitToolsResult(opts, selection.tool)
+          emitToolsResult(opts, detail(selection.tool), selector)
           return 0
         case 'group': {
           const value = selection.tools.map(slimDescriptor)
-          emitToolsResult(opts, value)
+          emitToolsResult(opts, value, selector)
           return 0
         }
         case 'unknown': {
@@ -977,7 +1052,10 @@ export async function runTools(
     }
 
     if (opts.all) {
-      emitToolsResult(opts, { app: status.app, tools })
+      emitToolsResult(opts, {
+        app: status.app,
+        tools: tools.map(detail),
+      })
       return 0
     }
     const index = groupIndex(status.app?.name, tools)
@@ -996,24 +1074,62 @@ export async function runTools(
   }
 }
 
-function emitToolsResult(opts: AgentOptions, value: unknown): void {
+function emitToolsResult(opts: AgentOptions, value: unknown, selector?: string): void {
   const selected = opts.select === undefined ? value : selectResult(value, opts.select)
-  writeJson(selected, opts.maxBytes)
+  const command = [
+    'tools',
+    ...(selector === undefined ? [] : [selector]),
+    ...(opts.all ? ['--all'] : []),
+    ...(opts.outputSchema ? ['--output-schema'] : []),
+  ]
+  out(
+    renderBoundedJson(
+      selected,
+      opts.maxBytes ?? DEFAULT_MAX_BYTES,
+      overflowRecovery(opts, `tools-${selector ?? 'all'}`, { command }),
+    ),
+  )
+}
+
+/** Raw tool output has no envelope, so with several tabs open, or when the default tab was replaced, the answering tab is reported on stderr. */
+function reportAnsweringTab(link: GenieAgentLink, { session, retargeted }: AnsweredResult): void {
+  const answering = safeAnsweringSession(session)
+  if (!answering) return
+  if (retargeted) {
+    writeDiagnostic(
+      'session-retargeted',
+      'The default app tab is gone or unresponsive, so another tab answered this call. Pass --session <target> to choose a tab explicitly.',
+      answering,
+    )
+  } else if ((link.getStatus()?.sessions.length ?? 0) > 1) {
+    writeDiagnostic('session', 'The call was answered by this app session.', answering)
+  }
+}
+
+/** The broadcast catalog is the default tab's; with several tabs and no default there is none to wait for. */
+function hasAmbiguousDefault(status: Pick<BridgeStatusMessage, 'sessionId' | 'sessions'>): boolean {
+  return (
+    status.sessionId === null &&
+    status.sessions.length > 1 &&
+    status.sessions.some((session) => session.ready)
+  )
 }
 
 function waitForTools(
   link: GenieAgentLink,
   timeoutMs: number,
 ): Promise<BridgeStatusMessage | null> {
+  const settled = (status: BridgeStatusMessage | null): status is BridgeStatusMessage =>
+    status !== null && ((status.ready && status.tools.length > 0) || hasAmbiguousDefault(status))
   const current = link.getStatus()
-  if (current?.ready && current.tools.length > 0) return Promise.resolve(current)
+  if (settled(current)) return Promise.resolve(current)
   return new Promise((resolveStatus, reject) => {
     const timer = setTimeout(() => {
       link.onStatus = null
       resolveStatus(link.getStatus())
     }, timeoutMs)
     link.onStatus = (status) => {
-      if (status.ready && status.tools.length > 0) {
+      if (settled(status)) {
         clearTimeout(timer)
         link.onStatus = null
         resolveStatus(status)

@@ -24,7 +24,7 @@ describe('InteractionManager', () => {
   it('structures its own failures with a hub code and the rejected argument', async () => {
     const manager = new InteractionManager({
       resolveSession: () => ({ sessionId: 'no-collector', app: {}, tools: [] }),
-      unknownSessionError: () => 'unknown',
+      sessionUnavailable: () => ({ errorCode: 'unknown-session', error: 'unknown' }),
       isCurrentSession: () => true,
       request: async () => ({ ok: true }),
       settle: async () => ({ ok: true, waitedMs: 0, domains: {} }),
@@ -52,7 +52,7 @@ describe('InteractionManager', () => {
     let clears = 0
     const manager = new InteractionManager({
       resolveSession: () => active,
-      unknownSessionError: () => 'unknown',
+      sessionUnavailable: () => ({ errorCode: 'unknown-session', error: 'unknown' }),
       isCurrentSession: () => true,
       request: async () => {
         clears += 1
@@ -83,7 +83,7 @@ describe('InteractionManager', () => {
     let resolveClear!: (value: { ok: boolean; result: unknown }) => void
     const manager = new InteractionManager({
       resolveSession: () => active,
-      unknownSessionError: () => 'unknown',
+      sessionUnavailable: () => ({ errorCode: 'unknown-session', error: 'unknown' }),
       isCurrentSession: () => true,
       request: async () =>
         new Promise((resolve) => {
@@ -107,7 +107,10 @@ describe('InteractionManager', () => {
     }
     const manager = new InteractionManager({
       resolveSession: (target) => (target ? (sessions.get(target) ?? null) : null),
-      unknownSessionError: (target) => `unknown ${target}`,
+      sessionUnavailable: (target) => ({
+        errorCode: 'unknown-session',
+        error: `unknown ${target}`,
+      }),
       isCurrentSession: (candidate) => current.has(candidate.sessionId),
       request: async (_candidate, tool) => ({
         ok: true,
@@ -145,7 +148,10 @@ describe('InteractionManager', () => {
     let renderReads = 0
     const manager = new InteractionManager({
       resolveSession: () => active,
-      unknownSessionError: (target) => `unknown ${target}`,
+      sessionUnavailable: (target) => ({
+        errorCode: 'unknown-session',
+        error: `unknown ${target}`,
+      }),
       isCurrentSession: () => true,
       request: async (_candidate, tool) => {
         if (tool === 'react_clear_renders') {

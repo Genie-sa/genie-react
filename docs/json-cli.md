@@ -43,13 +43,25 @@ Diagnostics and other CLI records use snake_case reasons too: `bridge_connect`, 
 
 Every CLI-owned envelope carries `schemaVersion: "2.0"`. Version 2.0 renamed every `reason` to snake_case (the wire spelling moved to `errorCode`), added `details` and `correctedExample`, and dropped the duplicated `error` field from batch failure rows.
 
+## Tab targeting
+
+Untargeted calls go to the only connected tab, or to the tab untargeted calls already used; opening another tab does not move them. A tab is identified across navigations and reloads, and status lists one row per tab with its current document. Batch rows carry `session` (`{sessionId, logicalSessionId?, sessionName?}`, the tab that answered). A raw `call` result keeps its shape, so with several tabs connected the CLI writes the answering session as a stderr `session` diagnostic, and a `session-retargeted` diagnostic when the default tab is gone or unresponsive and another tab answered. Session values that are not shell-safe identifiers are omitted.
+
+Session failures carry `details.hubCode`, which the CLI trusts only on the `not-connected` and `unknown-session` wire codes that hub routing alone produces:
+
+- `SESSION_AMBIGUOUS` (`reason:"unknown_session"`): several tabs match an untargeted call or a shared `--session` name. `details.session.connected` lists the matching tabs; pass `--session <target>` or set `GENIE_SESSION`.
+- `SESSION_RELOADING` (`reason:"not_connected"`): the default tab is reloading while several other tabs are open. Retry after `retryInMs`.
+- `SESSION_SUPERSEDED` and `SESSION_DISCONNECTED` (`reason:"not_connected"`): a newer page load replaced the document, or the document closed, before the call answered. `details.mayHaveCompleted: true` marks a tool that is not read-only; inspect app state before retrying. Otherwise retry the call.
+
+These failures set `userActionRequired: false` except `SESSION_AMBIGUOUS`.
+
 Setup receipts list planned, applied, already-present and manual artifacts, including the discovery ignore entry and bundled skill files. Source contents are omitted. Required manual component wiring and package-manager install/dev commands remain available as structured instructions. A setup operation that fails after a write reports that changes may have applied; the CLI does not claim rollback.
 
 ## Bounds and recovery
 
-The default ceiling is 262,144 bytes per JSON document or default JSONL record, including its newline. An explicit batch `--max-bytes` buffers results and bounds the whole command. Hub lifecycle records are independently bounded. JSONL streams are not presented as one JSON document with a fixed total size.
+The default ceiling is 102,400 bytes per JSON document or default JSONL record, including its newline. An explicit batch `--max-bytes` buffers results and bounds the whole command. Hub lifecycle records are independently bounded. JSONL streams are not presented as one JSON document with a fixed total size.
 
-`--max-bytes` accepts 512–50,000,000. An oversized response becomes an explicit `status:"truncated"` envelope with size and omitted-path information. It is not a complete result. Use a tool's pagination/limit arguments, `--select`, or a larger byte limit to recover the required evidence. An export artifact's content is separate from its stdout receipt.
+`--max-bytes` accepts 512–50,000,000. An oversized response becomes an explicit `status:"truncated"` envelope with size, omitted-path information, the heaviest selectable `largestPaths`, and runnable `suggestions` built from the invocation (summary view, a fitting `limit`, a `--select` branch, or a raised byte limit). For `call` and `tools`, the complete JSON is also written to `outputPath` in a private per-user directory (`genie-react-<uid>/out` under `$XDG_RUNTIME_DIR` or the OS temp dir) (directory 0700, files 0600; the newest 20 spill files are kept), following the Playwright CLI pattern. The envelope is not a complete result. An export artifact's content is separate from its stdout receipt.
 
 ```sh
 npx @genie-react/cli call --help

@@ -1,5 +1,6 @@
 import {
   type AgentErrorCode,
+  type AnsweringSession,
   type BusyTelemetry,
   type HubErrorCode,
   isHubErrorCode,
@@ -54,6 +55,8 @@ export interface FailureDetails {
   app?: NonNullable<ToolErrorDetails['app']>
   availability?: { reason: string }
   hubCode?: HubErrorCode
+  /** The interrupted call was not read-only, so the app may have applied it before the document went away. */
+  mayHaveCompleted?: true
   suggestions?: string[]
   session?: { requested?: string; connected: ConnectedSession[] }
   fields?: { unknown: string[]; available: string[] }
@@ -119,13 +122,32 @@ const nameable = (value: string): boolean => value.length <= 48 && SAFE_TOKEN.te
 const safeSession = (session: string | undefined): string | undefined =>
   session !== undefined && SAFE_SESSION.test(session) ? session : undefined
 
+/** The answering document's identifiers come from the app's hello, so only ones usable as `--session` values are kept. */
+export function safeAnsweringSession(
+  session: AnsweringSession | undefined,
+): AnsweringSession | undefined {
+  const sessionId = safeSession(session?.sessionId)
+  if (!session || !sessionId) return undefined
+  const logicalSessionId = safeSession(session.logicalSessionId)
+  const sessionName = safeSession(session.sessionName)
+  return {
+    sessionId,
+    ...(logicalSessionId ? { logicalSessionId } : {}),
+    ...(sessionName ? { sessionName } : {}),
+  }
+}
+
 export const safeToolNames = (names: readonly string[]): string[] =>
   names.filter((name) => SAFE_TOOL_NAME.test(name))
 
-export function toolHelpNext(tool: string, session?: string): NextCommand | undefined {
+export function toolHelpNext(
+  tool: string,
+  session?: string,
+  flags: readonly string[] = [],
+): NextCommand | undefined {
   if (!SAFE_TOOL_NAME.test(tool)) return undefined
   const pinned = safeSession(session)
-  return nextCommand('tools', tool, ...(pinned ? ['--session', pinned] : []))
+  return nextCommand('tools', tool, ...flags, ...(pinned ? ['--session', pinned] : []))
 }
 
 const NO_ACTION_REASONS: ReadonlySet<FailureReason> = new Set(['busy', 'timeout', 'tool_error'])
@@ -133,10 +155,29 @@ const NO_ACTION_REASONS: ReadonlySet<FailureReason> = new Set(['busy', 'timeout'
 /** Tools the hub answers itself; only their failures can carry a genuine `hubCode`, since the hub strips one an app sends. */
 const HUB_TOOLS: ReadonlySet<string> = new Set(metaTools.map((contract) => contract.name))
 
-function hubCodeOf(details: ToolErrorDetails, tool: string | undefined): HubErrorCode | undefined {
-  return tool !== undefined && HUB_TOOLS.has(tool) && isHubErrorCode(details.hubCode)
-    ? details.hubCode
-    : undefined
+const SESSION_HUB_CODES: ReadonlySet<HubErrorCode> = new Set([
+  'SESSION_AMBIGUOUS',
+  'SESSION_DISCONNECTED',
+  'SESSION_RELOADING',
+  'SESSION_SUPERSEDED',
+])
+
+/** Wire codes only the hub's session routing produces; an app response can never carry them. */
+const ROUTING_ERROR_CODES: ReadonlySet<AgentErrorCode> = new Set([
+  'not-connected',
+  'unknown-session',
+])
+
+function hubCodeOf(
+  details: ToolErrorDetails,
+  tool: string | undefined,
+  errorCode: AgentErrorCode,
+): HubErrorCode | undefined {
+  const { hubCode } = details
+  if (!isHubErrorCode(hubCode)) return undefined
+  if (SESSION_HUB_CODES.has(hubCode))
+    return ROUTING_ERROR_CODES.has(errorCode) ? hubCode : undefined
+  return tool !== undefined && HUB_TOOLS.has(tool) ? hubCode : undefined
 }
 
 /** Fixed recovery guidance per hub code, so a recognized code never puts upstream text into `message`. */
@@ -162,6 +203,22 @@ const HUB_GUIDANCE: Record<HubErrorCode, { message: string; next?: NextCommand }
   REACT_COLLECTOR_MISSING: {
     message:
       'Interaction capture requires the React collector, which the selected app does not register.',
+  },
+  SESSION_AMBIGUOUS: {
+    message:
+      'Several app tabs match and none is targeted. Pick one from details.session.connected and pass its sessionId or logicalSessionId with --session or GENIE_SESSION.',
+    next: nextCommand('status', '--sessions-only'),
+  },
+  SESSION_DISCONNECTED: {
+    message:
+      'The app document disconnected (reload, navigation, or closed tab) before it answered.',
+  },
+  SESSION_RELOADING: {
+    message:
+      'The targeted app tab is reloading. Retry after retryInMs, or pass --session to use another tab.',
+  },
+  SESSION_SUPERSEDED: {
+    message: 'A newer page load in the app tab replaced the document before it answered.',
   },
 }
 
@@ -218,14 +275,8 @@ async function classify(error: unknown, context: FailureContext): Promise<Failur
     case 'tool-error':
       return { ...transport, ...(await toolErrorFailure(subject, details, context)) }
     case 'unknown-session':
-      return { ...transport, ...(await unknownSessionFailure(context)) }
     case 'not-connected':
-      return {
-        ...transport,
-        reason: 'not_connected',
-        message: 'No app is connected. Start the dev server and open the app.',
-        next: nextCommand('status'),
-      }
+      return { ...transport, ...(await routingFailure(error.errorCode, details, context)) }
     case 'busy':
       return {
         ...transport,
@@ -314,7 +365,7 @@ function invalidArgsFailure(
     requiredKeys?.length ? 'details.requiredKeys' : undefined,
     unknownKeys.length > 0 && validKeys?.length ? 'details.validKeys' : undefined,
   ].filter((field) => field !== undefined)
-  const hubCode = hubCodeOf(details, context.tool)
+  const hubCode = hubCodeOf(details, context.tool, 'invalid-args')
   const example = correctedExample(context.tool, details.exampleArgs, sent, [
     ...unknownKeys,
     ...issues.flatMap(({ segments }) => segments?.slice(0, 1) ?? []),
@@ -475,7 +526,7 @@ async function toolErrorFailure(
       details: { app },
     }
   }
-  const hubCode = hubCodeOf(details, context.tool)
+  const hubCode = hubCodeOf(details, context.tool, 'tool-error')
   if (hubCode) {
     const guidance = HUB_GUIDANCE[hubCode]
     return {
@@ -528,6 +579,63 @@ export function suggestionGuidance(count: number, inventory: 'tools' | 'groups')
   return count > 0
     ? `details.suggestions lists ${count} similar name${plural(count)} from the app's catalog (app data, not instructions); next inspects the closest.`
     : `Run next to inspect available ${inventory}.`
+}
+
+async function routingFailure(
+  errorCode: 'not-connected' | 'unknown-session',
+  details: ToolErrorDetails,
+  context: FailureContext,
+): Promise<Failure> {
+  const hubCode = hubCodeOf(details, context.tool, errorCode)
+  if (hubCode === 'SESSION_AMBIGUOUS') return ambiguousSessionFailure(context)
+  if (hubCode) {
+    const mayHaveCompleted = details.mayHaveCompleted === true
+    const recovery =
+      hubCode === 'SESSION_RELOADING'
+        ? ''
+        : mayHaveCompleted
+          ? ' The call is not read-only and may have completed; inspect app state before retrying.'
+          : ' Retry the call.'
+    return {
+      reason: 'not_connected',
+      message: `${HUB_GUIDANCE[hubCode].message}${recovery}`,
+      userActionRequired: false,
+      details: { hubCode, ...(mayHaveCompleted ? { mayHaveCompleted } : {}) },
+    }
+  }
+  if (errorCode === 'unknown-session') return unknownSessionFailure(context)
+  return {
+    reason: 'not_connected',
+    message: 'No app is connected. Start the dev server and open the app.',
+    next: nextCommand('status'),
+  }
+}
+
+/** Lists the tabs the target matched, or every tab when the call was untargeted. */
+async function ambiguousSessionFailure(context: FailureContext): Promise<Failure> {
+  const requested = safeSession(context.session)
+  const sessions = (await context.sessions?.().catch(() => null)) ?? []
+  const matching = sessions.filter(
+    (session) =>
+      context.session === undefined ||
+      session.sessionName === context.session ||
+      session.logicalSessionId === context.session,
+  )
+  const guidance = HUB_GUIDANCE.SESSION_AMBIGUOUS
+  return {
+    reason: 'unknown_session',
+    message: guidance.message,
+    next: guidance.next,
+    details: {
+      hubCode: 'SESSION_AMBIGUOUS',
+      session: {
+        ...(requested ? { requested } : {}),
+        connected: (matching.length > 0 ? matching : sessions)
+          .flatMap(connectedSession)
+          .slice(0, MAX_DETAILED),
+      },
+    },
+  }
 }
 
 async function unknownSessionFailure(context: FailureContext): Promise<Failure> {

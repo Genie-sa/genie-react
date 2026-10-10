@@ -417,7 +417,10 @@ describe('resource timing correlation', () => {
     }
     const report = stop(collector, recording.id)
     expect(report.state).toBe('stopped')
-    expect(report.coverage.request.detail).toContain('flush failed')
+    expect(report.coverage.request).toEqual({
+      status: 'available',
+      code: 'resource-timing-flush-failed',
+    })
     expect(queryClient.getQueryCache().hasListeners()).toBe(false)
     expect(observerInstance().connected).toBe(false)
   })
@@ -471,5 +474,20 @@ describe('resource timing correlation', () => {
     ).toBe(true)
     expect(recording.coverage.request.detail).toContain('native')
     expect(recording.coverage.navigation.detail).toContain('native')
+  })
+
+  it('explains coverage once at start and keeps only stable codes afterwards', () => {
+    browser()
+    const collector = create({ queryClient: client() })
+    const recording = start(collector)
+    expect(recording.coverage.query).toMatchObject({
+      status: 'available',
+      code: 'query-cache',
+      detail: expect.stringContaining('QueryCache'),
+    })
+    for (const report of [read(collector, recording.id), stop(collector, recording.id)]) {
+      expect(report.coverage.query).toEqual({ status: 'available', code: 'query-cache' })
+      expect(report.coverage.request).toEqual({ status: 'available', code: 'resource-timing' })
+    }
   })
 })

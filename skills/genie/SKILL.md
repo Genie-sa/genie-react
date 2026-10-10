@@ -25,6 +25,8 @@ Use the app's real URL, appending `&_genie=my-agent` when it already has a query
 
 Pass `--session <name>` to every `status`, `tools`, `call`, `batch`, and `capture` command. This step is complete when status reports `ready: true` and `app.url` is the intended app. If status says the session is unavailable right after opening the page, retry it once. Otherwise run `npx genie-react doctor` and follow its `remediation`; it also reports a stale skill, which `init` refreshes. Exclude `genie-react:*` sessionStorage keys from saved browser state.
 
+Untargeted calls stay on the first tab they used. With several tabs and none targeted yet, they fail with `unknown_session` and list the tabs in `details.session.connected`.
+
 ## 2. Discover the smallest useful tool
 
 ```bash
@@ -32,7 +34,7 @@ npx genie-react tools --session my-agent
 npx genie-react tools react_render_causes --session my-agent
 ```
 
-`tools <name>` returns the tool's live contract: `inputJsonSchema` holds field names, defaults, and limits; `outputJsonSchema` and `annotations` appear when the tool declares them. There is no example; build arguments from `inputJsonSchema`. Component IDs come from the current tree; reacquire them after reloads.
+`tools <name>` returns the tool's live contract: `inputJsonSchema` holds field names, defaults, and limits; `output` outlines the top-level result fields (add `--output-schema` for the complete `outputJsonSchema`); `annotations` appear when the tool declares them. There is no example; build arguments from `inputJsonSchema`. Component IDs come from the current tree; reacquire them after reloads.
 
 | Question | Start with |
 | --- | --- |
@@ -59,7 +61,7 @@ npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-
 npx genie-react call react_render_causes '{"component":"CheckoutRow","limit":20}' --session my-agent
 ```
 
-Require `outcome: "idle"` from quiescence; it covers React commits only. For request timing, start a timeline before the action, then stop it and read every page. This step is complete when the UI outcome is observed and the capture ended with usable coverage. A timeout or unavailable collector means the measurement is incomplete.
+Render reports default to a compact `summary` view; pass `"view":"full"` for input values, diffs, behavior assessment, or detailed source provenance. Require `outcome: "idle"` from quiescence; it covers React commits only. For request timing, start a timeline before the action, then stop it and read every page. This step is complete when the UI outcome is observed and the capture ended with usable coverage. A timeout or unavailable collector means the measurement is incomplete.
 
 ## 4. Decide what the evidence supports
 
