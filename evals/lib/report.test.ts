@@ -47,7 +47,13 @@ describe('summarizeTasks', () => {
 describe('renderMarkdown', () => {
   it('renders one row per task with k in the headers', () => {
     const markdown = renderMarkdown(
-      { id: 'run-1', agent: 'claude', model: 'sonnet', trialsPerTask: 2 },
+      {
+        id: 'run-1',
+        agent: 'claude',
+        model: 'sonnet',
+        trialsPerTask: 2,
+        isolation: 'sandboxed reads and writes',
+      },
       summarizeTasks([trial(true), trial(true, { tokens: 30_000 })]),
     )
     expect(markdown).toContain(
@@ -60,9 +66,16 @@ describe('renderMarkdown', () => {
 
   it('shows a single pass rate for one trial per task', () => {
     const markdown = renderMarkdown(
-      { id: 'run-2', agent: 'codex', model: null, trialsPerTask: 1 },
+      {
+        id: 'run-2',
+        agent: 'codex',
+        model: null,
+        trialsPerTask: 1,
+        isolation: 'reads not sandboxed',
+      },
       summarizeTasks([trial(false, { costUsd: null, genieErrorReasons: {} })]),
     )
+    expect(markdown).toContain('isolation: reads not sandboxed')
     expect(markdown).toContain('| Task | Split | Mode | Passed | pass@1 | Runtime evidence |')
     expect(markdown).toContain(
       '| memo-object-prop | dev | diagnose | 0/1 | 0% | 0% | 4 | 2 | 1000 | n/a | 30 | - |',

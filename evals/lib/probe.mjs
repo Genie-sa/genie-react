@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { release, track } from './cleanup.mjs'
 import { delay, run } from './process.mjs'
 
 /**
@@ -29,10 +30,22 @@ export async function agentBrowser(session, args) {
 }
 
 /**
+ * Opens `url` in a fresh agent-browser session that interrupts and `closeBrowserSession` close.
+ * @param {string} session
+ * @param {string} url
+ */
+export async function openBrowserSession(session, url) {
+  track(`browser:${session}`, () =>
+    run('agent-browser', ['close'], { env: browserEnv(session), timeoutMs: 30_000, cleanup: true }),
+  )
+  await agentBrowser(session, ['open', url])
+}
+
+/**
  * @param {string} session
  */
 export async function closeBrowserSession(session) {
-  await run('agent-browser', ['close'], { env: browserEnv(session), timeoutMs: 30_000 })
+  await release(`browser:${session}`)
 }
 
 /**
@@ -54,6 +67,13 @@ async function genie(dir, session, args) {
       `genie-react ${args.join(' ')} returned non-JSON: ${result.stdout}${result.stderr}`,
     )
   }
+}
+
+/**
+ * @param {unknown} value
+ */
+function count(value) {
+  return typeof value === 'number' ? value : 0
 }
 
 /**
@@ -82,7 +102,7 @@ export async function runProbe({ dir, url, screen, probe, session }) {
   target.searchParams.set('screen', screen)
   target.searchParams.set('_genie', session)
   try {
-    await agentBrowser(session, ['open', target.toString()])
+    await openBrowserSession(session, target.toString())
     await waitForGenieSession(dir, session)
     if (probe.renders) {
       await genie(dir, session, [
@@ -110,6 +130,17 @@ export async function runProbe({ dir, url, screen, probe, session }) {
         name: 'probe.renders',
         pass: renders.tracking === true && updates <= maxUpdates,
         detail: `${component} updates=${updates}, max=${maxUpdates}`,
+      })
+      const cohort = await genie(dir, session, [
+        'call',
+        'react_component_cohort',
+        JSON.stringify({ component }),
+      ])
+      const mounted = count(cohort.mountedIdle) + count(cohort.mountedUpdated)
+      checks.push({
+        name: 'probe.mounted',
+        pass: mounted > 0 && count(cohort.unmounted) === 0,
+        detail: `${component} status=${cohort.status}, mounted=${mounted}, unmounted=${count(cohort.unmounted)}`,
       })
     }
     if (probe.noCaughtErrors) {

@@ -1,62 +1,109 @@
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 
 export const AGENTS = /** @type {const} */ (['claude', 'codex'])
 
 const GENIE_COMMANDS = ['genie-react', 'pnpm exec genie-react', 'npx genie-react']
-const SHELL_HELPERS = [
-  'cd',
-  'export',
-  'sleep',
-  'echo',
-  'cat',
-  'head',
-  'tail',
-  'grep',
-  'jq',
-  'wc',
-  'sort',
-  'ls',
-]
+const SHELL_HELPERS = ['sleep', 'echo', 'cat', 'head', 'tail', 'grep', 'jq', 'wc', 'sort', 'ls']
+const SYSTEM_PATH = ['/usr/bin', '/bin', '/usr/sbin', '/sbin']
+const INHERITED_ENV = new Set([
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'SHELL',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'TERM',
+  'HTTPS_PROXY',
+  'HTTP_PROXY',
+  'NO_PROXY',
+  'NODE_EXTRA_CA_CERTS',
+  'SSL_CERT_FILE',
+  'CLAUDE_CONFIG_DIR',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CODEX_HOME',
+  'OPENAI_API_KEY',
+  'OPENAI_BASE_URL',
+])
+const INHERITED_ENV_PREFIXES = ['ANTHROPIC_']
 
 /**
  * @typedef {'claude' | 'codex'} AgentName
  * @typedef {{
  *   agent: AgentName,
+ *   executable: string,
  *   mode: 'diagnose' | 'fix',
  *   dir: string,
  *   model: string | undefined,
  *   maxTurns: number,
  *   maxBudgetUsd: number,
  *   browserSession: string,
- *   hiddenPaths: string[],
+ *   toolDirs: string[],
+ *   settingsPath: string,
+ *   deniedReadRoots: string[],
  * }} AgentRunOptions
  * @typedef {{ command: string, args: string[], env: NodeJS.ProcessEnv }} AgentCommand
  */
 
 /**
- * Builds the agent environment: local bins on PATH, an isolated browser session, and no inherited nesting markers.
+ * Builds the agent environment from an allowlist so nothing names the repository: auth and locale pass through,
+ * PATH holds only the trial's bins, the required tool directories, and system directories.
  * The skill suggests `pnpm exec`; disabling pnpm's pre-run install (npm_ prefix for pnpm 10, pnpm_ for 11+) keeps it off the linked node_modules.
- * @param {AgentRunOptions} options
+ * @param {NodeJS.ProcessEnv} source
+ * @param {{ dir: string, browserSession: string, toolDirs: string[] }} options
  * @returns {NodeJS.ProcessEnv}
  */
-function agentEnv({ dir, browserSession }) {
+export function agentEnv(source, { dir, browserSession, toolDirs }) {
   /** @type {NodeJS.ProcessEnv} */
-  const env = {
-    ...process.env,
-    PATH: `${join(dir, 'node_modules/.bin')}:${process.env.PATH ?? ''}`,
+  const env = {}
+  for (const [key, value] of Object.entries(source)) {
+    if (INHERITED_ENV.has(key) || INHERITED_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      env[key] = value
+    }
+  }
+  const path = [join(dir, 'node_modules/.bin'), ...toolDirs, ...SYSTEM_PATH]
+  return {
+    ...env,
+    PATH: [...new Set(path)].join(delimiter),
     AGENT_BROWSER_SESSION: browserSession,
     AGENT_BROWSER_ALLOWED_DOMAINS: '127.0.0.1,localhost',
     npm_config_verify_deps_before_run: 'false',
     pnpm_config_verify_deps_before_run: 'false',
   }
-  for (const key of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'GENIE_SESSION', 'GENIE_BRIDGE_URL']) {
-    delete env[key]
-  }
-  return env
 }
 
 /**
- * Restricts Claude to the Genie CLI, agent-browser, and file tools; the prompt is sent on stdin.
+ * Claude Code settings that run every Bash command in the OS sandbox: writes only in the trial, no reads of the
+ * repository or sibling temp directories, network limited to the local dev server and the agent-browser daemon socket.
+ * Bash still needs an allow rule, so commands outside the allowlist are denied and counted.
+ * @param {{ dir: string, readableRoots: string[], deniedReadRoots: string[], browserSocketDir: string }} options
+ */
+export function claudeSandboxSettings({ dir, readableRoots, deniedReadRoots, browserSocketDir }) {
+  return {
+    sandbox: {
+      enabled: true,
+      failIfUnavailable: true,
+      allowUnsandboxedCommands: false,
+      autoAllowBashIfSandboxed: false,
+      filesystem: {
+        allowWrite: [dir],
+        denyRead: deniedReadRoots,
+        allowRead: [dir, ...readableRoots],
+      },
+      network: {
+        allowedDomains: ['localhost', '127.0.0.1'],
+        allowLocalBinding: true,
+        allowUnixSockets: [browserSocketDir],
+      },
+    },
+  }
+}
+
+/**
+ * Restricts Claude to the Genie CLI, agent-browser, a few shell helpers, and file tools scoped to the trial directory.
+ * Read rules also govern Grep and Glob; the prompt is sent on stdin.
  * @param {AgentRunOptions} options
  * @returns {AgentCommand}
  */
@@ -67,11 +114,12 @@ function claudeCommand(options) {
     ...GENIE_COMMANDS.map((command) => `Bash(${command} *)`),
     'Bash(agent-browser *)',
     ...SHELL_HELPERS.map((command) => `Bash(${command} *)`),
-    ...fileTools,
+    'Read(./**)',
+    ...(options.mode === 'fix' ? ['Edit(./src/**)'] : []),
     'Skill',
   ]
   return {
-    command: 'claude',
+    command: options.executable,
     args: [
       '-p',
       '--output-format',
@@ -86,6 +134,8 @@ function claudeCommand(options) {
       'dontAsk',
       '--setting-sources',
       'project',
+      '--settings',
+      options.settingsPath,
       '--strict-mcp-config',
       '--no-session-persistence',
       '--tools',
@@ -93,36 +143,50 @@ function claudeCommand(options) {
       '--allowedTools',
       ...allowed,
       '--disallowedTools',
-      ...options.hiddenPaths.map((path) => `Read(/${path}/**)`),
+      ...options.deniedReadRoots.map((root) => `Read(/${root}/**)`),
     ],
-    env: agentEnv(options),
+    env: agentEnv(process.env, options),
   }
 }
 
 /**
- * Codex has no per-command allowlist, so the sandbox bounds writes and the grader flags edits in diagnose mode.
+ * Codex has no per-command allowlist and its sandbox cannot restrict reads, so results are labelled unsandboxed;
+ * the sandbox bounds writes to the trial and the grader flags edits in diagnose mode.
  * @param {AgentRunOptions} options
  * @returns {AgentCommand}
  */
 function codexCommand(options) {
   return {
-    command: 'codex',
+    command: options.executable,
     args: [
       'exec',
       '--json',
       '--ephemeral',
       '--skip-git-repo-check',
+      '--ignore-user-config',
+      '--ignore-rules',
       '-C',
       options.dir,
       '-s',
       'workspace-write',
       '-c',
       'sandbox_workspace_write.network_access=true',
+      '-c',
+      'sandbox_workspace_write.exclude_tmpdir_env_var=true',
+      '-c',
+      'sandbox_workspace_write.exclude_slash_tmp=true',
       ...(options.model ? ['-m', options.model] : []),
       '-',
     ],
-    env: agentEnv(options),
+    env: agentEnv(process.env, options),
   }
+}
+
+/**
+ * @param {AgentName} agent
+ */
+export function isolationLabel(agent) {
+  return agent === 'claude' ? 'sandboxed reads and writes' : 'reads not sandboxed'
 }
 
 /**
@@ -144,7 +208,7 @@ export function buildPrompt(task, url) {
       : 'Do not modify any files.'
   return `${task.prompt}
 
-The app is already running at ${url} (Vite dev server with hot reload). Investigate it at runtime: use the \`genie-react\` CLI for React and TanStack Query introspection (the genie skill explains it) and \`agent-browser\` to drive the page. Both are on PATH. ${instructions}
+The app is already running at ${url} (Vite dev server with hot reload) and open in the current \`agent-browser\` session. Investigate it at runtime: use the \`genie-react\` CLI for React and TanStack Query introspection (the genie skill explains it) and \`agent-browser\` to drive the page. Both are on PATH. ${instructions}
 
 End your final message with a fenced json block in exactly this shape:
 \`\`\`json

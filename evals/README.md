@@ -6,10 +6,12 @@ Each trial:
 
 1. Packs `genie-react` and `@genie-react/cli`, installs them with the fixture's dependencies into a consumer project outside the repo (once per run).
 2. Copies `fixture-app` to a temporary git repo, runs `genie-react init --yes`, and links the installed skill where the agent discovers it.
-3. Starts the Vite dev server and runs the agent non-interactively in that directory. Claude runs with `--setting-sources project --strict-mcp-config --permission-mode dontAsk`. It can use `genie-react`, `agent-browser`, a few read-only shell helpers (`cd`, `export`, `sleep`, `cat`, `grep`, …), file reading tools, and `Edit` for fix tasks. Any other command is denied and counted.
-4. Grades the outcome with code: the final JSON answer (`component`, `cause`, `file`), no edits for diagnose tasks, and for fix tasks a typecheck plus a runtime probe that replays the interaction and checks Genie evidence.
+3. Starts the Vite dev server, opens the app in an `agent-browser` session, and runs the agent non-interactively in that directory with an allowlisted environment (auth and locale variables, and a `PATH` of the trial's bins, the required tools, and system directories).
+4. Grades the outcome with code. Diagnose tasks need a correct final JSON answer (`component`, `cause`, `file`) and no edits. Fix tasks need edits confined to `src/`, a passing typecheck, and a runtime probe that replays the interaction and checks Genie evidence; their JSON answer is recorded but does not decide the grade.
 
-The summary reports outcome and path separately. **Runtime evidence** is the share of trials with at least one `genie-react call` that returned data. A pass without runtime evidence means the agent solved the task by reading source.
+Claude runs with `--setting-sources project --strict-mcp-config --permission-mode dontAsk` and a generated `--settings` file kept outside the trial. Its Bash commands run in Claude Code's OS sandbox: writes only inside the trial, no reads of the repository checkouts, the system temp directory (other trials and the shared install), or agent transcript stores, and network only to localhost and the agent-browser socket. It may run `genie-react`, `agent-browser`, and `sleep`, `echo`, `cat`, `head`, `tail`, `grep`, `jq`, `wc`, `sort`, `ls`; `Read`, `Grep`, and `Glob` are limited to the trial and `Edit` to its `src/` in fix tasks. Any other command or path is denied and counted. Codex runs without user config or rules and with its workspace-write sandbox, which cannot restrict reads, so Codex results are labelled "reads not sandboxed".
+
+The summary reports outcome and path separately. **Runtime evidence** is the share of trials with at least one successful Genie tool call (`genie-react call` or a `batch` item). A pass without runtime evidence means the agent solved the task by reading source.
 
 ## Run
 
@@ -26,7 +28,7 @@ pnpm eval --agent codex --task memo-object-prop --trials 1
 
 Useful flags: `--model`, `--max-turns`, `--max-budget-usd` (per trial, Claude only), `--timeout-ms`, `--skip-build`, `--keep` (keeps trial directories). `pnpm eval --help` lists all options.
 
-Results are written to `evals/results/<run-id>.json` (every trial with checks, answer, patch, call breakdown, Genie error reasons, permission denials, usage) and `<run-id>.md` (summary table). CI runs only `pnpm eval --dry-run`; live runs need agent credentials and are never run in CI. Transcripts are in `evals/results/<run-id>/`. Read them: a failing grade can be a grader bug, and a passing grade can hide a wasteful path.
+Each finished trial is appended to `evals/results/<run-id>.jsonl`, so a crash keeps completed trials, and a harness error fails only its own trial. Results are written to `evals/results/<run-id>.json` (every trial with checks, answer, patch, call breakdown, Genie error reasons, permission denials, usage) and `<run-id>.md` (summary table). CI runs only `pnpm eval --dry-run`; live runs need agent credentials and are never run in CI. Transcripts are in `evals/results/<run-id>/`. Read them: a failing grade can be a grader bug, and a passing grade can hide a wasteful path.
 
 ## Tasks
 
@@ -50,7 +52,7 @@ Tasks marked `"split": "held-out"` are excluded from the default run.
 2. Add `tasks/<id>.json` with:
    - `prompt`: how a user would report the symptom.
    - `truth`: accepted `components`, accepted project-relative `files`, and `causePatterns`. Every pattern must match the answer's cause, case-insensitively.
-   - `referenceAnswer` that must pass and `decoyAnswer`, a plausible wrong answer, that must fail.
+   - `referenceAnswer` that must pass and `decoyAnswers`, plausible wrong answers that must fail. Include near misses: the right component and file with a wrong cause, and a list of several components. The `component` check accepts at most two names, all from `truth.components`.
    - `referenceFix`: exact `{ file, find, replace }` edits for the minimal correct fix.
    - For `"mode": "fix"`, a `probe`: `agent-browser` argument lists in `steps`, plus `renders` (`component`, `maxUpdates`), `text` (`selector`, `includes`), or `noCaughtErrors`.
 3. Run `pnpm eval --dry-run --runtime` and `pnpm test`.

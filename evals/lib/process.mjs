@@ -6,7 +6,7 @@ const MAX_CAPTURE = 4_000_000
 
 /**
  * @typedef {{ code: number | null, signal: NodeJS.Signals | null, stdout: string, stderr: string, timedOut: boolean, durationMs: number }} RunResult
- * @typedef {{ cwd?: string, env?: NodeJS.ProcessEnv, input?: string, timeoutMs?: number, onStdout?: (chunk: string) => void }} RunOptions
+ * @typedef {{ cwd?: string, env?: NodeJS.ProcessEnv, input?: string, timeoutMs?: number, onStdout?: (chunk: string) => void, cleanup?: boolean }} RunOptions
  */
 
 /** @type {Set<import('node:child_process').ChildProcess>} */
@@ -23,6 +23,7 @@ function appendBounded(current, chunk) {
 
 /**
  * Runs a command to completion in its own process group so a timeout also kills its descendants.
+ * `cleanup` marks a command that releases resources, which `killAllChildren` must let finish.
  * @param {string} command
  * @param {string[]} args
  * @param {RunOptions} [options]
@@ -36,7 +37,7 @@ export async function run(command, args, options = {}) {
     detached: process.platform !== 'win32',
     stdio: ['pipe', 'pipe', 'pipe'],
   })
-  liveChildren.add(child)
+  if (!options.cleanup) liveChildren.add(child)
   let stdout = ''
   let stderr = ''
   let timedOut = false

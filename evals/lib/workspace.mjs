@@ -3,6 +3,7 @@ import { cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from '
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { release, track } from './cleanup.mjs'
 import { freePort, run, start, waitForHttp } from './process.mjs'
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -36,10 +37,34 @@ async function git(cwd, args) {
 }
 
 /**
+ * Every repository checkout that can hold the answer key: this worktree and, for a linked worktree, the main checkout.
+ * @returns {Promise<string[]>}
+ */
+export async function repositoryRoots() {
+  const result = await run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+    cwd: REPO_ROOT,
+    timeoutMs: 30_000,
+  })
+  const commonDir = result.code === 0 ? result.stdout.trim() : ''
+  return [...new Set([REPO_ROOT, ...(commonDir ? [dirname(commonDir)] : [])])]
+}
+
+/**
  * @param {string} prefix
  */
 async function temporaryDirectory(prefix) {
-  return realpath(await mkdtemp(join(tmpdir(), prefix)))
+  const dir = await realpath(await mkdtemp(join(tmpdir(), prefix)))
+  track(dir, () => rm(dir, { recursive: true, force: true }))
+  return dir
+}
+
+/**
+ * @param {string} dir
+ * @param {string} mode
+ */
+async function chmodTree(dir, mode) {
+  const result = await run('chmod', ['-R', mode, dir], { timeoutMs: 60_000, cleanup: true })
+  if (result.code !== 0) throw new Error(`chmod -R ${mode} ${dir} failed: ${result.stderr.trim()}`)
 }
 
 /**
@@ -52,6 +77,7 @@ async function fixtureDependencies() {
 
 /**
  * Installs packed Genie tarballs plus the fixture's exact resolved dependencies outside the monorepo, as a user would.
+ * The install is made read-only so an agent cannot edit it through a trial's `node_modules` link.
  * @returns {Promise<Consumer>}
  */
 export async function prepareConsumer() {
@@ -97,6 +123,11 @@ export async function prepareConsumer() {
       `npm install of the packed consumer failed:\n${installed.stdout}${installed.stderr}`,
     )
   }
+  await chmodTree(root, 'a-w')
+  track(root, async () => {
+    await chmodTree(root, 'u+w')
+    await rm(root, { recursive: true, force: true })
+  })
   const modules = join(root, 'node_modules')
   return { root, modules, cliEntry: join(modules, '@genie-react/cli/dist/cli.js'), versions }
 }
@@ -144,6 +175,20 @@ async function pinWorkspaceVersions(dir, versions) {
  */
 export async function prepareTrialWorkspace({ label, agent, consumer }) {
   const dir = await copyFixture(label, consumer)
+  try {
+    return await initializeTrialWorkspace(dir, agent, consumer)
+  } catch (error) {
+    await removeWorkspace(dir)
+    throw error
+  }
+}
+
+/**
+ * @param {string} dir
+ * @param {'claude' | 'codex'} agent
+ * @param {Consumer} consumer
+ */
+async function initializeTrialWorkspace(dir, agent, consumer) {
   await git(dir, ['init', '-q'])
   await git(dir, ['add', '-A'])
   await git(dir, ['commit', '-qm', 'fixture'])
@@ -242,8 +287,9 @@ export async function startDevServer(dir) {
 }
 
 /**
+ * Removes a directory created by this module, restoring write access first for the consumer install.
  * @param {string} dir
  */
 export async function removeWorkspace(dir) {
-  await rm(dir, { recursive: true, force: true })
+  await release(dir)
 }

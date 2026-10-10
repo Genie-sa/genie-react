@@ -1,15 +1,24 @@
 #!/usr/bin/env node
-import { createWriteStream } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { createWriteStream, constants as fsConstants, realpathSync } from 'node:fs'
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { homedir, constants as osConstants, tmpdir } from 'node:os'
+import { delimiter, dirname, join } from 'node:path'
 import { parseArgs } from 'node:util'
-import { AGENTS, agentCommand, buildPrompt } from './lib/agents.mjs'
+import {
+  AGENTS,
+  agentCommand,
+  buildPrompt,
+  claudeSandboxSettings,
+  isolationLabel,
+} from './lib/agents.mjs'
+import { releaseAll } from './lib/cleanup.mjs'
 import { extractAnswer, gradeAnswer } from './lib/grade.mjs'
-import { closeBrowserSession, runProbe } from './lib/probe.mjs'
+import { closeBrowserSession, openBrowserSession, runProbe } from './lib/probe.mjs'
 import { killAllChildren, run } from './lib/process.mjs'
 import { renderMarkdown, summarizeTasks } from './lib/report.mjs'
 import { checkTaskAgainstFixture, loadTasks, selectTasks } from './lib/tasks.mjs'
 import { commandMetrics, parseTranscript } from './lib/transcript.mjs'
+import { appendTrial, isolateTrial, readTrials } from './lib/trials.mjs'
 import {
   applyEdits,
   assertFixtureInstalled,
@@ -19,6 +28,7 @@ import {
   prepareTrialWorkspace,
   REPO_ROOT,
   removeWorkspace,
+  repositoryRoots,
   startDevServer,
   typecheck,
   workspaceDiff,
@@ -48,12 +58,17 @@ Options:
   --keep                  Keep trial workspaces for inspection
   -h, --help              Show this help
 
-Results: evals/results/<run-id>.json, <run-id>.md, and transcripts in <run-id>/.`
+Results: evals/results/<run-id>.jsonl (one trial per line, written as trials finish), <run-id>.json,
+<run-id>.md, and transcripts in <run-id>/.`
 
 const TASKS_DIR = join(REPO_ROOT, 'evals/tasks')
-/** @type {Set<string>} */
-const activeBrowserSessions = new Set()
 const RESULTS_DIR = join(REPO_ROOT, 'evals/results')
+const BROWSER_SOCKET_DIR = join(homedir(), '.agent-browser')
+const AGENT_HISTORY_DIRS = ['.claude/projects', '.codex/sessions'].map((dir) =>
+  join(homedir(), dir),
+)
+const OPTIONAL_TOOLS = ['pnpm', 'jq']
+const TEMP_ROOT = realpathSync(tmpdir())
 
 /**
  * @param {string} name
@@ -122,12 +137,32 @@ function log(message) {
 }
 
 /**
- * @param {string} command
- * @param {string[]} args
+ * Finds `name` on the harness PATH; agents get a minimal PATH, so tools are passed by location.
+ * @param {string} name
+ * @returns {Promise<string | null>}
  */
-async function requireCommand(command, args) {
-  const result = await run(command, args, { timeoutMs: 30_000 })
-  if (result.code !== 0) throw new Error(`\`${command}\` is not installed or not on PATH`)
+async function findExecutable(name) {
+  for (const dir of (process.env.PATH ?? '').split(delimiter).filter(Boolean)) {
+    const path = join(dir, name)
+    const executable = await access(path, fsConstants.X_OK).then(
+      () => true,
+      () => false,
+    )
+    if (executable) return path
+  }
+  return null
+}
+
+/**
+ * @param {string} name
+ * @returns {Promise<string>}
+ */
+async function requireExecutable(name) {
+  const path = await findExecutable(name)
+  if (path === null || (await run(path, ['--version'], { timeoutMs: 30_000 })).code !== 0) {
+    throw new Error(`\`${name}\` is not installed or not on PATH`)
+  }
+  return path
 }
 
 /**
@@ -171,7 +206,7 @@ async function dryRun(tasks, options) {
 
   const probed = tasks.filter((task) => task.probe)
   if (options.runtime && probed.length > 0) {
-    await requireCommand('agent-browser', ['--version'])
+    await requireExecutable('agent-browser')
     const consumer = await installConsumer(options)
     try {
       for (const task of probed) problems.push(...(await validateProbe(task, consumer)))
@@ -228,33 +263,64 @@ async function validateProbe(task, consumer) {
 }
 
 /**
+ * @typedef {{
+ *   runId: string,
+ *   transcriptDir: string,
+ *   consumer: Consumer,
+ *   executable: string,
+ *   toolDirs: string[],
+ *   deniedReadRoots: string[],
+ * }} RunContext
+ */
+
+/**
  * @param {Task} task
  * @param {number} trial
  * @param {Options} options
- * @param {{ runId: string, transcriptDir: string, consumer: Consumer }} context
+ * @param {RunContext} context
  */
-async function runTrial(task, trial, options, { runId, transcriptDir, consumer }) {
+async function executeTrial(task, trial, options, context) {
+  const { runId, transcriptDir, consumer } = context
   const label = `${task.id}-${trial}`
   const browserSession = `genie-eval-${runId}-${label}`
-  activeBrowserSessions.add(browserSession)
-  const workspace = await prepareTrialWorkspace({ label, agent: options.agent, consumer })
   const transcriptPath = join(transcriptDir, `${label}.jsonl`)
+  /** @type {Awaited<ReturnType<typeof prepareTrialWorkspace>> | undefined} */
+  let workspace
   /** @type {Awaited<ReturnType<typeof startDevServer>> | undefined} */
   let server
 
   try {
+    workspace = await prepareTrialWorkspace({ label, agent: options.agent, consumer })
     server = await startDevServer(workspace.dir)
     const url = `${server.url}?screen=${task.screen}`
     log(`▶ ${label} in ${workspace.dir} (${url})`)
+    await openBrowserSession(browserSession, url)
+    const settingsPath = join(transcriptDir, `${label}.settings.json`)
+    await writeFile(
+      settingsPath,
+      `${JSON.stringify(
+        claudeSandboxSettings({
+          dir: workspace.dir,
+          readableRoots: [consumer.root],
+          deniedReadRoots: [...context.deniedReadRoots, TEMP_ROOT],
+          browserSocketDir: BROWSER_SOCKET_DIR,
+        }),
+        null,
+        2,
+      )}\n`,
+    )
     const command = agentCommand({
       agent: options.agent,
+      executable: context.executable,
       mode: task.mode,
       dir: workspace.dir,
       model: options.model,
       maxTurns: options.maxTurns,
       maxBudgetUsd: options.maxBudgetUsd,
       browserSession,
-      hiddenPaths: ['tasks', 'lib', 'results'].map((path) => join(REPO_ROOT, 'evals', path)),
+      toolDirs: context.toolDirs,
+      settingsPath,
+      deniedReadRoots: context.deniedReadRoots,
     })
     const transcriptFile = createWriteStream(transcriptPath)
     const result = await run(command.command, command.args, {
@@ -274,14 +340,23 @@ async function runTrial(task, trial, options, { runId, transcriptDir, consumer }
     })
     const diff = await workspaceDiff(workspace.dir)
     /** @type {Check[]} */
-    const checks = [...grade.checks]
+    const checks = []
     if (task.mode === 'diagnose') {
-      checks.push({
+      checks.push(...grade.checks, {
         name: 'no-edits',
         pass: diff.files.length === 0,
         detail: diff.files.length === 0 ? 'no files changed' : `changed ${diff.files.join(', ')}`,
       })
     } else {
+      const outsideSource = diff.files.filter((file) => !file.startsWith('src/'))
+      checks.push({
+        name: 'diff-scope',
+        pass: diff.files.length > 0 && outsideSource.length === 0,
+        detail:
+          diff.files.length === 0
+            ? 'no files changed'
+            : `changed ${diff.files.join(', ')}${outsideSource.length > 0 ? '; only src/ may change' : ''}`,
+      })
       const types = await typecheck(workspace.dir)
       checks.push({ name: 'typecheck', pass: types.pass, detail: types.output.slice(0, 2000) })
       if (task.probe) {
@@ -307,6 +382,7 @@ async function runTrial(task, trial, options, { runId, transcriptDir, consumer }
       pass,
       failure,
       checks,
+      answerChecks: task.mode === 'fix' ? grade.checks : undefined,
       answer: grade.answer,
       agent: options.agent,
       model: transcript.model ?? options.model ?? null,
@@ -314,11 +390,13 @@ async function runTrial(task, trial, options, { runId, transcriptDir, consumer }
       skillDiscovered: transcript.skills === null ? null : transcript.skills.includes('genie'),
       initStatus: workspace.initReceipt?.status ?? null,
       genieCalls: metrics.genieCalls,
+      genieToolCalls: metrics.genieToolCalls,
+      genieSuccessfulToolCalls: metrics.genieSuccessfulToolCalls,
       browserCalls: metrics.browserCalls,
       otherCommands: metrics.otherCommands,
       failedCommands: metrics.failedCommands,
       deniedCommands: metrics.deniedCommands,
-      runtimeEvidence: metrics.genieEvidenceCommands > 0,
+      runtimeEvidence: metrics.genieSuccessfulToolCalls > 0,
       genieInvocations: metrics.genieInvocations,
       browserSubcommands: metrics.browserSubcommands,
       genieErrorReasons: metrics.genieErrorReasons,
@@ -336,14 +414,13 @@ async function runTrial(task, trial, options, { runId, transcriptDir, consumer }
       workspace: options.keep ? workspace.dir : null,
     }
     log(
-      `${pass ? '✓' : '✗'} ${label}: genie=${metrics.genieCalls} browser=${metrics.browserCalls} denied=${metrics.deniedCommands} tokens=${transcript.usage.total} ${(result.durationMs / 1000).toFixed(0)}s${failure ? ` (${failure})` : ''}`,
+      `${pass ? '✓' : '✗'} ${label}: genie=${metrics.genieCalls} tool-calls=${metrics.genieSuccessfulToolCalls}/${metrics.genieToolCalls} browser=${metrics.browserCalls} denied=${metrics.deniedCommands} tokens=${transcript.usage.total} ${(result.durationMs / 1000).toFixed(0)}s${failure ? ` (${failure})` : ''}`,
     )
     return record
   } finally {
     await closeBrowserSession(browserSession)
-    activeBrowserSessions.delete(browserSession)
     await server?.stop()
-    if (!options.keep) await removeWorkspace(workspace.dir)
+    if (workspace && !options.keep) await removeWorkspace(workspace.dir)
   }
 }
 
@@ -352,31 +429,53 @@ async function runTrial(task, trial, options, { runId, transcriptDir, consumer }
  * @param {Options} options
  */
 async function liveRun(tasks, options) {
-  await requireCommand('agent-browser', ['--version'])
-  await requireCommand(options.agent, ['--version'])
+  const browser = await requireExecutable('agent-browser')
+  const executable = await requireExecutable(options.agent)
+  const optionalTools = await Promise.all(OPTIONAL_TOOLS.map(findExecutable))
+  const toolDirs = [
+    process.execPath,
+    browser,
+    ...optionalTools.filter((path) => path !== null),
+  ].map((path) => dirname(path))
+  const deniedReadRoots = [...(await repositoryRoots()), ...AGENT_HISTORY_DIRS]
   const consumer = await installConsumer(options)
 
   const runId = new Date().toISOString().replace(/[:.]/g, '-')
   const transcriptDir = join(RESULTS_DIR, runId)
+  const trialsPath = join(RESULTS_DIR, `${runId}.jsonl`)
   await mkdir(transcriptDir, { recursive: true })
+  const context = { runId, transcriptDir, consumer, executable, toolDirs, deniedReadRoots }
 
-  const trials = []
   try {
     for (const task of tasks) {
       for (let trial = 1; trial <= options.trials; trial += 1) {
-        trials.push(await runTrial(task, trial, options, { runId, transcriptDir, consumer }))
+        const identity = {
+          task: task.id,
+          split: task.split,
+          mode: task.mode,
+          trial,
+          agent: options.agent,
+          model: options.model ?? null,
+        }
+        const record = await isolateTrial(identity, () =>
+          executeTrial(task, trial, options, context),
+        )
+        if (record.failure?.startsWith('harness:')) log(`✗ ${task.id}-${trial}: ${record.failure}`)
+        await appendTrial(trialsPath, record)
       }
     }
   } finally {
     await removeWorkspace(consumer.root)
   }
 
+  const trials = await readTrials(trialsPath)
   const summary = summarizeTasks(trials)
   const runInfo = {
     id: runId,
     agent: options.agent,
     model: options.model ?? null,
     trialsPerTask: options.trials,
+    isolation: isolationLabel(options.agent),
   }
   const markdown = renderMarkdown(runInfo, summary)
   const resultPath = join(RESULTS_DIR, `${runId}.json`)
@@ -412,13 +511,16 @@ async function main() {
 for (const signal of /** @type {const} */ (['SIGINT', 'SIGTERM'])) {
   process.once(signal, async () => {
     killAllChildren()
-    await Promise.allSettled([...activeBrowserSessions].map(closeBrowserSession))
-    process.exit(130)
+    await releaseAll()
+    killAllChildren()
+    process.exit(128 + osConstants.signals[signal])
   })
 }
 
-main().catch((error) => {
-  killAllChildren()
-  log(`✗ ${error instanceof Error ? error.message : String(error)}`)
-  process.exitCode = 1
-})
+main()
+  .catch((error) => {
+    killAllChildren()
+    log(`✗ ${error instanceof Error ? error.message : String(error)}`)
+    process.exitCode = 1
+  })
+  .finally(releaseAll)

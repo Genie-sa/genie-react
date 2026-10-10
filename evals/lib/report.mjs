@@ -100,7 +100,7 @@ function compact(value) {
 }
 
 /**
- * @param {{ id: string, agent: string, model: string | null, trialsPerTask: number }} run
+ * @param {{ id: string, agent: string, model: string | null, trialsPerTask: number, isolation: string }} run
  * @param {TaskSummary[]} tasks
  */
 export function renderMarkdown(run, tasks) {
@@ -123,7 +123,7 @@ export function renderMarkdown(run, tasks) {
   const lines = [
     `# Genie agent eval ${run.id}`,
     '',
-    `Agent: ${run.agent}${run.model ? ` (${run.model})` : ''} · trials per task: ${k}`,
+    `Agent: ${run.agent}${run.model ? ` (${run.model})` : ''} · trials per task: ${k} · isolation: ${run.isolation}`,
     '',
     `| ${headers.join(' | ')} |`,
     `| ${headers.map(() => '---').join(' | ')} |`,
