@@ -24,6 +24,8 @@ export interface CommitAnalysisBudget {
   targetWork: CommitWorkBudget
   /** Separate pool for render-input attribution; exhausting it never skips render recording. */
   attributionWork: CommitWorkBudget
+  /** Observation targets' attribution pool, sized like the target reserve so wide non-target siblings cannot starve it. */
+  targetAttributionWork: CommitWorkBudget
   currentCommitEvidence: CurrentCommitEvidence
 }
 
@@ -38,14 +40,15 @@ export function createCommitAnalysisBudget(
     targetWorkOptions?.timeLimitMs,
     DEFAULT_TARGET_TIME_RESERVE_MS,
   )
-  const targetWork = {
+  const createTargetReserve = (): CommitWorkBudget => ({
     ...createCommitWorkBudget({
       operationLimit: targetWorkOptions?.operationLimit ?? DEFAULT_TARGET_OPERATION_RESERVE,
       timeLimitMs: targetTimeReserveMs,
       now: work.now,
     }),
     deadlineAt: work.deadlineAt + targetTimeReserveMs,
-  }
+  })
+  const targetWork = createTargetReserve()
   const workTimeLimitMs = normalizeTimeLimitMs(workOptions?.timeLimitMs)
   const attributionWork = {
     ...createCommitWorkBudget({ operationLimit: workOptions?.operationLimit, now: work.now }),
@@ -62,6 +65,7 @@ export function createCommitAnalysisBudget(
     targetSkipped: 0,
     targetWork,
     attributionWork,
+    targetAttributionWork: createTargetReserve(),
     currentCommitEvidence: {
       renderedFibers: new Set<Fiber>(),
       hostMutationFibers: new Set<Fiber>(),

@@ -1649,6 +1649,45 @@ describe('input attribution budget isolation', () => {
     expect(records).toHaveLength(1_000)
     expect(records.at(-1)?.inputCoverage).toMatchObject({ complete: false, scanTruncated: true })
   })
+
+  it('keeps observation-target attribution complete after siblings exhaust the shared pool', async () => {
+    const wideProps = () =>
+      Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`p${index}`, { value: index }]))
+    const stableProps = wideProps()
+    const budget = createCommitAnalysisBudget(250, { operationLimit: 40, now: () => 0 })
+    recordCommitFiber(
+      componentFiber({
+        name: 'WideSibling',
+        tag: MEMO,
+        props: wideProps(),
+        prevProps: wideProps(),
+      }),
+      'update',
+      budget,
+      false,
+    )
+    recordCommitFiber(
+      componentFiber({
+        name: 'Target',
+        tag: MEMO,
+        props: { ...stableProps, filter: { query: 'b' } },
+        prevProps: { ...stableProps, filter: { query: 'a' } },
+      }),
+      'update',
+      budget,
+      true,
+    )
+
+    const records = await getRenders({ sort: 'renders', limit: 10 })
+    expect(records.find((record) => record.name === 'WideSibling')?.inputCoverage).toMatchObject({
+      complete: false,
+      scanTruncated: true,
+    })
+    expect(records.find((record) => record.name === 'Target')).toMatchObject({
+      inputCoverage: { complete: true },
+      causes: [{ kind: 'props', name: 'filter' }],
+    })
+  })
 })
 
 describe('bounded render input evidence', () => {

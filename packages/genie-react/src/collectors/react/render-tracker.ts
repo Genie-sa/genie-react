@@ -1026,7 +1026,7 @@ export function recordCommitFiber(
       effectPreparation,
       work,
       budget.currentCommitEvidence,
-      budget.attributionWork,
+      targeted ? budget.targetAttributionWork : budget.attributionWork,
     )
     if (consumeCommitWork(work, targeted ? 'target-error-state' : 'error-state')) {
       recordErrorState(fiber)
