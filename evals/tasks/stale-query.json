@@ -7,7 +7,7 @@
   "truth": {
     "components": ["OpenOrdersCard", "useOpenOrderCount"],
     "files": ["src/screens/overview/orderQueries.ts"],
-    "causePatterns": ["stale", "infinit|never"],
+    "causePatterns": ["stale ?time", "infinit"],
     "summary": "useOpenOrderCount sets staleTime to Infinity, so cached data is never stale and remounting OpenOrdersCard does not refetch."
   },
   "referenceAnswer": {
@@ -15,11 +15,23 @@
     "cause": "The open-count query uses staleTime: Infinity, so the cached value is never considered stale and remounting never refetches it.",
     "file": "src/screens/overview/orderQueries.ts"
   },
-  "decoyAnswer": {
-    "component": "OverviewScreen",
-    "cause": "The tab state resets on every render.",
-    "file": "src/screens/overview/OverviewScreen.tsx"
-  },
+  "decoyAnswers": [
+    {
+      "component": "OverviewScreen",
+      "cause": "The tab state resets on every render.",
+      "file": "src/screens/overview/OverviewScreen.tsx"
+    },
+    {
+      "component": "OpenOrdersCard",
+      "cause": "refetchOnWindowFocus is disabled, so the stale count never refetches.",
+      "file": "src/screens/overview/orderQueries.ts"
+    },
+    {
+      "component": "OpenOrdersCard",
+      "cause": "gcTime is Infinity, so the cached count is never garbage collected.",
+      "file": "src/screens/overview/orderQueries.ts"
+    }
+  ],
   "referenceFix": [
     {
       "file": "src/screens/overview/orderQueries.ts",

@@ -8,8 +8,8 @@
     "components": ["StatusBadge", "SearchScreen"],
     "files": ["src/screens/search/SearchScreen.tsx"],
     "causePatterns": [
-      "appearance|object|prop",
-      "new|inline|literal|recreat|every render|each render|identity|referen|unstable|fresh"
+      "appearance|object|style",
+      "new|inline|literal|recreat|identity|referen|unstable|fresh"
     ],
     "summary": "SearchScreen passes an inline `appearance` object literal to the memoized StatusBadge, so its identity changes on every render and memo never bails out."
   },
@@ -18,11 +18,23 @@
     "cause": "SearchScreen passes a new inline appearance object on every render, so memo's shallow prop comparison always fails.",
     "file": "src/screens/search/SearchScreen.tsx"
   },
-  "decoyAnswer": {
-    "component": "ResultCount",
-    "cause": "The result count changes on every keystroke.",
-    "file": "src/screens/search/SearchScreen.tsx"
-  },
+  "decoyAnswers": [
+    {
+      "component": "ResultCount",
+      "cause": "The result count changes on every keystroke.",
+      "file": "src/screens/search/SearchScreen.tsx"
+    },
+    {
+      "component": "StatusBadge",
+      "cause": "The label prop changes on every render.",
+      "file": "src/screens/search/SearchScreen.tsx"
+    },
+    {
+      "component": "StatusBadge, ResultCount, SearchScreen",
+      "cause": "SearchScreen passes a new inline appearance object on every render.",
+      "file": "src/screens/search/SearchScreen.tsx"
+    }
+  ],
   "referenceFix": [
     {
       "file": "src/screens/search/SearchScreen.tsx",

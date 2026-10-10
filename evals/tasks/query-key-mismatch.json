@@ -15,11 +15,18 @@
     "cause": "useAddTask invalidates the ['task', 'list'] query key, which does not match the list query key ['tasks', 'list'], so the list never refetches.",
     "file": "src/screens/tasks/taskQueries.ts"
   },
-  "decoyAnswer": {
-    "component": "TaskList",
-    "cause": "The API never persists the new task.",
-    "file": "src/api.ts"
-  },
+  "decoyAnswers": [
+    {
+      "component": "TaskList",
+      "cause": "The API never persists the new task.",
+      "file": "src/api.ts"
+    },
+    {
+      "component": "AddTaskForm",
+      "cause": "useAddTask never invalidates the tasks list query key after the mutation succeeds.",
+      "file": "src/screens/tasks/taskQueries.ts"
+    }
+  ],
   "referenceFix": [
     {
       "file": "src/screens/tasks/taskQueries.ts",

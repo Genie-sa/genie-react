@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { extractAnswer, gradeAnswer, normalizeFile, passAtK, passHatK } from './grade.mjs'
+import {
+  componentNames,
+  extractAnswer,
+  gradeAnswer,
+  normalizeFile,
+  passAtK,
+  passHatK,
+} from './grade.mjs'
 
 const truth = {
   components: ['StatusBadge', 'SearchScreen'],
@@ -52,6 +59,14 @@ describe('extractAnswer', () => {
   })
 })
 
+describe('componentNames', () => {
+  it('keeps multi-word PascalCase and hook names once, in order', () => {
+    expect(componentNames('React.memo(StatusBadge) via useAddTask and StatusBadge in App')).toEqual(
+      ['StatusBadge', 'useAddTask'],
+    )
+  })
+})
+
 describe('normalizeFile', () => {
   it('strips project roots, ./ prefixes and line suffixes', () => {
     expect(normalizeFile('/tmp/genie-eval-x/src/a.tsx:12:4', '/tmp/genie-eval-x')).toBe('src/a.tsx')
@@ -99,6 +114,20 @@ describe('gradeAnswer', () => {
       truth,
     )
     expect(grade.checks.find((check) => check.name === 'component')?.pass).toBe(false)
+  })
+
+  it('rejects shotgun component lists and names outside the accepted set', () => {
+    const component = (name: string) =>
+      gradeAnswer(
+        { component: name, cause: 'new inline appearance object', file: 'SearchScreen.tsx' },
+        truth,
+      ).checks.find((check) => check.name === 'component')?.pass
+    expect(component('StatusBadge (rendered by SearchScreen)')).toBe(true)
+    expect(component('Memoized StatusBadge')).toBe(true)
+    expect(component('StatusBadge, ResultCount')).toBe(false)
+    expect(component('ResultCount, StatusBadge')).toBe(false)
+    expect(component('StatusBadge, SearchScreen, StatusBadgeRow')).toBe(false)
+    expect(component('the badge')).toBe(false)
   })
 
   it('fails a missing answer', () => {

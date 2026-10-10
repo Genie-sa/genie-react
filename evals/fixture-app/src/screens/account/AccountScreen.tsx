@@ -1,5 +1,5 @@
+import { CardBody } from './CardBody'
 import { ProfileDetails } from './ProfileDetails'
-import { SilentBoundary } from './SilentBoundary'
 
 export function AccountScreen() {
   return (
@@ -7,9 +7,9 @@ export function AccountScreen() {
       <h1>Account</h1>
       <article className="card" aria-label="Profile">
         <h2>Profile</h2>
-        <SilentBoundary>
+        <CardBody>
           <ProfileDetails />
-        </SilentBoundary>
+        </CardBody>
       </article>
       <article className="card">
         <h2>Security</h2>

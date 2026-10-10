@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { extractAnswer, gradeAnswer } from './grade.mjs'
+import { componentNames, extractAnswer, gradeAnswer } from './grade.mjs'
 
 /**
  * @typedef {import('./grade.mjs').Answer} Answer
@@ -23,7 +23,7 @@ import { extractAnswer, gradeAnswer } from './grade.mjs'
  *   prompt: string,
  *   truth: Truth,
  *   referenceAnswer: Answer,
- *   decoyAnswer: Answer,
+ *   decoyAnswers: Answer[],
  *   referenceFix: Edit[],
  *   probe?: Probe,
  *   path: string,
@@ -85,6 +85,13 @@ export function validateTask(task, path) {
   if (!isRecord(truth)) fail('truth is required')
   else {
     if (!isStringList(truth.components)) fail('truth.components must list component names')
+    else {
+      for (const name of truth.components) {
+        if (componentNames(name).join() !== name) {
+          fail(`truth.components entry "${name}" must be a multi-word PascalCase or useX name`)
+        }
+      }
+    }
     if (!isStringList(truth.files)) fail('truth.files must list project-relative paths')
     if (!isStringList(truth.causePatterns)) fail('truth.causePatterns must list regex sources')
     else {
@@ -100,7 +107,11 @@ export function validateTask(task, path) {
   }
 
   if (!isAnswer(task.referenceAnswer)) fail('referenceAnswer needs component, cause and file')
-  if (!isAnswer(task.decoyAnswer)) fail('decoyAnswer needs component, cause and file')
+  if (!Array.isArray(task.decoyAnswers) || task.decoyAnswers.length === 0) {
+    fail('decoyAnswers must list plausible wrong answers')
+  } else if (!task.decoyAnswers.every(isAnswer)) {
+    fail('each decoyAnswers entry needs component, cause and file')
+  }
 
   const { referenceFix } = task
   if (
@@ -204,7 +215,7 @@ export function selectTasks(tasks, { ids, split }) {
 
 /**
  * Checks a task against the fixture source: its screen exists, truth files exist, the reference
- * answer passes, the decoy fails, and each reference edit matches exactly once.
+ * answer passes, every decoy fails, and each reference edit matches exactly once.
  * @param {Task} task
  * @param {string} fixtureRoot
  * @returns {Promise<string[]>}
@@ -226,8 +237,10 @@ export async function checkTaskAgainstFixture(task, fixtureRoot) {
   if (!reference.pass) {
     problems.push(`${task.id}: reference answer fails: ${JSON.stringify(reference.checks)}`)
   }
-  if (gradeAnswer(task.decoyAnswer, task.truth).pass) {
-    problems.push(`${task.id}: decoy answer passes; tighten truth.causePatterns`)
+  for (const decoy of task.decoyAnswers) {
+    if (gradeAnswer(decoy, task.truth).pass) {
+      problems.push(`${task.id}: decoy answer passes: ${JSON.stringify(decoy)}`)
+    }
   }
   for (const { file, find } of task.referenceFix) {
     const source = await readFile(join(fixtureRoot, file), 'utf8').catch(() => '')

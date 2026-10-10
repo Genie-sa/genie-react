@@ -9,7 +9,8 @@
     "files": ["src/screens/cart/CartSummary.tsx", "src/screens/cart/createStore.ts"],
     "causePatterns": [
       "selector",
-      "new|object|literal|recreat|every|each|identity|referen|equal|Object\\.is|shallow"
+      "object",
+      "new|literal|recreat|identity|referen|Object\\.is|shallow|equal"
     ],
     "summary": "CartSummary's store selector returns a new { count, total } object on every call, so the store's Object.is check reports a change on every store update, including notes edits."
   },
@@ -18,11 +19,18 @@
     "cause": "The useCartStore selector returns a new object literal each call, so the Object.is equality check fails on every store update, including notes changes.",
     "file": "src/screens/cart/CartSummary.tsx"
   },
-  "decoyAnswer": {
-    "component": "OrderNotes",
-    "cause": "The textarea is uncontrolled.",
-    "file": "src/screens/cart/CartScreen.tsx"
-  },
+  "decoyAnswers": [
+    {
+      "component": "OrderNotes",
+      "cause": "The textarea is uncontrolled.",
+      "file": "src/screens/cart/CartScreen.tsx"
+    },
+    {
+      "component": "CartSummary",
+      "cause": "The selector subscribes to the entire store state, so every store update re-renders the summary.",
+      "file": "src/screens/cart/CartSummary.tsx"
+    }
+  ],
   "referenceFix": [
     {
       "file": "src/screens/cart/CartSummary.tsx",

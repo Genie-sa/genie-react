@@ -1,3 +1,5 @@
+import { balancedJson } from './json.mjs'
+
 /**
  * @typedef {{ component: string, cause: string, file: string }} Answer
  * @typedef {{ components: string[], files: string[], causePatterns: string[], summary: string }} Truth
@@ -6,29 +8,16 @@
  */
 
 const OBJECT_START = /\{\s*"/g
+const COMPONENT_NAME = /\b(?:use[A-Z][\w$]*|[A-Z][a-z\d]*[A-Z][\w$]*)\b/g
+const MAX_NAMED_COMPONENTS = 2
 
 /**
- * Returns the balanced JSON object text starting at `start`, skipping braces inside strings.
+ * Lists the distinct component or hook names (multi-word PascalCase or `useX`) mentioned in text, in order.
  * @param {string} text
- * @param {number} start
- * @returns {string | null}
+ * @returns {string[]}
  */
-function balancedObject(text, start) {
-  let depth = 0
-  let inString = false
-  for (let index = start; index < text.length; index += 1) {
-    const char = text[index]
-    if (inString) {
-      if (char === '\\') index += 1
-      else if (char === '"') inString = false
-    } else if (char === '"') inString = true
-    else if (char === '{') depth += 1
-    else if (char === '}') {
-      depth -= 1
-      if (depth === 0) return text.slice(start, index + 1)
-    }
-  }
-  return null
+export function componentNames(text) {
+  return [...new Set(text.match(COMPONENT_NAME) ?? [])]
 }
 
 /**
@@ -52,7 +41,7 @@ export function extractAnswer(text) {
   /** @type {Answer | null} */
   let latest = null
   for (const match of text.matchAll(OBJECT_START)) {
-    const candidate = balancedObject(text, match.index)
+    const candidate = balancedJson(text, match.index)
     if (!candidate) continue
     try {
       latest = toAnswer(JSON.parse(candidate)) ?? latest
@@ -103,7 +92,7 @@ export function gradeAnswer(answer, truth, options = {}) {
       checks: [{ name: 'answer', pass: false, detail: 'no JSON answer block found' }],
     }
   }
-  const names = answer.component.match(/[A-Za-z_$][\w$]*/g) ?? []
+  const names = componentNames(answer.component)
   const file = normalizeFile(answer.file, options.projectRoot)
   const missingPatterns = truth.causePatterns.filter(
     (pattern) => !new RegExp(pattern, 'i').test(answer.cause),
@@ -112,8 +101,11 @@ export function gradeAnswer(answer, truth, options = {}) {
   const checks = [
     {
       name: 'component',
-      pass: names.some((name) => truth.components.includes(name)),
-      detail: `answered "${answer.component}", accepted ${truth.components.join(' | ')}`,
+      pass:
+        names.length > 0 &&
+        names.length <= MAX_NAMED_COMPONENTS &&
+        names.every((name) => truth.components.includes(name)),
+      detail: `answered "${answer.component}" (named ${names.join(', ') || 'none'}), accepted ${truth.components.join(' | ')}, at most ${MAX_NAMED_COMPONENTS} and only accepted names`,
     },
     {
       name: 'file',

@@ -6,10 +6,10 @@
   "prompt": "On the Search screen, the \"Pager on call\" badge next to the heading re-renders on every keystroke when I type in the incident filter, even though nothing about the badge changes. Find out why and fix it.",
   "truth": {
     "components": ["StatusBadge", "SearchScreen"],
-    "files": ["src/screens/search/SearchScreen.tsx"],
+    "files": ["src/screens/search/SearchScreen.tsx", "src/screens/search/StatusBadge.tsx"],
     "causePatterns": [
-      "appearance|object|prop",
-      "new|inline|literal|recreat|every render|each render|identity|referen|unstable|fresh"
+      "appearance|object|style",
+      "new|inline|literal|recreat|identity|referen|unstable|fresh"
     ],
     "summary": "SearchScreen passes an inline `appearance` object literal to the memoized StatusBadge, so its identity changes on every render and memo never bails out."
   },
@@ -18,11 +18,18 @@
     "cause": "SearchScreen passes a new inline appearance object on every render, so memo's shallow prop comparison always fails.",
     "file": "src/screens/search/SearchScreen.tsx"
   },
-  "decoyAnswer": {
-    "component": "StatusBadge",
-    "cause": "The badge label string changes while typing.",
-    "file": "src/screens/search/StatusBadge.tsx"
-  },
+  "decoyAnswers": [
+    {
+      "component": "StatusBadge",
+      "cause": "The badge label string changes while typing.",
+      "file": "src/screens/search/StatusBadge.tsx"
+    },
+    {
+      "component": "StatusBadge",
+      "cause": "StatusBadge is not wrapped in memo, so it re-renders with each new parent render.",
+      "file": "src/screens/search/StatusBadge.tsx"
+    }
+  ],
   "referenceFix": [
     {
       "file": "src/screens/search/SearchScreen.tsx",
@@ -37,6 +44,13 @@
   ],
   "probe": {
     "steps": [["type", "input[aria-label=\"Filter incidents\"]", "cert"]],
-    "renders": { "component": "StatusBadge", "maxUpdates": 0 }
+    "renders": {
+      "component": "StatusBadge",
+      "maxUpdates": 0
+    },
+    "text": {
+      "selector": "main",
+      "includes": "Pager on call"
+    }
   }
 }

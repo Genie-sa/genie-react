@@ -8,8 +8,9 @@
     "components": ["WidgetCard", "PreferencesProvider"],
     "files": ["src/screens/dashboard/PreferencesProvider.tsx"],
     "causePatterns": [
-      "value|context|provider",
-      "new|inline|literal|recreat|every render|each render|identity|referen|unstable|fresh"
+      "value|object",
+      "context|provider",
+      "new|inline|literal|recreat|identity|referen|unstable|fresh"
     ],
     "summary": "PreferencesProvider re-renders every second for its sync clock and passes a new `{ density, setDensity }` object as the context value, so every consumer re-renders."
   },
@@ -18,11 +19,23 @@
     "cause": "PreferencesProvider creates a new context value object on every render (it re-renders each second for the sync clock), so all consumers re-render.",
     "file": "src/screens/dashboard/PreferencesProvider.tsx"
   },
-  "decoyAnswer": {
-    "component": "DashboardScreen",
-    "cause": "The widgets array is recreated on each render.",
-    "file": "src/screens/dashboard/DashboardScreen.tsx"
-  },
+  "decoyAnswers": [
+    {
+      "component": "DashboardScreen",
+      "cause": "The widgets array is recreated on each render.",
+      "file": "src/screens/dashboard/DashboardScreen.tsx"
+    },
+    {
+      "component": "PreferencesProvider",
+      "cause": "The provider's setInterval updates state every second, causing a new render of the provider.",
+      "file": "src/screens/dashboard/PreferencesProvider.tsx"
+    },
+    {
+      "component": "WidgetCard, DensityToggle, DashboardScreen",
+      "cause": "PreferencesProvider creates a new context value object on every render.",
+      "file": "src/screens/dashboard/PreferencesProvider.tsx"
+    }
+  ],
   "referenceFix": [
     {
       "file": "src/screens/dashboard/PreferencesProvider.tsx",
