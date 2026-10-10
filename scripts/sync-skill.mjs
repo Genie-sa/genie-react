@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // `npx skills add Genie-sa/genie-react` reads skills/genie from git; packages/cli/skill is the only source.
 
-const ROOT = new URL('..', import.meta.url).pathname
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SOURCE = join(ROOT, 'packages/cli/skill')
 const MIRROR = join(ROOT, 'skills/genie')
 const check = process.argv.includes('--check')
@@ -19,6 +20,10 @@ const markdownIn = (directory) => {
 const read = (directory, name) => readFileSync(join(directory, name), 'utf8')
 
 const sourceFiles = markdownIn(SOURCE)
+if (sourceFiles.length === 0) {
+  console.error(`No skill files found in ${SOURCE}`)
+  process.exit(1)
+}
 const mirrorFiles = markdownIn(MIRROR)
 const drift = [
   ...sourceFiles.filter(
