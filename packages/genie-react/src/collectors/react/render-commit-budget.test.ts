@@ -133,4 +133,19 @@ describe('commit analysis budget', () => {
     expect(consumeCommitWork(budget.targetWork, 'target-fibers')).toBe(true)
     expect(consumeCommitWork(budget.targetWork, 'target-fibers')).toBe(false)
   })
+
+  it('sizes target attribution like the target reserve, independent of shared attribution', () => {
+    const budget = createCommitAnalysisBudget(
+      250,
+      { operationLimit: 1, timeLimitMs: 10, now: () => 0 },
+      { operationLimit: 2, timeLimitMs: 5, now: () => 0 },
+    )
+
+    expect(budget.targetAttributionWork.deadlineAt).toBe(budget.targetWork.deadlineAt)
+    expect(consumeCommitWork(budget.attributionWork, 'props')).toBe(true)
+    expect(consumeCommitWork(budget.attributionWork, 'props')).toBe(false)
+    expect(consumeCommitWork(budget.targetAttributionWork, 'props')).toBe(true)
+    expect(consumeCommitWork(budget.targetAttributionWork, 'props')).toBe(true)
+    expect(consumeCommitWork(budget.targetAttributionWork, 'props')).toBe(false)
+  })
 })

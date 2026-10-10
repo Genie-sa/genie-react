@@ -1,9 +1,10 @@
-import type {
-  CaptureArtifact,
-  CaptureComparison,
-  CaptureMetric,
-  devtoolsCaptureCompareContract,
-  ToolInput,
+import {
+  type CaptureArtifact,
+  type CaptureComparison,
+  type CaptureMetric,
+  type devtoolsCaptureCompareContract,
+  INPUT_ATTRIBUTION_REASONS,
+  type ToolInput,
 } from '../protocol'
 
 type ComparisonInput = ToolInput<typeof devtoolsCaptureCompareContract>
@@ -31,6 +32,11 @@ const METRIC_DIRECTIONS: Record<CaptureMetric, MetricResult['direction']> = {
   'performance.avgFps': 'higher-is-better',
   'performance.droppedFrames': 'lower-is-better',
 }
+
+const CAUSE_DEPENDENT_METRICS: ReadonlySet<CaptureMetric> = new Set(['react.unnecessary'])
+
+// Partial render-cause attribution leaves render counts and timings exact, so only cause-derived metrics are gated by it.
+const ATTRIBUTION_ONLY_REASONS: ReadonlySet<string> = new Set(INPUT_ATTRIBUTION_REASONS)
 
 export function compareCaptureCohorts(
   baseline: CaptureArtifact[],
@@ -170,6 +176,7 @@ function compareMetric(
     candidate: candidateStats,
     missingBaselineCaptureIds: baselineSamples.missing,
     missingCandidateCaptureIds: candidateSamples.missing,
+    excludedCaptureIds: { ...baselineSamples.excluded, ...candidateSamples.excluded },
     outlierBaselineCaptureIds: baselineFiltered.rejected.map((sample) => sample.captureId),
     outlierCandidateCaptureIds: candidateFiltered.rejected.map((sample) => sample.captureId),
     comparable: notComparableReasons.length === 0,
@@ -185,6 +192,7 @@ function compareMetric(
 function samplesFor(metric: CaptureMetric, captures: CaptureArtifact[]): SampleCollection {
   const samples: MetricSample[] = []
   const missing: string[] = []
+  const excluded: Record<string, string[]> = {}
   const notComparableReasons: string[] = []
   const refreshRates: number[] = []
   const coverageSignatures: string[] = []
@@ -196,14 +204,19 @@ function samplesFor(metric: CaptureMetric, captures: CaptureArtifact[]): SampleC
     if (!evidence.comparable) {
       notComparableReasons.push(...evidence.reasons)
       missing.push(capture.captureId)
+      excluded[capture.captureId] = evidence.reasons
       continue
     }
     const value = captureMetricValue(capture, metric)
-    if (value === null) missing.push(capture.captureId)
-    else samples.push({ captureId: capture.captureId, value })
+    if (value === null) {
+      missing.push(capture.captureId)
+      excluded[capture.captureId] = ['metric-value-unavailable']
+    } else {
+      samples.push({ captureId: capture.captureId, value })
+    }
     if (evidence.refreshRate !== null) refreshRates.push(evidence.refreshRate)
   }
-  return { samples, missing, notComparableReasons, refreshRates, coverageSignatures }
+  return { samples, missing, excluded, notComparableReasons, refreshRates, coverageSignatures }
 }
 
 interface MetricSample {
@@ -214,6 +227,7 @@ interface MetricSample {
 interface SampleCollection {
   samples: MetricSample[]
   missing: string[]
+  excluded: Record<string, string[]>
   notComparableReasons: string[]
   refreshRates: number[]
   coverageSignatures: string[]
@@ -233,7 +247,8 @@ function metricEvidence(
     if (!isRecord(result)) {
       return { comparable: true, reasons: [], refreshRate: null, coverageSignature: null }
     }
-    const coverageSignature = renderCoverageSignature(result)
+    const causeDependent = CAUSE_DEPENDENT_METRICS.has(metric)
+    const coverageSignature = renderCoverageSignature(result, causeDependent)
     if (
       (metric === 'react.unnecessary' || metric === 'react.selfTimeMs') &&
       finiteNumber(result.omittedByLimit) !== null &&
@@ -247,11 +262,12 @@ function metricEvidence(
       }
     }
     if (result.comparable === false) {
-      return {
-        comparable: false,
-        reasons: stringArray(result.notComparableReasons, 'render-evidence-not-comparable'),
-        refreshRate: null,
-        coverageSignature,
+      const reasons = stringArray(
+        result.notComparableReasons,
+        'render-evidence-not-comparable',
+      ).filter((reason) => causeDependent || !ATTRIBUTION_ONLY_REASONS.has(reason))
+      if (reasons.length > 0) {
+        return { comparable: false, reasons, refreshRate: null, coverageSignature }
       }
     }
     const semantics = isRecord(result.summary) ? result.summary.semantics : undefined
@@ -304,15 +320,22 @@ function crossCohortReasons(
   return reasons
 }
 
-function renderCoverageSignature(result: Record<string, unknown>): string | null {
+function renderCoverageSignature(
+  result: Record<string, unknown>,
+  includeAttribution: boolean,
+): string | null {
   const coverage = isRecord(result.coverage) ? result.coverage : null
   if (!coverage) return null
   const targeted = isRecord(coverage.targeted) ? coverage.targeted : null
   const observationBudget = isRecord(coverage.observationBudget) ? coverage.observationBudget : null
   return JSON.stringify({
-    complete: coverage.complete ?? null,
-    inputAttributionComplete: coverage.inputAttributionComplete ?? null,
-    semantics: coverage.semantics ?? null,
+    ...(includeAttribution
+      ? {
+          complete: coverage.complete ?? null,
+          inputAttributionComplete: coverage.inputAttributionComplete ?? null,
+          semantics: coverage.semantics ?? null,
+        }
+      : {}),
     coverageDomain: coverage.coverageDomain ?? null,
     targeted: targeted
       ? {
