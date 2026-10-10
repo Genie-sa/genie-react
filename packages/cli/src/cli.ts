@@ -18,6 +18,7 @@ import { runHub } from './hub-command'
 import { runDoctor, runLiveDoctor } from './index'
 import { runLink } from './link'
 import { installOutputFailureHandler, setOutputContext } from './output-safety'
+import { genieCommand } from './package-manager'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 import { runInitCommand } from './setup-output'
 
@@ -37,12 +38,11 @@ function unsupportedOption(command: string, values: ParsedValues): string | null
 }
 
 function writeCliFailure(message: string, command?: string): void {
-  const argv = ['genie-react', ...(command ? [command] : []), '--help']
   writeJson(
     JSON.parse(
       formatAgentFailure('invalid_input', message, {
         userActionRequired: true,
-        next: { command: argv.join(' '), argv },
+        next: genieCommand([...(command ? [command] : []), '--help']),
       }),
     ),
   )
@@ -88,7 +88,9 @@ async function main(): Promise<number> {
 
   const command = positionals[0]
   if (command !== undefined && !Object.hasOwn(COMMANDS, command)) {
-    writeCliFailure('Unknown command. Run `genie-react --help` for accepted commands.')
+    writeCliFailure(
+      `Unknown command. Run ${genieCommand(['--help']).command} for accepted commands.`,
+    )
     return 1
   }
   if (!command) {
@@ -109,7 +111,9 @@ async function main(): Promise<number> {
   }
   const positionalLimit = POSITIONAL_LIMITS[operation]
   if (positionalLimit !== undefined && positionals.length > positionalLimit) {
-    writeCliFailure(`Too many arguments for ${command}. Run \`genie-react ${command} --help\`.`)
+    writeCliFailure(
+      `Too many arguments for ${command}. Run ${genieCommand([operation, '--help']).command}.`,
+    )
     return 1
   }
 
@@ -297,16 +301,16 @@ main()
       error.code.startsWith('ERR_PARSE_ARGS_')
     if (argumentError) {
       writeCliFailure(
-        'Invalid command-line arguments. Use the options and value types from `genie-react --help`.',
+        `Invalid command-line arguments. Use the options and value types from ${genieCommand(['--help']).command}.`,
       )
     } else {
       writeJson(
         JSON.parse(
           formatAgentFailure(
             'operational_failure',
-            'CLI operation failed. Inspect local setup with `genie-react doctor` before retrying.',
+            `CLI operation failed. Inspect local setup with ${genieCommand(['doctor']).command} before retrying.`,
             {
-              next: { command: 'genie-react doctor', argv: ['genie-react', 'doctor'] },
+              next: genieCommand(['doctor']),
             },
           ),
         ),

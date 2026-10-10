@@ -36,6 +36,7 @@ import {
 } from './failure'
 import { isRecord, isRecordArray } from './guards'
 import { setOutputContext } from './output-safety'
+import { genieCommand } from './package-manager'
 import {
   FieldSelectionError,
   renderBoundedJson,
@@ -52,13 +53,7 @@ export {
 export { CLI_OUTPUT_SCHEMA_VERSION, formatAgentFailure } from './failure'
 export * from './react-output'
 export { summarizeSessionsOnly, summarizeStatus } from './session-output'
-export {
-  formatGroupIndex,
-  formatToolDetail,
-  formatToolsListing,
-  relatedActions,
-  resolveToolsSelector,
-} from './tool-output'
+export { relatedActions, resolveToolsSelector } from './tool-output'
 
 // The CLI's tool-calling surface: connects to the bridge as the `agent` role — straight from a shell, no separate server.
 
@@ -200,7 +195,7 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
     if (bridge.source === 'fallback') {
       writeDiagnostic(
         'bridge_fallback',
-        'No bridge discovery file was found. Trying the default local bridge; start the dev server or run genie-react hub.',
+        `No bridge discovery file was found. Trying the default local bridge; start the dev server or run ${genieCommand(['hub'], cwd).command}.`,
       )
     }
   }
@@ -239,7 +234,7 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
             'bridge_event',
             message.startsWith('connected to bridge')
               ? 'Connected to the bridge.'
-              : 'The bridge connection reported an error. Run genie-react doctor --live to inspect connectivity.',
+              : `The bridge connection reported an error. Run ${genieCommand(['doctor', '--live']).command} to inspect connectivity.`,
           )
       : undefined,
   })
@@ -505,10 +500,10 @@ export async function runCall(
     emitFailure(
       opts,
       'invalid_input',
-      'Provide a tool name. Discover tools with `genie-react tools`.',
+      `Provide a tool name. Discover tools with ${genieCommand(['tools']).command}.`,
       {
         userActionRequired: true,
-        next: { command: 'genie-react tools', argv: ['genie-react', 'tools'] },
+        next: genieCommand(['tools']),
       },
     )
     return 1
@@ -521,7 +516,7 @@ export async function runCall(
       emitFailure(
         opts,
         'invalid_input',
-        'Tool arguments must be one valid JSON object. Run `genie-react tools <tool>` for its schema.',
+        `Tool arguments must be one valid JSON object. Run ${genieCommand(['tools']).command} <tool> for its schema.`,
         { userActionRequired: true },
       )
       return 1
@@ -545,7 +540,7 @@ export async function runCall(
           'No app is connected. Start the dev server and open the app in a browser.',
           {
             userActionRequired: true,
-            next: { command: 'genie-react status', argv: ['genie-react', 'status'] },
+            next: genieCommand(['status']),
           },
         )
         return 1
@@ -615,7 +610,7 @@ export async function runCaptureExport(
     emitFailure(
       opts,
       'invalid_input',
-      'Provide a capture ID and --output <path>. Run `genie-react capture export --help` for an example.',
+      `Provide a capture ID and --output <path>. Run ${genieCommand(['capture', 'export', '--help']).command} for an example.`,
       { userActionRequired: true },
     )
     return 1
@@ -752,7 +747,7 @@ export async function runBatch(
   if ('error' in parsed) {
     emitFailure(opts, 'invalid_input', parsed.error, {
       userActionRequired: true,
-      next: { command: 'genie-react batch --help', argv: ['genie-react', 'batch', '--help'] },
+      next: genieCommand(['batch', '--help']),
     })
     return 1
   }
@@ -783,7 +778,7 @@ export async function runBatch(
         'No app is connected. Start the dev server and open the app in a browser.',
         {
           userActionRequired: true,
-          next: { command: 'genie-react status', argv: ['genie-react', 'status'] },
+          next: genieCommand(['status']),
         },
       )
       return 1
@@ -946,7 +941,7 @@ export async function runTools(
         'No tools are advertised. Start the dev server and open the app in a browser.',
         {
           userActionRequired: true,
-          next: { command: 'genie-react status', argv: ['genie-react', 'status'] },
+          next: genieCommand(['status']),
         },
       )
       return 1

@@ -14,17 +14,15 @@ Add `_genie` to the app URL:
 http://localhost:3000/?_genie=checkout-agent
 ```
 
-Pin later calls in the shell:
-
-```bash
-export GENIE_SESSION=checkout-agent
-```
-
-Or target one call:
+Pass the name to every `status`, `tools`, `call`, `batch`, and `capture` command:
 
 ```bash
 npx @genie-react/cli status --session checkout-agent
+npx @genie-react/cli call react_get_tree '{"depth":2}' --session checkout-agent
 ```
+
+`GENIE_SESSION` sets a default for one shell, but prefer the flag: each command stays
+self-contained, and agent permission allowlists accept it without an `export`.
 
 The name survives navigation, reloads, HMR, and reconnects. A physical session ID also works, but it
 can change after a reconnect.
@@ -37,8 +35,8 @@ npx @genie-react/cli status --sessions-only
 
 Run the command from the app folder. Genie uses the local bridge discovery file. Several matching
 bridges are an error. When several sessions are connected and no session is pinned, the CLI selects
-the most recent one and prints a warning. Set `GENIE_SESSION` to a unique name, logical ID, or
-physical ID before any mutation. Repeated session names remain ambiguous and fail.
+the most recent one and prints a warning. Pass `--session` with a unique name, logical ID,
+or physical ID before any mutation. Repeated session names remain ambiguous and fail.
 
 Use a direct bridge only when discovery is not enough:
 

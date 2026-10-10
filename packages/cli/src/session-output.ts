@@ -45,8 +45,7 @@ export function summarizeStatus(
       )
     lines.push(parts.join(' · '))
   }
-  if (options.targetSessionId === undefined)
-    lines.push('target one: --session <target> (or set GENIE_SESSION once per shell)')
+  if (options.targetSessionId === undefined) lines.push('target one: --session <target>')
   for (const warning of warnings) lines.push(`! ${warning}`)
   return lines.join('\n')
 }

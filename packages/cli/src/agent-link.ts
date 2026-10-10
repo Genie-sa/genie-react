@@ -15,6 +15,7 @@ import {
   type ToolOutput,
 } from 'genie-react/protocol'
 import { WebSocket } from 'ws'
+import { genieCommand } from './package-manager'
 
 export interface GenieAgentLinkOptions {
   /** Bridge URL, or a resolver re-invoked on every (re)connect so the link self-heals when the URL changes. */
@@ -296,7 +297,7 @@ export class GenieAgentLink {
         this.openWaiters = this.openWaiters.filter((waiter) => waiter !== onOpen)
         reject(
           new Error(
-            `Genie bridge not reachable at ${this.currentUrl || '(unresolved)'}. Start it: Vite apps run the dev server with the genie() plugin; Next.js/other apps run \`genie-react hub\` (or next dev with instrumentation).`,
+            `Genie bridge not reachable at ${this.currentUrl || '(unresolved)'}. Start it: Vite apps run the dev server with the genie() plugin; Next.js/other apps run ${genieCommand(['hub']).command} (or next dev with instrumentation).`,
           ),
         )
       }, this.connectTimeoutMs)

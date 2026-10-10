@@ -1,7 +1,16 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, symlinkSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  CANONICAL_SKILL_DIRECTORY,
+  conflictRemedy,
+  installAgentSkill,
+  readSkillFiles,
+  renderSkillFiles,
+  SKILL_PATH_CONFLICT,
+} from './agent-skill'
 import { writeDiagnostic, writeJson } from './cli-output'
+import { genieCommand } from './package-manager'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 
 // The unpublished "local link" install path: symlinks a checkout into node_modules so `genie-react` and this CLI resolve normally.
@@ -10,7 +19,6 @@ const LINKABLE = [
   { dir: 'genie-react', name: 'genie-react' },
   { dir: 'cli', name: '@genie-react/cli' },
 ] as const
-const SKILL_FILES = ['SKILL.md', 'APP_TOOLS.md'] as const
 
 export interface LinkOptions {
   cwd?: string
@@ -32,10 +40,7 @@ export function runLink(opts: LinkOptions = {}): number {
         message,
         userActionRequired: true,
         data: { packages, changesMayHaveApplied },
-        next: {
-          command: 'genie-react link <path-to-genie-react>',
-          argv: ['genie-react', 'link', '<path-to-genie-react>'],
-        },
+        next: genieCommand(['link', '<path-to-genie-react>'], cwd),
       },
       opts.maxBytes,
     )
@@ -62,8 +67,8 @@ export function runLink(opts: LinkOptions = {}): number {
     if (packages.length === 0)
       return fail('packages_not_found', 'The checkout contains no linkable Genie packages.')
     const binPath = missingDist ? null : dropGenieBin(cwd, packagesDir)
-    const skillPath = installAgentSkill(cwd, packagesDir)
-    if (!skillPath)
+    const skillPaths = linkAgentSkill(cwd, packagesDir)
+    if (!skillPaths)
       writeDiagnostic(
         'bundled_skill_missing',
         'Rebuild or reinstall the CLI package to restore its bundled skill.',
@@ -78,14 +83,14 @@ export function runLink(opts: LinkOptions = {}): number {
         status: 'ok',
         reason: 'packages_linked',
         message: 'Linked the local Genie packages.',
-        userActionRequired: missingDist || !skillPath,
+        userActionRequired: missingDist || !skillPaths,
         data: {
           packages,
           binPath,
-          skillPaths: skillPath ? SKILL_FILES.map((name) => join(dirname(skillPath), name)) : [],
+          skillPaths: skillPaths ?? [],
           buildRequired: missingDist,
         },
-        next: { command: 'genie-react init --dry-run', argv: ['genie-react', 'init', '--dry-run'] },
+        next: genieCommand(['init', '--dry-run'], cwd),
       },
       opts.maxBytes,
     )
@@ -98,15 +103,20 @@ export function runLink(opts: LinkOptions = {}): number {
   }
 }
 
-function installAgentSkill(cwd: string, packagesDir: string): string | null {
-  const sourceDirectory = join(packagesDir, 'cli', 'skill')
-  if (SKILL_FILES.some((name) => !existsSync(join(sourceDirectory, name)))) return null
-  const destinationDirectory = join(cwd, '.agents', 'skills', 'genie')
-  mkdirSync(destinationDirectory, { recursive: true })
-  for (const name of SKILL_FILES) {
-    writeFileSync(join(destinationDirectory, name), readFileSync(join(sourceDirectory, name)))
+function linkAgentSkill(cwd: string, packagesDir: string): string[] | null {
+  const files = readSkillFiles(join(packagesDir, 'cli', 'skill'))
+  if (!files) return null
+  const artifacts = installAgentSkill(cwd, renderSkillFiles(files, cwd), false)
+  for (const { path, reason } of artifacts) {
+    if (reason === SKILL_PATH_CONFLICT)
+      writeDiagnostic(reason, `${conflictRemedy(path)}, then rerun link.`, {
+        path,
+      })
   }
-  return join(destinationDirectory, 'SKILL.md')
+  const canonical = join(cwd, CANONICAL_SKILL_DIRECTORY)
+  return artifacts
+    .filter(({ path, status }) => status !== 'manual' && dirname(path) === canonical)
+    .map(({ path }) => path)
 }
 
 function dropGenieBin(cwd: string, packagesDir: string): string | null {

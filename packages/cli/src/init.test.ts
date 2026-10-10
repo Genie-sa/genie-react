@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -94,6 +94,8 @@ function capture(): { logger: Logger; lines: string[] } {
 }
 
 const silent: Logger = { info: () => {}, error: () => {} }
+const staleSkill = (version: string) =>
+  `---\nname: genie\nmetadata:\n  version: "${version}"\n  package: "@genie-react/cli"\n---\nstale\n`
 
 describe('detectFramework', () => {
   it('classifies a project with @tanstack/react-start as tanstack-start', async () => {
@@ -198,7 +200,7 @@ describe('runInit — plain React + Vite', () => {
     const { logger, lines } = capture()
     runInit({ cwd: dir, dryRun: true, logger })
     const text = lines.join('\n')
-    expect(text).toContain('pnpm add -D genie-react @genie-react/cli')
+    expect(text).toContain('npm install -D genie-react @genie-react/cli')
   })
 
   it('still prints the <Genie /> render step — only it surfaces the memory + plugin tools', async () => {
@@ -418,10 +420,10 @@ describe('runInit — idempotency and dry-run', () => {
     runInit({ cwd: dir, logger: silent })
     expect(await readFile(activeAppTools, 'utf8')).toBe(bundledAppTools)
 
-    await writeFile(activeSkill, '---\nmetadata:\n  version: "0.8.0"\n---\nstale\n')
+    await writeFile(activeSkill, staleSkill('0.8.0'))
     const stale = runDoctor({ cwd: dir, logger: silent })
     expect(stale.skill.current).toBe(false)
-    expect(stale.remediation.join('\n')).toContain('npx @genie-react/cli init')
+    expect(stale.remediation.join('\n')).toContain('npx genie-react init')
 
     runInit({ cwd: dir, logger: silent })
     expect(await readFile(activeSkill, 'utf8')).toBe(bundledSkill)
@@ -462,6 +464,171 @@ describe('runInit — idempotency and dry-run', () => {
 
     expect(await readFile(join(dir, 'vite.config.ts'), 'utf8')).toBe(VITE_CONFIG)
     expect(await readFile(join(dir, 'src/routes/__root.tsx'), 'utf8')).toBe(START_ROOT)
+  })
+})
+
+describe('runInit — agent skill locations', () => {
+  const VITE_APP = {
+    'package.json': pkg({ react: '^19' }),
+    'index.html': '<div id="root"></div>',
+    'vite.config.ts': VITE_CONFIG,
+  }
+  const bundled = (name: string) =>
+    readFile(join(process.cwd(), 'packages/cli/skill', name), 'utf8')
+
+  it('links .claude/skills/genie to the canonical .agents copy and doctor verifies both', async () => {
+    const dir = await project(VITE_APP)
+    const claude = join(dir, '.claude/skills/genie')
+
+    const result = runInit({ cwd: dir, logger: silent })
+    expect(result.artifacts).toContainEqual(
+      expect.objectContaining({ path: claude, status: 'applied', link: 'symlink' }),
+    )
+    expect((await lstat(claude)).isSymbolicLink()).toBe(true)
+    expect(await readlink(claude)).toBe(join('..', '..', '.agents/skills/genie'))
+    expect(await readFile(join(claude, 'EVIDENCE.md'), 'utf8')).toBe(await bundled('EVIDENCE.md'))
+
+    const doctor = runDoctor({ cwd: dir, logger: silent })
+    expect(doctor.skill.current).toBe(true)
+    expect(doctor.skill.locations).toEqual([
+      expect.objectContaining({ path: '.agents/skills/genie', symlink: false, current: true }),
+      expect.objectContaining({ path: '.claude/skills/genie', symlink: true, current: true }),
+    ])
+
+    const second = runInit({ cwd: dir, logger: silent })
+    expect(
+      second.artifacts.filter(({ kind }) => kind === 'agent_skill').map(({ status }) => status),
+    ).toEqual(['already', 'already', 'already', 'already'])
+  })
+
+  it('refreshes an existing .claude copy in place and doctor reports its drift', async () => {
+    const dir = await project({
+      ...VITE_APP,
+      '.claude/skills/genie/SKILL.md': staleSkill('0.12.3'),
+    })
+    runInit({ cwd: dir, logger: silent })
+    const claudeSkill = join(dir, '.claude/skills/genie/SKILL.md')
+    expect((await lstat(join(dir, '.claude/skills/genie'))).isSymbolicLink()).toBe(false)
+    expect(await readFile(claudeSkill, 'utf8')).toBe(await bundled('SKILL.md'))
+    expect(runDoctor({ cwd: dir, logger: silent }).skill.current).toBe(true)
+
+    await writeFile(claudeSkill, staleSkill('0.14.0'))
+    const drifted = runDoctor({ cwd: dir, logger: silent })
+    expect(drifted.ok).toBe(false)
+    expect(drifted.skill.current).toBe(false)
+    expect(drifted.checks.find(({ label }) => label.startsWith('agent skill'))?.ok).toBe(true)
+    const claudeCheck = drifted.checks.find(({ label }) => label.startsWith('Claude Code skill'))
+    expect(claudeCheck).toMatchObject({ ok: false, critical: true })
+    expect(claudeCheck?.detail).toContain('drifted')
+    expect(drifted.remediation.join('\n')).toContain('npx genie-react init')
+
+    runInit({ cwd: dir, logger: silent })
+    expect(runDoctor({ cwd: dir, logger: silent }).skill.current).toBe(true)
+  })
+
+  it('reports a missing Claude Code location without failing the canonical check', async () => {
+    const dir = await project(VITE_APP)
+    runInit({ cwd: dir, logger: silent })
+    await rm(join(dir, '.claude'), { recursive: true })
+
+    const doctor = runDoctor({ cwd: dir, logger: silent })
+    expect(doctor.skill.locations[0]?.current).toBe(true)
+    expect(doctor.checks.find(({ label }) => label.startsWith('Claude Code skill'))?.detail).toBe(
+      '.claude/skills/genie missing; run: npx genie-react init',
+    )
+  })
+
+  it('leaves a symlink that points elsewhere untouched and reports it as manual', async () => {
+    const dir = await project({ ...VITE_APP, 'elsewhere/SKILL.md': 'foreign skill\n' })
+    await mkdir(join(dir, '.claude/skills'), { recursive: true })
+    await symlink(join(dir, 'elsewhere'), join(dir, '.claude/skills/genie'), 'dir')
+
+    const result = runInit({ cwd: dir, logger: silent })
+    expect(result.artifacts).toContainEqual(
+      expect.objectContaining({
+        path: join(dir, '.claude/skills/genie'),
+        status: 'manual',
+        reason: 'skill_path_conflict',
+      }),
+    )
+    expect(await readFile(join(dir, 'elsewhere/SKILL.md'), 'utf8')).toBe('foreign skill\n')
+  })
+
+  it.each([
+    ['no lockfile', {}, 'npx genie-react'],
+    ['package-lock.json', { 'package-lock.json': '{}' }, 'npx genie-react'],
+    ['pnpm-lock.yaml', { 'pnpm-lock.yaml': '' }, 'pnpm exec genie-react'],
+    ['a Yarn Berry yarn.lock', { 'yarn.lock': '__metadata:\n  version: 8\n' }, 'yarn genie-react'],
+    ['a Yarn 1 yarn.lock', { 'yarn.lock': '# yarn lockfile v1\n' }, 'yarn --silent genie-react'],
+    ['bun.lock', { 'bun.lock': '' }, 'bunx genie-react'],
+  ])('uses one command prefix for %s across skill and hints', async (_, lockfile, invocation) => {
+    const dir = await project({ ...VITE_APP, ...lockfile })
+    runInit({ cwd: dir, logger: silent })
+
+    for (const name of ['SKILL.md', 'APP_TOOLS.md']) {
+      const installed = await readFile(join(dir, '.agents/skills/genie', name), 'utf8')
+      expect(installed).toContain(`${invocation} tools app`)
+      if (invocation !== 'npx genie-react') expect(installed).not.toContain('npx genie-react')
+    }
+    expect(runDoctor({ cwd: dir, logger: silent }).skill.current).toBe(true)
+
+    await rm(join(dir, '.claude'), { recursive: true })
+    expect(runDoctor({ cwd: dir, logger: silent }).remediation).toContain(
+      `.claude/skills/genie missing; run: ${invocation} init`,
+    )
+  })
+
+  it.each([
+    [
+      'a foreign skill directory',
+      '.claude/skills/genie',
+      'directory',
+      async (dir: string) => {
+        await mkdir(join(dir, '.claude/skills/genie'), { recursive: true })
+        await writeFile(join(dir, '.claude/skills/genie/SKILL.md'), 'another skill\n')
+      },
+    ],
+    [
+      'a dangling skill symlink',
+      '.claude/skills/genie',
+      'symlink',
+      async (dir: string) => {
+        await mkdir(join(dir, '.claude/skills'), { recursive: true })
+        await symlink(join(dir, 'missing'), join(dir, '.claude/skills/genie'), 'dir')
+      },
+    ],
+    [
+      'a .agents file',
+      '.agents',
+      'file',
+      (dir: string) => writeFile(join(dir, '.agents'), 'not a directory\n'),
+    ],
+    [
+      'a .agents symlink out of the project',
+      '.agents',
+      'symlink',
+      (dir: string) => symlink(dirname(dir), join(dir, '.agents'), 'dir'),
+    ],
+  ])('has init and doctor name %s as the entry to fix', async (_, blocking, kind, occupy) => {
+    const dir = await project(VITE_APP)
+    await occupy(dir)
+
+    expect(runInit({ cwd: dir, logger: silent }).artifacts).toContainEqual(
+      expect.objectContaining({
+        path: join(dir, blocking),
+        status: 'manual',
+        reason: 'skill_path_conflict',
+      }),
+    )
+    const doctor = runDoctor({ cwd: dir, logger: silent })
+    expect(doctor.skill.locations.map(({ conflictPath }) => conflictPath)).toContain(blocking)
+    expect(doctor.remediation).toContainEqual(
+      expect.stringMatching(
+        new RegExp(
+          `^skill_path_conflict: ${blocking.replaceAll('.', '\\.')} blocks .*\\. Remove or replace the ${kind} at ${blocking.replaceAll('.', '\\.')}, then run: npx genie-react init$`,
+        ),
+      ),
+    )
   })
 })
 

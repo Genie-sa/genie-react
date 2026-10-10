@@ -129,10 +129,9 @@ Open the page that mounts the Query provider and has fetched at least one query.
 `http://localhost:3000/query-demo?_genie=next-check`.
 
 ```bash title="Terminal 2"
-export GENIE_SESSION=next-check
-status_json="$(npx @genie-react/cli status)"
-tools_json="$(npx @genie-react/cli tools)"
-query_json="$(npx @genie-react/cli call query_list '{"limit":10}')"
+status_json="$(npx @genie-react/cli status --session next-check)"
+tools_json="$(npx @genie-react/cli tools --session next-check)"
+query_json="$(npx @genie-react/cli call query_list --session next-check '{"limit":10}')"
 jq '{
   connected,
   ready,
@@ -154,7 +153,7 @@ jq -e '
   .total > 0 and
   any(.queries[]; .status == "success" and .observerCount > 0)
 ' <<<"$query_json" >/dev/null
-unset GENIE_SESSION query_json status_json tools_json
+unset query_json status_json tools_json
 ```
 
 Example selected fields, with formatting added for readability:

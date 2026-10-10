@@ -15,10 +15,9 @@ then prove the cache and visible branch agree:
 
 ```bash
 export GENIE_BRIDGE_URL=ws://127.0.0.1:3000/__genie/ws
-export GENIE_SESSION=docs-case-start
-npx @genie-react/cli call query_simulate_state \
+npx @genie-react/cli call query_simulate_state --session docs-case-start \
   '{"queryKey":["dashboard","metrics"],"state":"pending"}'
-query_state="$(npx @genie-react/cli call query_get \
+query_state="$(npx @genie-react/cli call query_get --session docs-case-start \
   '{"queryKey":["dashboard","metrics"]}' --json)"
 printf '%s\n' "$query_state" | \
   jq -e '.status == "pending" and .simulatedState == "pending"'
@@ -33,17 +32,16 @@ current component ID, force the fallback, then join React evidence to visible te
 
 ```bash
 export GENIE_BRIDGE_URL=ws://127.0.0.1:3030/__genie/ws
-export GENIE_SESSION=docs-case-router
-npx @genie-react/cli call router_navigate '{"to":"/suspense"}'
-npx @genie-react/cli call devtools_wait \
+npx @genie-react/cli call router_navigate --session docs-case-router '{"to":"/suspense"}'
+npx @genie-react/cli call devtools_wait --session docs-case-router \
   '{"condition":"navigation","name":"/suspense","timeoutMs":5000}'
 agent-browser --session docs-case-router wait '[data-testid="lazy-content"]'
-lazy_panel_id="$(npx @genie-react/cli call react_find_components \
+lazy_panel_id="$(npx @genie-react/cli call react_find_components --session docs-case-router \
   '{"query":"LazyPanel","exact":true}' --json | \
   jq -er 'if (.matches | length) == 1 then .matches[0].id else error("expected one LazyPanel") end')"
-npx @genie-react/cli call react_toggle_suspense_fallback \
+npx @genie-react/cli call react_toggle_suspense_fallback --session docs-case-router \
   "$(jq -cn --argjson id "$lazy_panel_id" '{id:$id,showFallback:true}')" --json
-suspense_state="$(npx @genie-react/cli call react_error_state '{}' --json)"
+suspense_state="$(npx @genie-react/cli call react_error_state --session docs-case-router '{}' --json)"
 printf '%s\n' "$suspense_state" | \
   jq -e 'any(.suspended[]; .forced == true and .isFallbackShowing == true)'
 agent-browser --session docs-case-router get text body | rg -F 'Loading lazy panel…'
@@ -55,18 +53,17 @@ Navigate to the error fixture and discover its current child ID before forcing t
 
 ```bash
 export GENIE_BRIDGE_URL=ws://127.0.0.1:3030/__genie/ws
-export GENIE_SESSION=docs-case-router
-npx @genie-react/cli call react_reset_overrides '{}'
-npx @genie-react/cli call router_navigate '{"to":"/error"}'
-npx @genie-react/cli call devtools_wait \
+npx @genie-react/cli call react_reset_overrides --session docs-case-router '{}'
+npx @genie-react/cli call router_navigate --session docs-case-router '{"to":"/error"}'
+npx @genie-react/cli call devtools_wait --session docs-case-router \
   '{"condition":"navigation","name":"/error","timeoutMs":5000}'
 agent-browser --session docs-case-router wait '[data-testid="throw"]'
-bomb_id="$(npx @genie-react/cli call react_find_components \
+bomb_id="$(npx @genie-react/cli call react_find_components --session docs-case-router \
   '{"query":"Bomb","exact":true}' --json | \
   jq -er 'if (.matches | length) == 1 then .matches[0].id else error("expected one Bomb") end')"
-npx @genie-react/cli call react_force_error_boundary \
+npx @genie-react/cli call react_force_error_boundary --session docs-case-router \
   "$(jq -cn --argjson id "$bomb_id" '{id:$id,forceError:true}')" --json
-error_state="$(npx @genie-react/cli call react_error_state '{}' --json)"
+error_state="$(npx @genie-react/cli call react_error_state --session docs-case-router '{}' --json)"
 printf '%s\n' "$error_state" | \
   jq -e 'any(.caughtErrors[]; .forced == true and .boundaryName == "Boundary")'
 agent-browser --session docs-case-router get text body | \
@@ -91,10 +88,9 @@ Restore the Query session and verify the synthetic marker is gone:
 
 ```bash
 export GENIE_BRIDGE_URL=ws://127.0.0.1:3000/__genie/ws
-export GENIE_SESSION=docs-case-start
-npx @genie-react/cli call query_restore_state \
+npx @genie-react/cli call query_restore_state --session docs-case-start \
   '{"queryKey":["dashboard","metrics"]}' --json
-query_state="$(npx @genie-react/cli call query_get \
+query_state="$(npx @genie-react/cli call query_get --session docs-case-start \
   '{"queryKey":["dashboard","metrics"]}' --json)"
 printf '%s\n' "$query_state" | jq -e 'has("simulatedState") | not'
 agent-browser --session docs-case-start get text body | rg -F 'Acme NA #1'
@@ -104,8 +100,7 @@ Reset the Router session and verify the real child is visible again:
 
 ```bash
 export GENIE_BRIDGE_URL=ws://127.0.0.1:3030/__genie/ws
-export GENIE_SESSION=docs-case-router
-reset="$(npx @genie-react/cli call react_reset_overrides '{}' --json)"
+reset="$(npx @genie-react/cli call react_reset_overrides --session docs-case-router '{}' --json)"
 printf '%s\n' "$reset" | jq -e '.remaining == 0'
 agent-browser --session docs-case-router get text body | rg -F 'Throw'
 unset query_state suspense_state error_state reset lazy_panel_id bomb_id

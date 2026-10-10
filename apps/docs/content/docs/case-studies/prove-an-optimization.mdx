@@ -19,8 +19,7 @@ pnpm --filter @genie-react/router-demo dev
 agent-browser --session docs-case-proof open \
   'http://localhost:3030/?_genie=docs-case-proof'
 export GENIE_BRIDGE_URL=ws://127.0.0.1:3030/__genie/ws
-export GENIE_SESSION=docs-case-proof
-npx @genie-react/cli call devtools_wait \
+npx @genie-react/cli call devtools_wait --session docs-case-proof \
   '{"condition":"ready","timeoutMs":10000}'
 ```
 
@@ -35,20 +34,20 @@ Collect and pin each returned ID:
 baseline_ids=()
 for run in 0 1 2 3 4 5; do
   agent-browser --session docs-case-proof reload
-  npx @genie-react/cli call devtools_wait \
+  npx @genie-react/cli call devtools_wait --session docs-case-proof \
     '{"condition":"ready","timeoutMs":10000}'
-  npx @genie-react/cli call react_clear_renders '{}'
+  npx @genie-react/cli call react_clear_renders --session docs-case-proof '{}'
   agent-browser --session docs-case-proof find role button click --name 'Count: 0'
   agent-browser --session docs-case-proof get text '[data-testid="counter"]' | \
     rg -x 'Count: 1'
 
   capture_args="$(jq -cn --arg name "baseline-$run" \
     '{name:$name,include:["react","effects"]}')"
-  capture="$(npx @genie-react/cli call devtools_capture_create \
+  capture="$(npx @genie-react/cli call devtools_capture_create --session docs-case-proof \
     "$capture_args" --json)"
   capture_id="$(printf '%s\n' "$capture" | jq -er '.captureId')"
   baseline_ids+=("$capture_id")
-  npx @genie-react/cli call devtools_capture_pin \
+  npx @genie-react/cli call devtools_capture_pin --session docs-case-proof \
     "$(jq -cn --arg captureId "$capture_id" \
       '{captureId:$captureId,pinned:true}')" --json
 done
@@ -60,20 +59,20 @@ Make the source change. Then collect the candidate cohort with the same route, d
 candidate_ids=()
 for run in 0 1 2 3 4 5; do
   agent-browser --session docs-case-proof reload
-  npx @genie-react/cli call devtools_wait \
+  npx @genie-react/cli call devtools_wait --session docs-case-proof \
     '{"condition":"ready","timeoutMs":10000}'
-  npx @genie-react/cli call react_clear_renders '{}'
+  npx @genie-react/cli call react_clear_renders --session docs-case-proof '{}'
   agent-browser --session docs-case-proof find role button click --name 'Count: 0'
   agent-browser --session docs-case-proof get text '[data-testid="counter"]' | \
     rg -x 'Count: 1'
 
   capture_args="$(jq -cn --arg name "candidate-$run" \
     '{name:$name,include:["react","effects"]}')"
-  capture="$(npx @genie-react/cli call devtools_capture_create \
+  capture="$(npx @genie-react/cli call devtools_capture_create --session docs-case-proof \
     "$capture_args" --json)"
   capture_id="$(printf '%s\n' "$capture" | jq -er '.captureId')"
   candidate_ids+=("$capture_id")
-  npx @genie-react/cli call devtools_capture_pin \
+  npx @genie-react/cli call devtools_capture_pin --session docs-case-proof \
     "$(jq -cn --arg captureId "$capture_id" \
       '{captureId:$captureId,pinned:true}')" --json
 done
@@ -100,7 +99,7 @@ comparison_args="$(jq -cn \
       {metric:"react.selfTimeMs",maxRegressionPct:5}
     ]
   }')"
-npx @genie-react/cli call devtools_capture_compare \
+npx @genie-react/cli call devtools_capture_compare --session docs-case-proof \
   "$comparison_args" --json
 ```
 
@@ -166,12 +165,12 @@ After export or review, unpin every capture and release the browser binding:
 
 ```bash
 for capture_id in "${baseline_ids[@]}" "${candidate_ids[@]}"; do
-  npx @genie-react/cli call devtools_capture_pin \
+  npx @genie-react/cli call devtools_capture_pin --session docs-case-proof \
     "$(jq -cn --arg captureId "$capture_id" \
       '{captureId:$captureId,pinned:false}')" --json
 done
 agent-browser --session docs-case-proof close
-unset GENIE_BRIDGE_URL GENIE_SESSION
+unset GENIE_BRIDGE_URL
 unset baseline_ids candidate_ids baseline_json candidate_json
 unset capture capture_args capture_id comparison_args
 ```

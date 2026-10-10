@@ -1,18 +1,11 @@
 import type { BridgeStatusMessage } from 'genie-react/protocol'
 import { describe, expect, it } from 'vitest'
-import {
-  formatGroupIndex,
-  formatToolDetail,
-  formatToolsListing,
-  relatedActions,
-  resolveToolsSelector,
-  slimDescriptor,
-} from './tool-output'
+import { groupIndex, relatedActions, resolveToolsSelector, slimDescriptor } from './tool-output'
 
 type ToolDescriptor = BridgeStatusMessage['tools'][number]
 
 function listing(tools: ToolDescriptor[]): string {
-  return formatToolsListing({ app: { name: 'Test App' }, tools })
+  return tools.map((descriptor) => slimDescriptor(descriptor).params).join('\n')
 }
 
 function tool(partial: Partial<ToolDescriptor> & { name: string }): ToolDescriptor {
@@ -66,11 +59,10 @@ describe('tool output', () => {
       }),
     ])
 
-    expect(output).toContain('plugin_get_events — Get plugin events')
-    expect(output).toContain('pluginId: string, limit?: integer')
+    expect(output).toBe('pluginId: string, limit?: integer')
   })
 
-  it('exposes bounds and defaults before invocation in human and compact JSON catalogs', () => {
+  it('exposes bounds and defaults before invocation in the compact JSON catalog', () => {
     const descriptor = tool({
       name: 'react_get_renders',
       inputJsonSchema: {
@@ -84,12 +76,11 @@ describe('tool output', () => {
         required: ['component'],
       },
     })
-    for (const output of [listing([descriptor]), slimDescriptor(descriptor).params]) {
-      expect(output).toContain('component: string [length >=1]')
-      expect(output).toContain('sort?: "renders" | "updates" (default "renders")')
-      expect(output).toContain('limit?: integer [1..200] (default 40)')
-      expect(output).toContain('appOnly?: boolean (default false)')
-    }
+    const output = slimDescriptor(descriptor).params
+    expect(output).toContain('component: string [length >=1]')
+    expect(output).toContain('sort?: "renders" | "updates" (default "renders")')
+    expect(output).toContain('limit?: integer [1..200] (default 40)')
+    expect(output).toContain('appOnly?: boolean (default false)')
   })
 
   it('renders enum unions and no-argument tools', () => {
@@ -110,9 +101,7 @@ describe('tool output', () => {
       }),
     ])
 
-    expect(output).toContain('sort?: "renders" | "unstable"')
-    expect(output).toContain('query_clear')
-    expect(output).toContain('(no args)')
+    expect(output).toBe('sort?: "renders" | "unstable"\n(no args)')
   })
 
   it('unwraps the allOf wrapper a refined schema emits', () => {
@@ -134,13 +123,16 @@ describe('tool output', () => {
     expect(output).toContain('queryHash?: string, queryKey?: array')
   })
 
-  it('renders group counts, previews, and the drill-down command', () => {
-    const index = formatGroupIndex('Demo', CATALOG)
-    expect(index).toContain('4 tools from Demo · 3 groups')
-    expect(index).toContain('react.render')
-    expect(index).toContain('react_get_renders, react_clear_renders')
-    expect(index).toContain('genie-react tools <group>')
-    expect(index).not.toContain('staleOnly')
+  it('indexes tools by sorted group with counts and names', () => {
+    expect(groupIndex('Demo', CATALOG)).toEqual({
+      app: 'Demo',
+      total: 4,
+      groups: [
+        { group: 'plugin', count: 1, tools: ['plugin_get_events'] },
+        { group: 'query', count: 1, tools: ['query_list'] },
+        { group: 'react.render', count: 2, tools: ['react_get_renders', 'react_clear_renders'] },
+      ],
+    })
   })
 
   it('selects exact tools, then groups, then suggestions', () => {
@@ -169,105 +161,6 @@ describe('tool output', () => {
     expect(relatedActions(catalog, 'action')).toEqual([])
     expect(relatedActions(catalog, 'memory')).toEqual([])
   })
-
-  it('shows constraints and a runnable example in one tool detail', () => {
-    const descriptor = CATALOG.find((candidate) => candidate.name === 'plugin_get_events')
-    if (!descriptor) throw new Error('missing plugin_get_events fixture')
-    const detail = formatToolDetail(descriptor)
-    expect(detail).toContain('plugin_get_events — Get plugin events [plugin]')
-    expect(detail).toContain('Read buffered plugin events.')
-    expect(detail).toContain('pluginId: string [length >=1]')
-    expect(detail).toContain('limit?: integer [1..100] (default 50)')
-    expect(detail).toContain(
-      `example: genie-react call plugin_get_events '{"pluginId":"<pluginId>"}'`,
-    )
-  })
-
-  it('renders nested object and array-item schemas in text help', () => {
-    const detail = formatToolDetail(
-      tool({
-        name: 'devtools_capture_compare',
-        inputJsonSchema: {
-          type: 'object',
-          properties: {
-            policy: {
-              type: 'object',
-              properties: {
-                confidenceLevel: { type: 'number', minimum: 0.5, maximum: 0.999 },
-              },
-              required: ['confidenceLevel'],
-            },
-            budgets: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  metric: { enum: ['react.renders', 'performance.avgFps'] },
-                  maxRegressionPct: { type: 'number', minimum: 0 },
-                },
-                required: ['metric'],
-              },
-            },
-          },
-          required: [],
-        },
-      }),
-    )
-
-    expect(detail).toContain('policy.confidenceLevel: number [0.5..0.999]')
-    expect(detail).toContain('budgets[].metric: "react.renders" | "performance.avgFps"')
-    expect(detail).toContain('budgets[].maxRegressionPct?: number [>=0]')
-  })
-})
-
-describe('app tools rendering', () => {
-  const appTool = tool({
-    name: 'app_seed_cart',
-    title: 'Seed cart',
-    group: 'app',
-    description: 'Fills the cart with sample items.',
-    annotations: { readOnlyHint: false },
-    inputJsonSchema: {
-      type: 'object',
-      properties: { count: { type: 'integer', default: 3 } },
-      required: [],
-    },
-  })
-
-  it('formatGroupIndex calls out the app group', () => {
-    const index = formatGroupIndex('Demo', [...CATALOG, appTool])
-    expect(index).toContain('custom tools this app registered for you')
-  })
-
-  it('formatToolDetail shows the kind badge and an unavailability warning with the reason', () => {
-    expect(formatToolDetail(appTool)).toContain('app_seed_cart — Seed cart [app] (action)')
-
-    const gone = { ...appTool, available: false, unavailableReason: 'the cart page unmounted' }
-    expect(formatToolDetail(gone as never)).toContain(
-      'currently unavailable: the cart page unmounted',
-    )
-  })
-
-  it('formatToolsListing marks read-only, destructive, and unavailable tools', () => {
-    const out = listing([
-      { ...appTool, available: false } as never,
-      tool({
-        name: 'app_cart_state',
-        title: 'Cart state',
-        group: 'app',
-        annotations: { readOnlyHint: true },
-      }),
-      tool({
-        name: 'app_wipe_cart',
-        title: 'Wipe cart',
-        group: 'app',
-        annotations: { readOnlyHint: false, destructiveHint: true },
-      }),
-    ])
-    expect(out).toContain('app_seed_cart — Seed cart (action) · ✗ unavailable')
-    expect(out).toContain('app_cart_state — Cart state (read-only)')
-    expect(out).toContain('app_wipe_cart — Wipe cart (destructive)')
-  })
 })
 
 describe('group families', () => {
@@ -286,33 +179,5 @@ describe('group families', () => {
     expect(react.kind).toBe('group')
     if (react.kind === 'group')
       expect(react.tools.map((t) => t.name)).toEqual(['react_get_renders'])
-  })
-
-  it('the group index marks the app family once', () => {
-    const index = formatGroupIndex('Demo', grouped)
-    expect(index.match(/custom tools this app registered/g)).toHaveLength(1)
-    expect(index).toContain('app.steps')
-  })
-})
-
-describe('example shell safety', () => {
-  it('quotes schema-derived example values so they cannot break out of the shell string', () => {
-    const detail = formatToolDetail(
-      tool({
-        name: 'app_review',
-        title: 'Review',
-        group: 'app',
-        description: 'Exercises quoting.',
-        inputJsonSchema: {
-          type: 'object',
-          properties: { value: { enum: ["'; printf injected; #"] } },
-          required: ['value'],
-        },
-      }),
-    )
-    const example = detail.split('\n').find((line) => line.startsWith('example:'))
-    expect(example).toBe(
-      `example: genie-react call app_review '{"value":"'\\''; printf injected; #"}'`,
-    )
   })
 })

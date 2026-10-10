@@ -58,7 +58,8 @@ npx @genie-react/cli status --session checkout-agent
 npx @genie-react/cli status --url ws://127.0.0.1:4390/__genie/ws
 ```
 
-Use `GENIE_SESSION` and `GENIE_BRIDGE_URL` to set these once per shell.
+Pass `--session` on every command. `GENIE_SESSION` and `GENIE_BRIDGE_URL` also work, but agent
+permission allowlists often reject `export` inside compound commands.
 
 The hub accepts agent connections only from processes on the same machine that present its per-run
 token. The hub keeps the token out of the project, so no dev server can serve it. It lives in

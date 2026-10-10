@@ -25,28 +25,28 @@ The tab name pins every Genie call to the browser session owned by this agent.
 
 ```bash title="Terminal 3 — agent loop"
 set -euo pipefail
-export GENIE_SESSION=first-check
+session=first-check
 export GENIE_BRIDGE_URL='ws://127.0.0.1:4390/__genie/ws'
 export APP_URL='http://127.0.0.1:3050/?_genie=first-check'
 genie() {
   pnpm --filter @genie-react/plain-demo exec genie-react "$@"
 }
 
-agent-browser --session "$GENIE_SESSION" open "$APP_URL"
-wait_json="$(genie call devtools_wait \
+agent-browser --session "$session" open "$APP_URL"
+wait_json="$(genie call devtools_wait --session "$session" \
   '{"condition":"ready","timeoutMs":15000}' \
   --fail-on-result-error)"
 jq -e '.ok == true' <<<"$wait_json" >/dev/null
 
-status_json="$(genie status --sessions-only)"
+status_json="$(genie status --session "$session" --sessions-only)"
 jq '{connected, ready, sessionId, sessions}' <<<"$status_json"
 jq -e '
   .connected and .ready and
   any(.sessions[]; .ready == true and .staleMs == null)
 ' <<<"$status_json" >/dev/null
-agent-browser --session "$GENIE_SESSION" snapshot -i
+agent-browser --session "$session" snapshot -i
 
-clear_json="$(genie call react_clear_renders \
+clear_json="$(genie call react_clear_renders --session "$session" \
   '{
     "components":["EffectCounter"],
     "budget":{
@@ -59,14 +59,14 @@ clear_json="$(genie call react_clear_renders \
     }
   }')"
 jq -e '.ok == true' <<<"$clear_json" >/dev/null
-agent-browser --session "$GENIE_SESSION" find testid increment click
+agent-browser --session "$session" find testid increment click
 
-quiet_json="$(genie call devtools_wait \
+quiet_json="$(genie call devtools_wait --session "$session" \
   '{"condition":"react-quiet","quietMs":300,"timeoutMs":5000}' \
   --fail-on-result-error)"
 jq -e '.ok == true' <<<"$quiet_json" >/dev/null
 
-renders_json="$(genie call react_get_renders \
+renders_json="$(genie call react_get_renders --session "$session" \
   '{"component":"EffectCounter","sort":"selfTime","limit":3}')"
 jq '{
   component: .components[0].name,
@@ -81,7 +81,7 @@ jq -e '
   any(.components[0].causes[]; .kind == "state" and .evidence == "exact")
 ' <<<"$renders_json" >/dev/null
 
-causes_json="$(genie call react_render_causes \
+causes_json="$(genie call react_render_causes --session "$session" \
   '{"component":"EffectCounter","limit":3}')"
 jq '{events, coverage}' <<<"$causes_json"
 jq -e '
@@ -94,14 +94,14 @@ jq -e '
   )
 ' <<<"$causes_json" >/dev/null
 
-agent-browser --session "$GENIE_SESSION" get text '[data-testid="increment"]'
+agent-browser --session "$session" get text '[data-testid="increment"]'
 
-agent-browser --session "$GENIE_SESSION" reload
-agent-browser --session "$GENIE_SESSION" wait '[data-testid="increment"]'
-agent-browser --session "$GENIE_SESSION" get text '[data-testid="increment"]'
-genie call react_clear_renders '{}' >/dev/null
-agent-browser --session "$GENIE_SESSION" close
-unset APP_URL GENIE_BRIDGE_URL GENIE_SESSION
+agent-browser --session "$session" reload
+agent-browser --session "$session" wait '[data-testid="increment"]'
+agent-browser --session "$session" get text '[data-testid="increment"]'
+genie call react_clear_renders --session "$session" '{}' >/dev/null
+agent-browser --session "$session" close
+unset APP_URL GENIE_BRIDGE_URL session
 unset causes_json clear_json quiet_json renders_json status_json wait_json
 unset -f genie
 ```

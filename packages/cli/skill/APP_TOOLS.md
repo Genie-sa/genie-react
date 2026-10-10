@@ -102,19 +102,18 @@ Registration waits for a late Genie client. Unregistering leaves a bounded unava
 
 ## 5. Verify the agent-facing behavior
 
-With the app running, use the exact installed CLI:
+With the app open in the session selected in SKILL.md step 1:
 
 ```bash
-pnpm exec genie-react doctor
-pnpm exec genie-react tools app
-pnpm exec genie-react tools app.auth
-pnpm exec genie-react tools app_login_as
-pnpm exec genie-react call app_login_as '{"role":"admin"}'
+npx genie-react tools app --session my-agent
+npx genie-react tools app.auth --session my-agent
+npx genie-react tools app_login_as --session my-agent
+npx genie-react call app_login_as '{"role":"admin"}' --session my-agent
 ```
 
 Check all of the following:
 
-- Tool details have the intended `annotations.readOnlyHint`, `destructiveHint`, `idempotentHint`, `available`, and `unavailableReason` fields. The group index lists names.
+- Tool details have the intended `annotations`: queries show `readOnlyHint` and `idempotentHint` true; actions show `readOnlyHint: false` plus `destructiveHint` or `idempotentHint` only when set. `available: false` and `unavailableReason` appear only while the tool is unavailable. The group index lists names.
 - Valid calls return the bounded documented shape; invalid and unknown arguments fail with field-level guidance.
 - A `GenieToolError` produces a nonzero CLI exit with `reason:"tool_error"` and its code and hint under `details.app`. Domain outcomes returned as data preserve their documented code and recovery fields.
 - An action's result is confirmed by a follow-up query and the visible UI.

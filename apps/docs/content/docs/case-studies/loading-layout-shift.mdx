@@ -23,8 +23,7 @@ Open and bind the page in another shell:
 agent-browser --session docs-case-start open \
   'http://localhost:3000/dashboard?_genie=docs-case-start'
 export GENIE_BRIDGE_URL=ws://127.0.0.1:3000/__genie/ws
-export GENIE_SESSION=docs-case-start
-npx @genie-react/cli call devtools_wait \
+npx @genie-react/cli call devtools_wait --session docs-case-start \
   '{"condition":"query-settled","queryKey":["dashboard","metrics"],"timeoutMs":10000}'
 ```
 
@@ -48,7 +47,7 @@ JS
 ## Hold pending and measure again
 
 ```bash
-npx @genie-react/cli call query_simulate_state \
+npx @genie-react/cli call query_simulate_state --session docs-case-start \
   '{"queryKey":["dashboard","metrics"],"state":"pending"}'
 
 agent-browser --session docs-case-start eval --stdin <<'JS'
@@ -82,7 +81,7 @@ same measurements and visible browser check.
 ## Restore
 
 ```bash
-restore="$(npx @genie-react/cli call query_restore_state \
+restore="$(npx @genie-react/cli call query_restore_state --session docs-case-start \
   '{"queryKey":["dashboard","metrics"]}' --json)"
 jq -e '.ok == true and .restored == 1' <<<"$restore" >/dev/null
 
@@ -107,7 +106,7 @@ loaded again: { height: 2085, rows: 50 }
 
 ```bash
 agent-browser --session docs-case-start close
-unset GENIE_BRIDGE_URL GENIE_SESSION restore
+unset GENIE_BRIDGE_URL restore
 ```
 
 ## Outcome

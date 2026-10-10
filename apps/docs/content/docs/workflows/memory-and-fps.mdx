@@ -26,8 +26,7 @@ Open the app with agent-browser and bind Genie to the same page:
 agent-browser --session fps-check open \
   'http://localhost:3040/?_genie=fps-check'
 export GENIE_BRIDGE_URL=ws://127.0.0.1:3040/__genie/ws
-export GENIE_SESSION=fps-check
-npx @genie-react/cli call devtools_wait \
+npx @genie-react/cli call devtools_wait --session fps-check \
   '{"condition":"ready","timeoutMs":10000}'
 ```
 
@@ -42,7 +41,7 @@ separate:
 action_pid=$!
 
 fps_status=0
-fps_json="$(npx @genie-react/cli call browser_fps \
+fps_json="$(npx @genie-react/cli call browser_fps --session fps-check \
   '{"durationMs":2000}' --json)" || fps_status=$?
 
 action_status=0
@@ -64,7 +63,7 @@ Clean up the browser binding:
 
 ```bash
 agent-browser --session fps-check close
-unset GENIE_BRIDGE_URL GENIE_SESSION action_pid fps_json fps_status action_status
+unset GENIE_BRIDGE_URL action_pid fps_json fps_status action_status
 ```
 
 Report frame comparability and memory support separately. Proving heap growth needs repeated
