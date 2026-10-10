@@ -39,7 +39,6 @@ export class BridgeCallError extends Error {
   readonly errorCode?: AgentErrorCode
   readonly retryInMs?: number
   readonly busyTelemetry?: BusyTelemetry
-  readonly session?: AnsweringSession
   readonly details?: ToolErrorDetails
 
   constructor(
@@ -48,7 +47,6 @@ export class BridgeCallError extends Error {
       errorCode?: AgentErrorCode
       retryInMs?: number
       busyTelemetry?: BusyTelemetry
-      session?: AnsweringSession
       details?: ToolErrorDetails
     },
   ) {
@@ -57,7 +55,6 @@ export class BridgeCallError extends Error {
     this.errorCode = options?.errorCode
     this.retryInMs = options?.retryInMs
     this.busyTelemetry = options?.busyTelemetry
-    this.session = options?.session
     this.details = options?.details
   }
 }
@@ -303,7 +300,6 @@ export class GenieAgentLink {
             errorCode: message.errorCode,
             retryInMs: message.retryInMs,
             busyTelemetry: message.busyTelemetry,
-            session: message.session,
             details: message.errorDetails,
           }),
         )
