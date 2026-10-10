@@ -39,7 +39,9 @@ const coverageSchema = z.object({
   detail: z
     .string()
     .optional()
-    .describe(`Returned by timeline_start; later reports keep only the code (${COVERAGE_DOCS}).`),
+    .describe(
+      `Returned by timeline_start. The text is fixed per code, so later reports keep only the code (${COVERAGE_DOCS}).`,
+    ),
 })
 const eventSchema = z.object({
   sequence: z.number().int().positive(),

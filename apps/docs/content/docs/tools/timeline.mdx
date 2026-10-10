@@ -125,7 +125,8 @@ is retained in app memory, so save it before starting another or reloading.
 
 ## Coverage codes
 
-Each lane reports `status` and a stable `code`. `timeline_start` adds the `detail` text once.
+Each lane reports `status` and a stable `code`. `timeline_start` adds the `detail` text once. The
+text is fixed for each code, so read and stop responses lose nothing by omitting it.
 
 | Code | Lane | Meaning |
 | --- | --- | --- |
