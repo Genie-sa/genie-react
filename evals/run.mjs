@@ -76,6 +76,7 @@ Results: evals/results/<run-id>.jsonl (one trial per line, written as trials fin
 const TASKS_DIR = join(REPO_ROOT, 'evals/tasks')
 const RESULTS_DIR = join(REPO_ROOT, 'evals/results')
 const BROWSER_SOCKET_DIR = join(homedir(), '.agent-browser')
+const BROWSER_SESSION_FILES = ['sock', 'pid', 'config', 'engine', 'version', 'stream', 'target']
 const OPTIONAL_TOOLS = ['pnpm', 'jq']
 const TEMP_ROOT = realpathSync(tmpdir())
 const CLAUDE_SANDBOX_TEMP = process.env.CLAUDE_TMPDIR ?? `/tmp/claude-${process.getuid?.() ?? 0}`
@@ -377,7 +378,9 @@ async function withTrial({ label, mode, screen }, options, context, body) {
         consumer.root,
         ...claudeTrialTemp(workspace.dir),
         ...withRealpaths(context.toolDirs.map((dir) => dirname(dir))),
-        BROWSER_SOCKET_DIR,
+        ...BROWSER_SESSION_FILES.map((suffix) =>
+          join(BROWSER_SOCKET_DIR, `${browserSession}.${suffix}`),
+        ),
       ],
       deniedReadRoots: [...context.deniedReadRoots, TEMP_ROOT, ...withRealpaths([homedir()])],
       browserSocketDir: BROWSER_SOCKET_DIR,
@@ -619,6 +622,7 @@ async function sandboxCheck(tasks, options) {
         agentTempFile,
         agentConfigDir: process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'),
         home: homedir(),
+        browserSocketDir: BROWSER_SOCKET_DIR,
         url: trial.url,
       })
       for (const { link } of probes) if (link) await symlink(link.target, link.path)

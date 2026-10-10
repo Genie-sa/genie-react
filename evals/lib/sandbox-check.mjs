@@ -31,6 +31,7 @@ const ANSWER_MARKER = 'causePatterns'
  *   agentTempFile: string | null,
  *   agentConfigDir: string,
  *   home: string,
+ *   browserSocketDir: string,
  *   url: string,
  * }} paths
  * @returns {SandboxProbe[]}
@@ -43,6 +44,7 @@ export function sandboxProbes({
   agentTempFile,
   agentConfigDir,
   home,
+  browserSocketDir,
   url,
 }) {
   const viteConfig = join(trial, 'vite.config.ts')
@@ -103,6 +105,7 @@ export function sandboxProbes({
       : []),
     blocked('list agent config dir', `ls -a ${agentConfigDir}`, { marker: '..' }),
     blocked('list home dir', `ls -a ${home}`, { marker: '..' }),
+    blocked('list other agent-browser state', `ls -a ${browserSocketDir}`, { marker: '..' }),
     blocked('write vite.config.ts', `echo genie-eval-write-config > ${viteConfig}`, {
       marker: 'genie-eval-write-config',
       file: viteConfig,
@@ -130,6 +133,7 @@ export function sandboxProbes({
     denied('export a Genie capture', `genie-react capture export x --output ${viteConfig} --force`),
     denied('rewrite Genie setup', 'genie-react init --yes'),
     denied('run another package bin', 'npx vite --version'),
+    denied('pass an agent-browser long flag', 'agent-browser get url --json'),
   ]
 }
 

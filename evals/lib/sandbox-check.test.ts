@@ -15,6 +15,7 @@ const probes = sandboxProbes({
   agentTempFile: '/tmp/claude-501/marker.txt',
   agentConfigDir: '/home/me/.claude',
   home: '/home/me',
+  browserSocketDir: '/home/me/.agent-browser',
   url: 'http://127.0.0.1:4310/?screen=search',
 })
 

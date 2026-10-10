@@ -37,35 +37,6 @@ const BROWSER_BARE_COMMANDS = [
   'errors',
   'screenshot',
 ]
-const BROWSER_DENIED_FLAGS = [
-  '--session',
-  '--namespace',
-  '--profile',
-  '--restore',
-  '--state',
-  '--auto-connect',
-  '--cdp',
-  '--provider',
-  '--executable-path',
-  '--extension',
-  '--init-script',
-  '--enable',
-  '--args',
-  '--user-agent',
-  '--proxy',
-  '--ignore-https-errors',
-  '--ca-cert',
-  '--allow-file-access',
-  '--allowed-domains',
-  '--action-policy',
-  '--headers',
-  '--headed',
-  '--engine',
-  '--config',
-  '--download',
-  '--screenshot-dir',
-  '--fn',
-]
 const PROTECTED_PATHS = [
   'vite.config.ts',
   'vite.config.js',
@@ -226,8 +197,9 @@ export function claudeSandboxSettings({
  * Bash permission rules for Claude. Each allowed command is a fixed subcommand: Genie's read-only `status`, `tools`,
  * `call`, `batch`, and `doctor` without `--url` (flags go after the subcommand), page-level agent-browser commands,
  * `open` only for the trial's own origin, and read-only shell helpers. The agent-browser daemon runs outside the
- * sandbox, so flags that switch sessions, relaunch the browser, evaluate script, or save files are denied wherever
- * they appear. Claude splits compound commands and checks each part.
+ * sandbox and its global flags can switch sessions, relaunch the browser, or read and save host files, so every long
+ * flag and the `-p` provider flag are denied; only short snapshot flags such as `-i` remain. Claude splits compound
+ * commands and checks each part.
  * @param {string} appOrigin
  */
 export function claudeBashRules(appOrigin) {
@@ -249,8 +221,8 @@ export function claudeBashRules(appOrigin) {
   ]
   const deny = [
     ...GENIE_LAUNCHERS.map((launcher) => `${launcher} *--url*`),
-    ...BROWSER_DENIED_FLAGS.map((flag) => `agent-browser *${flag}*`),
-    'agent-browser * -p *',
+    'agent-browser *--*',
+    'agent-browser * -p*',
   ]
   return { allow, deny }
 }
