@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, render } from '@testing-library/react'
 import { type Fiber, getFiberFromHostInstance, getLatestFiber } from 'bippy'
-import { createElement, forwardRef, memo, PureComponent, type ReactNode, useState } from 'react'
+import { createElement, forwardRef, memo, PureComponent, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createCommitAnalysisBudget } from './render-commit-budget'
 import { clearRenders, getRenders, recordRender } from './render-tracker'
@@ -44,18 +44,13 @@ class PureRow extends PureComponent<RowProps> {
   }
 }
 
-const rerender: { current: (() => void) | null } = { current: null }
-
 const STABLE_STYLE = { color: 'red' }
 
 function App(): ReactNode {
-  const [tick, setTick] = useState(0)
-  rerender.current = () => setTick((value) => value + 1)
-  const style = { color: 'red' }
   return createElement(
     'div',
-    { 'data-tick': tick },
-    createElement(Plain, { id: 'plain', style }),
+    null,
+    createElement(Plain, { id: 'plain', style: { color: 'red' } }),
     createElement(SimpleMemoRow, { id: 'simple', style: { color: 'red' } }),
     createElement(CallbackRow, { id: 'callback', style: STABLE_STYLE, onSelect: () => {} }),
     createElement(ForwardMemoRow, { id: 'forward', style: { color: 'red' } }),
@@ -76,7 +71,7 @@ beforeEach(() => clearRenders())
 describe('memo-aware render causes against a live React tree', () => {
   it('attributes prop churn to memo and pure components only', async () => {
     const view = render(createElement(App))
-    await act(async () => rerender.current?.())
+    await act(async () => view.rerender(createElement(App)))
 
     const host = (id: string) => view.getByTestId(id)
     const app = ownerFiber(host('plain'), App)

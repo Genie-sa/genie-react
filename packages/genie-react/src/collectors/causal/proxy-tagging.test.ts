@@ -9,25 +9,17 @@ import { isPlainObject, plainOwnKeys } from './safe-object'
 const NativeProxy = Proxy
 const nativeRevocable = Proxy.revocable
 
-function countingHandler<T extends object>(): { handler: ProxyHandler<T>; traps: () => number } {
-  let calls = 0
-  const count =
-    <K extends keyof ProxyHandler<T>>(trap: K) =>
-    (...args: unknown[]) => {
-      calls += 1
-      return (Reflect[trap as keyof typeof Reflect] as (...input: unknown[]) => unknown)(...args)
-    }
-  return {
-    handler: {
-      get: count('get'),
-      has: count('has'),
-      ownKeys: count('ownKeys'),
-      getOwnPropertyDescriptor: count('getOwnPropertyDescriptor'),
-      getPrototypeOf: count('getPrototypeOf'),
-    } as ProxyHandler<T>,
-    traps: () => calls,
-  }
-}
+let trapLookups = 0
+// Every proxy operation looks its trap up on the handler, so counting lookups counts all traps.
+const observedHandler = new Proxy(
+  {},
+  {
+    get() {
+      trapLookups += 1
+      return undefined
+    },
+  },
+)
 
 const propsFiber = (prev: unknown, next: unknown): Fiber =>
   ({ memoizedProps: next, alternate: { memoizedProps: prev } }) as Fiber
@@ -99,11 +91,10 @@ describe('proxy tagging', () => {
 
   it('never reflects on a store proxy passed as a prop value or props container', () => {
     installProxyTagging()
-    const store = countingHandler<{ items: number[] }>()
-    const before = new Proxy({ items: [1] }, store.handler)
-    const after = new Proxy({ items: [1] }, store.handler)
-    const list = countingHandler<number[]>()
-    const items = new Proxy([1, 2], list.handler)
+    const before = new Proxy({ items: [1] }, observedHandler)
+    const after = new Proxy({ items: [1] }, observedHandler)
+    const items = new Proxy([1, 2], observedHandler)
+    trapLookups = 0
     const evidence = createRenderEvidenceBudget()
 
     expect(
@@ -122,8 +113,7 @@ describe('proxy tagging', () => {
     const containerEvidence = createRenderEvidenceBudget()
     expect(diffProps(propsFiber(before, after), containerEvidence)).toEqual([])
     expect(inputCoverage(containerEvidence).propsNotEnumerated).toBe(true)
-    expect(store.traps()).toBe(0)
-    expect(list.traps()).toBe(0)
+    expect(trapLookups).toBe(0)
     expect(inputCoverage(evidence).complete).toBe(true)
   })
 })
