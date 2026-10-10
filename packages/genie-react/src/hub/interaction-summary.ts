@@ -1,9 +1,13 @@
 import {
+  compactRenderCause,
   formatSourceLocation,
   INTERACTION_SECTIONS,
   type InteractionCapture,
   type InteractionSection,
   type InteractionSummary,
+  incompleteInputCoverage,
+  memoCounters,
+  RENDER_CAUSE_EVIDENCE,
   roundMilliseconds,
 } from '../protocol'
 
@@ -75,45 +79,74 @@ function summarizeRenders(evidence: ToolEvidence | undefined): InteractionSummar
   const components = recordsOf(result?.components)
   const listed = components.slice(0, SUMMARY_COMPONENTS)
   const trackedComponents = numberField(summary, 'trackedComponents')
+  const semantics = stringField(summary, 'semantics')
   return {
     ...sectionStatus(evidence),
     commits: numberField(result, 'commits'),
     trackedComponents,
     totalRenders: numberField(summary, 'totalRenders'),
     totalUpdates: numberField(summary, 'totalUpdates'),
+    semantics: isRenderSemantics(semantics) ? semantics : null,
     omittedComponents: Math.max(0, (trackedComponents ?? components.length) - listed.length),
-    components: listed.map((component) => ({
-      id: numberField(component, 'id') ?? -1,
-      name: stringField(component, 'name') ?? '(unknown)',
-      renders: numberField(component, 'renders') ?? 0,
-      updates: numberField(component, 'updates') ?? 0,
-      selfTime: roundMilliseconds(numberField(component, 'selfTime') ?? 0),
-      topCause: topCause(component),
-    })),
+    components: listed.map(summarizeComponent),
   }
 }
 
-function topCause(component: Record<string, unknown>): {
-  kind: string
-  count: number
-  name?: string
-} | null {
+function summarizeComponent(
+  component: Record<string, unknown>,
+): InteractionSummary['renders']['components'][number] {
+  const inputCoverage = recordOf(component.inputCoverage)
+  return {
+    id: numberField(component, 'id') ?? -1,
+    name: stringField(component, 'name') ?? '(unknown)',
+    renders: numberField(component, 'renders') ?? 0,
+    updates: numberField(component, 'updates') ?? 0,
+    selfTime: roundMilliseconds(numberField(component, 'selfTime') ?? 0),
+    ...memoCounters(component),
+    inputEvidence: stringField(recordOf(component.assessment), 'inputEvidence'),
+    ...(typeof inputCoverage?.complete === 'boolean'
+      ? incompleteInputCoverage({ ...inputCoverage, complete: inputCoverage.complete })
+      : {}),
+    topCause: topCause(component),
+  }
+}
+
+/** The most frequent cause kind across the window; details come from that kind's cause in the latest render, so they are labelled latest. */
+function topCause(
+  component: Record<string, unknown>,
+): InteractionSummary['renders']['components'][number]['topCause'] {
   const counts = Object.entries(recordOf(component.causeCounts) ?? {}).filter(
     (entry): entry is [string, number] => typeof entry[1] === 'number' && entry[1] > 0,
   )
-  if (counts.length === 0) return null
-  const [kind, count] = counts.reduce((top, entry) => (entry[1] > top[1] ? entry : top))
-  const name = causeLabel(recordsOf(component.causes).find((cause) => cause.kind === kind))
-  return { kind, count, ...(name === undefined ? {} : { name }) }
+  const count = Math.max(0, ...counts.map(([, value]) => value))
+  const [kind, ...tiedWith] = counts.filter(([, value]) => value === count).map(([name]) => name)
+  if (kind === undefined) return null
+  const latest = recordsOf(component.causes).find((cause) => cause.kind === kind)
+  return {
+    kind,
+    count,
+    ...(tiedWith.length > 0 ? { tiedWith } : {}),
+    ...(latest ? latestCauseDetails(latest) : {}),
+  }
 }
 
-function causeLabel(cause: Record<string, unknown> | undefined): string | undefined {
-  if (!cause) return undefined
-  for (const key of ['name', 'storeLabel', 'queryHash', 'routerId', 'parentName'] as const) {
-    const value = cause[key]
-    if (typeof value === 'string' && value.length > 0) return value
-  }
-  return undefined
+function latestCauseDetails(cause: Record<string, unknown>) {
+  const {
+    kind: _kind,
+    name,
+    ...details
+  } = compactRenderCause({
+    ...cause,
+    kind: String(cause.kind),
+    evidence: RENDER_CAUSE_EVIDENCE.find((value) => value === cause.evidence) ?? 'unknown',
+  })
+  return { ...(name === undefined ? {} : { latestName: name }), ...details }
+}
+
+function isRenderSemantics(
+  value: string | null,
+): value is NonNullable<InteractionSummary['renders']['semantics']> {
+  return value === 'exact' || value === 'lower-bound' || value === 'unknown'
 }
 
 function summarizeCauses(evidence: ToolEvidence | undefined): InteractionSummary['causes'] {

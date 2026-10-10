@@ -514,7 +514,9 @@ export function reactCollector(): GenieCollector {
               : {
                   view,
                   summary: summaryView,
-                  components: components.map(summarizeRenderComponent),
+                  components: components.map((component) =>
+                    summarizeRenderComponent(component, report.sort),
+                  ),
                 }),
             sourceClassification,
             omittedByLimit,

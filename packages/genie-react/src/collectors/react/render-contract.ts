@@ -402,7 +402,7 @@ const renderCauseCountsSchema = z.object({
   unknown: z.number().int().nonnegative(),
 })
 
-const renderComponentSchema = z.object({
+export const renderComponentSchema = z.object({
   id: z.number(),
   name: z.string(),
   instance: instanceDescriptorSchema,
@@ -469,7 +469,16 @@ const compactCauseSchema = z.object({
       'Prop, state or context name, store label, query hash, router ID or parent component.',
     ),
   referenceOnly: z.literal(true).optional(),
-  reason: z.string().optional().describe('Why an unknown cause could not be attributed.'),
+  reason: z
+    .string()
+    .optional()
+    .describe(
+      'Why an unknown cause could not be attributed, or how a query cause was matched; only query-notification-delivered is exact.',
+    ),
+  changedResultFields: z
+    .array(z.string())
+    .optional()
+    .describe('Query result fields the delivered notification changed, e.g. data or fetchStatus.'),
 })
 
 const compactSourceSchema = z
@@ -491,8 +500,14 @@ export const renderComponentSummarySchema = z.object({
   renders: z.number(),
   updates: z.number(),
   mounts: z.number().optional().describe('Omitted when zero, like the other optional counts.'),
-  noObservedInputChange: z.number().optional(),
-  referenceOnlyPropRenders: z.number().optional(),
+  noObservedInputChange: z
+    .number()
+    .optional()
+    .describe('Kept at zero under sort:"unnecessary", which ranks by it.'),
+  referenceOnlyPropRenders: z
+    .number()
+    .optional()
+    .describe('Kept at zero under sort:"unstable" or "referenceOnly", which rank by it.'),
   selfTime: z.number(),
   totalTime: z.number(),
   cumulativeSelfTime: z.number().optional().describe('Omitted when it equals selfTime.'),

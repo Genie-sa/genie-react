@@ -181,6 +181,7 @@ describe('GenieBridge interaction capture', () => {
         status: 'ok',
         commits: 2,
         totalRenders: 4,
+        semantics: 'exact',
         omittedComponents: 0,
         components: [
           {
@@ -189,7 +190,7 @@ describe('GenieBridge interaction capture', () => {
             renders: 4,
             updates: 3,
             selfTime: 1.23,
-            topCause: { kind: 'props', count: 3, name: 'item' },
+            topCause: { kind: 'props', count: 3, latestName: 'item', evidence: 'exact' },
           },
         ],
       },
@@ -230,6 +231,7 @@ describe('GenieBridge interaction capture', () => {
     const full = (await inbox.wait(isResult(fullId))).result
     expect(() => devtoolsInteractionStopContract.output.parse(full)).not.toThrow()
     expect(full).toMatchObject({
+      view: 'full',
       boundary,
       sections: {
         renders: { status: 'ok', tool: 'react_get_renders', args: { view: 'full' } },
@@ -238,7 +240,6 @@ describe('GenieBridge interaction capture', () => {
         cohorts: [{ component: 'Row', evidence: { status: 'ok' } }],
       },
     })
-    expect(full).not.toHaveProperty('view')
 
     const sectionId = newId()
     send(agent, {

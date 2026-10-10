@@ -7,6 +7,7 @@ import {
   toolDescriptorSchema,
 } from './protocol'
 import { renderObservationBudgetInputSchema } from './react-observation-schema'
+import { RENDER_CAUSE_EVIDENCE, RENDER_MEMO_COUNTERS } from './render-evidence'
 import { schemaConstraints, withoutSafeIntegerBounds } from './schema-description'
 
 export const OUTPUT_VIEWS = ['summary', 'full'] as const
@@ -67,7 +68,11 @@ export const captureArtifactSchema = z.object({
     reason: z.string(),
   }),
   sections: z.partialRecord(captureDomainSchema, captureSectionSchema),
-  complete: z.boolean(),
+  complete: z
+    .boolean()
+    .describe(
+      'Every included section succeeded, React commits stayed stable, and captured render evidence is comparable with complete coverage.',
+    ),
   warnings: z.array(z.string()),
   sizeBytes: z.number().int().nonnegative(),
   pinned: z.boolean().optional(),
@@ -248,9 +253,22 @@ const captureSummarySchema = captureArtifactSchema.pick({
   summary: true,
 })
 
-const captureReadSummarySchema = captureSummarySchema.extend({
+export const captureReadSummarySchema = captureSummarySchema.extend({
   warnings: z.array(z.string()),
   availableSections: z.array(captureDomainSchema),
+  renders: z
+    .object({
+      comparable: z.boolean(),
+      notComparableReasons: z.array(z.string()),
+      coverage: z.object({
+        complete: z.boolean(),
+        semantics: z.enum(['exact', 'lower-bound']).nullable(),
+      }),
+    })
+    .nullable()
+    .describe(
+      'Captured react_get_renders comparability and coverage; null without React evidence.',
+    ),
 })
 
 export const devtoolsCaptureCreateContract = defineAgentToolContract({
@@ -728,6 +746,10 @@ export const interactionSummarySchema = interactionCaptureBaseSchema.extend({
     trackedComponents: z.number().nullable(),
     totalRenders: z.number().nullable(),
     totalUpdates: z.number().nullable(),
+    semantics: z
+      .enum(['exact', 'lower-bound', 'unknown'])
+      .nullable()
+      .describe('Whether the render counts are exact, a lower bound, or unusable as a zero.'),
     omittedComponents: z
       .number()
       .int()
@@ -742,10 +764,44 @@ export const interactionSummarySchema = interactionCaptureBaseSchema.extend({
         renders: z.number(),
         updates: z.number(),
         selfTime: z.number(),
-        topCause: z
-          .object({ kind: z.string(), count: z.number(), name: z.string().optional() })
+        ...Object.fromEntries(
+          RENDER_MEMO_COUNTERS.map((counter) => [counter, z.number().int().positive().optional()]),
+        ),
+        inputEvidence: z
+          .string()
           .nullable()
-          .describe('Most frequent observed input kind for this component; name labels the input.'),
+          .describe('Whether a React input change was observed for the latest render.'),
+        inputCoverage: z
+          .record(z.string(), z.union([z.boolean(), z.number()]))
+          .optional()
+          .describe('Present only when input attribution is incomplete; lists the failing checks.'),
+        topCause: z
+          .object({
+            kind: z.string(),
+            count: z.number(),
+            tiedWith: z
+              .array(z.string())
+              .optional()
+              .describe('Other cause kinds with the same count.'),
+            latestName: z
+              .string()
+              .optional()
+              .describe("This kind's input in the latest render; earlier renders may differ."),
+            evidence: z.enum(RENDER_CAUSE_EVIDENCE).optional(),
+            referenceOnly: z.literal(true).optional(),
+            reason: z
+              .string()
+              .optional()
+              .describe('How the cause was matched; a query cause is exact only when delivered.'),
+            changedResultFields: z
+              .array(z.string())
+              .optional()
+              .describe('Query fields the latest notification changed, e.g. data or fetchStatus.'),
+          })
+          .nullable()
+          .describe(
+            'Most frequent cause kind across the interaction; latest* and evidence describe that kind in the latest render.',
+          ),
       }),
     ),
   }),
@@ -826,7 +882,10 @@ export const devtoolsInteractionStopContract = defineAgentToolContract({
         context.addIssue({ code: 'custom', path: ['sections'], message: 'sections must be unique' })
       }
     }),
-  output: z.union([interactionSummarySchema, interactionCaptureSchema]),
+  output: z.discriminatedUnion('view', [
+    interactionSummarySchema,
+    interactionCaptureSchema.extend({ view: z.literal('full') }),
+  ]),
   annotations: { idempotentHint: true },
 })
 

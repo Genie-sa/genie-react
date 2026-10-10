@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RenderCauseEvent } from './render-causes'
+import { renderComponentSchema, renderComponentSummarySchema } from './render-contract'
 import type { RenderReport } from './render-model'
 import { summarizeRenderCauseEvent, summarizeRenderComponent } from './render-summary'
 
@@ -161,7 +162,121 @@ const component: RenderReport = {
   wrapperAncestry: [],
 }
 
+type FullComponentKey = keyof typeof renderComponentSchema.shape
+type SummaryComponentKey = keyof typeof renderComponentSummarySchema.shape
+
+const SUMMARY_DISPOSITION: Record<
+  FullComponentKey,
+  { emits: SummaryComponentKey[] } | { excluded: string }
+> = {
+  id: { emits: ['id'] },
+  name: { emits: ['name'] },
+  instance: { emits: ['mountId', 'key'] },
+  renders: { emits: ['renders'] },
+  mounts: { emits: ['mounts'] },
+  updates: { emits: ['updates'] },
+  unnecessary: { excluded: 'legacy alias of noObservedInputChange' },
+  noObservedInputChange: { emits: ['noObservedInputChange'] },
+  referenceOnlyPropRenders: { emits: ['referenceOnlyPropRenders'] },
+  unstableRenders: { excluded: 'legacy alias of referenceOnlyPropRenders' },
+  forget: { excluded: 'legacy alias of compiler.memoCacheObserved' },
+  compiler: { emits: ['memoCacheObserved'] },
+  selfTime: { emits: ['selfTime'] },
+  totalTime: { emits: ['totalTime'] },
+  cumulativeSelfTime: { emits: ['cumulativeSelfTime'] },
+  cumulativeTotalTime: { emits: ['cumulativeTotalTime'] },
+  changes: { excluded: 'legacy changes-only list; causes carry the same names' },
+  latestCommitId: { excluded: 'renderer-local; latestDocumentCommitId joins across tools' },
+  latestDocumentCommitId: { emits: ['latestDocumentCommitId'] },
+  causes: { emits: ['causes'] },
+  causeCounts: { emits: ['causeCounts'] },
+  necessity: { excluded: 'legacy input-only classification; inputEvidence replaces it' },
+  assessment: { emits: ['inputEvidence'] },
+  inputCoverage: { emits: ['inputCoverage'] },
+  source: { emits: ['source'] },
+  sourceAttribution: { excluded: 'detailed provenance stays in view:"full"' },
+  sourceProvenance: { excluded: 'detailed provenance stays in view:"full"' },
+  sourceOwnership: { emits: ['source'] },
+  isLibrary: { excluded: 'derivable from source.ownership' },
+  wrapperAncestry: { emits: ['wrappers'] },
+}
+
 describe('render summary view', () => {
+  it('accounts for every full component field and emits every summary field', () => {
+    const summary = summarizeRenderComponent({
+      ...component,
+      instance: { ...instance, key: '77' },
+      mounts: 1,
+      unnecessary: 1,
+      noObservedInputChange: 1,
+      cumulativeTotalTime: 3,
+      compiler: { ...component.compiler, memoCacheObserved: true },
+      wrapperAncestry: [{ kind: 'memo', name: 'Memo(App)' }],
+      inputCoverage: { ...component.inputCoverage, complete: false, propsNotEnumerated: true },
+    })
+    const dispositions = Object.values(SUMMARY_DISPOSITION)
+    const emitted = dispositions.flatMap((disposition) =>
+      'emits' in disposition ? disposition.emits : [],
+    )
+
+    expect(Object.keys(SUMMARY_DISPOSITION).sort()).toEqual(
+      Object.keys(renderComponentSchema.shape).sort(),
+    )
+    expect([...new Set(emitted)].sort()).toEqual(
+      Object.keys(renderComponentSummarySchema.shape).sort(),
+    )
+    expect(Object.keys(summary).sort()).toEqual([...new Set(emitted)].sort())
+  })
+
+  it('keeps the field a memo sort ranks by even when it is zero', () => {
+    expect(summarizeRenderComponent(component, 'unnecessary')).toMatchObject({
+      noObservedInputChange: 0,
+    })
+    expect(
+      summarizeRenderComponent({ ...component, referenceOnlyPropRenders: 0 }, 'unstable'),
+    ).toMatchObject({ referenceOnlyPropRenders: 0 })
+    expect(summarizeRenderComponent(component)).not.toHaveProperty('noObservedInputChange')
+  })
+
+  it('tells a query data change from a fetchStatus-only notification', () => {
+    const summary = summarizeRenderComponent({
+      ...component,
+      causes: [
+        {
+          kind: 'query',
+          evidence: 'exact',
+          reason: 'query-notification-delivered',
+          hookIndex: 0,
+          externalStoreIndex: 0,
+          subscriberId: 'subscriber:1',
+          selectionEqual: false,
+          before: null,
+          after: null,
+          changedFields: ['fetchStatus'],
+          deepDiff,
+          queryHash: '["todos"]',
+          notification: {
+            trackedFields: ['data', 'fetchStatus'],
+            trackedFieldsCoverage: 'exact',
+            changedResultFields: ['fetchStatus'],
+            deliveryReason: 'tracked-field-changed:fetchStatus',
+            fanout: 1,
+            structuralSharing: { reusedFields: ['data'], changedFields: [], truncated: false },
+          },
+        },
+      ],
+    })
+    expect(summary.causes).toEqual([
+      {
+        kind: 'query',
+        evidence: 'exact',
+        name: '["todos"]',
+        reason: 'query-notification-delivered',
+        changedResultFields: ['fetchStatus'],
+      },
+    ])
+  })
+
   it('keeps decision fields, drops values and legacy aliases, and collapses source fields', () => {
     const summary = summarizeRenderComponent(component)
 

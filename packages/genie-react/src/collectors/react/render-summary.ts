@@ -1,18 +1,34 @@
 import type { z } from 'zod'
-import { formatSourceLocation, roundMilliseconds } from '../../protocol'
+import {
+  compactRenderCause,
+  formatSourceLocation,
+  incompleteInputCoverage,
+  memoCounters,
+  roundMilliseconds,
+} from '../../protocol'
 import type { InstanceDescriptor } from './instance-identity'
-import type { RenderInputCoverage } from './render-budget'
-import type { RenderCause, RenderCauseCounts, RenderCauseEvent } from './render-causes'
+import type { RenderCauseCounts, RenderCauseEvent } from './render-causes'
 import type { renderCauseEventSummarySchema, renderComponentSummarySchema } from './render-contract'
 import type { RenderReport } from './render-model'
+import type { RenderQuery } from './render-reports'
 import type { ResolvedSource } from './source'
 
 type RenderComponentSummary = z.infer<typeof renderComponentSummarySchema>
 type RenderCauseEventSummary = z.infer<typeof renderCauseEventSummarySchema>
-type CompactCause = RenderComponentSummary['causes'][number]
+type RenderSort = RenderQuery['sort']
 
-/** One render record without values, diffs, legacy aliases or duplicated provenance. */
-export function summarizeRenderComponent(component: RenderReport): RenderComponentSummary {
+const SORT_KEY_FIELDS: Partial<Record<RenderSort, keyof RenderComponentSummary>> = {
+  unnecessary: 'noObservedInputChange',
+  referenceOnly: 'referenceOnlyPropRenders',
+  unstable: 'referenceOnlyPropRenders',
+}
+
+/** One render record without values, diffs, legacy aliases or duplicated provenance; the field a sort ranks by is kept even when zero. */
+export function summarizeRenderComponent(
+  component: RenderReport,
+  sort?: RenderSort,
+): RenderComponentSummary {
+  const sortKey = sort === undefined ? undefined : SORT_KEY_FIELDS[sort]
   const selfTime = roundMilliseconds(component.selfTime)
   const totalTime = roundMilliseconds(component.totalTime)
   const cumulativeSelfTime = roundMilliseconds(component.cumulativeSelfTime)
@@ -24,15 +40,14 @@ export function summarizeRenderComponent(component: RenderReport): RenderCompone
     renders: component.renders,
     updates: component.updates,
     ...positive('mounts', component.mounts),
-    ...positive('noObservedInputChange', component.noObservedInputChange),
-    ...positive('referenceOnlyPropRenders', component.referenceOnlyPropRenders),
+    ...memoCounters(component, sortKey),
     selfTime,
     totalTime,
     ...(cumulativeSelfTime === selfTime ? {} : { cumulativeSelfTime }),
     ...(cumulativeTotalTime === totalTime ? {} : { cumulativeTotalTime }),
     latestDocumentCommitId: component.latestDocumentCommitId,
     causeCounts: nonZeroCounts(component.causeCounts),
-    causes: component.causes.map(compactCause),
+    causes: component.causes.map(compactRenderCause),
     inputEvidence: component.assessment.inputEvidence,
     ...incompleteInputCoverage(component.inputCoverage),
     ...(component.compiler.memoCacheObserved ? { memoCacheObserved: true as const } : {}),
@@ -55,37 +70,10 @@ export function summarizeRenderCauseEvent(
     componentId: event.componentId,
     componentName: event.componentName,
     ...identity(event.instance),
-    causes: event.causes.map(compactCause),
+    causes: event.causes.map(compactRenderCause),
     inputEvidence: event.assessment.inputEvidence,
     ...incompleteInputCoverage(event.inputCoverage),
     source: compactSource(event.source, event.sourceOwnership),
-  }
-}
-
-function compactCause(cause: RenderCause): CompactCause {
-  const compact: CompactCause = { kind: cause.kind, evidence: cause.evidence }
-  switch (cause.kind) {
-    case 'props':
-      return {
-        ...compact,
-        name: cause.name,
-        ...(cause.referenceOnly ? { referenceOnly: true as const } : {}),
-      }
-    case 'state':
-    case 'context':
-      return { ...compact, name: cause.name }
-    case 'external-store':
-      return { ...compact, name: cause.storeLabel }
-    case 'query':
-      return cause.queryHash === undefined ? compact : { ...compact, name: cause.queryHash }
-    case 'router':
-      return cause.routerId === undefined ? compact : { ...compact, name: cause.routerId }
-    case 'parent':
-      return { ...compact, name: cause.parentName }
-    case 'unknown':
-      return { ...compact, reason: cause.reason }
-    default:
-      return compact
   }
 }
 
@@ -100,19 +88,6 @@ function identity(instance: InstanceDescriptor): { mountId: string; key?: string
   return instance.key === null
     ? { mountId: instance.mountId }
     : { mountId: instance.mountId, key: instance.key }
-}
-
-function incompleteInputCoverage(coverage: RenderInputCoverage): {
-  inputCoverage?: Partial<RenderInputCoverage>
-} {
-  if (coverage.complete) return {}
-  return {
-    inputCoverage: Object.fromEntries(
-      Object.entries(coverage).filter(
-        ([key, value]) => key === 'complete' || (value !== 0 && value !== false),
-      ),
-    ),
-  }
 }
 
 function nonZeroCounts(counts: RenderCauseCounts): RenderComponentSummary['causeCounts'] {

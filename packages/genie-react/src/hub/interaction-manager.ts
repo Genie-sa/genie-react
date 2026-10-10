@@ -540,7 +540,7 @@ function interactionView(
   input: ReturnType<typeof devtoolsInteractionStopContract.input.parse>,
 ): unknown {
   return input.view === 'full'
-    ? selectInteractionSections(capture, input.sections)
+    ? { ...selectInteractionSections(capture, input.sections), view: 'full' }
     : summarizeInteraction(capture)
 }
 

@@ -105,6 +105,8 @@ describe('GenieBridge', () => {
       react_get_renders: {
         commits: 7,
         comparable: true,
+        notComparableReasons: [],
+        coverage: { complete: true, semantics: 'exact' },
         summary: { totalRenders: 10, totalUpdates: 8, semantics: 'exact' },
         components: [],
       },

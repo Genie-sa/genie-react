@@ -21,7 +21,17 @@ const session: CaptureSession = {
   tools,
 }
 
-function manager(): CaptureManager<CaptureSession> {
+const comparableRenders = {
+  commits: 4,
+  summary: { totalRenders: 3, semantics: 'exact' },
+  comparable: true,
+  notComparableReasons: [],
+  coverage: { complete: true, semantics: 'exact' },
+}
+
+function manager(
+  renders: Record<string, unknown> = comparableRenders,
+): CaptureManager<CaptureSession> {
   return new CaptureManager({
     resolveSession: () => session,
     unknownSessionError: (target) => `unknown ${target}`,
@@ -30,12 +40,7 @@ function manager(): CaptureManager<CaptureSession> {
       ok: true,
       result:
         tool === 'react_get_renders'
-          ? {
-              commits: 4,
-              summary: { totalRenders: 3, semantics: 'exact' },
-              comparable: true,
-              argsEcho: args,
-            }
+          ? { ...renders, argsEcho: args }
           : tool === 'query_is_fetching'
             ? { fetching: 2, mutating: 1 }
             : { commits: 4 },
@@ -102,9 +107,38 @@ describe('capture manager artifacts', () => {
     if (!read.ok) throw new Error(read.error)
 
     expect(created.result).toEqual(read.result)
-    expect(created.result).toMatchObject({ availableSections: ['react'], warnings: [] })
+    expect(created.result).toMatchObject({
+      availableSections: ['react'],
+      warnings: [],
+      complete: true,
+      renders: {
+        comparable: true,
+        notComparableReasons: [],
+        coverage: { complete: true, semantics: 'exact' },
+      },
+    })
     expect(created.result).not.toHaveProperty('sections')
     expect(devtoolsCaptureCreateContract.output.safeParse(created.result).success).toBe(true)
+  })
+
+  it('reports incomparable render evidence and never calls that capture complete', async () => {
+    const created = await manager({
+      ...comparableRenders,
+      comparable: false,
+      notComparableReasons: ['app-source-classification-incomplete'],
+      coverage: { complete: false, semantics: 'lower-bound' },
+    }).invoke('devtools_capture_create', { name: 'partial', include: ['react'], maxAttempts: 1 })
+    if (!created.ok) throw new Error(created.error)
+
+    expect(created.result).toMatchObject({
+      consistency: { kind: 'react-commit-stable' },
+      complete: false,
+      renders: {
+        comparable: false,
+        notComparableReasons: ['app-source-classification-incomplete'],
+        coverage: { complete: false, semantics: 'lower-bound' },
+      },
+    })
   })
 
   it('retains invocation args, content integrity, and a bounded summary-first read', async () => {

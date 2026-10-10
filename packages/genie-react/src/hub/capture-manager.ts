@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { z } from 'zod'
 import {
   type AgentErrorCode,
   type AgentToolContract,
@@ -6,6 +7,7 @@ import {
   CAPTURE_SCHEMA_VERSION,
   type CaptureArtifact,
   type CaptureDomain,
+  type captureReadSummarySchema,
   dehydrate,
   devtoolsCaptureCompareContract,
   devtoolsCaptureCreateContract,
@@ -19,12 +21,14 @@ import {
   toolValidationFailure,
 } from '../protocol'
 import { compareCaptureCohorts } from './capture-comparison'
+import { recordOf, stringField } from './interaction-summary'
 
 const MAX_RETAINED_CAPTURES = 20
 const MAX_CAPTURE_BYTES = 2_000_000
 
 type CaptureSection = NonNullable<CaptureArtifact['sections'][CaptureDomain]>
 type CaptureToolResult = CaptureSection['tools'][string]
+type CaptureReadSummary = z.infer<typeof captureReadSummarySchema>
 
 interface CaptureRecipeTool {
   name: string
@@ -307,7 +311,8 @@ export class CaptureManager<TSession extends CaptureSession> {
       sections: finalSections,
       complete:
         input.include.every((domain) => finalSections[domain]?.status === 'ok') &&
-        consistencyKind === 'react-commit-stable',
+        consistencyKind === 'react-commit-stable' &&
+        renderEvidenceComplete(finalSections),
       warnings,
       sizeBytes: 0,
       pinned: false,
@@ -489,15 +494,37 @@ function captureSummary(capture: CaptureArtifact): Omit<CaptureArtifact, 'sectio
   return summary
 }
 
-function captureReadSummary(capture: CaptureArtifact): ReturnType<typeof captureSummary> & {
-  warnings: string[]
-  availableSections: CaptureDomain[]
-} {
+function captureReadSummary(capture: CaptureArtifact): CaptureReadSummary {
   return {
     ...captureSummary(capture),
     warnings: [...capture.warnings],
     availableSections: Object.keys(capture.sections) as CaptureDomain[],
+    renders: renderEvidence(capture.sections),
   }
+}
+
+/** Comparability and coverage of the captured react_get_renders result, or null when React was not captured. */
+function renderEvidence(sections: CaptureArtifact['sections']): CaptureReadSummary['renders'] {
+  const result = recordOf(sections.react?.tools.react_get_renders?.result)
+  if (!result) return null
+  const coverage = recordOf(result.coverage)
+  const semantics = stringField(coverage, 'semantics')
+  return {
+    comparable: result.comparable === true,
+    notComparableReasons: Array.isArray(result.notComparableReasons)
+      ? result.notComparableReasons.filter((reason) => typeof reason === 'string')
+      : [],
+    coverage: {
+      complete: coverage?.complete === true,
+      semantics: semantics === 'exact' || semantics === 'lower-bound' ? semantics : null,
+    },
+  }
+}
+
+function renderEvidenceComplete(sections: CaptureArtifact['sections']): boolean {
+  if (!sections.react) return true
+  const evidence = renderEvidence(sections)
+  return evidence?.comparable === true && evidence.coverage.complete
 }
 
 function selectedCapture(

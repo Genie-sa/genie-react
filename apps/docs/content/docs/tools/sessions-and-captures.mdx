@@ -499,6 +499,7 @@ npx @genie-react/cli call devtools_interaction_stop \
   "renders": {
     "status": "ok",
     "totalRenders": 9,
+    "semantics": "exact",
     "omittedComponents": 0,
     "components": [
       {
@@ -507,7 +508,8 @@ npx @genie-react/cli call devtools_interaction_stop \
         "renders": 2,
         "updates": 2,
         "selfTime": 1.4,
-        "topCause": { "kind": "props", "count": 2, "name": "item" }
+        "inputEvidence": "changed",
+        "topCause": { "kind": "props", "count": 2, "latestName": "item", "evidence": "exact" }
       }
     ]
   },
@@ -537,6 +539,8 @@ npx @genie-react/cli call devtools_interaction_stop \
 
 **Agent use:** Require `coverage.comparable:true`, inspect every settle domain and warning, then use
 the top components, their causes, and the hottest effects to choose the next source inspection.
+`topCause` is the most frequent cause kind; `latestName` and `evidence` describe that kind in the
+latest render only, and `tiedWith` lists kinds with the same count.
 Repeat the call with `view:"full"` and the needed `sections` for complete render, cause, effect, and
 cohort evidence.
 
