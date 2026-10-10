@@ -527,11 +527,13 @@ function toDescriptor(tool: ErasedCollectorTool): ToolDescriptor {
     : base
 }
 
-/** JSON Schema conversion can throw on schemas from a mismatched zod copy; a missing schema degrades discovery (warned loudly), a throw would kill the hello. */
+/** Output schemas share repeated subschemas through `$defs`, keeping summary/full unions within the default CLI byte cap. JSON Schema conversion can throw on schemas from a mismatched zod copy; a missing schema degrades discovery (warned loudly), a throw would kill the hello. */
 function safeToJsonSchema(toolName: string, schema: z.ZodType, io: 'input' | 'output'): unknown {
   try {
     return withoutSafeIntegerBounds(
-      io === 'input' ? z.toJSONSchema(schema, { io: 'input' }) : z.toJSONSchema(schema),
+      io === 'input'
+        ? z.toJSONSchema(schema, { io: 'input' })
+        : z.toJSONSchema(schema, { reused: 'ref' }),
     )
   } catch (error) {
     console.warn(
