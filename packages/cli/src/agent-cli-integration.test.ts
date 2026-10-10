@@ -729,6 +729,24 @@ describe('actionable CLI failures', () => {
     }
   }
 
+  it('maps a refused agent token to bridge_rejected in call and batch', async () => {
+    const { url } = await appFixture()
+    vi.stubEnv('GENIE_BRIDGE_TOKEN', 'wrong-token')
+    const read = captureStdout()
+
+    expect(await runCall('app_seed_tasks', '{}', { url })).toBe(1)
+    const callFailure = JSON.parse(read())
+    expect(callFailure).toMatchObject({
+      status: 'error',
+      reason: 'bridge_rejected',
+      userActionRequired: true,
+    })
+    expect(callFailure.message).toContain('rejected the agent token')
+
+    expect(await runBatch('[{"tool":"app_seed_tasks"}]', { url, json: true })).toBe(1)
+    expect(JSON.parse(read())).toMatchObject({ status: 'error', reason: 'bridge_rejected' })
+  })
+
   it("reports a GenieToolError's code, message, and hint in call and batch", async () => {
     const { url } = await appFixture()
     const read = captureStdout()
