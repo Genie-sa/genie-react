@@ -25,6 +25,10 @@ export default defineConfig({
   test: {
     // Hubs started by tests publish agent tokens here instead of beside the developer's real ones.
     env: { XDG_RUNTIME_DIR: testRuntimeDir },
-    include: ['packages/*/src/**/*.test.ts', 'apps/docs/src/**/*.test.ts'],
+    include: [
+      'packages/*/src/**/*.test.ts',
+      'apps/docs/src/**/*.test.ts',
+      'evals/lib/**/*.test.ts',
+    ],
   },
 })

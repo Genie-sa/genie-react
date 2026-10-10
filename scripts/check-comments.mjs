@@ -6,7 +6,7 @@ import ts from 'typescript'
 // Comment policy: one line per comment — multi-line blocks and consecutive `//` runs fail the build.
 
 const ROOT = new URL('..', import.meta.url).pathname
-const TARGET_DIRS = ['packages']
+const TARGET_DIRS = ['packages', 'evals']
 const SOURCE_FILE = /\.(ts|tsx)$/
 const IGNORED = /(node_modules|dist|\.gen\.)/
 
