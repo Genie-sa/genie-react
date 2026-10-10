@@ -28,6 +28,7 @@ describe('runLink', () => {
     expect(runLink({ cwd: target, genieRoot: process.cwd() })).toBe(0)
     expect(await readFile(activePath, 'utf8')).toBe(bundled)
     expect(await readFile(activeAppToolsPath, 'utf8')).toBe(bundledAppTools)
+    expect(await readFile(join(target, '.claude/skills/genie/SKILL.md'), 'utf8')).toBe(bundled)
 
     await writeFile(activePath, 'stale guidance\n', 'utf8')
     await writeFile(activeAppToolsPath, 'stale reference\n', 'utf8')

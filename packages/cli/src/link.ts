@@ -1,7 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, symlinkSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  CANONICAL_SKILL_DIRECTORY,
+  installAgentSkill,
+  readSkillFiles,
+  renderSkillFiles,
+} from './agent-skill'
 import { writeDiagnostic, writeJson } from './cli-output'
+import { detectPackageManager } from './package-manager'
 
 // The unpublished "local link" install path: symlinks a checkout into node_modules so `genie-react` and this CLI resolve normally.
 
@@ -9,7 +16,6 @@ const LINKABLE = [
   { dir: 'genie-react', name: 'genie-react' },
   { dir: 'cli', name: '@genie-react/cli' },
 ] as const
-const SKILL_FILES = ['SKILL.md', 'APP_TOOLS.md'] as const
 
 export interface LinkOptions {
   cwd?: string
@@ -61,8 +67,8 @@ export function runLink(opts: LinkOptions = {}): number {
     if (packages.length === 0)
       return fail('packages_not_found', 'The checkout contains no linkable Genie packages.')
     const binPath = missingDist ? null : dropGenieBin(cwd, packagesDir)
-    const skillPath = installAgentSkill(cwd, packagesDir)
-    if (!skillPath)
+    const skillPaths = linkAgentSkill(cwd, packagesDir)
+    if (!skillPaths)
       writeDiagnostic(
         'bundled_skill_missing',
         'Rebuild or reinstall the CLI package to restore its bundled skill.',
@@ -77,11 +83,11 @@ export function runLink(opts: LinkOptions = {}): number {
         status: 'ok',
         reason: 'packages_linked',
         message: 'Linked the local Genie packages.',
-        userActionRequired: missingDist || !skillPath,
+        userActionRequired: missingDist || !skillPaths,
         data: {
           packages,
           binPath,
-          skillPaths: skillPath ? SKILL_FILES.map((name) => join(dirname(skillPath), name)) : [],
+          skillPaths: skillPaths ?? [],
           buildRequired: missingDist,
         },
         next: { command: 'genie-react init --dry-run', argv: ['genie-react', 'init', '--dry-run'] },
@@ -97,15 +103,11 @@ export function runLink(opts: LinkOptions = {}): number {
   }
 }
 
-function installAgentSkill(cwd: string, packagesDir: string): string | null {
-  const sourceDirectory = join(packagesDir, 'cli', 'skill')
-  if (SKILL_FILES.some((name) => !existsSync(join(sourceDirectory, name)))) return null
-  const destinationDirectory = join(cwd, '.agents', 'skills', 'genie')
-  mkdirSync(destinationDirectory, { recursive: true })
-  for (const name of SKILL_FILES) {
-    writeFileSync(join(destinationDirectory, name), readFileSync(join(sourceDirectory, name)))
-  }
-  return join(destinationDirectory, 'SKILL.md')
+function linkAgentSkill(cwd: string, packagesDir: string): string[] | null {
+  const files = readSkillFiles(join(packagesDir, 'cli', 'skill'))
+  if (!files) return null
+  installAgentSkill(cwd, renderSkillFiles(files, detectPackageManager(cwd)), false)
+  return files.map(([name]) => join(cwd, CANONICAL_SKILL_DIRECTORY, name))
 }
 
 function dropGenieBin(cwd: string, packagesDir: string): string | null {

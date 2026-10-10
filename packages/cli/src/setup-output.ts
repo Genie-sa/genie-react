@@ -42,7 +42,7 @@ export function runInitCommand(options: InitCommandOptions = {}): number {
         ({ kind, status }) =>
           (status === 'manual' || status === 'missing') && !(universal && kind === 'vite_config'),
       )
-      .map(({ kind }) => ({
+      .map(({ kind, reason }) => ({
         kind,
         ...(kind === 'vite_config'
           ? { module: 'genie-react/vite', export: 'genie', placement: 'Vite plugins array' }
@@ -69,13 +69,16 @@ export function runInitCommand(options: InitCommandOptions = {}): number {
                 'Call from register() only when NODE_ENV is not production and NEXT_RUNTIME is nodejs',
             }
           : {}),
-        ...(kind === 'agent_skill'
+        ...(kind === 'agent_skill' && reason === 'bundled_skill_missing'
           ? {
               next: {
                 command: 'npm install --save-dev @genie-react/cli',
                 argv: ['npm', 'install', '--save-dev', '@genie-react/cli'],
               },
             }
+          : {}),
+        ...(kind === 'agent_skill' && reason === 'skill_path_conflict'
+          ? { placement: 'Remove the conflicting path, then rerun init' }
           : {}),
       }))
     writeJson(

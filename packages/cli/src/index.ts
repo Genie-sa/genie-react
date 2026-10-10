@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   devtoolsStatusContract,
   GENIE_CLIENT_PATH,
@@ -9,8 +9,20 @@ import {
   GENIE_INFO_PATH,
 } from 'genie-react/protocol'
 import { GenieAgentLink } from './agent-link'
+import {
+  CANONICAL_SKILL_DIRECTORY,
+  CLAUDE_SKILL_DIRECTORY,
+  inspectAgentSkill,
+  installAgentSkill,
+  readSkillFiles,
+  renderSkillFiles,
+  type SkillArtifact,
+  type SkillLocation,
+  skillVersion,
+} from './agent-skill'
 import { type BridgeDiscovery, isPidAlive, parseBridgeDiscovery, resolveBridge } from './discovery'
 import { isRecord } from './guards'
+import { detectPackageManager } from './package-manager'
 
 export interface Logger {
   info: (message: string) => void
@@ -33,9 +45,6 @@ const VITE_CONFIG_FILES = [
 const GENIE_PACKAGE = 'genie-react'
 const VITE_PLUGIN_SPECIFIER = 'genie-react/vite'
 const CLI_PACKAGE = '@genie-react/cli'
-const AGENT_SKILL_DIRECTORY = '.agents/skills/genie'
-const AGENT_SKILL_PATH = `${AGENT_SKILL_DIRECTORY}/SKILL.md`
-const APP_TOOLS_REFERENCE = 'APP_TOOLS.md'
 const VITE_IMPORT_LINE = `import { genie } from '${VITE_PLUGIN_SPECIFIER}'`
 const GENIE_IMPORT_LINE = `import { Genie } from '${GENIE_PACKAGE}'`
 const GENIE_RENDER_SNIPPET = '{import.meta.env.DEV && <Genie />}'
@@ -99,12 +108,14 @@ export type RootRouteOutcome =
   | { action: 'edit'; path: string; contents: string }
   | { action: 'manual'; path: string; reason: string }
 
-export interface InitArtifact {
-  kind: 'gitignore' | 'agent_skill'
-  path: string
-  status: 'planned' | 'applied' | 'already' | 'skipped' | 'manual'
-  reason?: string
-}
+export type InitArtifact =
+  | SkillArtifact
+  | {
+      kind: 'gitignore'
+      path: string
+      status: 'planned' | 'applied' | 'already' | 'skipped'
+      reason?: string
+    }
 
 export interface InitResult {
   artifacts: InitArtifact[]
@@ -145,7 +156,9 @@ export interface DoctorResult {
     path: string | null
     bundledHash: string | null
     activeHash: string | null
+    /** Every agent skill location matches the bundled guidance. */
     current: boolean
+    locations: SkillLocation[]
   }
   bridgeCandidates: BridgeDiscovery[]
   remediation: string[]
@@ -265,30 +278,12 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
   const runtimeVersion = runtimeDirectory
     ? packageVersionAt(join(runtimeDirectory, 'package.json'))
     : null
-  const bundledSkill = readBundledSkill()
-  const bundledAppTools = readBundledSkillFile(APP_TOOLS_REFERENCE)
-  const activeSkillPath = findActiveSkill(cwd)
-  const activeSkill = activeSkillPath ? readFileSafe(activeSkillPath) : ''
-  const activeAppTools = activeSkillPath
-    ? readFileSafe(join(dirname(activeSkillPath), APP_TOOLS_REFERENCE))
-    : ''
-  const bundledHash =
-    bundledSkill && bundledAppTools ? sha256(`${bundledSkill}\0${bundledAppTools}`) : null
-  const activeHash =
-    activeSkill && activeAppTools ? sha256(`${activeSkill}\0${activeAppTools}`) : null
-  const bundledSkillVersion = skillVersion(bundledSkill)
-  const activeSkillVersion = skillVersion(activeSkill)
-  const skillCurrent = bundledHash !== null && activeHash === bundledHash
-  checks.push({
-    label: 'agent skill matches the bundled CLI guidance',
-    ok: skillCurrent,
-    critical: true,
-    detail: skillCurrent
-      ? `${relative(cwd, activeSkillPath ?? '')} · sha256 ${activeHash?.slice(0, 12)}`
-      : activeSkillPath
-        ? `${relative(cwd, activeSkillPath)} is ${activeSkillVersion ?? 'unversioned'} / ${activeHash?.slice(0, 12)}; run: npx ${CLI_PACKAGE} init`
-        : `${AGENT_SKILL_PATH} missing; run: npx ${CLI_PACKAGE} init`,
-  })
+  const bundledSkill = readBundledSkill(cwd)
+  const skill = inspectAgentSkill(cwd, bundledSkill)
+  checks.push(
+    skillCheck('agent skill matches the bundled CLI guidance', skill.canonical, cwd),
+    skillCheck('Claude Code skill matches the bundled CLI guidance', skill.claude, cwd),
+  )
   if (runtimeVersion) {
     checks.push({
       label: 'CLI and runtime package versions agree',
@@ -340,14 +335,18 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
     versions: {
       cli: cliVersion,
       runtime: runtimeVersion,
-      bundledSkill: bundledSkillVersion,
-      activeSkill: activeSkillVersion,
+      bundledSkill: skillVersion(bundledSkill),
+      activeSkill: skill.canonical.version,
     },
     skill: {
-      path: activeSkillPath ? relative(cwd, activeSkillPath) : null,
-      bundledHash,
-      activeHash,
-      current: skillCurrent,
+      path: skill.canonical.hash ? relative(cwd, skill.canonical.path) : null,
+      bundledHash: skill.expectedHash,
+      activeHash: skill.canonical.hash,
+      current: skill.canonical.current && skill.claude.current,
+      locations: [skill.canonical, skill.claude].map((location) => ({
+        ...location,
+        path: relative(cwd, location.path),
+      })),
     },
     bridgeCandidates: bridge ? [bridge] : [],
     remediation,
@@ -1115,78 +1114,54 @@ function ensureGenieIgnored(ctx: ApplyContext): InitArtifact[] {
 }
 
 function ensureAgentSkill(ctx: ApplyContext): InitArtifact[] {
-  const bundledFiles = [
-    ['SKILL.md', readBundledSkill()],
-    [APP_TOOLS_REFERENCE, readBundledSkillFile(APP_TOOLS_REFERENCE)],
-  ] as const
-  const directory = join(ctx.cwd, AGENT_SKILL_DIRECTORY)
-  if (bundledFiles.some(([, contents]) => !contents)) {
+  const files = readBundledSkill(ctx.cwd)
+  if (!files) {
     ctx.log.info(`${WARN} bundled Genie skill is unavailable; reinstall ${CLI_PACKAGE}`)
-    return bundledFiles.map(([name]) => ({
-      kind: 'agent_skill',
-      path: join(directory, name),
-      status: 'manual',
-      reason: 'bundled_skill_missing',
-    }))
+    return [
+      {
+        kind: 'agent_skill',
+        path: join(ctx.cwd, CANONICAL_SKILL_DIRECTORY),
+        status: 'manual',
+        reason: 'bundled_skill_missing',
+      },
+    ]
   }
-  const artifacts: InitArtifact[] = bundledFiles.map(([name, contents]) => ({
-    kind: 'agent_skill',
-    path: join(directory, name),
-    status:
-      readFileSafe(join(directory, name)) === contents
-        ? 'already'
-        : ctx.dryRun
-          ? 'planned'
-          : 'applied',
-  }))
-  if (artifacts.every(({ status }) => status === 'already')) return artifacts
-  if (ctx.dryRun) {
-    ctx.log.info(`${PREVIEW}Would install the versioned agent skill at ${AGENT_SKILL_PATH}`)
-    return artifacts
+  const artifacts = installAgentSkill(ctx.cwd, files, ctx.dryRun)
+  for (const directory of [CANONICAL_SKILL_DIRECTORY, CLAUDE_SKILL_DIRECTORY]) {
+    const changed = artifacts.filter(({ path }) => path.startsWith(join(ctx.cwd, directory)))
+    const via = changed.some(({ link }) => link === 'symlink')
+      ? ` (symlink to ${CANONICAL_SKILL_DIRECTORY})`
+      : ''
+    if (changed.some(({ status }) => status === 'manual')) {
+      ctx.log.info(`${WARN} ${directory} exists and is not Genie's skill; remove it and rerun init`)
+    } else if (changed.some(({ status }) => status === 'planned')) {
+      ctx.log.info(`${PREVIEW}Would install the agent skill at ${directory}${via}`)
+    } else if (changed.some(({ status }) => status === 'applied')) {
+      ctx.log.info(`${OK} installed the agent skill at ${directory}${via}`)
+    }
   }
-  mkdirSync(directory, { recursive: true })
-  for (const [name, contents] of bundledFiles) writeFileSync(join(directory, name), contents)
-  ctx.log.info(`${OK} installed the versioned agent skill at ${AGENT_SKILL_PATH}`)
   return artifacts
 }
 
-function readBundledSkill(): string {
-  return readBundledSkillFile('SKILL.md')
+/** The bundled skill rendered for this project's package manager; null when the package lost its skill files. */
+function readBundledSkill(cwd: string) {
+  const files = readSkillFiles(fileURLToPath(new URL('../skill', import.meta.url)))
+  return files && renderSkillFiles(files, detectPackageManager(cwd))
 }
 
-function readBundledSkillFile(name: string): string {
-  try {
-    return readFileSync(new URL(`../skill/${name}`, import.meta.url), 'utf8')
-  } catch {
-    return ''
+function skillCheck(label: string, location: SkillLocation, cwd: string): DoctorCheck {
+  const path = relative(cwd, location.path)
+  const via = location.symlink ? ' (symlink)' : ''
+  return {
+    label,
+    ok: location.current,
+    critical: true,
+    detail: location.current
+      ? `${path}${via} · sha256 ${location.hash?.slice(0, 12)}`
+      : location.hash
+        ? `${path}${via} drifted: ${location.version ?? 'unversioned'} / ${location.hash.slice(0, 12)}; run: npx ${CLI_PACKAGE} init`
+        : `${path} missing; run: npx ${CLI_PACKAGE} init`,
   }
-}
-
-function findActiveSkill(cwd: string): string | null {
-  const candidates = [
-    AGENT_SKILL_PATH,
-    '.codex/skills/genie/SKILL.md',
-    '.claude/skills/genie/SKILL.md',
-  ]
-  let directory = cwd
-  while (true) {
-    for (const candidate of candidates) {
-      const path = join(directory, candidate)
-      if (existsSync(path)) return path
-    }
-    const parent = dirname(directory)
-    if (parent === directory) return null
-    directory = parent
-  }
-}
-
-function skillVersion(contents: string): string | null {
-  const match = /^\s*version:\s*["']?([^\s"']+)/m.exec(contents)
-  return match?.[1] ?? null
-}
-
-function sha256(contents: string): string {
-  return createHash('sha256').update(contents).digest('hex')
 }
 
 function packageVersionAt(path: string | URL): string | null {
@@ -1221,7 +1196,7 @@ export function initNextCommands(cwd: string, framework: Framework) {
 }
 
 function packageManagerHints(cwd: string): PackageManagerHints {
-  switch (detectPackageManager(cwd)) {
+  switch (detectPackageManager(cwd) ?? 'pnpm') {
     case 'yarn':
       return { add: 'yarn add -D', dev: 'yarn dev' }
     case 'bun':
@@ -1230,20 +1205,6 @@ function packageManagerHints(cwd: string): PackageManagerHints {
       return { add: 'npm install -D', dev: 'npm run dev' }
     case 'pnpm':
       return { add: 'pnpm add -D', dev: 'pnpm dev' }
-  }
-}
-
-// Lockfile walk-up so a monorepo app dir reports the repo's real package manager; pnpm stays the no-lockfile default the docs use.
-function detectPackageManager(cwd: string): 'pnpm' | 'yarn' | 'bun' | 'npm' {
-  let dir = cwd
-  while (true) {
-    if (existsSync(join(dir, 'pnpm-lock.yaml'))) return 'pnpm'
-    if (existsSync(join(dir, 'yarn.lock'))) return 'yarn'
-    if (existsSync(join(dir, 'bun.lock')) || existsSync(join(dir, 'bun.lockb'))) return 'bun'
-    if (existsSync(join(dir, 'package-lock.json'))) return 'npm'
-    const parent = dirname(dir)
-    if (parent === dir) return 'pnpm'
-    dir = parent
   }
 }
 
