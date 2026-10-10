@@ -1,6 +1,13 @@
 import type { BridgeStatusMessage } from 'genie-react/protocol'
 import { describe, expect, it } from 'vitest'
-import { groupIndex, relatedActions, resolveToolsSelector, slimDescriptor } from './tool-output'
+import {
+  groupIndex,
+  outlineJsonSchema,
+  relatedActions,
+  resolveToolsSelector,
+  slimDescriptor,
+  toolDetail,
+} from './tool-output'
 
 type ToolDescriptor = BridgeStatusMessage['tools'][number]
 
@@ -179,5 +186,64 @@ describe('group families', () => {
     expect(react.kind).toBe('group')
     if (react.kind === 'group')
       expect(react.tools.map((t) => t.name)).toEqual(['react_get_renders'])
+  })
+})
+
+describe('tool detail output outline', () => {
+  const outputJsonSchema = {
+    anyOf: [
+      {
+        type: 'object',
+        properties: {
+          view: { type: 'string', const: 'summary' },
+          components: { type: 'array', items: { $ref: '#/$defs/row' } },
+          nextCursor: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+          note: { type: 'string' },
+        },
+        required: ['view', 'components', 'nextCursor'],
+      },
+      {
+        type: 'object',
+        properties: {
+          view: { type: 'string', const: 'full' },
+          components: { type: 'array', items: { type: 'object' } },
+          nextCursor: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+          legacy: { type: 'integer' },
+        },
+        required: ['view', 'components', 'nextCursor', 'legacy'],
+      },
+    ],
+    $defs: { row: { type: 'object', properties: { id: { type: 'integer' } } } },
+  }
+
+  it('lists top-level keys with shallow types and marks keys missing from a branch optional', () => {
+    expect(outlineJsonSchema(outputJsonSchema)).toEqual({
+      view: '"summary" | "full"',
+      components: 'array<object>',
+      nextCursor: 'string | null',
+      'note?': 'string',
+      'legacy?': 'integer',
+    })
+  })
+
+  it('replaces the output schema with an outline unless the complete schema is requested', () => {
+    const descriptor = tool({ name: 'react_get_renders', outputJsonSchema })
+    const next = {
+      command: 'genie-react tools react_get_renders --output-schema',
+      argv: ['genie-react', 'tools', 'react_get_renders', '--output-schema'],
+    }
+    expect(toolDetail(descriptor, false, next)).toEqual({
+      name: 'react_get_renders',
+      title: 'react_get_renders',
+      group: 'query',
+      output: {
+        kind: 'outline',
+        fields: outlineJsonSchema(outputJsonSchema),
+        next,
+      },
+    })
+    expect(toolDetail(descriptor)).toHaveProperty('output', expect.not.objectContaining({ next }))
+    expect(toolDetail(descriptor, true)).toBe(descriptor)
+    expect(toolDetail(tool({ name: 'devtools_status' }))).not.toHaveProperty('output')
   })
 })

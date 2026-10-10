@@ -80,7 +80,7 @@ try {
     const { value } = await run([name, '--help'])
     assert.equal(value.command, name)
     assert(value.options.json)
-    assert.equal(value.options['max-bytes'].default, 262144)
+    assert.equal(value.options['max-bytes'].default, 102400)
     assert(Array.isArray(value.arguments))
     if (name === 'tools') assert.equal(value.options.wait.default, 12000)
     if (name === 'capture') assert.equal(value.options.output.required, true)
@@ -196,7 +196,13 @@ try {
   assert.equal(large.value.body.length, 30000)
   const capped = await run(['call', 'app_large', '{"size":100000}', '--url', url])
   assert.equal(capped.value.status, 'truncated')
-  assert(Buffer.byteLength(capped.stdout) <= 262144)
+  assert(Buffer.byteLength(capped.stdout) <= 102400)
+  assert.equal(
+    JSON.parse(await readFile(capped.value.outputPath, 'utf8')).body.length,
+    100000,
+    'an oversized call must spill its complete result',
+  )
+  assert(capped.value.suggestions.some((suggestion) => suggestion.argv.includes('--max-bytes')))
   const rows = (
     await run(['call', 'app_echo', '{}', '--fields', 'count,missing', '--url', url], {
       jsonl: true,

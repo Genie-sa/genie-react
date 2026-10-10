@@ -46,9 +46,19 @@ describe('GenieBridge interaction capture', () => {
           observation: { id: 'observation:interaction' },
           comparable: true,
           notComparableReasons: [],
-          summary: { semantics: 'exact', totalRenders: 4 },
+          summary: { semantics: 'exact', trackedComponents: 1, totalRenders: 4, totalUpdates: 3 },
           coverage: { complete: true },
-          components: [{ name: 'Row', renders: 4 }],
+          components: [
+            {
+              id: 7,
+              name: 'Row',
+              renders: 4,
+              updates: 3,
+              selfTime: 1.23456,
+              causeCounts: { mount: 1, props: 3, state: 0 },
+              causes: [{ kind: 'props', evidence: 'exact', name: 'item' }],
+            },
+          ],
         }
       } else if (message.tool === 'react_render_causes') {
         result = {
@@ -61,7 +71,17 @@ describe('GenieBridge interaction capture', () => {
         result = {
           documentCommitId: 13,
           observation: { id: 'observation:interaction' },
-          events: [{ effectEventId: 'effect:1', documentCommitId: 12 }],
+          events: [
+            {
+              effectEventId: 'effect:1',
+              effectId: 'effect:mount:1:0',
+              componentName: 'Row',
+              kind: 'effect',
+              documentCommitId: 12,
+              execution: { status: 'observed', durationMs: 0.5 },
+              source: { file: 'Row.tsx', line: 4, column: 2 },
+            },
+          ],
           coverage: { complete: true },
         }
       } else if (message.tool === 'react_component_cohort') {
@@ -95,6 +115,9 @@ describe('GenieBridge interaction capture', () => {
         title: name,
         description: name,
         group: 'react.render',
+        ...(name === 'react_get_renders' || name === 'react_render_causes'
+          ? { inputJsonSchema: { type: 'object', properties: { view: { type: 'string' } } } }
+          : {}),
       })),
     })
     const { ws: agent, inbox } = await open(`${url}?role=agent`)
@@ -140,30 +163,97 @@ describe('GenieBridge interaction capture', () => {
     })
     const stopped = await inbox.wait(isResult(stopId), 3_000)
     expect(() => devtoolsInteractionStopContract.output.parse(stopped.result)).not.toThrow()
+    const boundary = {
+      observationId: 'observation:interaction',
+      startDocumentCommitId: 10,
+      stopDocumentCommitId: 12,
+      finalDocumentCommitId: 13,
+      recordedCommits: 2,
+      postInteractionCommits: 1,
+      trackingFrozen: true,
+      postInteractionPolicy: 'excluded-by-profile-freeze',
+    }
     expect(stopped.result).toMatchObject({
       kind: 'interaction-capture',
+      view: 'summary',
       state: 'completed',
-      boundary: {
-        observationId: 'observation:interaction',
-        startDocumentCommitId: 10,
-        stopDocumentCommitId: 12,
-        finalDocumentCommitId: 13,
-        recordedCommits: 2,
-        postInteractionCommits: 1,
-        trackingFrozen: true,
-        postInteractionPolicy: 'excluded-by-profile-freeze',
-      },
+      boundary,
       settle: { ok: true, domains: { react: { status: 'met' } } },
       coverage: { complete: true, comparable: true, notComparableReasons: [] },
+      renders: {
+        status: 'ok',
+        commits: 2,
+        totalRenders: 4,
+        semantics: 'exact',
+        omittedComponents: 0,
+        components: [
+          {
+            id: 7,
+            name: 'Row',
+            renders: 4,
+            updates: 3,
+            selfTime: 1.23,
+            topCause: { kind: 'props', count: 3, latestName: 'item', evidence: 'exact' },
+          },
+        ],
+      },
+      causes: { status: 'ok', events: 1 },
+      effects: {
+        status: 'ok',
+        tool: 'react_effect_timeline',
+        events: 1,
+        hottest: [
+          {
+            effectId: 'effect:mount:1:0',
+            componentName: 'Row',
+            events: 1,
+            executions: 1,
+            durationMs: 0.5,
+            source: 'Row.tsx:4:2',
+          },
+        ],
+      },
+      cohorts: [{ component: 'Row', status: 'ok', cohortStatus: 'updated', matched: 2 }],
+      fullView: {
+        tool: 'devtools_interaction_stop',
+        args: { interactionId: began.result.interactionId, view: 'full' },
+      },
+    })
+    expect(stopped.result).not.toHaveProperty('sections')
+    expect(stopped.result.settle.domains.react).not.toHaveProperty('lastObserved')
+    expect(stopped.result.warnings[0]).toContain('excluded by the profile freeze')
+    expect(calls.indexOf('react_profile_stop')).toBeLessThan(calls.indexOf('react_get_renders'))
+
+    const fullId = newId()
+    send(agent, {
+      kind: 'agent/invoke',
+      id: fullId,
+      tool: 'devtools_interaction_stop',
+      args: { interactionId: began.result.interactionId, view: 'full' },
+    })
+    const full = (await inbox.wait(isResult(fullId))).result
+    expect(() => devtoolsInteractionStopContract.output.parse(full)).not.toThrow()
+    expect(full).toMatchObject({
+      view: 'full',
+      boundary,
       sections: {
-        renders: { status: 'ok', tool: 'react_get_renders' },
-        causes: { status: 'ok', tool: 'react_render_causes' },
+        renders: { status: 'ok', tool: 'react_get_renders', args: { view: 'full' } },
+        causes: { status: 'ok', tool: 'react_render_causes', args: { view: 'full' } },
         effects: { status: 'ok', tool: 'react_effect_timeline' },
         cohorts: [{ component: 'Row', evidence: { status: 'ok' } }],
       },
     })
-    expect(stopped.result.warnings[0]).toContain('excluded by the profile freeze')
-    expect(calls.indexOf('react_profile_stop')).toBeLessThan(calls.indexOf('react_get_renders'))
+
+    const sectionId = newId()
+    send(agent, {
+      kind: 'agent/invoke',
+      id: sectionId,
+      tool: 'devtools_interaction_stop',
+      args: { interactionId: began.result.interactionId, view: 'full', sections: ['causes'] },
+    })
+    const causesOnly = (await inbox.wait(isResult(sectionId))).result
+    expect(Object.keys(causesOnly.sections)).toEqual(['causes'])
+    expect(causesOnly.sections.causes).toEqual(full.sections.causes)
 
     const repeatId = newId()
     send(agent, {

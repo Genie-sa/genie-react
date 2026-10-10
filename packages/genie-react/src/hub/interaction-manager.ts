@@ -6,13 +6,17 @@ import {
   devtoolsInteractionStopContract,
   type HubErrorCode,
   INTERACTION_SCHEMA_VERSION,
+  type InteractionCapture,
   newId,
   type ToolDescriptor,
   type ToolErrorDetails,
   toolValidationFailure,
   type WaitDomain,
 } from '../protocol'
+import { withFullView } from './full-view'
+import { selectInteractionSections, summarizeInteraction } from './interaction-summary'
 import type { SessionUnavailable } from './session-routing'
+import { numberField, recordOf, stringField } from './wire-guards'
 
 const MAX_ACTIVE_INTERACTIONS = 20
 const MAX_COMPLETED_INTERACTIONS = 20
@@ -109,7 +113,7 @@ export function isInteractionTool(tool: string): boolean {
 /** Owns one-document interaction windows and freezes React evidence before generalized settling. */
 export class InteractionManager<TSession extends InteractionSession> {
   private readonly active = new Map<string, ActiveInteraction<TSession>>()
-  private readonly completed = new Map<string, unknown>()
+  private readonly completed = new Map<string, InteractionCapture>()
   private readonly starting = new Map<string, symbol>()
 
   constructor(private readonly options: InteractionManagerOptions<TSession>) {}
@@ -277,7 +281,7 @@ export class InteractionManager<TSession extends InteractionSession> {
     sessionTarget?: string,
   ): Promise<InteractionInvocation> {
     const completed = this.completed.get(input.interactionId)
-    if (completed !== undefined) return { ok: true, result: structuredClone(completed) }
+    if (completed !== undefined) return { ok: true, result: interactionView(completed, input) }
     const active = this.active.get(input.interactionId)
     if (!active) {
       return {
@@ -342,15 +346,20 @@ export class InteractionManager<TSession extends InteractionSession> {
       input.quietMs,
       input.timeoutMs,
     )
-    const renders = await this.captureTool(active.session, 'react_get_renders', {
-      sort: 'renders',
-      limit: 100,
-      appOnly: false,
-    })
-    const causes = await this.captureTool(active.session, 'react_render_causes', {
-      limit: 200,
-      appOnly: false,
-    })
+    const renders = await this.captureTool(
+      active.session,
+      'react_get_renders',
+      withFullView(active.session.tools, 'react_get_renders', {
+        sort: 'renders',
+        limit: 100,
+        appOnly: false,
+      }),
+    )
+    const causes = await this.captureTool(
+      active.session,
+      'react_render_causes',
+      withFullView(active.session.tools, 'react_render_causes', { limit: 200, appOnly: false }),
+    )
     const effectTool = hasTool(active.session, 'react_effect_timeline')
       ? 'react_effect_timeline'
       : 'react_effect_events'
@@ -396,7 +405,7 @@ export class InteractionManager<TSession extends InteractionSession> {
       )
     }
     const stoppedAt = new Date().toISOString()
-    const result = {
+    const result: InteractionCapture = {
       schemaVersion: INTERACTION_SCHEMA_VERSION,
       kind: 'interaction-capture',
       interactionId: active.interactionId,
@@ -434,7 +443,7 @@ export class InteractionManager<TSession extends InteractionSession> {
       if (!oldest) break
       this.completed.delete(oldest)
     }
-    return { ok: true, result: structuredClone(result) }
+    return { ok: true, result: interactionView(result, input) }
   }
 
   private async captureTool(session: TSession, tool: string, args: unknown): Promise<ToolEvidence> {
@@ -515,7 +524,7 @@ function coverageReasons(input: {
   return [...new Set(reasons)]
 }
 
-function sessionIdentity(session: InteractionSession): Record<string, unknown> {
+function sessionIdentity(session: InteractionSession): InteractionCapture['session'] {
   return {
     sessionId: session.sessionId,
     ...(session.logicalSessionId === undefined
@@ -533,20 +542,13 @@ function hasTool(session: InteractionSession, tool: string): boolean {
   return session.tools.some((descriptor) => descriptor.name === tool)
 }
 
-function recordOf(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null
-}
-
-function numberField(record: Record<string, unknown> | null, key: string): number | null {
-  const value = record?.[key]
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function stringField(record: Record<string, unknown> | null, key: string): string | null {
-  const value = record?.[key]
-  return typeof value === 'string' ? value : null
+function interactionView(
+  capture: InteractionCapture,
+  input: ReturnType<typeof devtoolsInteractionStopContract.input.parse>,
+): unknown {
+  return input.view === 'full'
+    ? { ...selectInteractionSections(capture, input.sections), view: 'full' }
+    : summarizeInteraction(capture)
 }
 
 function invalidArguments(

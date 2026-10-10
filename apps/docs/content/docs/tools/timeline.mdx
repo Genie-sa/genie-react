@@ -36,7 +36,9 @@ npx @genie-react/cli call timeline_start \
 ```
 
 **Agent use:** Save the returned ID, inspect each domain's `coverage`, drive the interaction, and
-wait for its actual success condition before stopping.
+wait for its actual success condition before stopping. Only this response includes each lane's
+coverage `detail`; read and stop responses keep the stable `code` listed under
+[coverage codes](#coverage-codes).
 
 **Limits:** One recording at a time. A concurrent start errors. Event and duration limits stop the
 recording automatically. Missing browser, Query, Router, or supported development React capabilities
@@ -120,3 +122,20 @@ Repeated stops return the same metadata.
 `max-duration`, or `collector-cleanup`. Hitting the event cap sets `truncated`; resource observation
 still has its documented coverage limits even when that flag is false. Only one stopped recording
 is retained in app memory, so save it before starting another or reloading.
+
+## Coverage codes
+
+Each lane reports `status` and a stable `code`. `timeline_start` adds the `detail` text once. The
+text is fixed for each code, so read and stop responses lose nothing by omitting it.
+
+| Code | Lane | Meaning |
+| --- | --- | --- |
+| `resource-timing` | request | Completed fetch/XHR Resource Timing only; delivery can lag; failed, unfinished, worker, and non-fetch/XHR requests can be absent; cross-origin detail needs `Timing-Allow-Origin`; URLs keep paths only. |
+| `resource-timing-flush-failed` | request | As above, but the final resource queue flush failed, so entries can be missing. |
+| `no-resource-timing` | request | Browser Resource Timing is unavailable; native requests are not observed. |
+| `query-cache` | query | QueryCache add, remove, and update notifications; no prior snapshot, mutation cache, payloads, or request links. |
+| `no-query-client` | query | No QueryClient was supplied. |
+| `react-root-commits` | react | Development React root commits with root `actualDuration`; not commit wall time, effects, or component attribution. |
+| `no-react-renderer` | react | No supported development React renderer or hook; load Genie before React. |
+| `tanstack-router` | navigation | TanStack Router lifecycle notifications with pathnames only. |
+| `no-tanstack-router` | navigation | No TanStack Router was supplied; other routers and native navigation are not observed. |

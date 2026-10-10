@@ -197,6 +197,7 @@ async function main(): Promise<number> {
     ndjson: values.ndjson,
     session: values.session,
     all: values.all,
+    outputSchema: values['output-schema'],
     timeoutMs: values.timeout ? Number(values.timeout) : undefined,
     fields: parseFields(values.fields),
     select: values.select,

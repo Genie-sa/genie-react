@@ -12,6 +12,7 @@ import {
 describe('react_get_renders output contract', () => {
   it('preserves detailed hook state changes for typed agent clients', () => {
     const result = reactGetRendersContract.output.parse({
+      view: 'full',
       nextCursor: null,
       pagination: { snapshotId: 'report:1', offset: 0, totalComponents: 1, expiresAt: 300_000 },
       bundle: 'development',
@@ -200,6 +201,7 @@ describe('react_get_renders output contract', () => {
       },
     })
 
+    if (result.view !== 'full') throw new Error('expected the full view')
     expect(result.components[0]?.changes[0]).toEqual({
       name: 'state[0]',
       kind: 'state',
@@ -262,7 +264,11 @@ describe('react_effect_audit contract', () => {
 
 describe('react_render_causes contract', () => {
   it('applies bounded defaults and makes commit selectors mutually exclusive', () => {
-    expect(reactRenderCausesContract.input.parse({})).toEqual({ limit: 100, appOnly: true })
+    expect(reactRenderCausesContract.input.parse({})).toEqual({
+      limit: 100,
+      appOnly: true,
+      view: 'summary',
+    })
     expect(() => reactRenderCausesContract.input.parse({ commit: 2, afterCommit: 1 })).toThrow(
       'mutually exclusive',
     )
@@ -271,6 +277,7 @@ describe('react_render_causes contract', () => {
 
   it('requires an explicit event-limit omission count', () => {
     const result = reactRenderCausesContract.output.parse({
+      view: 'summary',
       tracking: true,
       commits: 0,
       documentCommitId: 0,
