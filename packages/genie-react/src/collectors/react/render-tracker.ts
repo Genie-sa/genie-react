@@ -215,6 +215,8 @@ const DEFAULT_OBSERVATION_CONFIGURATION: RenderObservationConfiguration = {
 
 let observationConfiguration = safeStructuredClone(DEFAULT_OBSERVATION_CONFIGURATION)
 let observationRootIds = new Set<number>()
+/** Bippy releases ids as React reports each unmount parent-first, so descendants read their deleted ancestors' root membership here. */
+let unmountedRootMembership = new WeakMap<Fiber, boolean>()
 
 const ADAPTIVE_FIBER_CEILING = 20_000
 const ADAPTIVE_OPERATION_CEILING = 2_000_000
@@ -563,6 +565,7 @@ function configureRenderObservation(options: RenderObservationOptions): void {
     },
   }
   observationRootIds = new Set(observationConfiguration.roots)
+  unmountedRootMembership = new WeakMap()
 }
 
 function grown(configured: number, scale: number, ceiling: number): number {
@@ -581,23 +584,21 @@ function effectiveObservationBudget(): RenderObservationConfiguration['budget'] 
 }
 
 function isObservationTarget(fiber: Fiber): boolean {
-  if (
-    observationConfiguration.components.length === 0 &&
-    observationConfiguration.roots.length === 0
-  ) {
-    return false
-  }
-  if (
-    observationConfiguration.components.length > 0 &&
-    observationConfiguration.components.some((needle) =>
-      nameOf(fiber).toLowerCase().includes(needle),
-    )
-  ) {
-    return true
-  }
-  if (observationConfiguration.roots.length === 0) return false
+  return matchesObservedComponent(fiber) || isWithinObservationRoot(fiber)
+}
+
+function matchesObservedComponent(fiber: Fiber): boolean {
+  return observationConfiguration.components.some((needle) =>
+    nameOf(fiber).toLowerCase().includes(needle),
+  )
+}
+
+function isWithinObservationRoot(fiber: Fiber): boolean {
+  if (observationRootIds.size === 0) return false
   let current: Fiber | null = fiber
   for (let depth = 0; current && depth < 100; depth += 1) {
+    const recorded = unmountedRootMembership.get(current)
+    if (recorded !== undefined) return recorded
     try {
       if (observationRootIds.has(getFiberId(current))) return true
     } catch {
@@ -1356,10 +1357,12 @@ function recordPendingUnmounts(rendererId: number, budget: CommitAnalysisBudget)
   pendingUnmounts.push(...retained)
 }
 
-/** Queue only component lifecycles; host-node unmounts cannot produce cohort tombstones. */
+/** Record every fiber's root membership for its descendants, but queue only component lifecycles; host-node unmounts cannot produce cohort tombstones. */
 export function queuePendingUnmount(rendererId: number, fiber: Fiber): void {
+  const withinRoot = isWithinObservationRoot(fiber)
+  if (observationRootIds.size > 0) unmountedRootMembership.set(fiber, withinRoot)
   if (!isCompositeFiber(fiber)) return
-  const targeted = isObservationTarget(fiber)
+  const targeted = withinRoot || matchesObservedComponent(fiber)
   pendingUnmounts.push({ rendererId, fiber, fiberId: getFiberId(fiber), targeted })
   if (pendingUnmounts.length <= observationConfiguration.lifecycle.bufferLimit) return
   const protectedTargetIndices = new Set<number>()
