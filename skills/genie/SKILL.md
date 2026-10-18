@@ -2,7 +2,7 @@
 name: genie
 description: Inspect a running React or React Native app with Genie. Use for render causes, effects, Query and Router state, interaction timelines, performance comparisons, or app_* tools for login, fixtures, and UI states.
 metadata:
-  version: "0.14.0"
+  version: "0.15.1"
   package: "@genie-react/cli"
 ---
 
@@ -23,7 +23,13 @@ npx genie-react status --session my-agent
 
 Use the app's real URL, appending `&_genie=my-agent` when it already has a query. On native, open the app with agent-device, then take the ready session's `sessionId` from `npx genie-react status`.
 
-Pass `--session <name>` to every `status`, `tools`, `call`, `batch`, and `capture` command. This step is complete when status reports `ready: true` and `app.url` is the intended app. If status says the session is unavailable right after opening the page, retry it once. Otherwise run `npx genie-react doctor` and follow its `remediation`; it also reports a stale skill, which `init` refreshes. Exclude `genie-react:*` sessionStorage keys from saved browser state.
+Pass `--session <name>` to every `status`, `tools`, `call`, `batch`, and `capture` command. This step is complete when status reports `ready: true` and `app.url` is the intended app (`app.name` on native). If status fails with `unknown_session` or reports `ready: false` right after opening the page, retry it once. Otherwise run `npx genie-react doctor --live` and follow its `remediation`; it also reports a stale skill, which `init` refreshes. Exclude `genie-react:*` sessionStorage keys from saved browser state.
+
+The app's dev process owns the hub. When the hub is unreachable, start it:
+
+- Vite: the dev server with the `genie()` plugin.
+- Next.js: `next dev` with `registerGenie()` in `instrumentation.ts`. Its dev log prints `[genie] hub ready`; a compile error in the instrumentation import graph stops that line and the hub with it.
+- Anything else, including React Native: `npx genie-react hub`.
 
 Untargeted calls stay on the first tab they used. With several tabs and none targeted yet, they fail with `unknown_session` and list the tabs in `details.session.connected`.
 
@@ -34,7 +40,7 @@ npx genie-react tools --session my-agent
 npx genie-react tools react_render_causes --session my-agent
 ```
 
-`tools <name>` returns the tool's live contract: `inputJsonSchema` holds field names, defaults, and limits; `output` outlines the top-level result fields (add `--output-schema` for the complete `outputJsonSchema`); `annotations` appear when the tool declares them. There is no example; build arguments from `inputJsonSchema`. Component IDs come from the current tree; reacquire them after reloads.
+`tools <name>` returns the tool's live contract: `inputJsonSchema` holds field names, defaults, and limits; `output` outlines the top-level result fields when the tool advertises an output schema (add `--output-schema` for the complete `outputJsonSchema`); `annotations` appear when advertised. Hub tools (`devtools_*`, `react_quiesce`) advertise only their input. Build arguments from `inputJsonSchema`, including its `examples` keyword where present. Component IDs come from the current tree; reacquire them after reloads.
 
 | Question | Start with |
 | --- | --- |

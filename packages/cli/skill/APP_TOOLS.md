@@ -9,17 +9,21 @@ Load this reference only when creating or changing the app-owned tools that Geni
 - Pass definitions to `<Genie tools={tools} />` for app-lifetime tools.
 - Use `registerGenieTools` outside React, such as in a store or API client. Keep and call its unregister function when that lifetime ends.
 
+The hooks and `<Genie>` come from the root `genie-react` entry, which imports `@tanstack/react-query` and `@tanstack/react-router`. Vite's `genie()` plugin stubs whichever is missing. Any other app lacking either one, such as Next.js or React Native, imports `defineGenieTool` and `registerGenieTools` from `genie-react/client` instead and returns `registerGenieTools(...)` from a `useEffect` that depends on the state its handlers read.
+
 This step is complete when every tool has one deliberate owner and lifetime.
 
 ## 2. Define the contract
 
-Apps import Zod directly; add it as a direct dependency rather than importing Genie's private copy.
+Apps import Zod 4 directly; add it as a direct dependency rather than importing Genie's private copy.
 
 ```tsx
 import { defineGenieTool, useGenieTools } from 'genie-react'
 import { z } from 'zod'
+import { useAuth } from './auth'
 
 function AuthDevtools() {
+  const { role, canDelete, switchRole } = useAuth()
   useGenieTools([
     defineGenieTool({
       name: 'session',
@@ -34,13 +38,14 @@ function AuthDevtools() {
       group: 'auth',
       kind: 'action',
       idempotent: true,
-      description: 'Switches the local session role and returns the permissions now visible in the UI.',
+      description:
+        'Switches the local session role. Read app_session afterward for the permissions now visible in the UI.',
       input: z.object({ role: z.enum(['guest', 'member', 'admin']) }),
+      output: z.object({ changed: z.boolean(), role: z.string() }),
       handler: ({ role: nextRole }) => {
-        if (nextRole === role) {
-          return { changed: false, role }
-        }
-        return switchRole(nextRole)
+        const changed = nextRole !== role
+        if (changed) switchRole(nextRole)
+        return { changed, role: nextRole }
       },
     }),
   ])

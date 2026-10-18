@@ -410,7 +410,7 @@ describe('runInit — idempotency and dry-run', () => {
     expect(await readFile(activeSkill, 'utf8')).toBe(bundledSkill)
     expect(await readFile(activeAppTools, 'utf8')).toBe(bundledAppTools)
     expect(runDoctor({ cwd: dir, logger: silent })).toMatchObject({
-      versions: { bundledSkill: '0.14.0', activeSkill: '0.14.0' },
+      versions: { bundledSkill: '0.15.1', activeSkill: '0.15.1' },
       skill: { current: true },
     })
 
