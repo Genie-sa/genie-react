@@ -82,21 +82,8 @@ export function inspectAgentSkill(cwd: string, expected: SkillFiles | null) {
   const root = findSkillRoot(cwd) ?? cwd
   const project = { cwd: root, real: realpathSafe(root) ?? root }
   const expectedHash = expected ? hashSkill(expected) : null
-  const inspect = (path: string, conflictPath: string | null): SkillLocation => {
-    const installed = SKILL_FILE_NAMES.map(
-      (name) => [name, readFileSafe(join(path, name))] as const,
-    )
-    const hasSkill = installed.some(([name, contents]) => name === 'SKILL.md' && contents)
-    const hash = hasSkill ? hashSkill(installed) : null
-    return {
-      path,
-      symlink: lstatSafe(path)?.isSymbolicLink() ?? false,
-      conflictPath,
-      version: skillVersion(installed),
-      hash,
-      current: conflictPath === null && expectedHash !== null && hash === expectedHash,
-    }
-  }
+  const inspect = (path: string, conflictPath: string | null): SkillLocation =>
+    inspectSkillLocation(path, conflictPath, expectedHash ? [expectedHash] : [])
   const canonicalPath = join(root, CANONICAL_SKILL_DIRECTORY)
   const claudePath = join(root, CLAUDE_SKILL_DIRECTORY)
   const canonical = inspect(canonicalPath, blockingPath(project, canonicalPath))
@@ -107,6 +94,32 @@ export function inspectAgentSkill(cwd: string, expected: SkillFiles | null) {
     canonical.conflictPath === null,
   )
   return { expectedHash, canonical, claude: inspect(claudePath, claudeConflict) }
+}
+
+/** A skill directory managed outside the project, current when it holds any of the `expected` skills. */
+export function inspectSkillDirectory(
+  path: string,
+  expected: readonly SkillFiles[],
+): SkillLocation {
+  return inspectSkillLocation(path, null, expected.map(hashSkill))
+}
+
+function inspectSkillLocation(
+  path: string,
+  conflictPath: string | null,
+  expectedHashes: readonly string[],
+): SkillLocation {
+  const installed = SKILL_FILE_NAMES.map((name) => [name, readFileSafe(join(path, name))] as const)
+  const hasSkill = installed.some(([name, contents]) => name === 'SKILL.md' && contents)
+  const hash = hasSkill ? hashSkill(installed) : null
+  return {
+    path,
+    symlink: lstatSafe(path)?.isSymbolicLink() ?? false,
+    conflictPath,
+    version: skillVersion(installed),
+    hash,
+    current: conflictPath === null && hash !== null && expectedHashes.includes(hash),
+  }
 }
 
 /** Writes into an empty or Genie-owned directory; anything else is reported, never overwritten. */

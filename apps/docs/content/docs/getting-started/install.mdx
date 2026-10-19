@@ -32,7 +32,10 @@ copies it where symlinks are unavailable. The skill's commands, and the commands
 once Genie is installed, use the package manager found from your lockfile: `npx genie-react` for
 npm, `pnpm exec genie-react` for pnpm, `yarn genie-react` for Yarn 2+, `yarn --silent genie-react`
 for Yarn 1, or `bunx genie-react` for Bun. Without a lockfile they use npm. `doctor` reports either
-location when it drifts from the installed CLI; rerun `init` to refresh it.
+location when it drifts from the installed CLI; rerun `init` to refresh it. If your agent loads the
+skill from a directory outside the project, such as `/opt/skills/genie`, set `GENIE_SKILL_DIR` to it.
+`doctor` then checks that directory instead of the two project locations. It accepts the skill as
+shipped in `@genie-react/cli` or as `init` renders it for your package manager.
 
 `init` writes only into an empty directory or one that already holds Genie's skill. It never
 follows a symlink out of the project. Any other file, directory, or symlink at either location is

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { removeAgentToken, startGenieHub, writeAgentToken } from 'genie-react/hub'
 import { GENIE_DISCOVERY_FILE } from 'genie-react/protocol'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   detectFramework,
   type Logger,
@@ -419,6 +419,73 @@ describe('runDoctor — discovery and skill checks', () => {
     await mkdir(join(dir, '.agents/skills/genie'), { recursive: true })
     await writeFile(join(dir, '.agents/skills/genie/SKILL.md'), staleSkill('0.8.0'))
     expect(skillCheck()).toMatchObject({ ok: false, critical: true })
+  })
+})
+
+describe('runDoctor — GENIE_SKILL_DIR', () => {
+  const SKILL_LABEL = 'agent skill in GENIE_SKILL_DIR matches the bundled CLI guidance'
+  const shippedSkillDirectory = join(process.cwd(), 'packages/cli/skill')
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  async function externalSkill(files: Record<string, string>): Promise<string> {
+    const directory = await mkdtemp(join(root, 'skills-'))
+    for (const [name, contents] of Object.entries(files)) {
+      await writeFile(join(directory, name), contents, 'utf8')
+    }
+    return directory
+  }
+
+  async function shippedSkillFiles(): Promise<Record<string, string>> {
+    const names = ['SKILL.md', 'APP_TOOLS.md', 'EVIDENCE.md']
+    const contents = await Promise.all(
+      names.map((name) => readFile(join(shippedSkillDirectory, name), 'utf8')),
+    )
+    return Object.fromEntries(names.map((name, index) => [name, contents[index] ?? '']))
+  }
+
+  it('accepts the shipped skill copied outside a yarn project and skips the project locations', async () => {
+    const dir = await project({ 'package.json': pkg({ react: '^19' }), 'yarn.lock': '' })
+    const directory = await externalSkill(await shippedSkillFiles())
+    vi.stubEnv('GENIE_SKILL_DIR', directory)
+    const { version } = JSON.parse(
+      await readFile(join(process.cwd(), 'packages/cli/package.json'), 'utf8'),
+    )
+
+    const result = runDoctor({ cwd: dir, logger: silent })
+
+    expect(result.checks.find(({ label }) => label === SKILL_LABEL)).toMatchObject({ ok: true })
+    expect(result.checks.some(({ label }) => label.includes('Claude Code skill'))).toBe(false)
+    expect(result).toMatchObject({
+      versions: { activeSkill: version },
+      skill: { path: directory, current: true, locations: [{ path: directory }] },
+    })
+  })
+
+  it('fails drifted guidance in GENIE_SKILL_DIR and says to copy the bundled files there', async () => {
+    const dir = await project({ 'package.json': pkg({ react: '^19' }) })
+    const directory = await externalSkill({ 'SKILL.md': staleSkill('0.8.0') })
+    vi.stubEnv('GENIE_SKILL_DIR', directory)
+
+    const check = runDoctor({ cwd: dir, logger: silent }).checks.find(
+      ({ label }) => label === SKILL_LABEL,
+    )
+
+    expect(check).toMatchObject({ ok: false, critical: true })
+    expect(check?.detail).toContain(`copy the files in ${shippedSkillDirectory} into ${directory}`)
+  })
+
+  it('warns, without failing, when GENIE_SKILL_DIR holds no skill', async () => {
+    const dir = await project({ 'package.json': pkg({ react: '^19' }) })
+    vi.stubEnv('GENIE_SKILL_DIR', join(root, 'absent'))
+
+    const check = runDoctor({ cwd: dir, logger: silent }).checks.find(
+      ({ label }) => label === SKILL_LABEL,
+    )
+
+    expect(check).toMatchObject({ ok: false, critical: false })
   })
 })
 

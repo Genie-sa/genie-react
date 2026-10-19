@@ -157,7 +157,7 @@ export const COMMANDS: Record<string, Command> = {
     options: ['live', 'session', ...SELECTION],
     examples: [['doctor'], ['doctor', '--live']],
     notes: [
-      'Searches for .genie/bridge.json from the current directory upward. --session (with --live) probes that app session. A missing agent skill is a warning, not a failure.',
+      'Searches for .genie/bridge.json from the current directory upward. --session (with --live) probes that app session. A missing agent skill is a warning, not a failure. With GENIE_SKILL_DIR set, doctor checks the skill in that directory instead of .agents/skills/genie and .claude/skills/genie.',
     ],
   },
   hub: {
@@ -285,6 +285,8 @@ export function cliHelp(name?: string): unknown {
             GENIE_BRIDGE_TOKEN:
               'Agent token for --url or GENIE_BRIDGE_URL; wins over the token of a discovered hub at that URL and is ignored for discovered URLs',
             GENIE_SESSION: 'Default app session target',
+            GENIE_SKILL_DIR:
+              'Directory holding the agent skill when it is installed outside the project; doctor checks it instead of the project skill locations',
           },
         }),
     options: Object.fromEntries(
