@@ -273,7 +273,7 @@ describe('agent CLI integration', () => {
     expect(failure.message).not.toContain('newer page load')
   })
 
-  it('reports on stderr when the default tab is gone and another tab answers', async () => {
+  it('reports on stderr when the default tab is gone and another tab answers a read', async () => {
     const bridge = createStandaloneBridge({ agentToken: AGENT_TOKEN })
     cleanups.push(() => bridge.close())
     const { url } = await bridge.listen()
@@ -287,7 +287,7 @@ describe('agent CLI integration', () => {
     await waitUntil(() => bridge.bridge.getStatus().sessions.length === 1)
 
     const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    expect(await runCall('query_rows', '{}', { url })).toBe(0)
+    expect(await runCall('query_peek', '{}', { url })).toBe(0)
     expect(JSON.parse(stderr.mock.calls.flat().join(''))).toMatchObject({
       status: 'diagnostic',
       reason: 'session-retargeted',
