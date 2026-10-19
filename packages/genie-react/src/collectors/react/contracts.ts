@@ -53,7 +53,7 @@ export const reactGetTreeContract = defineAgentToolContract({
   name: 'react_get_tree',
   title: 'React component tree',
   description:
-    'Get the live React component tree as a flat node list (id, parentId, name, key, kind). Reconstruct the hierarchy from parentId; pass node ids to react_inspect_component. For a dense tree, pass a returned node id as rootId to read that component and its descendants without dumping unrelated branches. Framework wrappers can be deep, so raise `depth` if your own components do not appear and `truncatedBy` is "depth".',
+    'Get the live React component tree as a flat node list (id, parentId, name, key, kind). Reconstruct the hierarchy from parentId; pass node ids to react_inspect_component. For a dense tree, pass a returned node id as rootId to read that component and its descendants without dumping unrelated branches. Framework wrappers can be deep, so raise `depth` if your own components do not appear and `truncatedBy` is "depth". `otherRoots` lists separate React roots (widgets bundling their own React, createRoot islands); pass one\'s rootId to read it.',
   group: 'react.tree',
   input: z.object({
     rootId: nodeIdSchema
@@ -73,6 +73,12 @@ export const reactGetTreeContract = defineAgentToolContract({
     ownershipCoverage: ownershipCoverageSchema.optional(),
     rootId: z.number().nullable(),
     nodes: z.array(treeNodeSchema),
+    otherRoots: z
+      .array(z.object({ rootId: z.number(), name: z.string() }))
+      .optional()
+      .describe(
+        'Other live React roots outside this tree (widgets that bundle their own React, createRoot islands), each as its top component. Pass a rootId to read that tree.',
+      ),
     total: z
       .number()
       .describe('Total nodes reachable in the tree; `nodes` may be fewer when truncated.'),
@@ -141,7 +147,7 @@ export const reactFindComponentsContract = defineAgentToolContract({
   name: 'react_find_components',
   title: 'Find React components',
   description:
-    'Find mounted components by display name (substring match, or exact). Each match carries its id, ancestor path, kind, a shallow (depth-1) props preview, source file:line, and whether it is a library component — enough to pick the right one and often to act without a follow-up react_inspect_component call. Deepen a nested prop with react_inspect_component + `path`.',
+    'Find mounted components by display name (substring match, or exact) across every live React root, including widgets that bundle their own React. Each match carries its id, ancestor path, kind, a shallow (depth-1) props preview, source file:line, and whether it is a library component — enough to pick the right one and often to act without a follow-up react_inspect_component call. Deepen a nested prop with react_inspect_component + `path`.',
   group: 'react.tree',
   input: z
     .object({
