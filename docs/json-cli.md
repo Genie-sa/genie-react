@@ -28,7 +28,7 @@ Reasons are snake_case and stable:
 | `unknown_tool` | The selected app advertises no such tool | `suggestions`, names from the app's catalog |
 | `tool_unavailable` | The tool is advertised with `available:false` | `availability: {reason}` |
 | `tool_error` | The tool ran and failed | `app: {code?, message, hint?}` from a `GenieToolError` or the error text the tool reported, or `hubCode` for a hub tool |
-| `unknown_session` | `--session` or `GENIE_SESSION` names no connected session | `session: {requested?, connected: [...]}` |
+| `unknown_session` | `--session` or `GENIE_SESSION` names no connected session | `session: {requested?, registeredTabs, connected: [...]}`; `registeredTabs: 0` means no browser tab has registered |
 | `not_connected` | No app is connected | |
 | `bridge_unreachable` | No bridge answered at the selected URL, or its connection closed before a call answered | `bridge: {url, source?}`; `source: "fallback"` means the URL was only the default guess |
 | `busy`, `timeout` | The app could not answer in time | |

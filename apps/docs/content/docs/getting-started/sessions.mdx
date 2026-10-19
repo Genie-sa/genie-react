@@ -17,9 +17,15 @@ http://localhost:3000/?_genie=checkout-agent
 Pass the name to every `status`, `tools`, `call`, `batch`, and `capture` command:
 
 ```bash
-npx @genie-react/cli status --session checkout-agent
+npx @genie-react/cli status --session checkout-agent --wait 15000
 npx @genie-react/cli call react_get_tree '{"depth":2}' --session checkout-agent
 ```
+
+`status --wait` waits up to the given milliseconds for that session to be ready, so a script can run
+it right after opening the page. On timeout it fails with `not_connected`. Without `--wait`, a
+session that has not registered yet fails at once with `unknown_session`. In both failures,
+`details.session.registeredTabs` is `0` when no browser tab has reached the hub, and the count of
+other tabs otherwise.
 
 `GENIE_SESSION` sets a default for one shell, but prefer the flag: each command stays
 self-contained, and agent permission allowlists accept it without an `export`.

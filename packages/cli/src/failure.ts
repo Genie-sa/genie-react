@@ -81,7 +81,8 @@ export interface FailureDetails {
   /** The interrupted call was not read-only, so the app may have applied it before the document went away. */
   mayHaveCompleted?: true
   suggestions?: string[]
-  session?: { requested?: string; connected: ConnectedSession[] }
+  /** `registeredTabs` counts every tab the hub knows, so zero means no browser registered, not just none matching. */
+  session?: { requested?: string; registeredTabs?: number; connected: ConnectedSession[] }
   fields?: { unknown: string[]; available: string[] }
   selection?: { expression?: string; available: string[] }
   bridge?: { url: string; source?: BridgeSource }
@@ -720,6 +721,33 @@ async function ambiguousSessionFailure(context: FailureContext): Promise<Failure
 }
 
 async function unknownSessionFailure(context: FailureContext): Promise<Failure> {
+  const { requested, availability, session } = await sessionAvailability(context)
+  const noTab = session.registeredTabs === 0
+  return {
+    reason: 'unknown_session',
+    message: `${requested ? `Session ${requested}` : 'The requested session'} is not connected. ${availability} ${noTab ? 'If the browser is still opening the app, wait for it with next.' : 'Choose one with --session or GENIE_SESSION, or unset both to use the current session.'}`,
+    next: noTab
+      ? withSession(nextCommand('status', '--wait', String(STATUS_WAIT_MS)), context.session)
+      : nextCommand('status', '--sessions-only'),
+    details: { session },
+  }
+}
+
+const STATUS_WAIT_MS = 15_000
+
+/** `status --wait` ran out before the targeted session, or any app when none was targeted, was ready. */
+export async function notReadyFailure(context: FailureContext, waitMs: number): Promise<Failure> {
+  const { requested, availability, session } = await sessionAvailability(context)
+  return {
+    reason: 'not_connected',
+    message: `${requested ? `Session ${requested} was not` : 'No app session was'} ready within ${waitMs} ms. ${availability}`,
+    userActionRequired: true,
+    next: nextCommand('status', '--sessions-only'),
+    details: { session },
+  }
+}
+
+async function sessionAvailability(context: FailureContext) {
   const requested = safeSession(context.session)
   const sessions = (await context.sessions?.().catch(() => null)) ?? []
   const connected = sessions.flatMap(connectedSession).slice(0, MAX_DETAILED)
@@ -730,10 +758,13 @@ async function unknownSessionFailure(context: FailureContext): Promise<Failure> 
         ? `${connected.length} session${plural(connected.length)} ${connected.length === 1 ? 'is' : 'are'} connected; details.session.connected lists their IDs.`
         : 'Other sessions are connected; next lists them.'
   return {
-    reason: 'unknown_session',
-    message: `${requested ? `Session ${requested}` : 'The requested session'} is not connected. ${availability} Choose one with --session or GENIE_SESSION, or unset both to use the current session.`,
-    next: nextCommand('status', '--sessions-only'),
-    details: { session: { ...(requested ? { requested } : {}), connected } },
+    requested,
+    availability,
+    session: {
+      ...(requested ? { requested } : {}),
+      registeredTabs: sessions.length,
+      connected,
+    },
   }
 }
 

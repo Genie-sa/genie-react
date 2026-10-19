@@ -37,6 +37,7 @@ import {
   type FailureReason,
   formatAgentFailure,
   nextCommand,
+  notReadyFailure,
   safeAnsweringSession,
   safeToolNames,
   suggestionGuidance,
@@ -939,6 +940,9 @@ export async function runStatus(opts: AgentOptions = {}): Promise<number> {
   if (!connection) return 1
   const { link, url } = connection
   try {
+    if (opts.waitMs !== undefined && !(await waitForStatusTarget(connection, opts, opts.waitMs))) {
+      return 1
+    }
     const status = await link.invoke(devtoolsStatusContract, { includeTools: false })
     // A 0.1.0 bridge predates the `sessions` field; the typed contract can't see that skew.
     const sessions = Array.isArray(status.sessions) ? status.sessions : []
@@ -1222,6 +1226,26 @@ async function waitForApp(link: GenieAgentLink, opts: AgentOptions): Promise<boo
       next: genieCommand(['status']),
     },
   )
+  return false
+}
+
+/** `status --wait`: unlike `call`, waits for the targeted session itself, so a tab that has not registered yet is not reported as unknown. */
+async function waitForStatusTarget(
+  connection: Connection,
+  opts: AgentOptions,
+  waitMs: number,
+): Promise<boolean> {
+  const ready = await connection.link
+    .invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs: waitMs }, undefined, {
+      timeoutMs: waitMs,
+    })
+    .catch(nullUnlessTerminal)
+  if (ready?.ok) return true
+  const { reason, message, ...failure } = await notReadyFailure(
+    failureContext(connection, opts, devtoolsStatusContract.name),
+    waitMs,
+  )
+  emitFailure(opts, reason, `Status check failed. ${message}`, failure)
   return false
 }
 

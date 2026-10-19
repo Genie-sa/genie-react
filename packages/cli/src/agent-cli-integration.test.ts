@@ -136,6 +136,72 @@ describe('agent CLI integration', () => {
     return app
   }
 
+  async function emptyBridge() {
+    const bridge = createStandaloneBridge({ agentToken: AGENT_TOKEN })
+    cleanups.push(() => bridge.close())
+    return { url: (await bridge.listen()).url, bridge: bridge.bridge }
+  }
+
+  it('waits with status --wait for the targeted tab, not any ready tab', async () => {
+    const { url, bridge } = await emptyBridge()
+    await connectApp(url, 'other-tab')
+    await waitUntil(() => bridge.getStatus().ready)
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    const status = runStatus({ url, session: 'late-tab', waitMs: 5_000 })
+    await delay(300)
+    await connectApp(url, 'late-tab')
+
+    expect(await status).toBe(0)
+    expect(JSON.parse(stdout.mock.calls.flat().join(''))).toMatchObject({
+      sessionId: 'late-tab',
+      ready: true,
+    })
+  })
+
+  it('fails status --wait as not_connected and counts zero registered tabs', async () => {
+    const { url } = await emptyBridge()
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    expect(await runStatus({ url, session: 'late-tab', waitMs: 300 })).toBe(1)
+    expect(JSON.parse(stdout.mock.calls.flat().join(''))).toMatchObject({
+      reason: 'not_connected',
+      userActionRequired: true,
+      message: expect.stringMatching(
+        /^Status check failed\. Session late-tab was not ready within 300 ms\./,
+      ),
+      details: { session: { requested: 'late-tab', registeredTabs: 0, connected: [] } },
+    })
+  })
+
+  it('tells an unknown session with no registered tab apart from one with other tabs', async () => {
+    const { url, bridge } = await emptyBridge()
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const read = () => {
+      const output = JSON.parse(stdout.mock.calls.flat().join(''))
+      stdout.mockClear()
+      return output
+    }
+
+    expect(await runStatus({ url, session: 'late-tab' })).toBe(1)
+    expect(read()).toMatchObject({
+      reason: 'unknown_session',
+      next: {
+        argv: ['pnpm', 'exec', 'genie-react', 'status', '--wait', '15000', '--session', 'late-tab'],
+      },
+      details: { session: { requested: 'late-tab', registeredTabs: 0 } },
+    })
+
+    await connectApp(url, 'other-tab')
+    await waitUntil(() => bridge.getStatus().sessions.length === 1)
+    expect(await runStatus({ url, session: 'late-tab' })).toBe(1)
+    expect(read()).toMatchObject({
+      reason: 'unknown_session',
+      next: { argv: ['pnpm', 'exec', 'genie-react', 'status', '--sessions-only'] },
+      details: { session: { requested: 'late-tab', registeredTabs: 1 } },
+    })
+  })
+
   it('refuses to guess between untargeted tabs and lists the targets', async () => {
     const { url, bridge } = await fixture('tab-one')
     await connectApp(url, 'tab-two')

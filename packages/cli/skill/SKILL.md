@@ -18,12 +18,12 @@ Genie sees only an app that is open. Pick a session name, open the dev URL with 
 
 ```bash
 agent-browser --session my-agent open "http://localhost:5173/?_genie=my-agent"
-npx genie-react status --session my-agent
+npx genie-react status --session my-agent --wait 15000
 ```
 
-Use the app's real URL, appending `&_genie=my-agent` when it already has a query. On native, open the app with agent-device, then take the ready session's `sessionId` from `npx genie-react status`.
+`--wait` holds `status` until that session is ready, up to the given milliseconds. Use the app's real URL, appending `&_genie=my-agent` when it already has a query. On native, open the app with agent-device, then take the ready session's `sessionId` from `npx genie-react status`.
 
-Pass `--session <name>` to every `status`, `tools`, `call`, `batch`, and `capture` command. This step is complete when status reports `ready: true` and `app.url` is the intended app (`app.name` on native). If status fails with `unknown_session` or reports `ready: false` right after opening the page, retry it once. Otherwise run `npx genie-react doctor --live` and follow its `remediation`; it also reports a stale skill, which `init` refreshes. Exclude `genie-react:*` sessionStorage keys from saved browser state.
+Pass `--session <name>` to every `status`, `tools`, `call`, `batch`, and `capture` command. This step is complete when status reports `ready: true` and `app.url` is the intended app (`app.name` on native). If status fails, `details.session.registeredTabs` tells why: `0` means no browser tab reached the hub, so check that the browser opened the page; more than `0` means other tabs registered but not this session. Then run `npx genie-react doctor --live` and follow its `remediation`; it also reports a stale skill, which `init` refreshes. Exclude `genie-react:*` sessionStorage keys from saved browser state.
 
 The app's dev process owns the hub. When the hub is unreachable, start it:
 
