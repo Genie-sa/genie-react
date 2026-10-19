@@ -63,10 +63,15 @@ describe('resolveBridgeUrl', () => {
 
   it('falls through to the loopback default when the discovery file is malformed', async () => {
     await writeDiscovery('{ not json')
-    expect(await resolveBridgeUrl(cwd)).toBe(`ws://127.0.0.1:5173${GENIE_WS_PATH}`)
+    expect(await resolveBridgeUrl(cwd)).toBe(`ws://127.0.0.1:4390${GENIE_WS_PATH}`)
   })
 
   it('falls through to the default when no discovery file exists', async () => {
+    expect(await resolveBridgeUrl(cwd)).toBe(`ws://127.0.0.1:4390${GENIE_WS_PATH}`)
+  })
+
+  it("defaults to Vite's dev server port when the app has a Vite config", async () => {
+    await writeFile(join(cwd, 'vite.config.ts'), 'export default {}\n')
     expect(await resolveBridgeUrl(cwd)).toBe(`ws://127.0.0.1:5173${GENIE_WS_PATH}`)
   })
 
@@ -77,7 +82,7 @@ describe('resolveBridgeUrl', () => {
 
   it('falls through to the default when the discovery file lacks a url', async () => {
     await writeDiscovery(JSON.stringify({ port: 4321 }))
-    expect(await resolveBridgeUrl(cwd)).toBe(`ws://127.0.0.1:5173${GENIE_WS_PATH}`)
+    expect(await resolveBridgeUrl(cwd)).toBe(`ws://127.0.0.1:4390${GENIE_WS_PATH}`)
   })
 
   it('removes a stale discovery file (dead pid) and falls through to the default', async () => {
@@ -85,7 +90,7 @@ describe('resolveBridgeUrl', () => {
     await writeDiscovery(
       JSON.stringify({ url: 'ws://127.0.0.1:4321/__genie/ws', port: 4321, pid: 999_999 }),
     )
-    expect(await resolveBridgeUrl(cwd)).toBe(`ws://127.0.0.1:5173${GENIE_WS_PATH}`)
+    expect(await resolveBridgeUrl(cwd)).toBe(`ws://127.0.0.1:4390${GENIE_WS_PATH}`)
     expect(existsSync(join(cwd, GENIE_DISCOVERY_FILE))).toBe(false)
     expect(JSON.parse(stderrSpy.mock.calls.flat().join(''))).toMatchObject({
       status: 'diagnostic',
@@ -239,7 +244,7 @@ describe('resolveBridgeUrl', () => {
     )
 
     expect(await resolveBridge(cwd)).toEqual({
-      url: `ws://127.0.0.1:5173${GENIE_WS_PATH}`,
+      url: `ws://127.0.0.1:4390${GENIE_WS_PATH}`,
       source: 'fallback',
     })
   })
