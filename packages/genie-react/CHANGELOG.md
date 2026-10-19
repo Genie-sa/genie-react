@@ -1,5 +1,11 @@
 # genie-react
 
+## 0.18.0
+
+### Minor Changes
+
+- 4af7250: `react_inspect_component` attributes each hook to the custom hooks that called it. Hooks gain `customHooks` (outermost first, e.g. `["useCart","useQuery"]`), and the result gains `customHookGrouping` (`exact`, `partial`, or `unavailable`), so agents can go from a misbehaving hook to the custom hook that owns it.
+
 ## 0.17.0
 
 ### Minor Changes
