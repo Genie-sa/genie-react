@@ -1,5 +1,6 @@
 import type { Fiber } from 'bippy'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { consumeCommitWork } from './commit-budget'
 import { reactClearRendersContract } from './render-contract'
 import {
   clearRenders,
@@ -107,6 +108,44 @@ describe('render observation budget regressions', () => {
     expect(getRenderTrackingCoverage('measurement')).toMatchObject({
       complete: false,
       budgetExhaustedCommits: 1,
+    })
+  })
+
+  it('names the operation limit that ran out and suggests doubling it', () => {
+    clearRenders({ budget: { fiberLimit: 250, operationLimit: 20_000, timeLimitMs: 8 } })
+    exhaustOneCommit()
+
+    expect(getRenderTrackingCoverage('measurement').budgetAdvice).toMatchObject({
+      exhaustedLimits: ['operationLimit'],
+      suggestedBudget: { fiberLimit: 500, operationLimit: 40_000, timeLimitMs: 16 },
+    })
+  })
+
+  it('suggests at least double the exhausted limit when the commit skipped no fiber', () => {
+    clearRenders({ budget: { fiberLimit: 250, operationLimit: 20_000, timeLimitMs: 8 } })
+    const budget = createCommitAnalysisBudget(250, { operationLimit: 1, now: () => 0 })
+    consumeCommitWork(budget.work, 'pending-unmounts', 2)
+    finalizeCommitAnalysisBudget(budget)
+
+    expect(getRenderTrackingCoverage('measurement').budgetAdvice).toMatchObject({
+      exhaustedLimits: ['operationLimit'],
+      suggestedBudget: { operationLimit: 40_000 },
+    })
+  })
+
+  it('names the target reserve when a targeted component ran out of work', () => {
+    clearRenders({ components: ['Exhausting'], budget: { targetOperationReserve: 4_000 } })
+    const budget = createCommitAnalysisBudget(250, { now: () => 0 }, { operationLimit: 1 })
+    recordCommitFiber(
+      componentFiber({ name: 'Exhausting', props: { value: 2 }, prevProps: { value: 1 } }),
+      'update',
+      budget,
+    )
+    finalizeCommitAnalysisBudget(budget)
+
+    expect(getRenderTrackingCoverage('measurement').budgetAdvice).toMatchObject({
+      exhaustedLimits: ['targetOperationReserve'],
+      suggestedBudget: { targetOperationReserve: 8_000 },
     })
   })
 

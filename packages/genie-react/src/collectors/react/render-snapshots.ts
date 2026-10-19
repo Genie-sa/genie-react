@@ -21,6 +21,19 @@ export interface ComponentAggregate {
   unstableRenders: number
 }
 
+export type RenderBudgetLimit =
+  | 'fiberLimit'
+  | 'operationLimit'
+  | 'timeLimitMs'
+  | 'targetOperationReserve'
+  | 'targetTimeReserveMs'
+
+export interface RenderBudgetAdvice {
+  exhaustedLimits: RenderBudgetLimit[]
+  suggestedBudget: Record<RenderBudgetLimit, number>
+  next: string
+}
+
 export interface RenderTrackingCoverage {
   sourceClassification?: SourceClassificationCoverage
   complete: boolean
@@ -34,6 +47,7 @@ export interface RenderTrackingCoverage {
   propsNotEnumeratedFibers: number
   budgetExhaustedCommits: number
   budgetExhaustedSubsystems: { subsystem: string; commits: number }[]
+  budgetAdvice?: RenderBudgetAdvice
   targeted?: {
     components: string[]
     roots: number[]

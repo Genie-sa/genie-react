@@ -511,6 +511,7 @@ export function reactCollector(): GenieCollector {
             propsNotEnumeratedFibers: report.propsNotEnumeratedFibers,
             budgetExhaustedCommits: report.budgetExhaustedCommits,
             budgetExhaustedSubsystems: report.budgetExhaustedSubsystems,
+            budgetAdvice: report.budgetAdvice,
           }
           const coverage = buildRenderTrackingCoverage(coverageInput, 'causal')
           const measurementCoverage = buildRenderTrackingCoverage(coverageInput, 'measurement')
@@ -579,6 +580,7 @@ export function reactCollector(): GenieCollector {
               propsNotEnumeratedFibers: report.propsNotEnumeratedFibers,
               budgetExhaustedCommits: report.budgetExhaustedCommits,
               budgetExhaustedSubsystems: report.budgetExhaustedSubsystems,
+              budgetAdvice: report.budgetAdvice,
             },
             'causal',
           )

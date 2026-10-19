@@ -13,6 +13,7 @@ import {
   type Unsubscribe,
 } from 'bippy'
 import { newId } from '../../protocol'
+import { MAXIMUM_RENDER_OBSERVATION_BUDGET as MAXIMUM_BUDGET } from '../../protocol/react-observation-schema'
 import {
   registerQuerySubscriber,
   setExternalStoreObservation,
@@ -30,7 +31,7 @@ import {
   scheduledEffectCount,
 } from './effect-tracker'
 import { clearErrorState, recordErrorState } from './error-tracker'
-import { nameOf, noteCommit, noteCommittedRoot } from './fiber'
+import { findAllCommittedRootFibers, nameOf, noteCommit, noteCommittedRoot } from './fiber'
 import {
   beginInstanceObservation,
   discardExcludedInstanceUnmount,
@@ -110,6 +111,8 @@ import {
 import {
   buildRenderTrackingCoverage,
   diffRenderSnapshot,
+  type RenderBudgetAdvice,
+  type RenderBudgetLimit,
   type RenderTrackingCoverage,
   storeRenderSnapshot,
   withSourceCoverage,
@@ -175,7 +178,12 @@ let targetedFibersProcessed = 0
 let targetedFibersSkipped = 0
 let droppedTargetUnmountFibers = 0
 let adaptiveBudgetScale = 1
+/** The scale that fits the most components this window has seen mounted or rendering at once; decay stops here. */
+let treeBudgetScale = 1
 let commitsWithinAdaptiveBudget = 0
+let suggestedMainScale = 0
+let suggestedTargetScale = 0
+const exhaustedBudgetLimits = new Set<RenderBudgetLimit>()
 
 export interface RenderObservationOptions {
   components?: string[]
@@ -224,10 +232,8 @@ let observationRootIds = new Set<number>()
 /** Bippy releases ids as React reports each unmount parent-first, so descendants read their deleted ancestors' root membership here, through either buffer a stale `return` may point at. */
 let unmountedRootMembership = new WeakMap<Fiber, boolean>()
 
-const ADAPTIVE_FIBER_CEILING = 20_000
-const ADAPTIVE_OPERATION_CEILING = 2_000_000
-const ADAPTIVE_TIME_CEILING_MS = 500
 const ADAPTIVE_MAX_SCALE = 4
+const MOUNTED_TREE_VISIT_LIMIT = 100_000
 // Hysteresis: one cheap commit after a burst must not shrink the budget the next burst needs.
 const ADAPTIVE_DECAY_COMMITS = 30
 
@@ -477,6 +483,7 @@ export function getRenderTrackingCoverage(
       propsNotEnumeratedFibers,
       budgetExhaustedCommits,
       budgetExhaustedSubsystems: getBudgetExhaustedSubsystems(),
+      budgetAdvice: getRenderBudgetAdvice(),
     },
     scope,
   )
@@ -519,8 +526,12 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   targetedFibersProcessed = 0
   targetedFibersSkipped = 0
   droppedTargetUnmountFibers = 0
-  adaptiveBudgetScale = 1
+  treeBudgetScale = mountedTreeScale()
+  adaptiveBudgetScale = treeBudgetScale
   commitsWithinAdaptiveBudget = 0
+  suggestedMainScale = 0
+  suggestedTargetScale = 0
+  exhaustedBudgetLimits.clear()
   for (const pending of pendingUnmounts) forgetUnmountWithoutTombstone(pending)
   pendingUnmounts.length = 0
   clears++
@@ -584,14 +595,87 @@ function grown(configured: number, scale: number, ceiling: number): number {
   return Math.max(configured, Math.min(ceiling, configured * scale))
 }
 
-function effectiveObservationBudget(): RenderObservationConfiguration['budget'] {
-  const scale = observationConfiguration.budget.adaptive ? adaptiveBudgetScale : 1
+function scaledBudget(scale: number): RenderObservationConfiguration['budget'] {
   const configured = observationConfiguration.budget
   return {
     ...configured,
-    fiberLimit: grown(configured.fiberLimit, scale, ADAPTIVE_FIBER_CEILING),
-    operationLimit: grown(configured.operationLimit, scale, ADAPTIVE_OPERATION_CEILING),
-    timeLimitMs: grown(configured.timeLimitMs, scale, ADAPTIVE_TIME_CEILING_MS),
+    fiberLimit: grown(configured.fiberLimit, scale, MAXIMUM_BUDGET.fiberLimit),
+    operationLimit: grown(configured.operationLimit, scale, MAXIMUM_BUDGET.operationLimit),
+    timeLimitMs: grown(configured.timeLimitMs, scale, MAXIMUM_BUDGET.timeLimitMs),
+  }
+}
+
+function effectiveObservationBudget(): RenderObservationConfiguration['budget'] {
+  return scaledBudget(currentBudgetScale())
+}
+
+const currentBudgetScale = (): number =>
+  observationConfiguration.budget.adaptive ? adaptiveBudgetScale : 1
+
+const maxAdaptiveScale = (): number =>
+  Math.max(
+    ADAPTIVE_MAX_SCALE,
+    Math.ceil(MAXIMUM_BUDGET.fiberLimit / observationConfiguration.budget.fiberLimit),
+  )
+
+/** The scale whose fiber limit fits `fibers` analyzable components, so one commit that re-renders them all loses none. */
+function scaleFittingFibers(fibers: number): number {
+  return Math.min(
+    maxAdaptiveScale(),
+    Math.max(1, Math.ceil(fibers / observationConfiguration.budget.fiberLimit)),
+  )
+}
+
+/** Size an adaptive window from the tree already mounted, because growth after an exhausted commit cannot restore that commit. */
+function mountedTreeScale(): number {
+  if (!observationConfiguration.budget.adaptive) return 1
+  const stack = [...findAllCommittedRootFibers().roots]
+  let analyzable = 0
+  let visited = 0
+  while (
+    stack.length > 0 &&
+    visited < MOUNTED_TREE_VISIT_LIMIT &&
+    analyzable < MAXIMUM_BUDGET.fiberLimit
+  ) {
+    const fiber = stack.pop() as Fiber
+    visited += 1
+    if (shouldAnalyzeCommitFiber(fiber)) analyzable += 1
+    if (fiber.sibling) stack.push(fiber.sibling)
+    if (fiber.child) stack.push(fiber.child)
+  }
+  return scaleFittingFibers(analyzable)
+}
+
+/** Which limit lost evidence in this window, and a budget estimated to fit the largest lossy commit. */
+export function getRenderBudgetAdvice(): RenderBudgetAdvice | undefined {
+  if (exhaustedBudgetLimits.size === 0) return undefined
+  const configured = observationConfiguration.budget
+  const main = scaledBudget(suggestedMainScale)
+  const suggestedBudget = {
+    fiberLimit: main.fiberLimit,
+    operationLimit: main.operationLimit,
+    timeLimitMs: main.timeLimitMs,
+    targetOperationReserve: grown(
+      configured.targetOperationReserve,
+      suggestedTargetScale,
+      MAXIMUM_BUDGET.targetOperationReserve,
+    ),
+    targetTimeReserveMs: grown(
+      configured.targetTimeReserveMs,
+      suggestedTargetScale,
+      MAXIMUM_BUDGET.targetTimeReserveMs,
+    ),
+  }
+  const exhaustedLimits = [...exhaustedBudgetLimits].sort()
+  const atMaximum = exhaustedLimits.every(
+    (limit) => suggestedBudget[limit] >= MAXIMUM_BUDGET[limit],
+  )
+  return {
+    exhaustedLimits,
+    suggestedBudget,
+    next: atMaximum
+      ? `${exhaustedLimits.join(', ')} ran out at the maximum. Pass components or roots to react_clear_renders so the targeted reserve covers what you measure, then repeat the step.`
+      : `${exhaustedLimits.join(', ')} ran out. Run react_clear_renders with {"budget":${JSON.stringify(suggestedBudget)}}, repeat the step, and read again.`,
   }
 }
 
@@ -653,6 +737,7 @@ interface RenderMeasurement {
   propsNotEnumeratedFibers: number
   budgetExhaustedCommits: number
   budgetExhaustedSubsystems: { subsystem: string; commits: number }[]
+  budgetAdvice: RenderBudgetAdvice | undefined
 }
 
 interface RenderMeasurementPage extends RenderMeasurement {
@@ -736,6 +821,7 @@ export async function getRendersMeasurement(
   const propsNotEnumeratedAtStart = propsNotEnumeratedFibers
   const budgetCommitsAtStart = budgetExhaustedCommits
   const budgetSubsystemsAtStart = getBudgetExhaustedSubsystems()
+  const budgetAdviceAtStart = getRenderBudgetAdvice()
   const report = await buildRendersMeasurementReport(
     recordsAtStart,
     commitsAtStart,
@@ -771,6 +857,7 @@ export async function getRendersMeasurement(
     propsNotEnumeratedFibers: propsNotEnumeratedAtStart,
     budgetExhaustedCommits: budgetCommitsAtStart,
     budgetExhaustedSubsystems: budgetSubsystemsAtStart,
+    budgetAdvice: budgetAdviceAtStart,
   }
   if (!includeCursor) {
     return {
@@ -837,6 +924,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
   propsNotEnumeratedFibers: number
   budgetExhaustedCommits: number
   budgetExhaustedSubsystems: { subsystem: string; commits: number }[]
+  budgetAdvice: RenderBudgetAdvice | undefined
   renderEventRetention: {
     evictedEvents: number
     earliestDocumentCommitId: number | null
@@ -856,6 +944,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
   const propsNotEnumeratedAtStart = propsNotEnumeratedFibers
   const budgetCommitsAtStart = budgetExhaustedCommits
   const budgetSubsystemsAtStart = getBudgetExhaustedSubsystems()
+  const budgetAdviceAtStart = getRenderBudgetAdvice()
   const evictedAtStart = droppedRenderEvents
   const report = await buildRenderCauseEventsReport(recordsAtStart, eventsAtStart, query, {
     isCurrent: () => reportStateMatches(epoch),
@@ -874,6 +963,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
     propsNotEnumeratedFibers: propsNotEnumeratedAtStart,
     budgetExhaustedCommits: budgetCommitsAtStart,
     budgetExhaustedSubsystems: budgetSubsystemsAtStart,
+    budgetAdvice: budgetAdviceAtStart,
     renderEventRetention: {
       evictedEvents: evictedAtStart,
       earliestDocumentCommitId: eventsAtStart[0]?.documentCommitId ?? null,
@@ -1472,23 +1562,53 @@ export function finalizeCommitAnalysisBudget(budget: CommitAnalysisBudget): void
     ...commitWorkExhaustions(budget.work),
     ...commitWorkExhaustions(budget.targetWork).map((subsystem) => `target:${subsystem}`),
   ]
-  if (exhausted.length === 0) {
+  const fibersToAnalyze = budget.processed + budget.skipped
+  treeBudgetScale = Math.max(treeBudgetScale, scaleFittingFibers(fibersToAnalyze))
+  const fiberLimitReached = fibersToAnalyze > budget.limit
+  if (exhausted.length === 0 && !fiberLimitReached) {
     decayAdaptiveBudget()
     return
   }
+  const scale = currentBudgetScale()
+  if (fiberLimitReached) exhaustedBudgetLimits.add('fiberLimit')
+  if (budget.work.exhaustedLimit) {
+    exhaustedBudgetLimits.add(budget.work.exhaustedLimit)
+    suggestedMainScale = Math.max(
+      suggestedMainScale,
+      scale + 1,
+      Math.ceil((scale * fibersToAnalyze) / Math.max(1, budget.processed)),
+    )
+  }
+  suggestedMainScale = Math.max(suggestedMainScale, treeBudgetScale)
+  if (budget.targetWork.exhaustedLimit) {
+    exhaustedBudgetLimits.add(
+      budget.targetWork.exhaustedLimit === 'operationLimit'
+        ? 'targetOperationReserve'
+        : 'targetTimeReserveMs',
+    )
+    suggestedTargetScale = Math.max(
+      suggestedTargetScale,
+      2,
+      Math.ceil(
+        (budget.targetProcessed + budget.targetSkipped) / Math.max(1, budget.targetProcessed),
+      ),
+    )
+  }
+  commitsWithinAdaptiveBudget = 0
+  if (observationConfiguration.budget.adaptive) {
+    const grownScale = exhausted.length > 0 ? adaptiveBudgetScale + 1 : adaptiveBudgetScale
+    adaptiveBudgetScale = Math.min(maxAdaptiveScale(), Math.max(grownScale, treeBudgetScale))
+  }
+  if (exhausted.length === 0) return
   markMeasurementIncomplete()
   budgetExhaustedCommits += 1
   for (const subsystem of exhausted) {
     budgetExhaustedSubsystems.set(subsystem, (budgetExhaustedSubsystems.get(subsystem) ?? 0) + 1)
   }
-  commitsWithinAdaptiveBudget = 0
-  if (observationConfiguration.budget.adaptive && adaptiveBudgetScale < ADAPTIVE_MAX_SCALE) {
-    adaptiveBudgetScale += 1
-  }
 }
 
 function decayAdaptiveBudget(): void {
-  if (adaptiveBudgetScale <= 1) return
+  if (adaptiveBudgetScale <= treeBudgetScale) return
   commitsWithinAdaptiveBudget += 1
   if (commitsWithinAdaptiveBudget < ADAPTIVE_DECAY_COMMITS) return
   commitsWithinAdaptiveBudget = 0

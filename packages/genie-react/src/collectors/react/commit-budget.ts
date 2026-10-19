@@ -8,6 +8,7 @@ export interface CommitWorkBudget {
   deadlineAt: number
   operationsUntilClockCheck: number
   exhaustedSubsystems: Set<string>
+  exhaustedLimit: 'operationLimit' | 'timeLimitMs' | null
   readonly now: () => number
 }
 
@@ -39,6 +40,7 @@ export function createCommitWorkBudget(options: CommitWorkBudgetOptions = {}): C
     deadlineAt: now() + timeLimitMs,
     operationsUntilClockCheck: 0,
     exhaustedSubsystems: new Set(),
+    exhaustedLimit: null,
     now,
   }
 }
@@ -56,12 +58,14 @@ export function consumeCommitWork(
     budget.operationsUntilClockCheck = CLOCK_CHECK_INTERVAL - 1
     if (budget.now() >= budget.deadlineAt) {
       budget.exhaustedSubsystems.add(subsystem)
+      budget.exhaustedLimit ??= 'timeLimitMs'
       budget.remainingOperations = 0
       return false
     }
   }
   if (budget.remainingOperations < cost) {
     budget.exhaustedSubsystems.add(subsystem)
+    budget.exhaustedLimit ??= 'operationLimit'
     budget.remainingOperations = 0
     return false
   }
