@@ -625,6 +625,13 @@ export const reactResetOverridesContract = defineAgentToolContract({
       }),
     ),
     remaining: z.number().describe('Overrides still tracked after the reset (always 0).'),
+    commitObserved: z
+      .boolean()
+      .nullable()
+      .optional()
+      .describe(
+        'Whether React committed after the restore, so the UI shows the real values again. false means it did not re-render yet; null means commits cannot be observed. Omitted when nothing needed a re-render.',
+      ),
   }),
   annotations: { destructiveHint: true, idempotentHint: true },
 })

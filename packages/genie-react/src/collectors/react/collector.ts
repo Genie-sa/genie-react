@@ -323,7 +323,14 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactResetOverridesContract,
-        handler: () => resetOverrides(),
+        handler: async () => {
+          const commitsBefore = getCommitCount()
+          const result = resetOverrides()
+          const rerendered = result.cleared.some((entry) => entry.outcome !== 'skipped-unmounted')
+          return rerendered
+            ? { ...result, commitObserved: await observeCommitAfterOverride(commitsBefore) }
+            : result
+        },
       }),
       defineCollectorTool({
         contract: reactDomForComponentContract,
