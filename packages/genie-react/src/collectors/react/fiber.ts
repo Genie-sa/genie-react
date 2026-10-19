@@ -115,7 +115,8 @@ const UNCLASSIFIED_FIBER: FiberClassification = {
 
 export function registerFiber(fiber: Fiber): NodeId {
   const id = asNodeId(getFiberId(fiber))
-  if (fiber.alternate) setFiberId(fiber.alternate, id)
+  // bippy's setFiberId allocates a WeakRef and finalizer registration per call, so only mirror a missing or stale id.
+  if (fiber.alternate && getFiberId(fiber.alternate) !== id) setFiberId(fiber.alternate, id)
   if (!fiberRegistry.delete(id) && fiberRegistry.size >= REGISTRY_LIMIT) {
     const oldest = fiberRegistry.keys().next().value
     if (oldest !== undefined) fiberRegistry.delete(oldest)
