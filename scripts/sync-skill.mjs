@@ -36,7 +36,9 @@ if (!VERSION_LINE.test(skill)) {
 const stamped = skill.replace(VERSION_LINE, `$1"${version}"`)
 if (stamped !== skill) {
   if (check) {
-    console.error(`packages/cli/skill/SKILL.md says another version than @genie-react/cli ${version}`)
+    console.error(
+      `packages/cli/skill/SKILL.md says another version than @genie-react/cli ${version}`,
+    )
     console.error('Run: node scripts/sync-skill.mjs')
     process.exit(1)
   }
