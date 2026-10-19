@@ -17,7 +17,7 @@ import {
   registerQuerySubscriber,
   setExternalStoreObservation,
 } from '../causal/external-store-registry'
-import { clonePlainData, safeStructuredClone } from '../structured-clone'
+import { safeStructuredClone } from '../structured-clone'
 import { getTimings } from './bippy-compat'
 import { type CommitWorkBudget, commitWorkExhaustions, consumeCommitWork } from './commit-budget'
 import { recordResultingEffectCommit } from './effect-events'
@@ -1338,16 +1338,13 @@ interface PreparedCauseEventEvidence {
   inputCoverage: RenderInputCoverage
 }
 
+// Retained evidence is never mutated after this point and every read clones it, so it is shared rather than copied per render.
 function prepareCauseEventEvidence(
   causes: RenderCause[],
   assessment: RenderAssessment,
   coverage: RenderInputCoverage,
 ): PreparedCauseEventEvidence {
-  return {
-    causes: clonePlainData(causes),
-    assessment: clonePlainData(assessment),
-    inputCoverage: { ...coverage },
-  }
+  return { causes, assessment, inputCoverage: { ...coverage } }
 }
 
 function recordPendingUnmounts(rendererId: number, budget: CommitAnalysisBudget): void {

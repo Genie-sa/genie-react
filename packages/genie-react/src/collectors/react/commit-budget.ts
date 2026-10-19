@@ -1,9 +1,12 @@
 const DEFAULT_OPERATION_LIMIT = 20_000
 export const DEFAULT_TIME_LIMIT_MS = 8
+// Reading the clock on every operation cost more than most operations it guarded.
+const CLOCK_CHECK_INTERVAL = 16
 
 export interface CommitWorkBudget {
   remainingOperations: number
   deadlineAt: number
+  operationsUntilClockCheck: number
   exhaustedSubsystems: Set<string>
   readonly now: () => number
 }
@@ -34,6 +37,7 @@ export function createCommitWorkBudget(options: CommitWorkBudgetOptions = {}): C
   return {
     remainingOperations: operationLimit,
     deadlineAt: now() + timeLimitMs,
+    operationsUntilClockCheck: 0,
     exhaustedSubsystems: new Set(),
     now,
   }
@@ -46,11 +50,16 @@ export function consumeCommitWork(
   operations = 1,
 ): boolean {
   if (!budget) return true
-  if (budget.now() >= budget.deadlineAt) {
-    budget.exhaustedSubsystems.add(subsystem)
-    return false
-  }
   const cost = Math.max(1, Math.ceil(operations))
+  budget.operationsUntilClockCheck -= cost
+  if (budget.operationsUntilClockCheck < 0) {
+    budget.operationsUntilClockCheck = CLOCK_CHECK_INTERVAL - 1
+    if (budget.now() >= budget.deadlineAt) {
+      budget.exhaustedSubsystems.add(subsystem)
+      budget.remainingOperations = 0
+      return false
+    }
+  }
   if (budget.remainingOperations < cost) {
     budget.exhaustedSubsystems.add(subsystem)
     budget.remainingOperations = 0

@@ -378,6 +378,7 @@ describe('commit-scoped sibling identity work', () => {
     expect(noteInstanceRender(a, 'mount', 1, 1, budget).logicalIdentityEvidence).toBe('keyed')
 
     now = 1
+    budget.operationsUntilClockCheck = 0
     expect(noteInstanceRender(b, 'mount', 1, 1, budget)).toMatchObject({
       siblingIndex: null,
       logicalIdentityEvidence: 'unknown',

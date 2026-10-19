@@ -48,22 +48,6 @@ import { defaultWorkTags } from './work-tags'
 
 const MEMO = defaultWorkTags.SimpleMemoComponent
 
-const cloneFailure = vi.hoisted(() => ({ next: false }))
-
-vi.mock('../structured-clone', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../structured-clone')>()
-  return {
-    ...actual,
-    clonePlainData: <T>(value: T): T => {
-      if (cloneFailure.next) {
-        cloneFailure.next = false
-        throw new Error('clone failed')
-      }
-      return actual.clonePlainData(value)
-    },
-  }
-})
-
 // Source-map helpers stay deterministic; individual fixtures provide _debugSource when app ownership matters.
 vi.mock('bippy/source', () => ({
   getSource: async () => null,
@@ -492,9 +476,13 @@ describe('causal render attribution', () => {
       [{ memoizedState: observer }, externalStoreHook(after)],
       [{ memoizedState: observer }, externalStoreHook(before)],
     )
-    cloneFailure.next = true
+    Object.defineProperty(fiber, 'actualDuration', {
+      get: () => {
+        throw new Error('timing unavailable')
+      },
+    })
 
-    expect(() => render(fiber, 'update')).toThrow('clone failed')
+    expect(() => render(fiber, 'update')).toThrow('timing unavailable')
     expect(querySubscriberFor(observer)).toBeNull()
     expect(
       (await getRenderCauseEventsReport({ component: 'AtomicQuery', limit: 1 })).events,
