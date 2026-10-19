@@ -3,7 +3,8 @@ import type { AnyRouter } from '@tanstack/react-router'
 import { getRDTHook, instrument } from 'bippy'
 import { z } from 'zod'
 import { defineCollector, defineCollectorTool, type GenieCollector } from '../../client'
-import { defineAgentToolContract, newId } from '../../protocol'
+import { defineAgentToolContract, newId, roundMilliseconds } from '../../protocol'
+import { getDocumentCommitId } from '../react/observation'
 import { isSafeRenderer, safeCommitHandler } from '../react/safe-instrumentation'
 
 export interface TimelineCollectorOptions {
@@ -51,7 +52,7 @@ const eventSchema = z.object({
   details: z
     .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
     .describe(
-      'Request: URL without query/fragment/credentials, startMs/endMs relative to recording start, durationMs, detailedTimingAvailable and nullable responseStatus. React: rendererId and nullable renderDurationMs (root actualDuration, not commit wall time). Query: bounded queryHash, action, status and fetchStatus. Navigation: from/to pathname, pathChanged and hrefChanged. atMs is observation time; resource completion can be delivered later.',
+      'Times are milliseconds rounded to 0.01. Request: URL without query/fragment/credentials, startMs/endMs relative to recording start, durationMs, detailedTimingAvailable and nullable responseStatus. React: rendererId, nullable renderDurationMs (root actualDuration, not commit wall time) and documentCommitId, which joins react_render_causes events of the same commit (null when render tracking is not installed). Query: bounded queryHash, action, status and fetchStatus. Navigation: from/to pathname, pathChanged and hrefChanged. atMs is observation time; resource completion can be delivered later.',
     ),
 })
 const reportSchema = z.object({
@@ -122,6 +123,18 @@ function requestLocation(value: string): string {
   }
 }
 
+const TIME_DETAIL_KEYS = new Set(['startMs', 'endMs', 'durationMs', 'renderDurationMs'])
+
+function roundEventTimes(event: TimelineEvent): TimelineEvent {
+  const details = Object.fromEntries(
+    Object.entries(event.details).map(([key, value]) => [
+      key,
+      TIME_DETAIL_KEYS.has(key) && typeof value === 'number' ? roundMilliseconds(value) : value,
+    ]),
+  )
+  return { ...event, atMs: roundMilliseconds(event.atMs), details }
+}
+
 /** Passive by default. Each explicit recording owns and releases its subscriptions. */
 export function timelineCollector(options: TimelineCollectorOptions = {}): GenieCollector {
   let recording: Recording | undefined
@@ -139,10 +152,11 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
           )
         : target.report.coverage,
       eventCount: target.events.length,
-      durationMs:
+      durationMs: roundMilliseconds(
         target.report.state === 'recording'
           ? Math.max(0, Math.min(now() - target.startedAt, target.report.maxDurationMs))
           : target.report.durationMs,
+      ),
     })
 
   function release(target: Recording): void {
@@ -365,12 +379,14 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
             name: 'genie-timeline',
             onCommitFiberRoot: safeCommitHandler((rendererId, root) => {
               const duration = root.current.actualDuration
+              const documentCommitId = getDocumentCommitId()
               append(target, 'react', 'commit', {
                 rendererId,
                 renderDurationMs:
                   typeof duration === 'number' && Number.isFinite(duration) && duration > 0
                     ? duration
                     : null,
+                documentCommitId: documentCommitId > 0 ? documentCommitId : null,
               })
             }),
           }),
@@ -439,7 +455,7 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
           const nextOffset = offset + limit
           return readOutput.parse({
             ...describe(target),
-            events: events.slice(offset, nextOffset),
+            events: events.slice(offset, nextOffset).map(roundEventTimes),
             matchedEventCount: events.length,
             nextOffset: nextOffset < events.length ? nextOffset : null,
           })

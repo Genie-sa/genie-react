@@ -331,8 +331,10 @@ export async function buildRenderCauseEventsReport(
 ): Promise<{ events: RenderCauseEvent[]; libraryHidden: number; omittedByLimit: number }> {
   const needle = query.component?.toLowerCase()
   const matching = recentEvents
-    .filter((event) => query.commit === undefined || event.commitId === query.commit)
-    .filter((event) => query.afterCommit === undefined || event.commitId > query.afterCommit)
+    .filter((event) => query.commit === undefined || event.documentCommitId === query.commit)
+    .filter(
+      (event) => query.afterCommit === undefined || event.documentCommitId > query.afterCommit,
+    )
     .filter((event) => !needle || event.componentName.toLowerCase().includes(needle))
   const liveRecords = [
     ...new Map(

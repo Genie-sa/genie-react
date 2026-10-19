@@ -877,8 +877,18 @@ export const reactRenderCausesContract = defineAgentToolContract({
   group: 'react.render',
   input: z
     .object({
-      commit: z.number().int().nonnegative().optional(),
-      afterCommit: z.number().int().nonnegative().optional(),
+      commit: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe('Only events from this documentCommitId, as shown on every event.'),
+      afterCommit: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe('Only events with a documentCommitId greater than this.'),
       component: z.string().optional().describe('Only components whose name contains this string.'),
       limit: z.number().int().min(1).max(500).default(100),
       appOnly: z

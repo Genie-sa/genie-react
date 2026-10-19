@@ -203,6 +203,18 @@ describe('timeline recording lifecycle and bounds', () => {
     expect(queryClient.getQueryCache().hasListeners()).toBe(false)
   })
 
+  it('rounds reported times to hundredths of a millisecond', () => {
+    const queryClient = client()
+    const collector = create({ queryClient })
+    const recording = start(collector)
+    time = 103.456789
+    queryClient.setQueryData(['rounded'], true)
+    const result = read(collector, recording.id)
+    expect(result.durationMs).toBe(3.46)
+    expect(result.events.length).toBeGreaterThan(0)
+    expect(result.events.every((event) => event.atMs === 3.46)).toBe(true)
+  })
+
   it('expires on deadline and excludes updates even when its timer has not run', () => {
     const queryClient = client()
     const collector = create({ queryClient })

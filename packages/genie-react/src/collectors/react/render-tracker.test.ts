@@ -7,6 +7,7 @@ import {
   registerRouterStore,
 } from '../causal/external-store-registry'
 import { wasInstanceObserved, wasInstanceRenderUnanalyzed } from './instance-identity'
+import { noteDocumentCommit, resetObservationStateForTests } from './observation'
 import { createRenderEvidenceBudget, inputCoverage } from './render-budget'
 import {
   childrenChanged,
@@ -101,7 +102,10 @@ function componentFiber(opts: {
 
 const render = (fiber: Fiber, phase: RenderPhase) => recordRender(fiber, phase)
 
-beforeEach(() => clearRenders())
+beforeEach(() => {
+  resetObservationStateForTests()
+  clearRenders()
+})
 
 it('sorts by updates rather than total renders before applying the result limit', async () => {
   const mounting = componentFiber({ name: 'MountHeavy' })
@@ -821,6 +825,20 @@ describe('causal render attribution', () => {
     const bounded = await getRenderCauseEventsReport({ limit: 1 })
     expect(bounded.events).toHaveLength(1)
     expect(bounded.omittedByLimit).toBe(1)
+  })
+
+  it('filters cause events by the document commit ID shown on each event', async () => {
+    const firstCommit = noteDocumentCommit()
+    render(causalFiber('EarlierRow', [externalStoreHook(2)], [externalStoreHook(1)]), 'update')
+    const secondCommit = noteDocumentCommit()
+    render(causalFiber('LaterRow', [externalStoreHook(3)], [externalStoreHook(2)]), 'update')
+
+    const names = async (query: { commit?: number; afterCommit?: number }) =>
+      (await getRenderCauseEventsReport({ limit: 10, ...query })).events.map(
+        (event) => `${event.componentName}@${event.documentCommitId}`,
+      )
+    expect(await names({ commit: firstCommit })).toEqual([`EarlierRow@${firstCommit}`])
+    expect(await names({ afterCommit: firstCommit })).toEqual([`LaterRow@${secondCommit}`])
   })
 
   it('keeps cause rows and metadata on the same call-start state', async () => {

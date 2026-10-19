@@ -235,6 +235,7 @@ notification delivery. Dynamic and private auto-tracked policies remain unavaila
 and are never removed by this check.
 
 **Input:** `commit` and `afterCommit` are optional nonnegative integers and are mutually exclusive.
+Both match the `documentCommitId` shown on every event.
 `component` is an optional substring. `limit` is an integer from 1 to 500 and defaults to 100.
 `appOnly` defaults to `true`. `view` is `summary` (default) or `full`; the summary names each cause,
 while `full` adds input values, `deepDiff`, Query notification details, `assessment`, `instance`,
