@@ -444,8 +444,11 @@ describe('runInit — idempotency and dry-run', () => {
     runInit({ cwd: dir, logger: silent })
     expect(await readFile(activeSkill, 'utf8')).toBe(bundledSkill)
     expect(await readFile(activeAppTools, 'utf8')).toBe(bundledAppTools)
+    const { version } = JSON.parse(
+      await readFile(join(process.cwd(), 'packages/cli/package.json'), 'utf8'),
+    )
     expect(runDoctor({ cwd: dir, logger: silent })).toMatchObject({
-      versions: { bundledSkill: '0.16.0', activeSkill: '0.16.0' },
+      versions: { bundledSkill: version, activeSkill: version },
       skill: { current: true },
     })
 
