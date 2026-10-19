@@ -540,8 +540,8 @@ describe('getEffectAuditReport filteredNote count', () => {
     recordEffect(effectFiber('LibEffects', at(NODE_MODULES), 2), 'mount')
 
     const filtered = await getEffectAuditReport({ limit: 50, appOnly: true })
-    expect(filtered.libraryEffectsHidden).toBe(3)
-    expect(filtered.components).toEqual([])
+    expect(filtered.libraryEffectsHidden).toBe(2)
+    expect(filtered.components.map((c) => c.name)).toEqual(['AppEffects'])
 
     const unfiltered = await getEffectAuditReport({ limit: 50, appOnly: false })
     expect(unfiltered.libraryEffectsHidden).toBe(0)
