@@ -18,9 +18,13 @@ Clears render counters and starts a new causal observation window.
 defaults to `{bufferLimit:1000,targetReserve:100}`; `bufferLimit` is an integer from 100 to 20000,
 `targetReserve` is an integer from 0 to 5000, and the reserve cannot exceed the buffer.
 
-The expanded maxima are opt-in; defaults are unchanged. `adaptive:true` increases only later commit
-budgets after exhaustion, up to 4x, and steps back down after 30 commits in a row fit the budget. It
-cannot restore evidence skipped by the exhausted commit. For a
+The expanded maxima are opt-in. With `adaptive:true`, the call counts the components already
+mounted and raises `fiberLimit`, `operationLimit`, and `timeLimitMs` by the same factor until
+`fiberLimit` covers them, up to the maxima; `observationConfig.adaptiveScale` reports the factor. A
+later commit that renders more components than the limit, or runs out of work, raises the budget
+for the commits after it. The budget steps back down after 30 commits in a row fit it, but never
+below the largest tree the window has seen. Growth cannot restore evidence skipped by the commit
+that ran out. For a
 one-action window, especially on a large React Native tree, discard incomplete coverage and rerun
 the action from a fresh window with an explicitly larger budget.
 
@@ -289,7 +293,29 @@ npx @genie-react/cli call react_render_causes \
 
 **Agent use:** Join `renderEventId`, observation, document commit, and mount IDs to the action
 (`view:"full"` adds hook IDs), then change the producer of the exact input. Repeat the interaction if events were evicted or
-coverage is incomplete.
+coverage is incomplete. When a budget limit skipped work, `coverage.budgetAdvice` names the
+`exhaustedLimits` and gives a `suggestedBudget` estimated to fit the largest lossy commit; pass it to
+`react_clear_renders` and repeat the step. `react_get_renders` reports the same field.
+
+```json
+{
+  "coverage": {
+    "complete": false,
+    "skippedCommitFibers": 652,
+    "budgetAdvice": {
+      "exhaustedLimits": ["fiberLimit"],
+      "suggestedBudget": {
+        "fiberLimit": 1000,
+        "operationLimit": 80000,
+        "timeLimitMs": 32,
+        "targetOperationReserve": 4000,
+        "targetTimeReserveMs": 4
+      },
+      "next": "fiberLimit ran out. Run react_clear_renders with {\"budget\":{...}}, repeat the step, and read again."
+    }
+  }
+}
+```
 
 ## `react_component_cohort`
 
@@ -804,9 +830,13 @@ Clears render counters and starts a profiling observation.
 defaults to `{bufferLimit:1000,targetReserve:100}`; `bufferLimit` is an integer from 100 to 20000,
 `targetReserve` is an integer from 0 to 5000, and the reserve cannot exceed the buffer.
 
-The expanded maxima are opt-in; defaults are unchanged. `adaptive:true` increases only later commit
-budgets after exhaustion, up to 4x, and steps back down after 30 commits in a row fit the budget. It
-cannot restore evidence skipped by the exhausted commit. For a
+The expanded maxima are opt-in. With `adaptive:true`, the call counts the components already
+mounted and raises `fiberLimit`, `operationLimit`, and `timeLimitMs` by the same factor until
+`fiberLimit` covers them, up to the maxima; `observationConfig.adaptiveScale` reports the factor. A
+later commit that renders more components than the limit, or runs out of work, raises the budget
+for the commits after it. The budget steps back down after 30 commits in a row fit it, but never
+below the largest tree the window has seen. Growth cannot restore evidence skipped by the commit
+that ran out. For a
 one-action profile, especially on a large React Native tree, discard incomplete coverage and rerun
 the flow from a fresh profile with an explicitly larger budget.
 

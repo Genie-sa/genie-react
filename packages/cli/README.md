@@ -26,9 +26,10 @@ npx @genie-react/cli call react_get_renders '{"sort":"selfTime","limit":3}'
 npx @genie-react/cli call react_render_causes '{"component":"Button","limit":3}'
 ```
 
-Use the observation only when its coverage is complete and `budgetExhaustedCommits` is zero. On a
-large React Native tree, discard an incomplete one-action window and rerun it with an explicit larger
-budget; adaptive growth on later commits cannot restore evidence skipped by the exhausted commit.
+Use the observation only when its coverage is complete and `budgetExhaustedCommits` is zero. The
+default adaptive budget grows to fit the tree mounted when you clear. When a limit still skips work,
+`coverage.budgetAdvice` names it and suggests a budget: clear with that budget and repeat the step,
+because growth on later commits cannot restore evidence skipped by the commit that ran out.
 
 Real demo output:
 

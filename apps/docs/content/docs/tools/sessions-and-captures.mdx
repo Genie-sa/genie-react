@@ -394,8 +394,9 @@ Clears React observations and starts one bounded interaction window on the selec
 (default `true`). `lifecycle` is optional: `bufferLimit` is an integer 100–20,000 (default 1,000)
 and `targetReserve` is an integer 0–5,000 (default 100) that cannot exceed `bufferLimit`.
 
-The expanded maxima are opt-in; defaults are unchanged. This window records one named action, so
-adaptive growth after an exhausted commit cannot restore evidence skipped by that action. For a
+The expanded maxima are opt-in. An adaptive budget starts sized to the components already mounted,
+as in `react_clear_renders`. This window records one named action, so growth after an exhausted
+commit cannot restore evidence skipped by that action. For a
 large React Native interaction, provide an explicit budget and rerun from a fresh window if the
 stopped React coverage is incomplete.
 

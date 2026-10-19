@@ -580,6 +580,14 @@ const reportAttributionSchema = z.object({
   completedAtAnalysisGeneration: z.number().int().nonnegative(),
 })
 
+const renderBudgetLimitSchema = z.enum([
+  'fiberLimit',
+  'operationLimit',
+  'timeLimitMs',
+  'targetOperationReserve',
+  'targetTimeReserveMs',
+])
+
 export const renderCoverageSchema = z.object({
   sourceClassification: ownershipCoverageSchema
     .extend({ evaluated: z.number().int().nonnegative() })
@@ -605,6 +613,16 @@ export const renderCoverageSchema = z.object({
   budgetExhaustedSubsystems: z.array(
     z.object({ subsystem: z.string(), commits: z.number().int().positive() }),
   ),
+  budgetAdvice: z
+    .object({
+      exhaustedLimits: z.array(renderBudgetLimitSchema),
+      suggestedBudget: z.record(renderBudgetLimitSchema, z.number().positive()),
+      next: z.string(),
+    })
+    .optional()
+    .describe(
+      'Present when a budget limit skipped work in this window: the limits that ran out and a budget estimated to fit the largest lossy commit. Growth inside the window cannot restore skipped commits, so clear with the suggested budget and repeat the step.',
+    ),
   targeted: z
     .object({
       components: z.array(z.string()),
