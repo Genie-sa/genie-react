@@ -17,6 +17,7 @@ import {
 import { isKnownProxy } from '../causal/proxy-tagging'
 import {
   callObserverMethod,
+  isMutationObserver,
   isQueryObserver,
   type QueryObserverIdentity,
   queryObserverIdentity,
@@ -592,7 +593,10 @@ export function diffExternalStoreChanges(
           evidence: 'inferred',
           reason: 'external-store-snapshot-changed',
           ...common,
-          ...genericExternalStoreMetadata(current),
+          ...genericExternalStoreMetadata(
+            current,
+            mutationObserverNearHook(fiber, index, current.memoizedState, evidence),
+          ),
         })
       }
       externalStoreIndex += 1
@@ -670,7 +674,29 @@ function stageQuerySubscriber(
   else registerQuerySubscriber(observer, subscriber)
 }
 
-function genericExternalStoreMetadata(hook: MemoizedState): {
+function mutationObserverNearHook(
+  fiber: Fiber,
+  stopIndex: number,
+  snapshot: unknown,
+  evidence: RenderEvidenceBudget,
+): boolean {
+  let hook: MemoizedState | null = fiber.memoizedState
+  for (let index = 0; hook && index < stopIndex && index < HOOK_WALK_LIMIT; index += 1) {
+    if (!scanInputEvidence(evidence, 'mutation-observers')) return false
+    const candidate = hook.memoizedState
+    if (isRecord(candidate) && isMutationObserver(candidate)) {
+      const result = callObserverMethod(candidate, 'getCurrentResult')
+      if (result.ok && Object.is(result.value, snapshot)) return true
+    }
+    hook = hook.next
+  }
+  return false
+}
+
+function genericExternalStoreMetadata(
+  hook: MemoizedState,
+  mutationObserverSnapshot: boolean,
+): {
   storeId: string
   storeLabel: string
   selector: null
@@ -697,7 +723,9 @@ function genericExternalStoreMetadata(hook: MemoizedState): {
       : ''
   return {
     storeId: externalStoreId(identity),
-    storeLabel: name || 'anonymous-external-store',
+    storeLabel: mutationObserverSnapshot
+      ? 'tanstack-mutation-observer'
+      : name || 'anonymous-external-store',
     selector: null,
     equality: 'object-is',
     fanout: null,

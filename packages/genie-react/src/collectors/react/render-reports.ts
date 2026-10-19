@@ -357,11 +357,11 @@ export async function buildRenderCauseEventsReport(
   const classified = [...matching].reverse().map((event) => {
     const classification = evidenceById.get(event.componentId) ?? unknownRecordSourceEvidence()
     const liveRecord = records.get(event.componentId)
-    const isLatestEvent =
-      liveRecord !== undefined &&
-      liveRecord.latestRenderEventId === event.renderEventId &&
-      liveRecord.instance.mountId === event.instance.mountId
-    const eventSource = attributionCurrent && isLatestEvent ? classification.source : null
+    // Component source and ownership belong to the mounted instance; only hook-level evidence is specific to its latest render.
+    const sameInstance =
+      liveRecord !== undefined && liveRecord.instance.mountId === event.instance.mountId
+    const isLatestEvent = sameInstance && liveRecord.latestRenderEventId === event.renderEventId
+    const eventSource = attributionCurrent && sameInstance ? classification.source : null
     const unavailableReason = !attributionCurrent
       ? 'report-state-advanced'
       : liveRecord === undefined
@@ -388,8 +388,8 @@ export async function buildRenderCauseEventsReport(
     }
     return {
       event: reported,
-      libraryOnly: isLatestEvent ? classification.libraryOnly : false,
-      appOwned: isLatestEvent ? classification.appOwned : false,
+      libraryOnly: sameInstance ? classification.libraryOnly : false,
+      appOwned: sameInstance ? classification.appOwned : false,
     }
   })
   const visible =

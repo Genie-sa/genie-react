@@ -402,7 +402,7 @@ describe('getRendersReport filteredNote count', () => {
     expect(report.omittedByLimit).toBe(0)
   })
 
-  it('keeps historical instance identity and withholds current hook proof from old events', async () => {
+  it('keeps historical instance identity and component source but withholds current hook proof from old events', async () => {
     const hookNode = (snapshot: unknown) => ({
       memoizedState: snapshot,
       queue: { value: snapshot, getSnapshot: () => snapshot },
@@ -447,9 +447,8 @@ describe('getRendersReport filteredNote count', () => {
     })
     expect(report.events[1]).toMatchObject({
       instance: { key: 'before' },
-      source: null,
-      sourceOwnership: 'unknown',
-      sourceAttribution: { role: 'unavailable', evidence: 'unknown' },
+      source: { file: '/src/App.tsx' },
+      sourceOwnership: 'app',
       causes: [
         {
           hookProvenance: {
