@@ -1,5 +1,20 @@
 # @genie-react/cli
 
+## 0.19.0
+
+### Minor Changes
+
+- 7b53af8: The adaptive render budget now fits the app's tree. `react_clear_renders` counts the components already mounted and starts the window with a `fiberLimit` that covers them, scaling `operationLimit` and `timeLimitMs` by the same factor, up to the maxima. A commit that renders more components than the limit also grows the budget, and decay never drops it below the largest tree the window has seen. On a 900-component tree the default budget went from `fiberLimit` 250 to 1000, and a full re-render is complete instead of skipping 652 components. When a limit still skips work, `react_render_causes` and `react_get_renders` report `coverage.budgetAdvice`: the `exhaustedLimits` and a `suggestedBudget` estimated to fit the largest lossy commit.
+- 37544dc: `status --wait <ms>` waits for the `--session` target, or any app when none is given, to be ready before it reports. On timeout it fails with `not_connected`. `unknown_session` and that failure now carry `details.session.registeredTabs`, which is `0` when no browser tab has registered with the hub, so a client can tell "not ready yet" from "no browser". With no registered tab, `unknown_session` suggests `status --wait` as `next`.
+
+### Patch Changes
+
+- 17df0f1: `doctor` checks the agent skill in `GENIE_SKILL_DIR` when it is set, instead of `.agents/skills/genie` and `.claude/skills/genie`. An agent that loads the skill from outside the project, such as `/opt/skills/genie`, no longer gets a missing-skill warning. The directory matches when it holds the skill as shipped in `@genie-react/cli` or as `init` renders it, and a drifted copy names the bundled files to copy there.
+- f5ec768: `invalid_args` failures now carry `details.didYouMean`, which maps each unknown key to the valid key it most likely meant: a near spelling (`compnent` → `component`), or the one missing required key when only one key was unknown (`react_inspect_component` with `component` → `id`). The rest of the failure JSON is unchanged.
+- 0ecd0ec: The bundled skill now reports the CLI's version, so `doctor` shows `bundledSkill` 0.18.1 instead of 0.16.0. Releases stamp it from `@genie-react/cli`, and `check:release` fails when it drifts.
+- Updated dependencies [7b53af8]
+  - genie-react@0.19.0
+
 ## 0.18.1
 
 ### Patch Changes
