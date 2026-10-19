@@ -73,8 +73,8 @@ it('returns a structured cleanup failure and still closes the hub', async () => 
   expect(String(stdout.mock.lastCall?.[0])).not.toContain('PRIVATE_UPSTREAM_ERROR')
 })
 
-it('returns a single sanitized failure when startup rejects', async () => {
-  hub.startGenieHub.mockRejectedValue(new Error('PRIVATE_STARTUP_ERROR'))
+it('returns a single failure that carries the startup error', async () => {
+  hub.startGenieHub.mockRejectedValue(new Error('EACCES: permission denied, mkdir .genie'))
   const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
   const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
   expect(await runHub()).toBe(1)
@@ -85,6 +85,17 @@ it('returns a single sanitized failure when startup rejects', async () => {
     userActionRequired: true,
     next: { argv: ['pnpm', 'exec', 'genie-react', 'doctor'] },
   })
-  expect(String(stdout.mock.calls[0]?.[0])).not.toContain('PRIVATE_STARTUP_ERROR')
+  expect(String(stdout.mock.calls[0]?.[0])).toContain('EACCES: permission denied, mkdir .genie')
   expect(stderr).not.toHaveBeenCalled()
+})
+
+it('reports a busy port as port_busy with the hub message', async () => {
+  hub.startGenieHub.mockRejectedValue(
+    Object.assign(new Error('genie-react hub: port 4390 is busy'), { code: 'port_busy' }),
+  )
+  const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+  expect(await runHub({ port: 4390 })).toBe(1)
+  const failure = JSON.parse(String(stdout.mock.calls[0]?.[0]))
+  expect(failure).toMatchObject({ status: 'error', reason: 'port_busy', userActionRequired: true })
+  expect(failure.message).toContain('port 4390 is busy')
 })

@@ -1,3 +1,4 @@
+import { createServer } from 'node:net'
 import { createStandaloneBridge, type StandaloneBridgeHandle } from 'genie-react/hub'
 import { decodeFrame, encodeMessage } from 'genie-react/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -5,6 +6,7 @@ import { WebSocket } from 'ws'
 import {
   BridgeCallError,
   BridgeRejectedError,
+  BridgeUnreachableError,
   GenieAgentLink,
   type GenieAgentLinkOptions,
 } from './agent-link'
@@ -242,4 +244,66 @@ describe('GenieAgentLink', () => {
     link.close()
     await assertion
   })
+
+  it('rejects a pending call as unreachable as soon as the bridge connection drops', async () => {
+    const { handle, url } = await makeBridge({ requestTimeoutMs: 10_000 })
+    await connectApp(url) // no responder
+    await waitUntil(() => handle.bridge.getStatus().connected)
+    const link = makeLink({ url, invokeTimeoutMs: 20_000, reconnectDelayMs: 5_000 })
+    link.start()
+
+    const pending = link.invoke('slow_tool', {}).catch((error: unknown) => error)
+    await delay(50)
+    const started = Date.now()
+    await handle.close()
+    const error = await pending
+
+    expect(error).toBeInstanceOf(BridgeUnreachableError)
+    expect(error).toMatchObject({ url, lost: true, errorCode: 'not-connected' })
+    expect(Date.now() - started).toBeLessThan(2_000)
+  })
+
+  it('close() settles callers still waiting for the connection to open', async () => {
+    const link = makeLink({
+      url: `ws://127.0.0.1:${await closedPort()}/__genie/ws`,
+      connectTimeoutMs: 30_000,
+    })
+    link.start()
+
+    const pending = link.invoke('devtools_status', {})
+    await delay(50)
+    const assertion = expect(pending).rejects.toThrow(/agent link closed/)
+    link.close()
+    await assertion
+  })
+
+  it('fails fast on a refused connection when the URL is only a guess', async () => {
+    const url = `ws://127.0.0.1:${await closedPort()}/__genie/ws`
+    const link = makeLink({ url, connectTimeoutMs: 30_000, failFastOnRefused: true })
+    link.start()
+
+    const started = Date.now()
+    const error = await link.invoke('devtools_status', {}).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(BridgeUnreachableError)
+    expect(error).toMatchObject({ url, lost: false })
+    expect(Date.now() - started).toBeLessThan(2_000)
+  })
+
+  it('reports an unanswered connection as unreachable after connectTimeoutMs', async () => {
+    const url = `ws://127.0.0.1:${await closedPort()}/__genie/ws`
+    const link = makeLink({ url, connectTimeoutMs: 150, reconnectDelayMs: 25 })
+    link.start()
+
+    await expect(link.invoke('devtools_status', {})).rejects.toBeInstanceOf(BridgeUnreachableError)
+  })
 })
+
+async function closedPort(): Promise<number> {
+  const server = createServer()
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  await new Promise((resolve) => server.close(resolve))
+  if (address === null || typeof address === 'string') throw new Error('expected a TCP address')
+  return address.port
+}

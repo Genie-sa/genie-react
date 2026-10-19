@@ -209,11 +209,12 @@ try {
     })
   ).value
   assert.deepEqual(rows, [{ count: 0, missing: null }])
-  assert.equal(
-    (await run(['call', 'app_echo', '{}', '--fields', 'unknown', '--url', url], { jsonl: true }))
-      .stdout,
-    '',
-  )
+  const unverified = await run(['call', 'app_echo', '{}', '--fields', 'unknown', '--url', url], {
+    jsonl: true,
+    diagnostics: true,
+  })
+  assert.equal(unverified.stdout, '')
+  assert.equal(unverified.diagnostics[0].reason, 'fields_unverified')
   const batchArgs = ['batch', '[{"tool":"app_echo"},{"tool":"app_echo"}]', '--url', url]
   assert.equal((await run(batchArgs, { jsonl: true })).value.length, 2)
   assert.equal((await run([...batchArgs, '--json'])).value.length, 2)
@@ -263,7 +264,7 @@ try {
     code: 1,
     cwd: hubDir,
   })
-  assert.equal(failedHub.value.reason, 'hub_start_failed')
+  assert.equal(failedHub.value.reason, 'port_busy')
   const disconnected = await run(
     ['status', '--url', `ws://127.0.0.1:${ready.data.port}/__genie/ws`, '--connect-timeout', '100'],
     { code: 1 },

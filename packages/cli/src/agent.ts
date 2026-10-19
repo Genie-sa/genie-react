@@ -1,6 +1,5 @@
 import { access, link as linkFile, rename, rm, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { verifyCaptureIntegrity } from 'genie-react/hub'
 import {
   type AnsweringSession,
   type BridgeStatusMessage,
@@ -18,6 +17,7 @@ import {
   type AnsweredResult,
   BridgeCallError,
   BridgeRejectedError,
+  BridgeUnreachableError,
   GenieAgentLink,
   INVOKE_GRACE_MS,
 } from './agent-link'
@@ -41,6 +41,7 @@ import {
   safeToolNames,
   suggestionGuidance,
   toolHelpNext,
+  withSession,
 } from './failure'
 import { isRecord, isRecordArray } from './guards'
 import { type CallInvocation, recoverOverflow } from './output-recovery'
@@ -179,12 +180,13 @@ function failureLookups(link: GenieAgentLink): FailureLookups {
 }
 
 function failureContext(
-  lookups: FailureLookups,
+  { link, connection }: Connection,
   opts: AgentOptions,
   tool?: string,
   args?: unknown,
+  lookups: FailureLookups = failureLookups(link),
 ): FailureContext {
-  return { ...lookups, tool, args, session: resolveSession(opts.session) }
+  return { ...lookups, connection, tool, args, session: resolveSession(opts.session) }
 }
 
 function once<T>(load: () => Promise<T>): () => Promise<T> {
@@ -195,13 +197,29 @@ function once<T>(load: () => Promise<T>): () => Promise<T> {
   }
 }
 
-async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url: string }> {
+interface Connection {
+  link: GenieAgentLink
+  url: string
+  connection: NonNullable<FailureContext['connection']>
+}
+
+/** Bridge selection errors (bad --url, ambiguous discovery, invalid GENIE_BRIDGE_PORT) are reported here, so callers only handle a live link. */
+async function openConnection(opts: AgentOptions, operation: string): Promise<Connection | null> {
+  try {
+    return await connect(opts)
+  } catch (error) {
+    await emitCaughtFailure(opts, operation, error, {})
+    return null
+  }
+}
+
+async function connect(opts: AgentOptions): Promise<Connection> {
   const cwd = opts.cwd ?? process.cwd()
   let url: string
   let token: string | undefined
-  let source: string
+  let source: NonNullable<FailureContext['connection']>['source']
   if (opts.url) {
-    const explicit = await resolveExplicitBridge(normalizeBridgeUrl(opts.url), cwd)
+    const explicit = await resolveExplicitBridge(normalizeBridgeUrl(opts.url, '--url'), cwd)
     url = explicit.url
     token = opts.token ?? explicit.token
     source = 'flag'
@@ -226,7 +244,7 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
   } else if (token === undefined && (source === 'file' || source === 'workspace')) {
     writeDiagnostic(
       'unauthenticated-bridge',
-      'The discovered hub published no agent token, so it is an older genie-react that accepts any local page as an agent. Update genie-react to the same version as @genie-react/cli.',
+      'No agent token was found for the discovered hub. Either the hub runs as another user, or it is an older genie-react that publishes none. Run the CLI as the user that started the hub, set GENIE_BRIDGE_TOKEN, or update genie-react to match @genie-react/cli.',
     )
   }
   const connectTimeoutMs = opts.connectTimeoutMs ?? 8_000
@@ -246,6 +264,7 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
     // A per-call --timeout still wins per-invoke (timeoutMs + grace); this is the default when none is given.
     invokeTimeoutMs: opts.timeoutMs ? opts.timeoutMs + INVOKE_GRACE_MS : 20_000,
     sessionId: resolveSession(opts.session),
+    failFastOnRefused: source === 'fallback',
     logger: opts.verbose
       ? (message) =>
           writeDiagnostic(
@@ -257,7 +276,7 @@ async function connect(opts: AgentOptions): Promise<{ link: GenieAgentLink; url:
       : undefined,
   })
   link.start()
-  return { link, url }
+  return { link, url, connection: { url, source, authenticated: token !== undefined } }
 }
 
 /** Preserve raw tool schemas as bounded JSON; field projections emit JSONL. */
@@ -296,18 +315,29 @@ function overflowRecovery(
 /** `--fields` output: the top-level object projected when any requested key exists on it; otherwise one JSONL row per record in the FIRST array-of-records field (key order, empty → zero rows). Deterministic — the projected source never depends on which array happens to have rows. */
 export function projectFields(result: unknown, fields: string[]): string {
   if (!isRecord(result)) throw new FieldSelectionError(fields, [])
-  const rows = fields.some((field) => field in result) ? [result] : firstRecordArray(result)
-  if (rows?.length === 0) return ''
-  const source = rows ?? [result]
+  const collection = fields.some((field) => field in result) ? null : firstRecordArray(result)
+  if (collection?.[1].length === 0) {
+    writeDiagnostic(
+      'fields_unverified',
+      'The projected collection is empty, so no rows were emitted and --fields could not be checked against row keys.',
+      /^[A-Za-z0-9_.-]{1,64}$/.test(collection[0])
+        ? { collection: `/${collection[0]}` }
+        : undefined,
+    )
+    return ''
+  }
+  const source = collection?.[1] ?? [result]
   const available = [...new Set(source.flatMap((row) => Object.keys(row)))].sort()
   const unknown = fields.filter((field) => !available.includes(field))
   if (unknown.length > 0) throw new FieldSelectionError(unknown, available)
   return source.map((row) => JSON.stringify(pickFields(row, fields))).join('\n')
 }
 
-function firstRecordArray(result: Record<string, unknown>): Record<string, unknown>[] | null {
-  for (const value of Object.values(result)) {
-    if (isRecordArray(value)) return value
+function firstRecordArray(
+  result: Record<string, unknown>,
+): [key: string, rows: Record<string, unknown>[]] | null {
+  for (const [key, value] of Object.entries(result)) {
+    if (isRecordArray(value)) return [key, value]
   }
   return null
 }
@@ -550,39 +580,24 @@ export async function runCall(
     try {
       args = JSON.parse(argsJson)
     } catch {
+      args = undefined
+    }
+    if (!isRecord(args)) {
       emitFailure(
         opts,
         'invalid_input',
-        `Tool arguments must be one valid JSON object. Run ${genieCommand(['tools']).command} <tool> for its schema.`,
-        { userActionRequired: true },
+        `Tool arguments must be one JSON object, such as {}. Run ${genieCommand(['tools']).command} <tool> for its schema.`,
+        { userActionRequired: true, next: toolHelpNext(tool, resolveSession(opts.session)) },
       )
       return 1
     }
   }
 
-  const { link } = await connect(opts)
+  const connection = await openConnection(opts, 'Tool call failed.')
+  if (!connection) return 1
+  const { link } = connection
   try {
-    if (requiresReadySession(tool)) {
-      // Bridge-global wait (sessionId: null) so a stale --session fails fast on the real call instead of stalling here; its own timeout tracks --wait so a small --timeout can't truncate the connect window.
-      const waitMs = opts.waitMs ?? 15_000
-      const ready = await link
-        .invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs: waitMs }, null, {
-          timeoutMs: waitMs,
-        })
-        .catch(nullUnlessRejected)
-      if (!ready?.ok) {
-        emitFailure(
-          opts,
-          'not_connected',
-          'No app is connected. Start the dev server and open the app in a browser.',
-          {
-            userActionRequired: true,
-            next: genieCommand(['status']),
-          },
-        )
-        return 1
-      }
-    }
+    if (requiresReadySession(tool) && !(await waitForApp(link, opts))) return 1
     const answered = await link.invokeAnswered(tool, args, undefined, {
       timeoutMs: opts.timeoutMs,
     })
@@ -613,7 +628,7 @@ export async function runCall(
       opts,
       'Tool call failed.',
       error,
-      failureContext(failureLookups(link), opts, tool, args),
+      failureContext(connection, opts, tool, args),
     )
     return 1
   } finally {
@@ -678,7 +693,9 @@ export async function runCaptureExport(
     return 1
   }
 
-  const { link } = await connect(opts)
+  const connection = await openConnection(opts, 'Capture export failed.')
+  if (!connection) return 1
+  const { link } = connection
   const temporaryPath = `${outputPath}.tmp-${process.pid}-${Date.now()}`
   const readArgs = {
     captureId,
@@ -688,6 +705,7 @@ export async function runCaptureExport(
   try {
     const result = await link.invoke(devtoolsCaptureReadContract, readArgs)
     const capture = captureArtifactSchema.parse(result)
+    const { verifyCaptureIntegrity } = await import('genie-react/hub')
     if (!verifyCaptureIntegrity(capture)) {
       throw new Error(
         `Capture ${JSON.stringify(captureId)} failed its SHA-256 integrity check; it was not written.`,
@@ -715,13 +733,16 @@ export async function runCaptureExport(
     await rm(temporaryPath, { force: true }).catch(() => undefined)
     const { reason, message, ...options } = await describeFailure(
       error,
-      failureContext(failureLookups(link), opts, devtoolsCaptureReadContract.name, readArgs),
+      failureContext(connection, opts, devtoolsCaptureReadContract.name, readArgs),
     )
     emitFailure(opts, reason, `Capture export failed. ${message}`, {
       ...options,
       next:
         reason === 'invalid_args'
-          ? nextCommand('call', devtoolsCaptureListContract.name, '{}')
+          ? withSession(
+              nextCommand('call', devtoolsCaptureListContract.name, '{}'),
+              resolveSession(opts.session),
+            )
           : options.next,
     })
     return 1
@@ -788,11 +809,14 @@ export async function runBatch(
   opts: AgentOptions = {},
 ): Promise<number> {
   setOutputContext({ operation: 'batch' })
-  const raw = batchJson ?? (await readStdin())
+  const raw = await batchInput(batchJson)
   if (!raw.trim()) {
-    emitFailure(opts, 'invalid_input', 'Provide a JSON array argument or pipe one on stdin.', {
-      userActionRequired: true,
-    })
+    emitFailure(
+      opts,
+      'invalid_input',
+      'Provide a JSON array argument, or pass - and pipe the array on stdin.',
+      { userActionRequired: true, next: genieCommand(['batch', '--help']) },
+    )
     return 1
   }
   const parsed = parseBatchItems(raw)
@@ -804,7 +828,9 @@ export async function runBatch(
     return 1
   }
 
-  const { link } = await connect(opts)
+  const connection = await openConnection(opts, 'Batch failed.')
+  if (!connection) return 1
+  const { link } = connection
   const lookups = failureLookups(link)
   let anyFailed = false
   const results: VersionedBatchResult[] = []
@@ -817,22 +843,10 @@ export async function runBatch(
     else writeJson(versioned)
   }
   try {
-    const waitMs = opts.waitMs ?? 15_000
-    const ready = await link
-      .invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs: waitMs }, null, {
-        timeoutMs: waitMs,
-      })
-      .catch(nullUnlessRejected)
-    if (!ready?.ok) {
-      emitFailure(
-        opts,
-        'not_connected',
-        'No app is connected. Start the dev server and open the app in a browser.',
-        {
-          userActionRequired: true,
-          next: genieCommand(['status']),
-        },
-      )
+    if (
+      parsed.items.some((item) => requiresReadySession(item.tool)) &&
+      !(await waitForApp(link, opts))
+    ) {
       return 1
     }
     for (const item of parsed.items) {
@@ -857,10 +871,13 @@ export async function runBatch(
           session: safeAnsweringSession(session),
         })
       } catch (error) {
+        // Without a bridge every remaining item would fail the same way, so the batch stops with one failure.
+        if (error instanceof BridgeUnreachableError || error instanceof BridgeRejectedError)
+          throw error
         anyFailed = true
         const failure = await describeFailure(
           error,
-          failureContext(lookups, opts, item.tool, item.args),
+          failureContext(connection, opts, item.tool, item.args, lookups),
         )
         emitBatchResult({ tool: item.tool, ok: false, status: 'error', ...failure })
       }
@@ -876,33 +893,51 @@ export async function runBatch(
     }
     return anyFailed ? 1 : 0
   } catch (error) {
-    if (!(error instanceof BridgeRejectedError)) throw error
-    await emitCaughtFailure(opts, 'Batch failed.', error, {})
+    await emitCaughtFailure(opts, 'Batch failed.', error, { connection: connection.connection })
     return 1
   } finally {
     link.close()
   }
 }
 
-function readStdin(): Promise<string> {
+/** How long piped stdin may stay silent before an argument-less batch gives up; a caller that holds stdin open without writing must not hang the CLI. */
+const STDIN_GRACE_MS = 300
+
+/** `-` reads stdin to the end; no argument reads piped stdin only if data starts arriving within {@link STDIN_GRACE_MS}. */
+function batchInput(batchJson: string | undefined): Promise<string> {
+  if (batchJson === '-') return readStdin(null)
+  if (batchJson !== undefined) return Promise.resolve(batchJson)
+  return process.stdin.isTTY ? Promise.resolve('') : readStdin(STDIN_GRACE_MS)
+}
+
+export function readStdin(
+  graceMs: number | null,
+  stdin: NodeJS.ReadableStream = process.stdin,
+): Promise<string> {
   return new Promise((resolve) => {
-    if (process.stdin.isTTY) {
-      resolve('')
-      return
-    }
     let data = ''
-    process.stdin.setEncoding('utf8')
-    process.stdin.on('data', (chunk) => {
+    const finish = (): void => {
+      clearTimeout(timer)
+      stdin.removeAllListeners('data')
+      stdin.pause()
+      resolve(data)
+    }
+    const timer = graceMs === null ? undefined : setTimeout(finish, graceMs)
+    stdin.setEncoding('utf8')
+    stdin.on('data', (chunk: string) => {
+      clearTimeout(timer)
       data += chunk
     })
-    process.stdin.on('end', () => resolve(data))
-    process.stdin.on('error', () => resolve(data))
+    stdin.once('end', finish)
+    stdin.once('error', finish)
   })
 }
 
 export async function runStatus(opts: AgentOptions = {}): Promise<number> {
   setOutputContext({ operation: 'status' })
-  const { link, url } = await connect(opts)
+  const connection = await openConnection(opts, 'Status check failed.')
+  if (!connection) return 1
+  const { link, url } = connection
   try {
     const status = await link.invoke(devtoolsStatusContract, { includeTools: false })
     // A 0.1.0 bridge predates the `sessions` field; the typed contract can't see that skew.
@@ -973,7 +1008,7 @@ export async function runStatus(opts: AgentOptions = {}): Promise<number> {
       opts,
       'Status check failed.',
       error,
-      failureContext(failureLookups(link), opts, devtoolsStatusContract.name),
+      failureContext(connection, opts, devtoolsStatusContract.name),
     )
     return 1
   } finally {
@@ -986,13 +1021,19 @@ export async function runTools(
   opts: AgentOptions = {},
 ): Promise<number> {
   setOutputContext({ operation: 'tools' })
-  const { link } = await connect(opts)
+  const connection = await openConnection(opts, 'Tool discovery failed.')
+  if (!connection) return 1
+  const { link } = connection
   try {
     const pinned = resolveSession(opts.session)
     // The broadcast status only carries the current session's catalog; a pinned session must ask the bridge for its own.
     const status = pinned
       ? await link.invoke(devtoolsStatusContract, { includeTools: true })
-      : await waitForTools(link, opts.waitMs ?? 12_000)
+      : await waitForTools(
+          link,
+          opts.waitMs ?? 12_000,
+          opts.waitMs === undefined ? NO_APP_GRACE_MS : null,
+        )
     if (!pinned && status && hasAmbiguousDefault(status)) {
       await emitCaughtFailure(
         opts,
@@ -1006,11 +1047,14 @@ export async function runTools(
       return 1
     }
     const tools = status?.tools ?? []
-    if (!status || tools.length === 0) {
+    // Without an app the catalog holds only hub tools, which would read as a working setup.
+    if (!status?.connected || tools.length === 0) {
       emitFailure(
         opts,
         'not_connected',
-        'No tools are advertised. Start the dev server and open the app in a browser.',
+        opts.waitMs === undefined
+          ? `No app is connected, so no app tools are advertised. Start the dev server and open the app in a browser, or pass --wait <ms> to give a loading app longer than ${NO_APP_GRACE_MS}ms.`
+          : 'No app is connected, so no app tools are advertised. Start the dev server and open the app in a browser.',
         {
           userActionRequired: true,
           next: genieCommand(['status']),
@@ -1042,7 +1086,10 @@ export async function runTools(
             `No advertised tool or group matches the selector. ${suggestionGuidance(suggestions.length, 'groups')}`,
             {
               userActionRequired: true,
-              next: (suggestion && toolHelpNext(suggestion, pinned)) || nextCommand('tools'),
+              errorCode: 'unknown-tool',
+              next:
+                (suggestion && toolHelpNext(suggestion, pinned)) ||
+                withSession(nextCommand('tools'), pinned),
               ...(suggestions.length > 0 ? { details: { suggestions } } : {}),
             },
           )
@@ -1066,7 +1113,7 @@ export async function runTools(
       opts,
       'Tool discovery failed.',
       error,
-      failureContext(failureLookups(link), opts, selector),
+      failureContext(connection, opts, selector),
     )
     return 1
   } finally {
@@ -1115,38 +1162,71 @@ function hasAmbiguousDefault(status: Pick<BridgeStatusMessage, 'sessionId' | 'se
   )
 }
 
+/** `tools` with no app session at all gives up after this, unless `--wait` asks for longer. */
+export const NO_APP_GRACE_MS = 3_000
+
+/** Waits for the default tab's catalog; `noAppGraceMs` ends the wait early while no app session exists at all. */
 function waitForTools(
   link: GenieAgentLink,
   timeoutMs: number,
+  noAppGraceMs: number | null,
 ): Promise<BridgeStatusMessage | null> {
   const settled = (status: BridgeStatusMessage | null): status is BridgeStatusMessage =>
     status !== null && ((status.ready && status.tools.length > 0) || hasAmbiguousDefault(status))
   const current = link.getStatus()
   if (settled(current)) return Promise.resolve(current)
   return new Promise((resolveStatus, reject) => {
-    const timer = setTimeout(() => {
+    const timers: ReturnType<typeof setTimeout>[] = []
+    const finish = (status: BridgeStatusMessage | null): void => {
+      for (const timer of timers) clearTimeout(timer)
       link.onStatus = null
-      resolveStatus(link.getStatus())
-    }, timeoutMs)
+      resolveStatus(status)
+    }
+    timers.push(setTimeout(() => finish(link.getStatus()), timeoutMs))
+    if (noAppGraceMs !== null && noAppGraceMs < timeoutMs) {
+      timers.push(
+        setTimeout(() => {
+          const status = link.getStatus()
+          if (status && status.sessions.length === 0) finish(status)
+        }, noAppGraceMs),
+      )
+    }
     link.onStatus = (status) => {
-      if (settled(status)) {
-        clearTimeout(timer)
-        link.onStatus = null
-        resolveStatus(status)
-      }
+      if (settled(status)) finish(status)
     }
     // Nudge the bridge to surface a connected app (and rebroadcast its catalog).
     void link.invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs }).catch((error) => {
-      if (!(error instanceof BridgeRejectedError)) return
-      clearTimeout(timer)
+      if (!(error instanceof BridgeRejectedError || error instanceof BridgeUnreachableError)) return
+      for (const timer of timers) clearTimeout(timer)
       link.onStatus = null
       reject(error)
     })
   })
 }
 
-// A refused upgrade cannot heal by waiting, so it surfaces as its own failure instead of "no app connected".
-function nullUnlessRejected(error: unknown): null {
-  if (error instanceof BridgeRejectedError) throw error
+/** Bridge-global wait (sessionId: null) so a stale --session fails fast on the real call instead of stalling here; its own timeout tracks --wait so a small --timeout can't truncate the connect window. */
+async function waitForApp(link: GenieAgentLink, opts: AgentOptions): Promise<boolean> {
+  const waitMs = opts.waitMs ?? 15_000
+  const ready = await link
+    .invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs: waitMs }, null, {
+      timeoutMs: waitMs,
+    })
+    .catch(nullUnlessTerminal)
+  if (ready?.ok) return true
+  emitFailure(
+    opts,
+    'not_connected',
+    'No app is connected. Start the dev server and open the app in a browser.',
+    {
+      userActionRequired: true,
+      next: genieCommand(['status']),
+    },
+  )
+  return false
+}
+
+// A refused upgrade or a missing bridge cannot heal by waiting for an app, so each surfaces as its own failure instead of "no app connected".
+function nullUnlessTerminal(error: unknown): null {
+  if (error instanceof BridgeRejectedError || error instanceof BridgeUnreachableError) throw error
   return null
 }

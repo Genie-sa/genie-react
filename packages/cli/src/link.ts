@@ -61,7 +61,7 @@ export function runLink(opts: LinkOptions = {}): number {
       changesMayHaveApplied = true
       mkdirSync(dirname(linkPath), { recursive: true })
       rmSync(linkPath, { recursive: true, force: true })
-      symlinkSync(target, linkPath, 'dir')
+      symlinkSync(target, linkPath, directoryLinkType())
       packages.push({ name: pkg.name, path: linkPath, target })
     }
     if (packages.length === 0)
@@ -101,6 +101,13 @@ export function runLink(opts: LinkOptions = {}): number {
       'Failed to link local packages. Check file permissions and inspect the installed links before retrying.',
     )
   }
+}
+
+/** Windows directory symlinks need admin rights or Developer Mode; junctions do not and resolve the same for Node. */
+export function directoryLinkType(
+  platform: NodeJS.Platform = process.platform,
+): 'dir' | 'junction' {
+  return platform === 'win32' ? 'junction' : 'dir'
 }
 
 function linkAgentSkill(cwd: string, packagesDir: string): string[] | null {

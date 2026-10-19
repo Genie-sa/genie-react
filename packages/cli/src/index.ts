@@ -8,7 +8,12 @@ import {
   GENIE_DISCOVERY_FILE,
   GENIE_INFO_PATH,
 } from 'genie-react/protocol'
-import { BridgeRejectedError, bridgeRejectionHint, GenieAgentLink } from './agent-link'
+import {
+  BridgeCallError,
+  BridgeRejectedError,
+  bridgeRejectionHint,
+  GenieAgentLink,
+} from './agent-link'
 import {
   CANONICAL_SKILL_DIRECTORY,
   CLAUDE_SKILL_DIRECTORY,
@@ -23,6 +28,8 @@ import {
   skillVersion,
 } from './agent-skill'
 import {
+  ancestorDirectories,
+  BridgeConfigError,
   type BridgeDiscovery,
   isPidAlive,
   isTokenTransportSafe,
@@ -241,7 +248,7 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
     if (!vitePath) {
       // Universal (hub + script tag) hosts have no Vite config to check; the hub's discovery file is the wiring proof.
       if (framework === 'unknown') {
-        const discovered = readBridgeDiscovery(cwd) !== null
+        const discovered = findBridgeDiscovery(cwd) !== null
         checks.push({
           label: `universal setup: hub discovery file (${GENIE_DISCOVERY_FILE})`,
           ok: discovered,
@@ -294,11 +301,12 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
     })
   }
 
-  let bridge = readBridgeDiscovery(cwd)
+  const located = findBridgeDiscovery(cwd)
+  let bridge = located?.discovery ?? null
   let staleBridgePid: number | null = null
-  if (bridge?.pid !== undefined && !isPidAlive(bridge.pid)) {
+  if (located && bridge?.pid !== undefined && !isPidAlive(bridge.pid)) {
     staleBridgePid = bridge.pid
-    rmSync(join(cwd, GENIE_DISCOVERY_FILE), { force: true })
+    rmSync(located.path, { force: true })
     bridge = null
   }
 
@@ -360,6 +368,8 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
 export interface LiveDoctorOptions extends DoctorOptions {
   /** Per-probe timeout; the WS round-trip gets twice this. */
   timeoutMs?: number
+  /** App session the round-trip probe targets; defaults to the bridge's current session. */
+  session?: string
 }
 
 /** `doctor --live`: the static checks plus a probe of the RUNNING stack — hub HTTP + identity, served client bundle, and a session round-trip over the bridge. */
@@ -372,11 +382,16 @@ export async function runLiveDoctor(options: LiveDoctorOptions = {}): Promise<Do
   let sessionHealth: SessionProbe | null = null
   let sourceMapHealth: SourceMapHealth | null = null
 
-  const { url, token, source } = await resolveBridge(cwd)
-  const origin = httpOriginOf(url)
-  if (!origin) {
+  const resolved = await resolveBridge(cwd).catch((error: unknown) => {
+    if (!(error instanceof BridgeConfigError)) throw error
+    checks.push({ label: 'bridge selection', ok: false, critical: true, detail: error.message })
+    return null
+  })
+  const { url, token, source } = resolved ?? { url: '', token: undefined, source: 'fallback' }
+  const origin = resolved && httpOriginOf(url)
+  if (resolved && !origin) {
     checks.push({ label: 'bridge url is well-formed', ok: false, critical: true, detail: url })
-  } else {
+  } else if (origin) {
     const hub = await probeHub(origin, timeoutMs)
     if (hub.kind === 'unreachable') {
       checks.push({
@@ -421,7 +436,10 @@ export async function runLiveDoctor(options: LiveDoctorOptions = {}): Promise<Do
         })
       }
       const sendableToken = token !== undefined && isTokenTransportSafe(url) ? token : undefined
-      const probe = await probeSession(url, sendableToken, timeoutMs)
+      const probe = await probeSession(url, sendableToken, timeoutMs, {
+        source,
+        session: options.session,
+      })
       const session = 'error' in probe ? null : probe
       sessionHealth = session
       checks.push({
@@ -549,12 +567,14 @@ async function probeSession(
   url: string,
   token: string | undefined,
   timeoutMs: number,
+  { source, session }: { source: string; session?: string },
 ): Promise<SessionProbe | { error: string }> {
   const link = new GenieAgentLink({
     url,
     token,
     connectTimeoutMs: timeoutMs,
     invokeTimeoutMs: timeoutMs * 2,
+    sessionId: session,
   })
   link.start()
   try {
@@ -584,8 +604,10 @@ async function probeSession(
     return {
       error:
         error instanceof BridgeRejectedError
-          ? bridgeRejectionHint(error)
-          : 'WebSocket round-trip failed',
+          ? bridgeRejectionHint(error, { url, source, authenticated: token !== undefined })
+          : error instanceof BridgeCallError && error.errorCode === 'unknown-session'
+            ? 'The --session target is not connected; list sessions with status --sessions-only'
+            : 'WebSocket round-trip failed',
     }
   } finally {
     link.close()
@@ -1108,10 +1130,15 @@ function isCommonJs(code: string): boolean {
   return /\bmodule\.exports\b|\brequire\s*\(/.test(code)
 }
 
-function readBridgeDiscovery(cwd: string): BridgeDiscovery | null {
-  const path = join(cwd, GENIE_DISCOVERY_FILE)
-  if (!existsSync(path)) return null
-  return parseBridgeDiscovery(readFileSafe(path))
+/** Nearest readable discovery file from `cwd` upward, matching how the agent commands find the bridge. */
+function findBridgeDiscovery(cwd: string): { path: string; discovery: BridgeDiscovery } | null {
+  for (const directory of ancestorDirectories(cwd)) {
+    const path = join(directory, GENIE_DISCOVERY_FILE)
+    if (!existsSync(path)) continue
+    const discovery = parseBridgeDiscovery(readFileSafe(path))
+    if (discovery) return { path, discovery }
+  }
+  return null
 }
 
 function findPackageDir(cwd: string, name: string): string | null {
@@ -1190,7 +1217,8 @@ function skillCheck(label: string, location: SkillLocation, cwd: string): Doctor
   return {
     label,
     ok: location.current,
-    critical: true,
+    // A missing skill only means agents lack the bundled guidance; drifted or blocked guidance would actively mislead them.
+    critical: location.hash !== null || location.conflictPath !== null,
     detail: location.current
       ? `${path}${via} · sha256 ${location.hash?.slice(0, 12)}`
       : location.conflictPath
