@@ -18,7 +18,7 @@ import {
   setExternalStoreObservation,
 } from '../causal/external-store-registry'
 import { clonePlainData, safeStructuredClone } from '../structured-clone'
-import { didFiberCommit, getTimings } from './bippy-compat'
+import { getTimings } from './bippy-compat'
 import { type CommitWorkBudget, commitWorkExhaustions, consumeCommitWork } from './commit-budget'
 import { recordResultingEffectCommit } from './effect-events'
 import {
@@ -88,7 +88,12 @@ import type {
   RetainedRenderCauseEvent,
 } from './render-model'
 import { draftRenderRecord } from './render-model'
-import { assessRender, type CurrentCommitEvidence, type RenderAssessment } from './render-outcomes'
+import {
+  assessRender,
+  type CurrentCommitEvidence,
+  hasOwnHostMutation,
+  type RenderAssessment,
+} from './render-outcomes'
 import {
   buildCurrentAggregateMeasurement,
   buildRenderCauseEventsReport,
@@ -350,10 +355,10 @@ export function startRenderTracking(): boolean {
               return
             }
             budget.currentCommitEvidence.renderedFibers.add(fiber)
-            if (isHostFiber(fiber)) {
+            if (isHostFiber(fiber) || isHostTextFiber(fiber)) {
               try {
                 // The traversal proves this host rendered now; its mutation flag is not used alone.
-                if (didFiberCommit(fiber)) {
+                if (hasOwnHostMutation(fiber)) {
                   budget.currentCommitEvidence.hostMutationFibers.add(fiber)
                 }
               } catch {

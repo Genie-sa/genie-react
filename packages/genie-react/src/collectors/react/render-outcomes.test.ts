@@ -16,8 +16,8 @@ const asFiber = (value: Record<string, unknown>): Fiber =>
     ...value,
   }) as unknown as Fiber
 
-const commitEvidence = (hostMutationFibers: Fiber[] = []) => ({
-  renderedFibers: new Set<Fiber>(),
+const commitEvidence = (hostMutationFibers: Fiber[] = [], renderedFibers: Fiber[] = []) => ({
+  renderedFibers: new Set(renderedFibers),
   hostMutationFibers: new Set(hostMutationFibers),
   hostMutationCaptureComplete: true,
 })
@@ -36,9 +36,19 @@ describe('render outcome evidence', () => {
         component,
         500,
         undefined,
-        commitEvidence([siblingHost, descendantHost]),
+        commitEvidence([siblingHost, descendantHost], [child]),
       ),
     ).toMatchObject({ count: 2, complete: true })
+  })
+
+  it('ignores host work under a child React skipped this commit', () => {
+    const staleHost = asFiber({ tag: 5, flags: 0b100 })
+    const skippedChild = asFiber({ child: staleHost })
+    const component = asFiber({ child: skippedChild })
+
+    expect(
+      scanSubtreeHostMutations(component, 500, undefined, commitEvidence([staleHost])),
+    ).toMatchObject({ count: 0, complete: true })
   })
 
   it('marks a bounded host scan incomplete instead of claiming no behavior', () => {
@@ -72,7 +82,7 @@ describe('render outcome evidence', () => {
     const component = asFiber({ child: text, alternate: asFiber({}) })
 
     expect(
-      assessRender(component, 'update', [], 0, true, undefined, true, commitEvidence()),
+      assessRender(component, 'update', [], 0, true, undefined, true, commitEvidence([text])),
     ).toMatchObject({
       behaviorEvidence: {
         subtreeHostMutations: { status: 'observed', count: 1 },

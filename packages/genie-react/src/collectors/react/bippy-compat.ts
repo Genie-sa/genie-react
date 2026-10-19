@@ -1,5 +1,5 @@
-// Helpers bippy removed, vendored (MIT, Aiden Bai) with identical semantics: didFiberCommit from 0.7.2, the rest from 0.6.1. Delete each one bippy restores.
-import { type Fiber, isHostFiber, MutationMask, ReactFiberFlags } from 'bippy'
+// Helpers bippy removed, vendored (MIT, Aiden Bai) with identical semantics from 0.6.1. Delete each one bippy restores.
+import { type Fiber, isHostFiber } from 'bippy'
 
 /** A hook effect entry on a fiber's `updateQueue`. */
 export interface Effect {
@@ -13,12 +13,6 @@ export interface Effect {
 
 export const toUnsubscribe = <T extends () => void>(dispose: T): T & Disposable =>
   Object.assign(dispose, { [Symbol.dispose]: dispose })
-
-const COMMIT_FLAGS = MutationMask | ReactFiberFlags.Cloned
-
-/** Whether the fiber or its subtree carries commit work; true for any past commit, not only the current one. */
-export const didFiberCommit = (fiber: Fiber): boolean =>
-  (fiber.flags & COMMIT_FLAGS) !== 0 || (fiber.subtreeFlags & COMMIT_FLAGS) !== 0
 
 /** Every host fiber the given fiber renders, descending only until each host boundary. */
 export const getNearestHostFibers = (fiber: Fiber): Fiber[] => {
