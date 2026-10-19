@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import 'bippy/install-hook-only'
-import { fireEvent, type RenderResult, render } from '@testing-library/react'
+import { act, fireEvent, type RenderResult, render } from '@testing-library/react'
 import { type Fiber, getFiberFromHostInstance, getLatestFiber } from 'bippy'
 import {
   Component,
@@ -9,6 +9,7 @@ import {
   memo,
   type ReactNode,
   StrictMode,
+  Suspense,
   useState,
 } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -180,6 +181,54 @@ describe('render tracking against a live React tree', () => {
 
     expect(view.container.textContent).toBe('failed')
     expect(await renderCounts()).toEqual({ Boundary: [1], Fallback: [1] })
+  })
+
+  it('reports a child revealed again by its Suspense boundary as an update, not a mount', async () => {
+    let pending: Promise<void> | null = null
+    let release = () => {}
+    function MaybeSuspend({ suspend }: { suspend: boolean }): ReactNode {
+      if (suspend) {
+        pending ??= new Promise<void>((resolve) => {
+          release = () => {
+            pending = null
+            resolve()
+          }
+        })
+        if (pending) throw pending
+      }
+      return null
+    }
+    function Counter(): ReactNode {
+      return createElement('span', null, 'ready')
+    }
+    let setSuspended: (value: boolean) => void = () => {}
+    function Shell(): ReactNode {
+      const [suspend, set] = useState(false)
+      setSuspended = set
+      return createElement(
+        Suspense,
+        { fallback: createElement('em', null, 'loading') },
+        createElement(Counter),
+        createElement(MaybeSuspend, { suspend }),
+      )
+    }
+    view = render(createElement(Shell))
+    observe()
+
+    act(() => setSuspended(true))
+    expect(view.container.textContent).toContain('loading')
+    await act(async () => {
+      const suspended = pending
+      release()
+      setSuspended(false)
+      await suspended
+    })
+
+    expect(view.container.textContent).toBe('ready')
+    const counter = (await getRenders({ sort: 'renders', limit: 100 })).find(
+      (report) => report.name === 'Counter',
+    )
+    expect(counter?.mounts ?? 0).toBe(0)
   })
 
   it('keeps the mounted identity when an unmount is recorded after the commit', async () => {

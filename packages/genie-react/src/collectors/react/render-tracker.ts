@@ -329,7 +329,9 @@ export function startRenderTracking(): boolean {
         const candidates: { fiber: Fiber; phase: RenderPhase }[] = []
         const targetedCandidates: { fiber: Fiber; phase: RenderPhase }[] = []
         try {
-          traverseRenderedFibers(root, (fiber, phase) => {
+          traverseRenderedFibers(root, (fiber, reportedPhase) => {
+            // Bippy reports a Suspense re-reveal as a mount; a fiber with an alternate has committed before.
+            const phase = reportedPhase === 'mount' && fiber.alternate ? 'update' : reportedPhase
             const targeted = isObservationTarget(fiber)
             const traversalWork = targeted ? budget.targetWork : budget.work
             if (
