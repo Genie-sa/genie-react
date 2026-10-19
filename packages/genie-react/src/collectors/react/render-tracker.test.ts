@@ -7,6 +7,7 @@ import {
   registerRouterStore,
 } from '../causal/external-store-registry'
 import { wasInstanceObserved, wasInstanceRenderUnanalyzed } from './instance-identity'
+import { createRenderEvidenceBudget, inputCoverage } from './render-budget'
 import {
   childrenChanged,
   clearRenders,
@@ -257,10 +258,15 @@ describe('diffStateChanges safety bounds', () => {
     expect(change?.before).not.toBe(before)
     expect(change?.after).not.toBe(after)
     expect(change?.before).toEqual({
-      __genie_dehydrated__: true,
-      kind: 'object',
-      preview: '[object fields not inspected]',
-      path: [],
+      nested: {
+        value: {
+          __genie_dehydrated__: true,
+          kind: 'object',
+          preview: '[object fields not inspected]',
+          path: ['nested', 'value'],
+        },
+      },
+      self: { __genie_dehydrated__: true, kind: 'circular', preview: '[Circular]', path: ['self'] },
     })
   })
 })
@@ -632,6 +638,81 @@ describe('causal render attribution', () => {
     expect(diffContextChanges(fiber)).toEqual([])
   })
 
+  const contextConsumer = (
+    name: string,
+    context: object,
+    current: unknown[],
+    previous: unknown[],
+  ): Fiber => {
+    const dependencies = (values: unknown[]) => ({
+      firstContext: values.reduceRight<unknown>(
+        (next, memoizedValue) => ({ context, memoizedValue, next }),
+        null,
+      ),
+    })
+    const fiber = causalFiber(name, [], [], { dependencies: dependencies(current) })
+    Object.assign(fiber.alternate as object, { dependencies: dependencies(previous) })
+    return fiber
+  }
+
+  it('compares plain-object Context values field by field', () => {
+    const context = { displayName: 'Theme' }
+    const [cause] = diffContextChanges(
+      contextConsumer('Header', context, [{ mode: 'dark', size: 2 }], [{ mode: 'light', size: 2 }]),
+    )
+    expect(cause).toMatchObject({
+      before: { mode: 'light', size: 2 },
+      after: { mode: 'dark', size: 2 },
+      deepDiff: {
+        changes: [{ kind: 'value', path: '/mode', before: 'light', after: 'dark' }],
+        truncated: false,
+      },
+    })
+  })
+
+  it('never calls an uncompared Context value reference-only and discloses the gap', () => {
+    class Theme {
+      constructor(readonly mode: string) {}
+    }
+    const evidence = createRenderEvidenceBudget()
+    const [cause] = diffContextChanges(
+      contextConsumer('Header', {}, [new Theme('dark')], [new Theme('dark')]),
+      evidence,
+    )
+    expect(cause).toMatchObject({
+      deepDiff: { changes: [{ kind: 'identity-changed-uninspected', path: '' }], truncated: true },
+    })
+    expect(inputCoverage(evidence).complete).toBe(false)
+  })
+
+  it('reports one cause when a Context dependency is recorded twice', () => {
+    const context = { displayName: 'Theme' }
+    const causes = diffContextChanges(
+      contextConsumer('Header', context, ['dark', 'dark'], ['light', 'light']),
+    )
+    expect(causes).toHaveLength(1)
+    expect(causes[0]).toMatchObject({ contextIndex: 0, name: 'Theme' })
+  })
+
+  it('counts a Context value with a new identity and equal contents as avoidable', async () => {
+    const context = { displayName: 'Theme' }
+    render(contextConsumer('SameTheme', context, [{ mode: 'dark' }], [{ mode: 'dark' }]), 'update')
+    render(contextConsumer('NewTheme', context, [{ mode: 'dark' }], [{ mode: 'light' }]), 'update')
+
+    const reports = new Map(
+      (await getRenders({ sort: 'unnecessary', limit: 10 })).map((report) => [report.name, report]),
+    )
+    expect(reports.get('SameTheme')).toMatchObject({
+      necessity: 'unnecessary',
+      noObservedInputChange: 1,
+      causes: [{ kind: 'context', deepDiff: { changes: [{ kind: 'reference-only', path: '' }] } }],
+    })
+    expect(reports.get('NewTheme')).toMatchObject({
+      necessity: 'necessary',
+      noObservedInputChange: 0,
+    })
+  })
+
   it('distinguishes nearest-parent propagation from an explicit unknown cause', async () => {
     const parentProps = {}
     const parent = componentFiber({ name: 'Parent', props: parentProps, prevProps: parentProps })
@@ -918,7 +999,7 @@ describe('recordRender unnecessary accounting', () => {
     ])
   })
 
-  it('reports changed class state without claiming unsafe deep paths', async () => {
+  it('reports changed class state fields by path', async () => {
     const type = function Counter(): null {
       return null
     }
@@ -941,22 +1022,12 @@ describe('recordRender unnecessary accounting', () => {
         name: 'class state',
         kind: 'state',
         unstable: false,
-        before: {
-          __genie_dehydrated__: true,
-          kind: 'object',
-          preview: '[object fields not inspected]',
-          path: [],
-        },
-        after: {
-          __genie_dehydrated__: true,
-          kind: 'object',
-          preview: '[object fields not inspected]',
-          path: [],
-        },
+        before: { count: 1 },
+        after: { count: 2 },
         deepDiff: {
-          changes: [{ kind: 'reference-only', path: '' }],
-          visited: 1,
-          truncated: true,
+          changes: [{ kind: 'value', path: '/count', before: 1, after: 2 }],
+          visited: 2,
+          truncated: false,
         },
       },
     ])

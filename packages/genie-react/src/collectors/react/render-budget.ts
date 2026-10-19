@@ -6,6 +6,8 @@ import {
   deepDiff,
 } from './deep-diff'
 
+/** State and context are usually small plain objects; two levels cover `{ user: { name } }` without deep reflection. */
+export const STATE_PLAIN_OBJECT_DEPTH = 2
 const INPUT_EVIDENCE_LIMIT = 50
 const DEEP_DIFF_VISIT_LIMIT = 500
 const DEEP_DIFF_CHANGE_LIMIT = 50
@@ -89,6 +91,19 @@ export function diffWithBudget(
   plainObjectDepth = 0,
 ): DeepDiffResult {
   return deepDiff(before, after, { budget: budget.deepDiff, plainObjectDepth })
+}
+
+/** Diff state or context; uncompared contents make the fiber's input coverage incomplete. */
+export function diffStateWithBudget(
+  before: unknown,
+  after: unknown,
+  budget: RenderEvidenceBudget,
+): DeepDiffResult {
+  const result = diffWithBudget(before, after, budget, STATE_PLAIN_OBJECT_DEPTH)
+  if (result.changes.some((change) => change.kind === 'identity-changed-uninspected')) {
+    truncateInputScan(budget)
+  }
+  return result
 }
 
 export function inputCoverage(budget: RenderEvidenceBudget): RenderInputCoverage {

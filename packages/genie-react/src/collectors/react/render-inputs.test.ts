@@ -114,23 +114,20 @@ describe('diffProps', () => {
       {
         name: 'icon',
         referenceOnly: false,
-        deepDiff: { changes: [{ kind: 'reference-only', path: '' }], truncated: true },
+        deepDiff: {
+          changes: [{ kind: 'identity-changed-uninspected', path: '' }],
+          truncated: true,
+        },
       },
     ])
   })
 
-  it('previews walked plain-object props by their key names', () => {
+  it('previews walked plain-object props by their field values', () => {
     const [change] = diffProps(
       propsFiber({ badge: { label: 'a', tone: 1 } }, { badge: { label: 'b', tone: 1 } }),
     )
 
-    expect(change?.after).toEqual({
-      __genie_dehydrated__: true,
-      kind: 'object',
-      preview: '{label, tone}',
-      path: [],
-      size: 2,
-    })
+    expect(change?.after).toEqual({ label: 'b', tone: 1 })
   })
 
   it('keeps nested objects opaque below the first prop level', () => {
@@ -140,7 +137,10 @@ describe('diffProps', () => {
       {
         name: 'style',
         referenceOnly: false,
-        deepDiff: { changes: [{ kind: 'reference-only', path: '/inner' }], truncated: true },
+        deepDiff: {
+          changes: [{ kind: 'identity-changed-uninspected', path: '/inner' }],
+          truncated: true,
+        },
       },
     ])
   })

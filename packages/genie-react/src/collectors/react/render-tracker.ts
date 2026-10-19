@@ -1212,8 +1212,9 @@ function recordRenderAtomic(
         ? [{ kind: 'unknown', evidence: 'unknown', reason: 'causal-analysis-incomplete' }]
         : [{ kind: 'unknown', evidence: 'unknown', reason: 'no-observable-fiber-input-change' }]
   const valuePropChanged = propsCauseRender && propChanges.some(hasObservedValueChange)
+  const valueCauses = otherCauses.filter((cause) => !isIdentityOnlyCause(cause))
   const necessity: RenderNecessity =
-    otherCauses.length > 0 || valuePropChanged
+    valueCauses.length > 0 || valuePropChanged
       ? 'necessary'
       : !causalAnalysisComplete || parentCause || propChanges.length > 0
         ? 'unknown'
@@ -1250,14 +1251,8 @@ function recordRenderAtomic(
   record.necessity = necessity
   record.assessment = assessment
   record.inputCoverage = coverage
-  // A render is unnecessary only when none of props/state/children/context changed — new children or context are legitimate reasons.
-  if (
-    coverage.complete &&
-    changes.length === 0 &&
-    !childrenDidChange &&
-    contextChanges.length === 0 &&
-    externalStoreChanges.length === 0
-  ) {
+  // New children, store snapshots, or state and context with new contents are legitimate reasons to render.
+  if (coverage.complete && propChanges.length === 0 && valueCauses.length === 0) {
     record.unnecessary += 1
   }
   if (bailsOutOnProps && otherCauses.length === 0) {
@@ -1299,8 +1294,17 @@ function countPropOnlyMemoRender(
   }
 }
 
+/** State or context replaced by a new object whose contents a complete diff found equal. */
+function isIdentityOnlyCause(cause: RenderCause): boolean {
+  if (cause.kind !== 'state' && cause.kind !== 'context') return false
+  const { changes, truncated } = cause.deepDiff
+  return !truncated && changes.length > 0 && changes.every((diff) => diff.kind === 'reference-only')
+}
+
 function hasObservedValueChange(change: PropRenderChange): boolean {
-  return change.deepDiff.changes.some((diff) => diff.kind !== 'reference-only')
+  return change.deepDiff.changes.some(
+    (diff) => diff.kind !== 'reference-only' && diff.kind !== 'identity-changed-uninspected',
+  )
 }
 
 /** A reference change whose bounded diff stopped before it could rule a value change in or out. */

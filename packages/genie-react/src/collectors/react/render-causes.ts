@@ -29,9 +29,11 @@ import { type InstanceDescriptor, instanceForMountedFiber } from './instance-ide
 import { getActiveObservation, getDocumentCommitId } from './observation'
 import {
   createRenderEvidenceBudget,
+  diffStateWithBudget,
   diffWithBudget,
   type RenderEvidenceBudget,
   retainInputEvidence,
+  STATE_PLAIN_OBJECT_DEPTH,
   scanInputEvidence,
   truncateInputScan,
 } from './render-budget'
@@ -132,8 +134,9 @@ export function stateValue(
   }
   try {
     const bounded = boundedStateValue(value, 0, [], new WeakSet(), evidence, plainObjectDepth)
+    // The bounded value already caps depth; the extra levels keep its placeholders and their paths intact.
     return dehydrate(bounded, {
-      depth: STATE_VALUE_DEPTH,
+      depth: Math.max(STATE_VALUE_DEPTH, plainObjectDepth) + 2,
       maxEntries: STATE_VALUE_MAX_ENTRIES,
       maxStringLength: STATE_VALUE_MAX_STRING_LENGTH,
     })
@@ -175,7 +178,7 @@ function boundedStateValue(
   plainObjectDepth = 0,
 ): unknown {
   if (typeof value === 'function') {
-    return dehydratedValue('function', 'ƒ anonymous()', path)
+    return dehydratedValue('function', `ƒ ${functionName(value)}()`, path)
   }
   if (value === null || typeof value !== 'object') {
     if (typeof value === 'symbol') return dehydratedValue('symbol', value.toString(), path)
@@ -189,9 +192,15 @@ function boundedStateValue(
 
   if (isKnownProxy(object)) return dehydratedValue('object', '[proxy not inspected]', path)
   if (!Array.isArray(value)) {
-    return depth < plainObjectDepth && isWalkablePlainObject(object)
-      ? plainObjectKeyPreview(object, path)
-      : dehydratedValue('object', '[object fields not inspected]', path)
+    if (depth >= plainObjectDepth || !isWalkablePlainObject(object)) {
+      return dehydratedValue('object', '[object fields not inspected]', path)
+    }
+    seen.add(object)
+    try {
+      return boundedPlainObjectValue(object, depth, path, seen, evidence, plainObjectDepth)
+    } finally {
+      seen.delete(object)
+    }
   }
   const length = ownArrayLength(value)
   if (depth >= STATE_VALUE_DEPTH) {
@@ -199,26 +208,50 @@ function boundedStateValue(
   }
   seen.add(object)
   try {
-    return boundedArrayValue(value, depth, path, seen, evidence)
+    return boundedArrayValue(value, depth, path, seen, evidence, plainObjectDepth)
   } finally {
     seen.delete(object)
   }
 }
 
-function plainObjectKeyPreview(
+function boundedPlainObjectValue(
   value: object,
+  depth: number,
   path: ReadonlyArray<string | number>,
+  seen: WeakSet<object>,
+  evidence: RenderEvidenceBudget | undefined,
+  plainObjectDepth: number,
 ): Record<string, unknown> {
   const keys = plainOwnKeys(value)
   if (!keys) return dehydratedValue('object', '[object fields not inspected]', path)
-  const shown = keys.slice(0, PREVIEW_KEY_LIMIT).join(', ')
-  const hidden = keys.length - PREVIEW_KEY_LIMIT
-  return dehydratedValue(
-    'object',
-    hidden > 0 ? `{${shown}, … ${hidden} more}` : `{${shown}}`,
-    path,
-    keys.length,
-  )
+  if (keys.length > STATE_VALUE_MAX_ENTRIES) {
+    const shown = keys.slice(0, PREVIEW_KEY_LIMIT).join(', ')
+    return dehydratedValue(
+      'object',
+      `{${shown}, … ${keys.length - PREVIEW_KEY_LIMIT} more}`,
+      path,
+      keys.length,
+    )
+  }
+  const result: Record<string, unknown> = {}
+  for (const key of keys) {
+    if (evidence && !scanInputEvidence(evidence, 'dehydrate')) {
+      result[key] = dehydratedValue('truncated', '[omitted: commit budget]', [...path, key])
+      break
+    }
+    const descriptor = safeOwnPropertyDescriptor(value, key)
+    result[key] = isDataDescriptor(descriptor)
+      ? boundedStateValue(
+          descriptor.value,
+          depth + 1,
+          [...path, key],
+          seen,
+          evidence,
+          plainObjectDepth,
+        )
+      : dehydratedValue('getter-error', '[getter not invoked]', [...path, key])
+  }
+  return result
 }
 
 function boundedArrayValue(
@@ -226,7 +259,8 @@ function boundedArrayValue(
   depth: number,
   path: ReadonlyArray<string | number>,
   seen: WeakSet<object>,
-  evidence?: RenderEvidenceBudget,
+  evidence: RenderEvidenceBudget | undefined,
+  plainObjectDepth: number,
 ): unknown[] | Record<string, unknown> {
   const length = ownArrayLength(value)
   if (length === null) return dehydratedValue('array', '[unavailable]', path)
@@ -249,12 +283,20 @@ function boundedArrayValue(
         [...path, index],
         seen,
         evidence,
+        plainObjectDepth,
       )
     }
   }
   // A sparse length does not allocate elements, but lets the safe dehydrate pass retain exact size.
   result.length = length
   return result
+}
+
+function functionName(value: object): string {
+  const descriptor = safeOwnPropertyDescriptor(value, 'name')
+  return isDataDescriptor(descriptor) && typeof descriptor.value === 'string' && descriptor.value
+    ? descriptor.value.slice(0, STATE_VALUE_MAX_STRING_LENGTH)
+    : 'anonymous'
 }
 
 function dehydratedValue(
@@ -836,16 +878,19 @@ export function diffContextChanges(
   evidence = createRenderEvidenceBudget(),
 ): RenderCause[] {
   const causes: RenderCause[] = []
+  const reported = new Set<unknown>()
   let current = firstContextDependency(fiber)
   let previous = firstContextDependency(fiber.alternate)
   let index = 0
   while (current && previous && index < HOOK_WALK_LIMIT) {
     if (!scanInputEvidence(evidence, 'context')) break
-    // Positional evidence is exact only while both dependency buffers refer to the same Context.
+    // Positional evidence is exact only for the same Context; repeat reads (and StrictMode re-renders) append duplicates.
     if (
       current.context === previous.context &&
+      !reported.has(current.context) &&
       !Object.is(current.memoizedValue, previous.memoizedValue)
     ) {
+      reported.add(current.context)
       if (!retainInputEvidence(evidence)) {
         current = current.next
         previous = previous.next
@@ -868,9 +913,9 @@ export function diffContextChanges(
           typeof displayName === 'string'
             ? boundedContextName(displayName, evidence)
             : `Context[${index}]`,
-        before: stateValue(previous.memoizedValue, evidence),
-        after: stateValue(current.memoizedValue, evidence),
-        deepDiff: diffWithBudget(previous.memoizedValue, current.memoizedValue, evidence),
+        before: stateValue(previous.memoizedValue, evidence, STATE_PLAIN_OBJECT_DEPTH),
+        after: stateValue(current.memoizedValue, evidence, STATE_PLAIN_OBJECT_DEPTH),
+        deepDiff: diffStateWithBudget(previous.memoizedValue, current.memoizedValue, evidence),
       })
     }
     current = current.next

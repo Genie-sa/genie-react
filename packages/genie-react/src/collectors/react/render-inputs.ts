@@ -9,10 +9,12 @@ import {
 import { classifyHook, isStatefulHook } from './fiber'
 import {
   createRenderEvidenceBudget,
+  diffStateWithBudget,
   diffWithBudget,
   markPropsNotEnumerated,
   type RenderEvidenceBudget,
   retainInputEvidence,
+  STATE_PLAIN_OBJECT_DEPTH,
   scanInputEvidence,
   truncateInputScan,
 } from './render-budget'
@@ -191,9 +193,9 @@ export function diffStateChanges(
             name: 'class state',
             kind: 'state',
             unstable: false,
-            before: stateValue(before, evidence),
-            after: stateValue(after, evidence),
-            deepDiff: diffWithBudget(before, after, evidence),
+            before: stateValue(before, evidence, STATE_PLAIN_OBJECT_DEPTH),
+            after: stateValue(after, evidence, STATE_PLAIN_OBJECT_DEPTH),
+            deepDiff: diffStateWithBudget(before, after, evidence),
           },
         ]
   }
@@ -223,9 +225,9 @@ export function diffStateChanges(
           kind: 'state',
           unstable: false,
           hook: { index, stateIndex, kind },
-          before: stateValue(alt.memoizedState, evidence),
-          after: stateValue(cur.memoizedState, evidence),
-          deepDiff: diffWithBudget(alt.memoizedState, cur.memoizedState, evidence),
+          before: stateValue(alt.memoizedState, evidence, STATE_PLAIN_OBJECT_DEPTH),
+          after: stateValue(cur.memoizedState, evidence, STATE_PLAIN_OBJECT_DEPTH),
+          deepDiff: diffStateWithBudget(alt.memoizedState, cur.memoizedState, evidence),
         })
       }
       stateIndex += 1
