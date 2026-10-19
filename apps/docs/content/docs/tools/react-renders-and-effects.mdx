@@ -211,10 +211,11 @@ npx @genie-react/cli call react_get_renders \
 coverage explain the render; request `view:"full"` for the changed values and `deepDiff` paths.
 Compatibility counts such as `unnecessary` are not proof that a render is safe to remove.
 
-Props cause a render only for components that can skip it on equal props: `memo` components and
-classes that extend `PureComponent` or define `shouldComponentUpdate`. Any other component lists its
-own state, context, store, or `children` changes first, otherwise `parent`, and its changed props
-follow as observed inputs. With complete coverage, a render of those components whose changed props
+Props, `children` included, cause a render only for components that can skip it on equal props:
+`memo` components and classes that extend `PureComponent` or define `shouldComponentUpdate`. Any
+other component lists its own state, context, or store changes first, otherwise `parent`, and its
+changed props and `children` follow as observed inputs. State or context that received a new object
+with equal contents does not make a render `necessary` and counts toward `noObservedInputChange`. With complete coverage, a render of those components whose changed props
 were all reference-only or new functions counts toward `functionIdentityPropRenders` when any function
 changed identity, usually an inline callback, and toward `referenceOnlyPropRenders` otherwise.
 `undeterminedReferencePropRenders` counts renders whose reference changes a partial scan or a

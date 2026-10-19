@@ -1176,6 +1176,11 @@ function recordRenderAtomic(
       deepDiff: change.deepDiff,
     }),
   )
+  // Only a fiber that can bail out on equal props renders because of them, children included; any other fiber re-renders with its parent.
+  const bailsOutOnProps = canBailOutOnProps(fiber)
+  const childrenCauses: RenderCause[] = childrenDidChange
+    ? [{ kind: 'children', evidence: 'exact' }]
+    : []
   const otherCauses: RenderCause[] = [
     ...stateChanges.map(
       (change): RenderCause => ({
@@ -1188,12 +1193,10 @@ function recordRenderAtomic(
         ...('hook' in change ? { hook: change.hook } : {}),
       }),
     ),
-    ...(childrenDidChange ? ([{ kind: 'children', evidence: 'exact' }] as const) : []),
+    ...(bailsOutOnProps ? childrenCauses : []),
     ...contextChanges,
     ...externalStoreChanges,
   ]
-  // Only a fiber that can bail out on equal props renders because of them; any other fiber re-renders with its parent.
-  const bailsOutOnProps = canBailOutOnProps(fiber)
   const propsCauseRender = bailsOutOnProps && propCauses.length > 0
   const parentResult =
     otherCauses.length === 0 && !propsCauseRender
@@ -1203,7 +1206,7 @@ function recordRenderAtomic(
   const causalAnalysisComplete = coverage.complete && parentResult.complete
   const observedCauses: RenderCause[] = propsCauseRender
     ? [...propCauses, ...otherCauses]
-    : [...otherCauses, ...propCauses]
+    : [...otherCauses, ...propCauses, ...(bailsOutOnProps ? [] : childrenCauses)]
   const causes: RenderCause[] = parentCause
     ? [parentCause, ...observedCauses]
     : observedCauses.length > 0
@@ -1216,7 +1219,7 @@ function recordRenderAtomic(
   const necessity: RenderNecessity =
     valueCauses.length > 0 || valuePropChanged
       ? 'necessary'
-      : !causalAnalysisComplete || parentCause || propChanges.length > 0
+      : !causalAnalysisComplete || parentCause || propChanges.length > 0 || childrenDidChange
         ? 'unknown'
         : 'unnecessary'
   const effects: EffectScheduleObservation = effectPreparation?.observation ?? {
@@ -1252,7 +1255,12 @@ function recordRenderAtomic(
   record.assessment = assessment
   record.inputCoverage = coverage
   // New children, store snapshots, or state and context with new contents are legitimate reasons to render.
-  if (coverage.complete && propChanges.length === 0 && valueCauses.length === 0) {
+  if (
+    coverage.complete &&
+    propChanges.length === 0 &&
+    !childrenDidChange &&
+    valueCauses.length === 0
+  ) {
     record.unnecessary += 1
   }
   if (bailsOutOnProps && otherCauses.length === 0) {

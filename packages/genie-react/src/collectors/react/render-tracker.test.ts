@@ -1629,6 +1629,36 @@ describe('memo-aware prop causes', () => {
     })
   })
 
+  it('keeps the parent as the cause of a plain wrapper that received new children', async () => {
+    renderUnder(
+      componentFiber({
+        name: 'Wrapper',
+        props: { children: { type: 'span' } },
+        prevProps: { children: { type: 'span' } },
+      }),
+    )
+    renderUnder(
+      componentFiber({
+        name: 'MemoWrapper',
+        tag: MEMO,
+        props: { children: { type: 'span' } },
+        prevProps: { children: { type: 'span' } },
+      }),
+    )
+
+    const records = await byName()
+    expect(records.get('Wrapper')).toMatchObject({
+      necessity: 'unknown',
+      noObservedInputChange: 0,
+      causes: [{ kind: 'parent', parentName: 'Parent' }, { kind: 'children' }],
+    })
+    expect(records.get('MemoWrapper')).toMatchObject({
+      necessity: 'necessary',
+      causes: [{ kind: 'children' }],
+    })
+    expect(records.get('MemoWrapper')?.causes).toHaveLength(1)
+  })
+
   it('attributes a memo render to props without calling reference-only churn necessary', async () => {
     renderUnder(
       componentFiber({
