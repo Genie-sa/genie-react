@@ -1,7 +1,7 @@
 import type { Dirent } from 'node:fs'
 import { access, readdir, readFile, unlink } from 'node:fs/promises'
-import { dirname, join, parse, relative } from 'node:path'
-import { readAgentToken } from 'genie-react/hub'
+import { basename, dirname, join, relative } from 'node:path'
+import { agentTokenFile, readAgentToken, readAgentTokenFile } from 'genie-react/hub/token'
 import { GENIE_DEFAULT_HUB_PORT, GENIE_DISCOVERY_FILE, GENIE_WS_PATH } from 'genie-react/protocol'
 import { writeDiagnostic } from './cli-output'
 import { isRecord } from './guards'
@@ -19,21 +19,33 @@ export function isPidAlive(pid: number): boolean {
 export interface BridgeDiscovery {
   url: string
   pid?: number
+  /** Where the hub wrote its private agent token; absent from hubs that predate recording it. */
+  tokenFile?: string
+}
+
+/** The bridge selection itself is wrong (bad URL, ambiguous discovery, invalid port), so retrying unchanged cannot help; the message is CLI-authored. */
+export class BridgeConfigError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'BridgeConfigError'
+  }
 }
 
 /** Validate the WebSocket endpoint before it reaches ws or a paste-ready shell command. */
-export function normalizeBridgeUrl(raw: string): string {
+export function normalizeBridgeUrl(raw: string, label = 'Bridge URL'): string {
   let url: URL
   try {
     url = new URL(raw)
   } catch {
-    throw new Error('Bridge URL must be an absolute ws:// or wss:// URL.')
+    throw new BridgeConfigError(`${label} must be an absolute ws:// or wss:// URL.`)
   }
   if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
-    throw new Error('Bridge URL must use ws:// or wss://.')
+    throw new BridgeConfigError(`${label} must use ws:// or wss://.`)
   }
-  if (url.username || url.password) throw new Error('Bridge URL cannot contain credentials.')
-  if (url.search || url.hash) throw new Error('Bridge URL cannot contain a query or fragment.')
+  if (url.username || url.password)
+    throw new BridgeConfigError(`${label} cannot contain credentials.`)
+  if (url.search || url.hash)
+    throw new BridgeConfigError(`${label} cannot contain a query or fragment.`)
   return url.toString()
 }
 
@@ -55,6 +67,7 @@ export function parseBridgeDiscovery(raw: string): BridgeDiscovery | null {
   return {
     url,
     pid: typeof parsed.pid === 'number' ? parsed.pid : undefined,
+    tokenFile: typeof parsed.tokenFile === 'string' ? parsed.tokenFile : undefined,
   }
 }
 
@@ -89,13 +102,15 @@ const MAX_DISCOVERY_DEPTH = 5
 interface LocatedDiscovery {
   file: string
   url: string
+  tokenFile?: string
 }
 
 /** Priority: env → nearest discovery file → one live descendant in a workspace root → localhost fallback; a discovered URL only ever pairs with its own root's token. */
 export async function resolveBridge(cwd: string = process.cwd()): Promise<ResolvedBridge> {
   const fromEnv = process.env.GENIE_BRIDGE_URL
   if (fromEnv) {
-    return { ...(await resolveExplicitBridge(normalizeBridgeUrl(fromEnv), cwd)), source: 'env' }
+    const url = normalizeBridgeUrl(fromEnv, 'GENIE_BRIDGE_URL')
+    return { ...(await resolveExplicitBridge(url, cwd)), source: 'env' }
   }
 
   const fromFile = await readDiscoveryUpward(cwd)
@@ -110,17 +125,26 @@ export async function resolveBridge(cwd: string = process.cwd()): Promise<Resolv
     const choices = fromWorkspace
       .map(({ file, url }) => `  ${relative(cwd, file) || file} -> ${url}`)
       .join('\n')
-    throw new Error(
+    throw new BridgeConfigError(
       `Multiple live Genie bridges were found below ${cwd}:\n${choices}\nRun from the app directory, or choose one with --url <ws-url> / GENIE_BRIDGE_URL.`,
     )
   }
 
   // Vite serves the bridge from its dev server; every other app reaches the standalone hub.
-  const defaultPort = (await hasAnyFile(cwd, VITE_CONFIG_FILES))
-    ? VITE_DEV_PORT
-    : GENIE_DEFAULT_HUB_PORT
-  const port = process.env.GENIE_BRIDGE_PORT ?? defaultPort
+  const port =
+    envBridgePort() ??
+    ((await hasAnyFile(cwd, VITE_CONFIG_FILES)) ? VITE_DEV_PORT : GENIE_DEFAULT_HUB_PORT)
   return { url: normalizeBridgeUrl(`ws://127.0.0.1:${port}${GENIE_WS_PATH}`), source: 'fallback' }
+}
+
+function envBridgePort(): number | undefined {
+  const raw = process.env.GENIE_BRIDGE_PORT
+  if (raw === undefined || raw === '') return undefined
+  const port = Number(raw)
+  if (!/^\d+$/.test(raw) || port < 1 || port > 65_535) {
+    throw new BridgeConfigError('GENIE_BRIDGE_PORT must be an integer from 1 to 65535.')
+  }
+  return port
 }
 
 export async function resolveBridgeUrl(cwd: string = process.cwd()): Promise<string> {
@@ -156,8 +180,23 @@ export function isTokenTransportSafe(url: string): boolean {
 }
 
 // `.genie/bridge.json` sits in the app root, whose realpath keys the private token file.
-function tokenFor(discovery: LocatedDiscovery): Promise<string | undefined> {
-  return readAgentToken(dirname(dirname(discovery.file)))
+async function tokenFor(discovery: LocatedDiscovery): Promise<string | undefined> {
+  const root = dirname(dirname(discovery.file))
+  const recorded =
+    discovery.tokenFile !== undefined && (await isTokenFileFor(discovery.tokenFile, root))
+      ? await readAgentTokenFile(discovery.tokenFile)
+      : undefined
+  return recorded ?? readAgentToken(root)
+}
+
+/** The hub may run with another TMPDIR, so its recorded path is honored, but only when it names this root's token in a per-user Genie directory; anything else could pair this root with another hub's token. */
+async function isTokenFileFor(tokenFile: string, root: string): Promise<boolean> {
+  const expected = await agentTokenFile(root).catch(() => null)
+  return (
+    expected !== null &&
+    basename(tokenFile) === basename(expected) &&
+    basename(dirname(tokenFile)) === basename(dirname(expected))
+  )
 }
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
@@ -177,18 +216,29 @@ function sameEndpoint(a: string, b: string): boolean {
   )
 }
 
+/** `startDir` and each parent up to the filesystem root, nearest first. */
+export function ancestorDirectories(startDir: string): string[] {
+  const directories = [startDir]
+  for (
+    let dir = startDir, parent = dirname(dir);
+    parent !== dir;
+    dir = parent, parent = dirname(dir)
+  ) {
+    directories.push(parent)
+  }
+  return directories
+}
+
 // Walks up to the filesystem root, so `genie-react call` works from nested dirs and monorepo roots.
 async function readDiscoveryUpward(startDir: string): Promise<LocatedDiscovery | null> {
-  const { root } = parse(startDir)
-  let dir = startDir
-  for (;;) {
+  for (const dir of ancestorDirectories(startDir)) {
     const path = join(dir, GENIE_DISCOVERY_FILE)
     try {
       const raw = await readFile(path, 'utf8')
       const discovery = parseBridgeDiscovery(raw)
       if (discovery?.url) {
         if (discovery.pid === undefined || isPidAlive(discovery.pid)) {
-          return { file: path, url: discovery.url }
+          return { file: path, url: discovery.url, tokenFile: discovery.tokenFile }
         }
         // A SIGKILLed dev server/hub never cleans up; a dead pid means the URL is a lie — heal instead of failing weird.
         await unlink(path).catch(() => {})
@@ -201,9 +251,8 @@ async function readDiscoveryUpward(startDir: string): Promise<LocatedDiscovery |
     } catch {
       // not in this dir — keep walking up
     }
-    if (dir === root) return null
-    dir = dirname(dir)
   }
+  return null
 }
 
 // Search downward only from a monorepo root; a nested directory could select a sibling app, while home or `/` would be costly.
@@ -223,8 +272,8 @@ async function readWorkspaceDiscoveries(cwd: string): Promise<LocatedDiscovery[]
       if (!entry.isDirectory() || entry.isSymbolicLink()) continue
       if (entry.name === '.genie') {
         const file = join(dir, entry.name, 'bridge.json')
-        const discovery = await readLiveDiscovery(file)
-        if (discovery) found.push({ file, url: discovery.url })
+        const discovery = await readLiveDiscovery(file, cwd)
+        if (discovery) found.push({ file, url: discovery.url, tokenFile: discovery.tokenFile })
         continue
       }
       if (IGNORED_DISCOVERY_DIRS.has(entry.name)) continue
@@ -250,7 +299,7 @@ async function hasAnyFile(cwd: string, names: readonly string[]): Promise<boolea
   return false
 }
 
-async function readLiveDiscovery(file: string): Promise<BridgeDiscovery | null> {
+async function readLiveDiscovery(file: string, cwd: string): Promise<BridgeDiscovery | null> {
   let discovery: BridgeDiscovery | null = null
   try {
     discovery = parseBridgeDiscovery(await readFile(file, 'utf8'))
@@ -263,7 +312,7 @@ async function readLiveDiscovery(file: string): Promise<BridgeDiscovery | null> 
   writeDiagnostic(
     'stale_discovery',
     'Removed a stale bridge discovery file because its process no longer exists.',
-    { file: relative(process.cwd(), file) || file, pid: discovery.pid },
+    { file: relative(cwd, file) || file, pid: discovery.pid },
   )
   return null
 }

@@ -1,7 +1,8 @@
-import { CAPTURE_DOMAINS } from 'genie-react/protocol'
+import { CAPTURE_DOMAINS } from './capture-domains'
 import { DEFAULT_MAX_BYTES } from './cli-output'
 import { genieCommand } from './package-manager'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
+import { editDistance } from './tool-output'
 
 export const CLI_OPTIONS = {
   help: { type: 'boolean', short: 'h' },
@@ -153,8 +154,11 @@ export const COMMANDS: Record<string, Command> = {
   doctor: {
     description: 'Check local setup and optionally the running stack',
     arguments: [],
-    options: ['live', ...SELECTION],
+    options: ['live', 'session', ...SELECTION],
     examples: [['doctor'], ['doctor', '--live']],
+    notes: [
+      'Searches for .genie/bridge.json from the current directory upward. --session (with --live) probes that app session. A missing agent skill is a warning, not a failure.',
+    ],
   },
   hub: {
     description: 'Run the standalone hub until SIGINT or SIGTERM',
@@ -195,6 +199,7 @@ export const COMMANDS: Record<string, Command> = {
     ],
     notes: [
       'Exact tools expose the input schema and an outline of top-level output fields; --output-schema adds the complete output schema. --all returns every contract.',
+      'Fails as not_connected when no app is connected. With no app session at all it gives up after 3000 ms; pass --wait to give a loading app longer.',
     ],
   },
   status: {
@@ -221,13 +226,15 @@ export const COMMANDS: Record<string, Command> = {
       {
         name: 'calls',
         required: false,
-        description: 'JSON array of {tool,args?}; omission reads the array from stdin',
+        description:
+          'JSON array of {tool,args?}, or - to read it from stdin; when omitted, piped stdin is read only if data arrives within 300 ms',
       },
     ],
     options: [...CONNECTION, ...SELECTION, 'wait', 'timeout', 'ndjson'],
     examples: [['batch', '[{"tool":"react_get_renders"}]']],
     notes: [
       'Default and --ndjson emit JSONL. --json emits one array. Item keys other than tool and args are rejected. Exit 0 requires every call to succeed. --max-bytes bounds the whole batch.',
+      'Waits for a ready app only when an item needs one; hub tools such as devtools_status run without an app.',
     ],
   },
   capture: {
@@ -273,6 +280,8 @@ export function cliHelp(name?: string): unknown {
           })),
           environment: {
             GENIE_BRIDGE_URL: 'Bridge URL override',
+            GENIE_BRIDGE_PORT:
+              'Port for the default local bridge when no discovery file is found; an integer from 1 to 65535',
             GENIE_BRIDGE_TOKEN:
               'Agent token for --url or GENIE_BRIDGE_URL; wins over the token of a discovered hub at that URL and is ignored for discovered URLs',
             GENIE_SESSION: 'Default app session target',
@@ -308,4 +317,43 @@ export function cliHelp(name?: string): unknown {
       command?.examples ?? [['tools'], ['status'], ['call', 'react_get_renders', '{}']]
     ).map((argv) => ({ argv: genieCommand(argv).argv })),
   }
+}
+
+const SHORT_OPTIONS: Record<string, OptionName> = Object.fromEntries(
+  Object.entries(CLI_OPTIONS).flatMap(([name, option]) =>
+    'short' in option ? [[option.short, name as OptionName]] : [],
+  ),
+)
+
+/** Names a misused known option; an unknown one is never echoed, so the message suggests the closest valid option instead. */
+export function parseArgsFailureMessage(error: Error, command: string | undefined): string {
+  const code = 'code' in error ? error.code : undefined
+  const raw = /'(-[^' ]+)/.exec(error.message)?.[1]
+  const name = raw?.startsWith('--') ? raw.slice(2) : raw && SHORT_OPTIONS[raw.slice(1)]
+  const known = name !== undefined && Object.hasOwn(CLI_OPTIONS, name) ? (name as OptionName) : null
+  const accepted = [...(COMMAND_OPTIONS[command ?? ''] ?? GLOBAL_OPTIONS)].map(
+    (option) => `--${option}`,
+  )
+  const help = `Run ${genieCommand([...(command ? [command] : []), '--help']).command} for its options.`
+  if (code === 'ERR_PARSE_ARGS_INVALID_OPTION_VALUE' && known) {
+    return CLI_OPTIONS[known].type === 'string'
+      ? `Option --${known} requires a value. ${help}`
+      : `Option --${known} does not take a value. ${help}`
+  }
+  if (code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION') {
+    const suggestion =
+      raw === undefined ? undefined : closestOption(raw.replace(/^-+/, ''), accepted)
+    return `Unknown option${suggestion ? `; did you mean ${suggestion}?` : '.'} ${command ?? 'genie-react'} accepts ${accepted.join(', ')}.`
+  }
+  return `Invalid command-line arguments. ${help}`
+}
+
+function closestOption(typed: string, accepted: readonly string[]): string | undefined {
+  let best: { option: string; distance: number } | undefined
+  for (const option of accepted) {
+    const distance = editDistance(typed, option.slice(2))
+    if (distance <= 2 && (best === undefined || distance < best.distance))
+      best = { option, distance }
+  }
+  return best?.option
 }

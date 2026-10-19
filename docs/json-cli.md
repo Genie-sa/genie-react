@@ -11,25 +11,26 @@ Genie commands return JSON by default in terminals, pipes and CI. This is an int
 | `--version` | Versioned JSON object with `version` |
 | `batch`, `batch --ndjson` | One JSON object per result line; an empty batch emits zero bytes |
 | `batch --json` | One JSON array |
-| `call --fields` | Projected JSONL rows; an empty collection emits zero bytes |
+| `call --fields` | Projected JSONL rows; an empty collection emits zero bytes and a `fields_unverified` diagnostic, because unknown fields cannot be checked against zero rows |
 | `hub` | JSONL lifecycle records: `ready`, `reused`, `stopped`; structured failures |
 | Diagnostics | JSONL on stderr; no ANSI or prose preambles |
 
 Exit codes remain 0 for command success and 1 for failure. A failed batch item does not stop subsequent calls. A tool can report an unsuccessful domain outcome without a transport failure; retain `--fail-on-result-error` for wait/quiesce commands when that outcome should set exit 1. Graceful hub shutdown exits 0 and only stops the hub owned by this process.
 
-CLI-created failures have `schemaVersion`, `status`, `reason`, `message` and `userActionRequired`. Where recovery is known, `next.argv` provides argument boundaries and `next.command` provides a safely constructed command. A bridge failure also carries the wire `errorCode` (`invalid-args`, `tool-error`, …), and `retryInMs`/`busyTelemetry` when the app is busy. Batch failure rows use the same fields beside `tool`, `ok` and `status`.
+CLI-created failures have `schemaVersion`, `status`, `reason`, `message`, `userActionRequired` and `errorCode`. Where recovery is known, `next.argv` provides argument boundaries and `next.command` provides a safely constructed command; retry commands keep the caller's `--session`. A bridge failure carries the wire `errorCode` (`invalid-args`, `tool-error`, …), and `retryInMs`/`busyTelemetry` when the app is busy. A failure the CLI detects itself carries the kebab-case of its reason (`invalid-input`, `unknown-tool`, `bridge-unreachable`, …). Batch failure rows use the same fields beside `tool`, `ok` and `status`.
 
 Reasons are snake_case and stable:
 
 | `reason` | Meaning | `details` |
 | --- | --- | --- |
-| `invalid_input` | The CLI rejected its own input, such as JSON, `--fields` or `--select` | `fields: {unknown, available}`, `selection: {expression?, available}` |
+| `invalid_input` | The CLI rejected its own input, such as JSON, `--fields`, `--select`, `--url`, `GENIE_BRIDGE_URL`, `GENIE_BRIDGE_PORT`, or several live bridges below a workspace root | `fields: {unknown, available}`, `selection: {expression?, available}` |
 | `invalid_args` | The tool rejected its arguments | `issues: [{path, message, expected?, allowed?, received?}]`, `requiredKeys`, `unknownKeys`, `validKeys`, `hubCode`; `correctedExample` shows the argument shape |
 | `unknown_tool` | The selected app advertises no such tool | `suggestions`, names from the app's catalog |
 | `tool_unavailable` | The tool is advertised with `available:false` | `availability: {reason}` |
-| `tool_error` | The tool ran and failed | `app: {code?, message, hint?}` from a `GenieToolError`, or `hubCode` for a hub tool |
+| `tool_error` | The tool ran and failed | `app: {code?, message, hint?}` from a `GenieToolError` or the error text the tool reported, or `hubCode` for a hub tool |
 | `unknown_session` | `--session` or `GENIE_SESSION` names no connected session | `session: {requested?, connected: [...]}` |
 | `not_connected` | No app is connected | |
+| `bridge_unreachable` | No bridge answered at the selected URL, or its connection closed before a call answered | `bridge: {url, source?}`; `source: "fallback"` means the URL was only the default guess |
 | `busy`, `timeout` | The app could not answer in time | |
 | `operational_failure` | Connectivity or local failure | |
 
@@ -39,7 +40,9 @@ Reasons are snake_case and stable:
 
 `hubCode` (`CAPTURE_NOT_RETAINED`, `INTERACTION_ACTIVE`, `INTERACTION_LIMIT`, `INTERACTION_SESSION_MISMATCH`, `INTERACTION_UNKNOWN`, `REACT_COLLECTOR_MISSING`) adds fixed recovery guidance and sets `userActionRequired: true`, because each one needs the caller to act: list or choose another capture, stop an interaction, target its session, begin a new one, or register the React collector. The hub strips `hubCode` from app responses, and the CLI honours it only for tools the hub answers itself (`devtools_status`, `devtools_wait`, `react_quiesce`, `devtools_capture_*`, `devtools_interaction_*`), so an app cannot forge one.
 
-Diagnostics and other CLI records use snake_case reasons too: `bridge_connect`, `bridge_event`, `bridge_fallback`, `stale_discovery`, `output_failure` and `max_bytes`.
+Diagnostics and other CLI records use snake_case reasons too: `bridge_connect`, `bridge_event`, `bridge_fallback`, `stale_discovery`, `fields_unverified`, `output_failure` and `max_bytes`.
+
+A wildcard `--select` always returns `result` as an array aligned index-for-index with `selection.matchedPaths`; a wildcard over an empty collection returns an empty array. A path without a wildcard returns the single matched value.
 
 Every CLI-owned envelope carries `schemaVersion: "2.0"`. Version 2.0 renamed every `reason` to snake_case (the wire spelling moved to `errorCode`), added `details` and `correctedExample`, and dropped the duplicated `error` field from batch failure rows.
 

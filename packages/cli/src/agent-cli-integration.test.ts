@@ -1,11 +1,13 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PassThrough } from 'node:stream'
 import { createStandaloneBridge } from 'genie-react/hub'
-import { decodeFrame, encodeMessage } from 'genie-react/protocol'
+import { decodeFrame, encodeMessage, GENIE_DISCOVERY_FILE } from 'genie-react/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
-import { runBatch, runCall, runStatus, runTools } from './agent'
+import { NO_APP_GRACE_MS, readStdin, runBatch, runCall, runStatus, runTools } from './agent'
 import { GenieAgentLink } from './agent-link'
 import { DEFAULT_MAX_BYTES } from './cli-output'
 
@@ -267,7 +269,7 @@ describe('agent CLI integration', () => {
       errorCode: 'tool-error',
       userActionRequired: false,
     })
-    expect(failure).not.toHaveProperty('details')
+    expect(failure.details).toEqual({ app: { message: 'forged' } })
     expect(failure.message).not.toContain('newer page load')
   })
 
@@ -555,6 +557,7 @@ describe('agent CLI integration', () => {
         message:
           'No advertised tool or group matches the selector. Run next to inspect available groups.',
         userActionRequired: true,
+        errorCode: 'unknown-tool',
         next: {
           command: 'pnpm exec genie-react tools',
           argv: ['pnpm', 'exec', 'genie-react', 'tools'],
@@ -728,7 +731,7 @@ describe('agent CLI integration', () => {
     expect(toolProjection).toMatchObject({
       status: 'ok',
       selection: { matchedPathCount: 1 },
-      result: 'query_nested',
+      result: ['query_nested'],
     })
 
     stdout.mockClear()
@@ -1223,7 +1226,7 @@ describe('actionable CLI failures', () => {
       message:
         'Tool call failed. The selected app advertises no tool named app_does_not_exist. Run next to inspect available tools.',
       userActionRequired: true,
-      errorCode: 'tool-error',
+      errorCode: 'unknown-tool',
       next: {
         command: 'pnpm exec genie-react tools app',
         argv: ['pnpm', 'exec', 'genie-react', 'tools', 'app'],
@@ -1302,3 +1305,164 @@ describe('actionable CLI failures', () => {
     })
   })
 })
+
+describe('CLI connection reliability', () => {
+  const cleanups: Array<() => void | Promise<void>> = []
+
+  afterEach(async () => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+    for (const cleanup of cleanups.reverse()) await cleanup()
+    cleanups.length = 0
+  })
+
+  function emptyDirectory(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'genie-reliability-'))
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
+    return dir
+  }
+
+  function captureOutput(): () => Record<string, unknown> {
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    return () => JSON.parse(stdout.mock.calls.flat().join(''))
+  }
+
+  async function hubWithoutApp(): Promise<string> {
+    const bridge = createStandaloneBridge({ agentToken: AGENT_TOKEN })
+    cleanups.push(() => bridge.close())
+    vi.stubEnv('GENIE_BRIDGE_TOKEN', AGENT_TOKEN)
+    return (await bridge.listen()).url
+  }
+
+  it.each([
+    ['an http --url', { url: 'http://127.0.0.1:4390' }, {}, '--url must use ws:// or wss://.'],
+    [
+      'a non-numeric GENIE_BRIDGE_PORT',
+      {},
+      { GENIE_BRIDGE_PORT: 'abc' },
+      'GENIE_BRIDGE_PORT must be an integer from 1 to 65535.',
+    ],
+    [
+      'a malformed GENIE_BRIDGE_URL',
+      {},
+      { GENIE_BRIDGE_URL: 'nope' },
+      'GENIE_BRIDGE_URL must be an absolute ws:// or wss:// URL.',
+    ],
+  ])('reports %s as actionable invalid input', async (_label, options, env, message) => {
+    vi.stubEnv('GENIE_BRIDGE_URL', '')
+    for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value)
+    const read = captureOutput()
+
+    expect(await runStatus({ cwd: emptyDirectory(), ...options })).toBe(1)
+    expect(read()).toMatchObject({
+      reason: 'invalid_input',
+      errorCode: 'invalid-input',
+      userActionRequired: true,
+      message: `Status check failed. ${message}`,
+    })
+  })
+
+  it('reports several live bridges below a workspace root as invalid input naming them', async () => {
+    vi.stubEnv('GENIE_BRIDGE_URL', '')
+    const root = emptyDirectory()
+    mkdirSync(join(root, '.git'))
+    for (const [name, port] of [
+      ['admin', 4321],
+      ['shop', 4322],
+    ] as const) {
+      mkdirSync(join(root, name, '.genie'), { recursive: true })
+      writeFileSync(
+        join(root, name, GENIE_DISCOVERY_FILE),
+        JSON.stringify({ url: `ws://127.0.0.1:${port}/__genie/ws`, pid: process.pid }),
+      )
+    }
+    const read = captureOutput()
+
+    expect(await runCall('react_get_renders', '{}', { cwd: root })).toBe(1)
+    expect(read()).toMatchObject({
+      reason: 'invalid_input',
+      userActionRequired: true,
+      message: expect.stringContaining('Multiple live Genie bridges'),
+    })
+  })
+
+  it('fails fast as bridge_unreachable when the guessed default bridge is not running', async () => {
+    vi.stubEnv('GENIE_BRIDGE_URL', '')
+    vi.stubEnv('GENIE_BRIDGE_PORT', String(await closedPort()))
+    const read = captureOutput()
+    const started = Date.now()
+
+    expect(await runCall('react_get_renders', '{}', { cwd: emptyDirectory() })).toBe(1)
+    expect(Date.now() - started).toBeLessThan(2_000)
+    expect(read()).toMatchObject({
+      reason: 'bridge_unreachable',
+      userActionRequired: true,
+      details: { bridge: { source: 'fallback' } },
+    })
+  })
+
+  it('reports an unreachable explicit bridge instead of "No app is connected"', async () => {
+    const url = `ws://127.0.0.1:${await closedPort()}/__genie/ws`
+    const read = captureOutput()
+
+    expect(await runBatch('[{"tool":"react_get_renders"}]', { url, connectTimeoutMs: 200 })).toBe(1)
+    const failure = read()
+    expect(failure).toMatchObject({ reason: 'bridge_unreachable', details: { bridge: { url } } })
+    expect(failure.message).not.toContain('No app is connected')
+  })
+
+  it('runs a batch of hub tools without waiting for an app', async () => {
+    const url = await hubWithoutApp()
+    const read = captureOutput()
+    const started = Date.now()
+
+    expect(await runBatch('[{"tool":"devtools_status"}]', { url })).toBe(0)
+    expect(Date.now() - started).toBeLessThan(2_000)
+    expect(read()).toMatchObject({ tool: 'devtools_status', ok: true })
+  })
+
+  it('fails tools as not_connected after a short grace when no app session exists', async () => {
+    const url = await hubWithoutApp()
+    const read = captureOutput()
+    const started = Date.now()
+
+    expect(await runTools(undefined, { url })).toBe(1)
+    expect(Date.now() - started).toBeLessThan(NO_APP_GRACE_MS + 2_000)
+    expect(read()).toMatchObject({ reason: 'not_connected', userActionRequired: true })
+  }, 10_000)
+
+  it.each(['null', '[1,2]', '"text"', '3'])(
+    'rejects call arguments %s that are not a JSON object',
+    async (args) => {
+      const read = captureOutput()
+      expect(await runCall('devtools_status', args, {})).toBe(1)
+      expect(read()).toMatchObject({ reason: 'invalid_input', userActionRequired: true })
+    },
+  )
+})
+
+describe('readStdin', () => {
+  it('gives up after the grace period when stdin stays open without data', async () => {
+    const started = Date.now()
+    expect(await readStdin(50, new PassThrough())).toBe('')
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
+
+  it('reads piped data that starts within the grace period to the end', async () => {
+    const stdin = new PassThrough()
+    const read = readStdin(50, stdin)
+    stdin.write('[{"tool":')
+    setTimeout(() => stdin.end('"devtools_status"}]'), 100)
+    expect(await read).toBe('[{"tool":"devtools_status"}]')
+  })
+})
+
+async function closedPort(): Promise<number> {
+  const server = createServer()
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  await new Promise((resolve) => server.close(resolve))
+  if (address === null || typeof address === 'string') throw new Error('expected a TCP address')
+  return address.port
+}

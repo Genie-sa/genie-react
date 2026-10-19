@@ -1,6 +1,10 @@
 import { lstatSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ensurePrivateDirectory, genieUserDirectory, isOwnedByCurrentUser } from 'genie-react/hub'
+import {
+  ensurePrivateDirectory,
+  genieUserDirectory,
+  isOwnedByCurrentUser,
+} from 'genie-react/hub/token'
 import { genieCommand } from './package-manager'
 import type { OutputSuggestion, Overflow, OverflowRecovery } from './result-selection'
 

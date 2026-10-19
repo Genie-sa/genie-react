@@ -97,6 +97,11 @@
       "import": "./dist/hub.js",
       "default": "./dist/hub.js"
     },
+    "./hub/token": {
+      "types": "./dist/hub/token.d.ts",
+      "import": "./dist/hub/token.js",
+      "default": "./dist/hub/token.js"
+    },
     "./protocol": {
       "types": "./dist/protocol.d.ts",
       "import": "./dist/protocol.js",

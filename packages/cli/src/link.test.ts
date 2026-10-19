@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { runLink } from './link'
+import { directoryLinkType, runLink } from './link'
 
 let target: string | null = null
 
@@ -101,4 +101,12 @@ it('reports a foreign skill directory instead of overwriting it', async () => {
     expect.objectContaining({ reason: 'skill_path_conflict', data: { path: foreign } }),
   )
   expect(await readFile(join(foreign, 'SKILL.md'), 'utf8')).toBe('another skill\n')
+})
+
+describe('directoryLinkType', () => {
+  it('uses junctions on Windows, where directory symlinks need elevated rights', () => {
+    expect(directoryLinkType('win32')).toBe('junction')
+    expect(directoryLinkType('darwin')).toBe('dir')
+    expect(directoryLinkType('linux')).toBe('dir')
+  })
 })

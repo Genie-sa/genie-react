@@ -17,6 +17,7 @@ export default defineConfig({
       { find: 'genie-react/client', replacement: entry('client-entry.ts') },
       { find: 'genie-react/collectors', replacement: entry('collectors/index.ts') },
       { find: 'genie-react/hook', replacement: entry('collectors/react/hook.ts') },
+      { find: 'genie-react/hub/token', replacement: entry('hub/token.ts') },
       { find: 'genie-react/hub', replacement: entry('hub/index.ts') },
       { find: 'genie-react/vite', replacement: entry('vite/index.ts') },
       { find: /^genie-react$/, replacement: entry('react/index.ts') },

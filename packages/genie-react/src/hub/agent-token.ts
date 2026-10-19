@@ -39,9 +39,15 @@ export async function writeAgentToken(rootDir: string, token: string): Promise<s
 
 /** The token a hub published for `rootDir`; undefined unless it is a private regular file owned by the current user. */
 export async function readAgentToken(rootDir: string): Promise<string | undefined> {
-  const handle = await agentTokenFile(rootDir)
-    .then((file) => open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)))
-    .catch(() => null)
+  const file = await agentTokenFile(rootDir).catch(() => null)
+  return file === null ? undefined : readAgentTokenFile(file)
+}
+
+/** Reads a token file by path, with the same private-regular-file checks as {@link readAgentToken}. */
+export async function readAgentTokenFile(file: string): Promise<string | undefined> {
+  const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)).catch(
+    () => null,
+  )
   if (!handle) return undefined
   try {
     const info = await handle.stat()
