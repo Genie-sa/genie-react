@@ -66,14 +66,13 @@ describe('renderer selection', () => {
     expect(fallback.propsCalls).toHaveLength(1)
   })
 
-  it('skips an owning renderer that lacks the capability', () => {
+  it('refuses to borrow another renderer for a fiber owned by a production renderer', () => {
     const capable = recordingRenderer()
     mocks.owner = { scheduleUpdate: () => {} }
     mocks.injected = [capable]
 
-    overrideFiberProps(fiber(), { title: 'after' })
-
-    expect(capable.propsCalls).toHaveLength(1)
+    expect(() => overrideFiberProps(fiber(), { title: 'after' })).toThrow(/production build/)
+    expect(capable.propsCalls).toHaveLength(0)
   })
 
   it('throws when no renderer can drive overrides', () => {

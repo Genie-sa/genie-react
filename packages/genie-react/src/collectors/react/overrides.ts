@@ -43,10 +43,15 @@ type DevCapability =
 const canDrive = (renderer: DevRenderer | null, capability: DevCapability): boolean =>
   typeof renderer?.scheduleUpdate === 'function' && typeof renderer[capability] === 'function'
 
-/** The renderer owning `fiber` so multi-renderer apps drive the right one; falls back to the first capable one for unclaimed (detached or pre-commit) fibers. */
+/** The renderer owning `fiber` so multi-renderer apps drive the right one; only unclaimed (detached or pre-commit) fibers fall back to the first capable one, since another renderer's methods corrupt a foreign fiber. */
 function requireRenderer(capability: DevCapability, fiber?: Fiber): DevRenderer {
   const owner = fiber ? getRenderer(fiber) : null
-  if (canDrive(owner, capability)) return owner as DevRenderer
+  if (owner) {
+    if (canDrive(owner, capability)) return owner
+    throw new Error(
+      `This component's React renderer does not expose ${capability}: it is a production build, typically a widget that bundles its own React (e.g. Clerk). Read it with react_inspect_component; only components rendered by a development build can be overridden.`,
+    )
+  }
   for (const renderer of getRDTHook()?.renderers?.values() ?? []) {
     if (canDrive(renderer, capability)) return renderer
   }

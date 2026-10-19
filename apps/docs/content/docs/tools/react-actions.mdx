@@ -29,6 +29,10 @@ npx @genie-react/cli call react_override_props \
 the parent must supply different real props. A later real props update can replace the override;
 call `react_reset_overrides` after the check.
 
+Overrides need the development build of the React that rendered the component. A component inside a
+widget that bundles its own production React (Clerk, for example) fails with a "production build"
+error instead of being patched through the app's renderer; read it with `react_inspect_component`.
+
 ## `react_override_hook_state`
 
 Changes one `useState` or `useReducer` value and re-renders the component.

@@ -233,16 +233,53 @@ export function findRootFiber(): Fiber | null {
     }
   }
   for (const root of committedRoots.values()) candidates.add(climbToRoot(root))
+  const containers = new Map([...candidates].map((root) => [root, domContainerOf(root)]))
   let selected: Fiber | null = null
-  let selectedScore = -1
+  let selectedScore = Number.NEGATIVE_INFINITY
   for (const candidate of candidates) {
-    const score = rootScore(candidate)
+    // rootScore never exceeds ROOT_SCORE_LIMIT, so the offset ranks every nested root below every outer one.
+    const nestingPenalty = isNestedRoot(candidate, containers) ? ROOT_SCORE_LIMIT + 1 : 0
+    const score = rootScore(candidate) - nestingPenalty
     if (score > selectedScore) {
       selected = candidate
       selectedScore = score
     }
   }
   return selected
+}
+
+/** The primary root followed by every other live committed root, so name searches reach widget roots (a second React copy) and createRoot islands. */
+export function findAllRootFibers(primary: Fiber | null = findRootFiber()): Fiber[] {
+  const others = findAllCommittedRootFibers().roots.filter((root) => root !== primary)
+  return primary ? [primary, ...others] : others
+}
+
+/** The top component of a non-primary root, as a `rootId` an agent can pass to react_get_tree; empty for a root without components. */
+export function describeOtherRoot(root: Fiber): Array<{ rootId: NodeId; name: string }> {
+  const stack: Fiber[] = root.child ? [root.child] : []
+  for (let visited = 0; stack.length > 0 && visited < ROOT_SCORE_LIMIT; visited++) {
+    const fiber = stack.pop()
+    if (!fiber) continue
+    if (isCompositeFiber(fiber)) return [{ rootId: registerFiber(fiber), name: nameOf(fiber) }]
+    if (fiber.sibling) stack.push(fiber.sibling)
+    if (fiber.child) stack.push(fiber.child)
+  }
+  return []
+}
+
+function domContainerOf(root: Fiber): Node | null {
+  const container = (root.stateNode as { containerInfo?: unknown } | null)?.containerInfo
+  return typeof Node !== 'undefined' && container instanceof Node ? container : null
+}
+
+// A root mounted inside another root's DOM (a widget bundling its own React, a createRoot island) is never the app root.
+function isNestedRoot(root: Fiber, containers: ReadonlyMap<Fiber, Node | null>): boolean {
+  const container = containers.get(root)
+  if (!container) return false
+  for (const [other, outer] of containers) {
+    if (other !== root && outer && outer !== container && outer.contains(container)) return true
+  }
+  return false
 }
 
 function rootScore(root: Fiber): number {
@@ -554,14 +591,14 @@ export async function buildTree(
 const PROVENANCE_SCAN_LIMIT = 5_000
 
 export async function buildProvenanceReport(
-  root: Fiber | null,
+  roots: readonly Fiber[],
   options: { component?: string; limit: number; appOnly: boolean },
 ): Promise<ProvenanceReport> {
   const candidates: Fiber[] = []
   let scanned = 0
   let scanTruncated = false
   const needle = options.component?.toLowerCase()
-  const stack: Fiber[] = root ? [root] : []
+  const stack: Fiber[] = [...roots].reverse()
   while (stack.length > 0) {
     const fiber = stack.pop()
     if (!fiber) continue

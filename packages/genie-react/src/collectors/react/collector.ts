@@ -42,7 +42,9 @@ import {
   buildProvenanceReport,
   buildTree,
   contextsForFiber,
+  describeOtherRoot,
   domForFiber,
+  findAllRootFibers,
   findByName,
   findFiberById,
   findRootFiber,
@@ -198,7 +200,7 @@ export function reactCollector(): GenieCollector {
     tools: [
       defineCollectorTool({
         contract: reactGetTreeContract,
-        handler: ({ rootId, depth, includeHost, maxNodes, appOnly }) => {
+        handler: async ({ rootId, depth, includeHost, maxNodes, appOnly }) => {
           const root = findRootFiber()
           if (!root)
             return {
@@ -209,7 +211,11 @@ export function reactCollector(): GenieCollector {
               truncatedBy: null,
             }
           if (rootId === undefined) {
-            return buildTree(root, { depth, includeHost, maxNodes, appOnly })
+            const otherRoots = findAllRootFibers(root).slice(1).flatMap(describeOtherRoot)
+            return {
+              ...(await buildTree(root, { depth, includeHost, maxNodes, appOnly })),
+              ...(otherRoots.length > 0 ? { otherRoots } : {}),
+            }
           }
           const subtreeRoot = findFiberById(root, rootId)
           if (!subtreeRoot) {
@@ -227,20 +233,14 @@ export function reactCollector(): GenieCollector {
       defineCollectorTool({
         contract: reactProvenanceContract,
         handler: ({ component, limit, appOnly }) =>
-          buildProvenanceReport(findRootFiber(), { component, limit, appOnly }),
+          buildProvenanceReport(findAllRootFibers(), { component, limit, appOnly }),
       }),
       defineCollectorTool({
         contract: reactFindComponentsContract,
         handler: async ({ component, query, exact, limit, appOnly }) => {
-          const root = findRootFiber()
-          if (!root)
-            return {
-              matches: [],
-              ownershipCoverage: ownershipCoverage([]),
-              omittedByLimit: 0,
-              scanTruncated: false,
-            }
-          const found = findByName(root, component ?? query ?? '', exact, 5001)
+          const found = findAllRootFibers().flatMap((root) =>
+            findByName(root, component ?? query ?? '', exact, 5001),
+          )
           const scanTruncated = found.length > 5000
           found.length = Math.min(found.length, 5000)
           const { classes } = await classifyFibersWithinBudget(found.map(({ fiber }) => fiber))

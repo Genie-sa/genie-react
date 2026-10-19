@@ -646,11 +646,11 @@ describe('buildProvenanceReport ownership', () => {
     })
     const fiber = renderFiber('OpaqueMetroProvenance', at(EXPO_HERMES_BUNDLE))
 
-    const unfiltered = await buildProvenanceReport(fiber, {
+    const unfiltered = await buildProvenanceReport([fiber], {
       limit: 10,
       appOnly: false,
     })
-    const appOnly = await buildProvenanceReport(fiber, {
+    const appOnly = await buildProvenanceReport([fiber], {
       limit: 10,
       appOnly: true,
     })

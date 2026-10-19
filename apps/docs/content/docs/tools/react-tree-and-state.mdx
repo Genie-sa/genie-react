@@ -46,8 +46,14 @@ npx @genie-react/cli call react_get_tree \
 }
 ```
 
+Without `rootId`, the tree starts at the app's root. A root mounted inside another root's DOM, such
+as a widget that bundles its own React (Clerk) or a separate `createRoot` island, is never chosen as
+the app root. Those roots are listed in `otherRoots` as `{ "rootId", "name" }`, one per root's top
+component; the field is absent when the page has one root.
+
 **Agent use:** Use `rootId` to inspect the returned instance, or raise `depth` or `maxNodes` when
-`truncatedBy` shows that the tree is incomplete.
+`truncatedBy` shows that the tree is incomplete. Pass an `otherRoots` entry's `rootId` to read that
+root's tree.
 
 ## `react_provenance`
 
@@ -119,7 +125,7 @@ fallback is ambiguous, so first fix or inspect source maps instead of treating i
 
 Finds mounted components by display name.
 
-**Input:** `component` is the canonical non-empty display-name selector. Legacy `query` remains an alias; provide at least one and make them agree if both are supplied. `exact` defaults to `false`. `limit` is an integer from 1 to 200 and defaults to 50. `appOnly` defaults to `false`; `true` excludes library and unknown ownership before the output limit. `ownershipCoverage`, `scanTruncated`, and `omittedByLimit` disclose the bounded candidate scan (up to 5000 matching components).
+**Input:** `component` is the canonical non-empty display-name selector. Legacy `query` remains an alias; provide at least one and make them agree if both are supplied. `exact` defaults to `false`. `limit` is an integer from 1 to 200 and defaults to 50. `appOnly` defaults to `false`; `true` excludes library and unknown ownership before the output limit. The search covers every live React root, the app root first, including widgets that bundle their own React. `ownershipCoverage`, `scanTruncated`, and `omittedByLimit` disclose the bounded candidate scan (up to 5000 matching components).
 
 ```bash
 npx @genie-react/cli call react_find_components \
