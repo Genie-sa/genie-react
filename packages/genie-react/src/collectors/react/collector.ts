@@ -33,6 +33,7 @@ import {
   reactToggleSuspenseFallbackContract,
   stylexInspectContract,
 } from './contracts'
+import type { EffectEventsInput } from './effect-contract'
 import { getEffectScheduleEventsWithOwnership } from './effect-events'
 import { getEffectAuditReport, getEffectTrackingCoverage } from './effect-tracker'
 import { getErrorState } from './error-tracker'
@@ -113,6 +114,28 @@ function currentEffectCoverage() {
     ...renderCoverage,
     complete: renderCoverage.complete && truncatedEffectLists === 0,
     truncatedEffectLists,
+  }
+}
+
+async function effectTimeline({
+  component,
+  afterDocumentCommitId,
+  limit,
+  appOnly,
+}: EffectEventsInput) {
+  const tracking = isTracking()
+  const documentCommitId = getDocumentCommitId()
+  const coverage = currentEffectCoverage()
+  return {
+    tracking,
+    documentCommitId,
+    ...(await getEffectScheduleEventsWithOwnership({
+      appOnly,
+      component,
+      afterDocumentCommitId,
+      limit,
+    })),
+    coverage,
   }
 }
 
@@ -682,43 +705,10 @@ export function reactCollector(): GenieCollector {
           }
         },
       }),
-      defineCollectorTool({
-        contract: reactEffectEventsContract,
-        handler: async ({ component, afterDocumentCommitId, limit, appOnly }) => {
-          const tracking = isTracking()
-          const documentCommitId = getDocumentCommitId()
-          const coverage = currentEffectCoverage()
-          return {
-            tracking,
-            documentCommitId,
-            ...(await getEffectScheduleEventsWithOwnership({
-              appOnly,
-              component,
-              afterDocumentCommitId,
-              limit,
-            })),
-            coverage,
-          }
-        },
-      }),
+      defineCollectorTool({ contract: reactEffectEventsContract, handler: effectTimeline }),
       defineCollectorTool({
         contract: reactEffectTimelineContract,
-        handler: async ({ component, afterDocumentCommitId, limit, appOnly }) => {
-          const tracking = isTracking()
-          const documentCommitId = getDocumentCommitId()
-          const coverage = currentEffectCoverage()
-          return {
-            tracking,
-            documentCommitId,
-            ...(await getEffectScheduleEventsWithOwnership({
-              appOnly,
-              component,
-              afterDocumentCommitId,
-              limit,
-            })),
-            coverage,
-          }
-        },
+        handler: effectTimeline,
       }),
       defineCollectorTool({
         contract: reactErrorStateContract,
