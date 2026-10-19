@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   devtoolsStatusContract,
@@ -19,6 +19,7 @@ import {
   CLAUDE_SKILL_DIRECTORY,
   conflictRemedy,
   inspectAgentSkill,
+  inspectSkillDirectory,
   installAgentSkill,
   readSkillFiles,
   renderSkillFiles,
@@ -286,11 +287,33 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
   const runtimeVersion = runtimeDirectory
     ? packageVersionAt(join(runtimeDirectory, 'package.json'))
     : null
-  const bundledSkill = readBundledSkill(cwd)
+  const shippedSkill = readSkillFiles(BUNDLED_SKILL_DIRECTORY)
+  const bundledSkill = shippedSkill && renderSkillFiles(shippedSkill, cwd)
   const skill = inspectAgentSkill(cwd, bundledSkill)
+  const skillDirectory = process.env.GENIE_SKILL_DIR?.trim()
+  const externalSkill = skillDirectory
+    ? inspectSkillDirectory(
+        resolve(cwd, skillDirectory),
+        [shippedSkill, bundledSkill].filter((files) => files !== null),
+      )
+    : undefined
+  const skillLocations = externalSkill
+    ? [
+        {
+          label: 'agent skill in GENIE_SKILL_DIR matches the bundled CLI guidance',
+          location: externalSkill,
+        },
+      ]
+    : [
+        { label: 'agent skill matches the bundled CLI guidance', location: skill.canonical },
+        { label: 'Claude Code skill matches the bundled CLI guidance', location: skill.claude },
+      ]
+  const shownPath = (path: string) => (externalSkill ? path : relative(cwd, path))
+  const activeSkill = externalSkill ?? skill.canonical
   checks.push(
-    skillCheck('agent skill matches the bundled CLI guidance', skill.canonical, cwd),
-    skillCheck('Claude Code skill matches the bundled CLI guidance', skill.claude, cwd),
+    ...skillLocations.map(({ label, location }) =>
+      skillCheck(label, location, cwd, externalSkill !== undefined),
+    ),
   )
   if (runtimeVersion) {
     checks.push({
@@ -347,16 +370,16 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
       cli: cliVersion,
       runtime: runtimeVersion,
       bundledSkill: skillVersion(bundledSkill),
-      activeSkill: skill.canonical.version,
+      activeSkill: activeSkill.version,
     },
     skill: {
-      path: skill.canonical.hash ? relative(cwd, skill.canonical.path) : null,
+      path: activeSkill.hash ? shownPath(activeSkill.path) : null,
       bundledHash: skill.expectedHash,
-      activeHash: skill.canonical.hash,
-      current: skill.canonical.current && skill.claude.current,
-      locations: [skill.canonical, skill.claude].map((location) => ({
+      activeHash: activeSkill.hash,
+      current: skillLocations.every(({ location }) => location.current),
+      locations: skillLocations.map(({ location }) => ({
         ...location,
-        path: relative(cwd, location.path),
+        path: shownPath(location.path),
         conflictPath: location.conflictPath && relative(cwd, location.conflictPath),
       })),
     },
@@ -1205,15 +1228,25 @@ function ensureAgentSkill(ctx: ApplyContext): InitArtifact[] {
 }
 
 /** The bundled skill rendered for this project's package manager; null when the package lost its skill files. */
+const BUNDLED_SKILL_DIRECTORY = fileURLToPath(new URL('../skill', import.meta.url))
+
 function readBundledSkill(cwd: string) {
-  const files = readSkillFiles(fileURLToPath(new URL('../skill', import.meta.url)))
+  const files = readSkillFiles(BUNDLED_SKILL_DIRECTORY)
   return files && renderSkillFiles(files, cwd)
 }
 
-function skillCheck(label: string, location: SkillLocation, cwd: string): DoctorCheck {
-  const path = relative(cwd, location.path)
+/** `external` is a GENIE_SKILL_DIR the user manages, so its fix is a copy of the bundled files rather than init. */
+function skillCheck(
+  label: string,
+  location: SkillLocation,
+  cwd: string,
+  external: boolean,
+): DoctorCheck {
+  const path = external ? location.path : relative(cwd, location.path)
   const via = location.symlink ? ' (symlink)' : ''
-  const init = genieCommand(['init'], cwd).command
+  const remedy = external
+    ? `copy the files in ${BUNDLED_SKILL_DIRECTORY} into ${path}`
+    : `run: ${genieCommand(['init'], cwd).command}`
   return {
     label,
     ok: location.current,
@@ -1222,10 +1255,10 @@ function skillCheck(label: string, location: SkillLocation, cwd: string): Doctor
     detail: location.current
       ? `${path}${via} · sha256 ${location.hash?.slice(0, 12)}`
       : location.conflictPath
-        ? `${SKILL_PATH_CONFLICT}: ${relative(cwd, location.conflictPath)} blocks ${path}. ${conflictRemedy(location.conflictPath, relative(cwd, location.conflictPath))}, then run: ${init}`
+        ? `${SKILL_PATH_CONFLICT}: ${relative(cwd, location.conflictPath)} blocks ${path}. ${conflictRemedy(location.conflictPath, relative(cwd, location.conflictPath))}, then ${remedy}`
         : location.hash
-          ? `${path}${via} drifted: ${location.version ?? 'unversioned'} / ${location.hash.slice(0, 12)}; run: ${init}`
-          : `${path} missing; run: ${init}`,
+          ? `${path}${via} drifted: ${location.version ?? 'unversioned'} / ${location.hash.slice(0, 12)}; ${remedy}`
+          : `${path} missing; ${remedy}`,
   }
 }
 

@@ -22,6 +22,7 @@ const env = {
   GENIE_BRIDGE_URL: '',
   GENIE_BRIDGE_TOKEN: '',
   GENIE_SESSION: '',
+  GENIE_SKILL_DIR: '',
   NO_COLOR: '1',
 }
 let checks = 0
