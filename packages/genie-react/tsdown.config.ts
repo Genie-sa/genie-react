@@ -42,6 +42,7 @@ export default defineConfig([
     entry: {
       vite: 'src/vite/index.ts',
       hub: 'src/hub/index.ts',
+      'hub/token': 'src/hub/token.ts',
     },
     platform: 'node',
     clean: false,

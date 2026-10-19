@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { GENIE_DISCOVERY_FILE } from '../protocol'
-import { readAgentToken } from './agent-token'
+import { agentTokenFile, readAgentToken, readAgentTokenFile } from './agent-token'
 import { type StartHubResult, startGenieHub } from './start'
 
 const BASE_PORT = 4600 + Math.floor(Math.random() * 300)
@@ -63,6 +63,32 @@ describe('startGenieHub multi-session behavior', () => {
     expect(second.status).toBe('reused')
     expect(second.port).toBe(BASE_PORT + 10)
     expect(await readFile(join(dirA, GENIE_DISCOVERY_FILE), 'utf8')).toBe(published)
+  })
+
+  it('reuses a live hub of the same root even when it listens on a different port', async () => {
+    const first = track(await startGenieHub({ rootDir: dirA, port: BASE_PORT + 50 }))
+    const published = await readFile(join(dirA, GENIE_DISCOVERY_FILE), 'utf8')
+    const second = track(await startGenieHub({ rootDir: dirA, port: BASE_PORT + 55 }))
+
+    expect(first.status).toBe('started')
+    expect(second).toMatchObject({ status: 'reused', port: BASE_PORT + 50 })
+    expect(await readFile(join(dirA, GENIE_DISCOVERY_FILE), 'utf8')).toBe(published)
+  })
+
+  it('records the private token path in the discovery file', async () => {
+    const result = track(await startGenieHub({ rootDir: dirA, port: BASE_PORT + 60 }))
+    if (result.status !== 'started') throw new Error('expected a fresh hub')
+    const discovery = JSON.parse(await readFile(join(dirA, GENIE_DISCOVERY_FILE), 'utf8'))
+
+    expect(discovery.tokenFile).toBe(await agentTokenFile(dirA))
+    expect(await readAgentTokenFile(discovery.tokenFile)).toBe(result.handle.bridge.agentToken)
+  })
+
+  it('reports an exhausted port range as a typed port_busy error', async () => {
+    track(await startGenieHub({ rootDir: dirA, port: BASE_PORT + 65 }))
+    await expect(
+      startGenieHub({ rootDir: dirB, port: BASE_PORT + 65, strictPort: true }),
+    ).rejects.toMatchObject({ name: 'HubPortBusyError', code: 'port_busy' })
   })
 
   it("walks to the next port when another app's hub owns the preferred one", async () => {
