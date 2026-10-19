@@ -1,5 +1,5 @@
 // Install the DevTools hook before Expo loads React Native's renderer.
-import 'genie-react/hook'
+import './genie-hook'
 import { registerRootComponent } from 'expo'
 import { registerReactFreeze } from 'genie-react/react-freeze'
 import { Freeze } from 'react-freeze'

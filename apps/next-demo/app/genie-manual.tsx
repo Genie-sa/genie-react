@@ -1,15 +1,23 @@
 'use client'
 
-import { queryCollector } from 'genie-react/collectors/query'
-import { registerGenieCollector } from 'genie-react/protocol'
 import { useEffect } from 'react'
 import { queryClient } from './query-demo/query-client'
 
+// Dynamic imports keep the collector and its tool catalog out of production bundles; a static import ships them even behind the guard.
 export function GenieQueryTools() {
   useEffect(() => {
     if (process.env.NODE_ENV === 'production') return
-
-    return registerGenieCollector(queryCollector(queryClient))
+    let unregister: (() => void) | undefined
+    let cancelled = false
+    void Promise.all([import('genie-react/collectors/query'), import('genie-react/protocol')]).then(
+      ([{ queryCollector }, { registerGenieCollector }]) => {
+        if (!cancelled) unregister = registerGenieCollector(queryCollector(queryClient))
+      },
+    )
+    return () => {
+      cancelled = true
+      unregister?.()
+    }
   }, [])
 
   return null

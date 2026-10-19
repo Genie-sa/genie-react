@@ -9,20 +9,29 @@ with the same `QueryClient` used by `QueryClientProvider` and also passes its Ta
 
 ## Add Genie to an existing app
 
-Import `genie-react/hook` first in the entry file, before any import that loads React. Mount the
-native component once in development:
+Install the DevTools hook before anything loads React. Metro does not tree-shake, so load Genie
+through `require` inside `__DEV__` branches; release bundles then contain none of it. Put the hook in
+its own module and import it first, because `import` statements are hoisted above any `if`:
+
+```ts title="genie-hook.ts"
+if (__DEV__) require('genie-react/hook')
+```
+
+```ts title="index.ts"
+import './genie-hook'
+import { registerRootComponent } from 'expo'
+// ...the rest of the entry
+```
+
+Mount the native component once, near the app root:
 
 ```tsx
-import { Genie } from 'genie-react/native'
+// Using the same QueryClient as QueryClientProvider:
+const DevGenie = __DEV__
+  ? (require('genie-react/native') as typeof import('genie-react/native')).Genie
+  : () => null
 
-// Inside the app root, using the same QueryClient as QueryClientProvider:
-{__DEV__ && (
-  <Genie
-    appName="My native app"
-    url="ws://127.0.0.1:4390/__genie/ws"
-    queryClient={queryClient}
-  />
-)}
+<DevGenie appName="My native app" url="ws://127.0.0.1:4390/__genie/ws" queryClient={queryClient} />
 ```
 
 Omit `queryClient` if the app does not use TanStack Query. The optional `router` prop accepts a

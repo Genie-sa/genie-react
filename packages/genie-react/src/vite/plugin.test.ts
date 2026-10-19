@@ -114,6 +114,14 @@ describe('production component removal', () => {
     expect(resolveId.call(null, 'genie-react/protocol')).toBeNull()
   })
 
+  it('stubs the TanStack-free tools entry exactly like the root runtime', async () => {
+    const id = resolveId.call(null, 'genie-react/tools')
+    expect(id).toBe('\0virtual:dev-only-runtime-noop')
+    const code = load.call(null, id as string) as string
+    const exported = [...code.matchAll(/export (?:const|class) (\w+)/g)].map((match) => match[1])
+    expect(exported.sort()).toEqual(Object.keys(await import('../production')).sort())
+  })
+
   it('removes custom-tool helper calls and their protocol-only arguments', async () => {
     const out = await stripTools.call(
       productionCtx,
@@ -127,6 +135,16 @@ useTool({ description: 'react_get_tree', handler: () => tool })
     expect(out?.code).not.toContain('query_list')
     expect(out?.code).not.toContain('react_get_tree')
     expect(out?.code).toContain('const tool = undefined')
+  })
+
+  it('removes helper calls imported from genie-react/tools', async () => {
+    const out = await stripTools.call(
+      productionCtx,
+      `import { useGenieTool } from 'genie-react/tools'\nuseGenieTool({ description: 'react_get_tree' })\n`,
+      '/app/src/tools.js',
+    )
+
+    expect(out?.code).not.toContain('react_get_tree')
   })
 })
 

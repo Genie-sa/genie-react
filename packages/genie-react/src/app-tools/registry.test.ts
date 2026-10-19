@@ -55,6 +55,19 @@ describe('registerGenieTools', () => {
     expect(lastHello(socket).capabilities).toContain('app')
   })
 
+  it('stays inert in production builds', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      const { socket } = startClient()
+      registerGenieTools(seedCartTool())
+      await flush()
+
+      expect(advertisedTool(socket, 'app_seed_cart')).toBeUndefined()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('registers a tool queued before any client exists once one starts (bounded retry)', async () => {
     registerGenieTools(seedCartTool())
     const { socket } = startClient()

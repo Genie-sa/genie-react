@@ -1,7 +1,6 @@
-import './ws-env'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
-import { WebSocket, WebSocketServer } from 'ws'
+import type { WebSocket } from 'ws'
 import {
   type AgentErrorCode,
   type AgentMessage,
@@ -51,6 +50,7 @@ import {
   type UpgradeVerdict,
 } from './upgrade-policy'
 import { matchesOf, parseQueryList, queryStateOf, routerStateOf } from './wire-guards'
+import { ws } from './ws-env'
 
 type BridgeLogLevel = 'info' | 'warn' | 'error'
 type BridgeLogger = (level: BridgeLogLevel, message: string, meta?: unknown) => void
@@ -255,7 +255,7 @@ function unrefTimer(timer: ReturnType<typeof setInterval>): void {
 
 /** The hub: a `noServer` WSS mountable on Vite's HTTP server; calls route to the targeted tab's newest document (explicit `agent/invoke.sessionId`, else the only or already-targeted tab), and it answers the `devtools_status`/`devtools_wait` meta tools itself. */
 export class GenieBridge {
-  private readonly wss = new WebSocketServer({ noServer: true })
+  private readonly wss = new ws.WebSocketServer({ noServer: true })
   private readonly agents = new Set<WebSocket>()
   private readonly pending = new Map<string, PendingRequest>()
   private readonly connectionWaiters = new Set<() => void>()
@@ -628,7 +628,7 @@ export class GenieBridge {
 
   private sweepDeadConnections(): void {
     for (const socket of this.connections) {
-      if (socket.readyState !== WebSocket.OPEN) continue
+      if (socket.readyState !== ws.WebSocket.OPEN) continue
       if (this.responsiveSockets.has(socket)) {
         this.responsiveSockets.delete(socket)
         socket.ping()
@@ -1898,7 +1898,7 @@ export class GenieBridge {
   private broadcastStatus(): void {
     if (this.agents.size === 0) return
     const frame = encodeMessage({ kind: 'bridge/status', ...this.getStatus() })
-    for (const agent of this.agents) if (agent.readyState === WebSocket.OPEN) agent.send(frame)
+    for (const agent of this.agents) if (agent.readyState === ws.WebSocket.OPEN) agent.send(frame)
   }
 
   private result(
@@ -1944,7 +1944,7 @@ export class GenieBridge {
   }
 
   private send(socket: WebSocket, message: unknown): void {
-    if (socket.readyState === WebSocket.OPEN) socket.send(encodeMessage(message))
+    if (socket.readyState === ws.WebSocket.OPEN) socket.send(encodeMessage(message))
   }
 }
 

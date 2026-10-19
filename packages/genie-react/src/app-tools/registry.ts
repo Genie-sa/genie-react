@@ -4,6 +4,7 @@ import type {
   GenieCollector,
   ToolAvailability,
 } from '../client/collector'
+import { isProductionBuild } from '../production-build'
 import {
   encodeMessage,
   errorMessage,
@@ -57,9 +58,9 @@ const appToolsCollector: GenieCollector = {
   },
 }
 
-/** Registers app tools with the running genie client (queued until one starts) and returns an unregister function; safe anywhere in browser code, a no-op server-side. React components should prefer `useGenieTool`. */
+/** Registers app tools with the running genie client (queued until one starts) and returns an unregister function; safe anywhere in browser code, a no-op server-side and in production builds. React components should prefer `useGenieTool`. */
 export function registerGenieTools(...tools: GenieAppTool[]): () => void {
-  if (typeof window === 'undefined' || tools.length === 0) return () => {}
+  if (typeof window === 'undefined' || isProductionBuild() || tools.length === 0) return () => {}
   for (const tool of tools) upsert(tool)
   ensureCollectorRegistered()
   scheduleRefresh()

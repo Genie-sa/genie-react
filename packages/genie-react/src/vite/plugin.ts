@@ -148,6 +148,7 @@ export class GenieToolError extends Error {
   }
 }
 `
+const PRODUCTION_NOOP_SOURCES = new Set(['genie-react', 'genie-react/tools'])
 const PRODUCTION_NOOP_CALLS = new Set([
   'defineGenieTool',
   'registerGenieTools',
@@ -178,7 +179,7 @@ function removeProductionHelperCalls(code: string, program: AstNode): string {
   for (const statement of body) {
     if (!isAstNode(statement) || statement.type !== 'ImportDeclaration') continue
     const source = isAstNode(statement.source) ? statement.source.value : undefined
-    if (source !== 'genie-react') continue
+    if (typeof source !== 'string' || !PRODUCTION_NOOP_SOURCES.has(source)) continue
     const specifiers = Array.isArray(statement.specifiers) ? statement.specifiers : []
     for (const specifier of specifiers) {
       if (!isAstNode(specifier) || specifier.type !== 'ImportSpecifier') continue
@@ -272,7 +273,7 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
         },
         // esbuild pre-bundling bypasses the peer stubs (black-screening TanStack-less apps), so genie-react must stay excluded; pre-listing its nested deps keeps the first post-install boot from a mid-run re-optimize (stale 504s).
         optimizeDeps: {
-          exclude: ['genie-react'],
+          exclude: ['genie-react', 'genie-react/tools'],
           include: [...NESTED_OPTIMIZED_DEPS, ...installedTanstackIncludes(root)],
         },
         server: {
@@ -385,7 +386,7 @@ function productionNoopPlugin(): Plugin {
     apply: 'build',
     enforce: 'pre',
     resolveId(source) {
-      return source === 'genie-react' ? PRODUCTION_RUNTIME_ID : null
+      return PRODUCTION_NOOP_SOURCES.has(source) ? PRODUCTION_RUNTIME_ID : null
     },
     load(id) {
       return id === PRODUCTION_RUNTIME_ID ? PRODUCTION_RUNTIME_CODE : null
