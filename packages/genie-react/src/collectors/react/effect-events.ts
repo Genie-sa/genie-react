@@ -103,12 +103,14 @@ const EFFECT_EVENT_LIMIT = 1_000
 const DEPENDENCY_SCAN_LIMIT = 200
 const CHANGED_DEPENDENCY_LIMIT = 50
 const events: EffectScheduleEvent[] = []
+const eventsById = new Map<string, EffectScheduleEvent>()
 const eventFibers = new WeakMap<EffectScheduleEvent, Fiber>()
 let droppedEvents = 0
 const pendingResultingCommit = new Set<string>()
 
 export function clearEffectEvents(): void {
   events.length = 0
+  eventsById.clear()
   droppedEvents = 0
   pendingResultingCommit.clear()
 }
@@ -223,8 +225,10 @@ export function publishEffectSchedule(
   }
   eventFibers.set(event, prepared.fiber)
   events.push(event)
+  eventsById.set(event.effectEventId, event)
   if (events.length > EFFECT_EVENT_LIMIT) {
-    events.shift()
+    const evicted = events.shift()
+    if (evicted) eventsById.delete(evicted.effectEventId)
     droppedEvents += 1
   }
 }
@@ -319,8 +323,8 @@ function completeExecution(
   event.execution = {
     status: 'observed',
     evidence: 'exact',
-    startedAt,
-    completedAt,
+    startedAt: round3(startedAt),
+    completedAt: round3(completedAt),
     durationMs: round3(completedAt - startedAt),
     outcome,
     ...(error === undefined ? {} : { error: errorMessage(error) }),
@@ -339,8 +343,8 @@ function completeCleanup(
   event.cleanupExecution = {
     status: 'observed',
     evidence: 'exact',
-    startedAt,
-    completedAt,
+    startedAt: round3(startedAt),
+    completedAt: round3(completedAt),
     durationMs: round3(completedAt - startedAt),
     outcome,
     ...(error === undefined ? {} : { error: errorMessage(error) }),
@@ -382,7 +386,7 @@ function recordConsequence(signal: EffectConsequenceSignal): void {
 setEffectConsequenceListener(recordConsequence)
 
 function eventFor(effectEventId: string): EffectScheduleEvent | undefined {
-  return events.find((event) => event.effectEventId === effectEventId)
+  return eventsById.get(effectEventId)
 }
 
 function now(): number {

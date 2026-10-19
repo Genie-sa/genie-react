@@ -251,6 +251,8 @@ const effectEventsInputSchema = z.object({
   limit: z.number().int().min(1).max(500).default(100),
 })
 
+export type EffectEventsInput = z.output<typeof effectEventsInputSchema>
+
 const observedEffectRunSchema = z.object({
   status: z.literal('observed'),
   evidence: z.literal('exact'),
@@ -362,7 +364,7 @@ export const reactEffectEventsContract = defineAgentToolContract({
   name: 'react_effect_events',
   title: 'Recent effect timeline events',
   description:
-    'Report bounded effect schedules joined to exact passive execution and cleanup observations, exact Query/Router notification consequences, and the next resulting React commit as an explicitly inferred edge. Unsupported or unavailable stages carry a reason; state updates, external-store writes, network, event-listener, and navigation consequences remain explicitly unobserved.',
+    'Alias of react_effect_timeline with identical input and output; prefer react_effect_timeline.',
   group: 'react.render',
   input: effectEventsInputSchema,
   output: effectEventsOutputSchema,
@@ -373,7 +375,7 @@ export const reactEffectTimelineContract = defineAgentToolContract({
   name: 'react_effect_timeline',
   title: 'Effect causal timeline',
   description:
-    'Read the same bounded effect causal timeline as react_effect_events through the preferred timeline-oriented name.',
+    'Report bounded effect schedules joined to exact passive execution and cleanup observations, exact Query/Router notification consequences, and the next resulting React commit as an explicitly inferred edge. Unsupported or unavailable stages carry a reason; state updates, external-store writes, network, event-listener, and navigation consequences remain explicitly unobserved.',
   group: 'react.render',
   input: effectEventsInputSchema,
   output: effectEventsOutputSchema,

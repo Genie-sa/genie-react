@@ -1,4 +1,5 @@
 import { writeJson } from './cli-output'
+import { isRecord } from './guards'
 import { genieCommand } from './package-manager'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 
@@ -31,10 +32,14 @@ export async function runHub(options: HubOptions = {}): Promise<number> {
       port: options.port,
       strictPort: options.port !== undefined,
     })
-  } catch {
+  } catch (error) {
+    const portBusy = isRecord(error) && error.code === 'port_busy'
+    const detail = error instanceof Error ? ` ${error.message.replace(/\.?$/, '.')}` : ''
     failure(
-      'hub_start_failed',
-      'Failed to start the local hub. Check port availability and project directory permissions.',
+      portBusy ? 'port_busy' : 'hub_start_failed',
+      portBusy
+        ? `Failed to start the local hub.${detail} Free the port, or omit --port to let the hub pick the next free one.`
+        : `Failed to start the local hub.${detail} Check port availability and project directory permissions.`,
     )
     return 1
   }

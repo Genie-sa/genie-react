@@ -1,3 +1,4 @@
+import { roundMilliseconds } from '../../protocol'
 import { wrapperAncestryOf } from './fiber'
 import { countExternalStoreHooks, type RenderCauseEvent } from './render-causes'
 import {
@@ -181,6 +182,10 @@ async function classifyRecordReports(
       appOwned,
       report: {
         ...rest,
+        selfTime: roundMilliseconds(rest.selfTime),
+        totalTime: roundMilliseconds(rest.totalTime),
+        cumulativeSelfTime: roundMilliseconds(rest.cumulativeSelfTime),
+        cumulativeTotalTime: roundMilliseconds(rest.cumulativeTotalTime),
         causes: withReportEvidence(rest.causes, source, hookSources, externalStoreCount),
         noObservedInputChange: rest.unnecessary,
         compiler: {
@@ -331,8 +336,10 @@ export async function buildRenderCauseEventsReport(
 ): Promise<{ events: RenderCauseEvent[]; libraryHidden: number; omittedByLimit: number }> {
   const needle = query.component?.toLowerCase()
   const matching = recentEvents
-    .filter((event) => query.commit === undefined || event.commitId === query.commit)
-    .filter((event) => query.afterCommit === undefined || event.commitId > query.afterCommit)
+    .filter((event) => query.commit === undefined || event.documentCommitId === query.commit)
+    .filter(
+      (event) => query.afterCommit === undefined || event.documentCommitId > query.afterCommit,
+    )
     .filter((event) => !needle || event.componentName.toLowerCase().includes(needle))
   const liveRecords = [
     ...new Map(
@@ -355,11 +362,11 @@ export async function buildRenderCauseEventsReport(
   const classified = [...matching].reverse().map((event) => {
     const classification = evidenceById.get(event.componentId) ?? unknownRecordSourceEvidence()
     const liveRecord = records.get(event.componentId)
-    const isLatestEvent =
-      liveRecord !== undefined &&
-      liveRecord.latestRenderEventId === event.renderEventId &&
-      liveRecord.instance.mountId === event.instance.mountId
-    const eventSource = attributionCurrent && isLatestEvent ? classification.source : null
+    // Component source and ownership belong to the mounted instance; only hook-level evidence is specific to its latest render.
+    const sameInstance =
+      liveRecord !== undefined && liveRecord.instance.mountId === event.instance.mountId
+    const isLatestEvent = sameInstance && liveRecord.latestRenderEventId === event.renderEventId
+    const eventSource = attributionCurrent && sameInstance ? classification.source : null
     const unavailableReason = !attributionCurrent
       ? 'report-state-advanced'
       : liveRecord === undefined
@@ -386,8 +393,8 @@ export async function buildRenderCauseEventsReport(
     }
     return {
       event: reported,
-      libraryOnly: isLatestEvent ? classification.libraryOnly : false,
-      appOwned: isLatestEvent ? classification.appOwned : false,
+      libraryOnly: sameInstance ? classification.libraryOnly : false,
+      appOwned: sameInstance ? classification.appOwned : false,
     }
   })
   const visible =

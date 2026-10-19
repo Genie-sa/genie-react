@@ -30,11 +30,32 @@ describe('nested result selection', () => {
     })
     expect(selectResult(result, 'sections.react.components[*].name')).toMatchObject({
       selection: { matchedPathCount: 2, omittedPathCount: 3 },
-      result: [
-        { path: '/sections/react/components/0/name', value: 'A' },
-        { path: '/sections/react/components/1/name', value: 'B' },
-      ],
+      result: ['A', 'B'],
     })
+  })
+
+  it('lists each wildcard match path once, aligned with the result values', () => {
+    const selected = selectResult(result, 'sections.react.components[*].name')
+    expect(selected.selection.matchedPaths).toEqual([
+      '/sections/react/components/0/name',
+      '/sections/react/components/1/name',
+    ])
+    expect(JSON.stringify(selected).split('/sections/react/components/0/name')).toHaveLength(2)
+  })
+
+  it('returns an empty selection when a wildcard runs over an empty collection', () => {
+    expect(selectResult({ components: [] }, 'components[*].name')).toMatchObject({
+      status: 'ok',
+      selection: { matchedPathCount: 0, matchedPaths: [] },
+      result: [],
+    })
+    expect(selectResult({ groups: {} }, '/groups/*')).toMatchObject({ result: [] })
+  })
+
+  it('still rejects a wildcard path whose items lack the field', () => {
+    expect(() => selectResult(result, 'sections.react.components[*].missing')).toThrow(
+      ResultSelectionError,
+    )
   })
 
   it('rejects no-match paths with bounded recovery guidance', () => {

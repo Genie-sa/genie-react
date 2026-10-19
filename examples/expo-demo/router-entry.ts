@@ -1,2 +1,2 @@
-import 'genie-react/hook'
+import './genie-hook'
 import 'expo-router/entry'

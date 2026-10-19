@@ -6,6 +6,7 @@ import { removeAgentToken, writeAgentToken } from 'genie-react/hub'
 import { GENIE_DISCOVERY_FILE, GENIE_WS_PATH } from 'genie-react/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  BridgeConfigError,
   isPidAlive,
   isTokenTransportSafe,
   normalizeBridgeUrl,
@@ -233,6 +234,76 @@ describe('resolveBridgeUrl', () => {
     await expect(resolveBridge(cwd)).rejects.toThrow(
       /Multiple live Genie bridges[\s\S]*apps\/admin[\s\S]*apps\/shop[\s\S]*--url/,
     )
+    await expect(resolveBridge(cwd)).rejects.toBeInstanceOf(BridgeConfigError)
+  })
+
+  it('reads the token from the path the hub recorded, even under another TMPDIR', async () => {
+    const hubRuntime = await mkdtemp(join(tmpdir(), 'genie-hub-runtime-'))
+    const cliRuntime = await mkdtemp(join(tmpdir(), 'genie-cli-runtime-'))
+    const savedRuntime = process.env.XDG_RUNTIME_DIR
+    try {
+      process.env.XDG_RUNTIME_DIR = hubRuntime
+      const tokenFile = await writeAgentToken(cwd, 'hub-token')
+      await writeDiscovery(
+        JSON.stringify({ url: 'ws://127.0.0.1:4321/__genie/ws', pid: process.pid, tokenFile }),
+      )
+      process.env.XDG_RUNTIME_DIR = cliRuntime
+
+      expect((await resolveBridge(cwd)).token).toBe('hub-token')
+    } finally {
+      process.env.XDG_RUNTIME_DIR = savedRuntime
+      await rm(hubRuntime, { recursive: true, force: true })
+      await rm(cliRuntime, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a recorded token path that belongs to another app root', async () => {
+    const otherRoot = await mkdtemp(join(tmpdir(), 'genie-other-root-'))
+    try {
+      const tokenFile = await writeAgentToken(otherRoot, 'other-token')
+      await writeDiscovery(
+        JSON.stringify({ url: 'ws://127.0.0.1:4321/__genie/ws', pid: process.pid, tokenFile }),
+      )
+      expect((await resolveBridge(cwd)).token).toBeUndefined()
+    } finally {
+      await removeAgentToken(otherRoot)
+      await rm(otherRoot, { recursive: true, force: true })
+    }
+  })
+
+  it.each(['abc', '0', '70000', '12.5'])(
+    'rejects GENIE_BRIDGE_PORT=%s as a configuration error',
+    async (port) => {
+      process.env.GENIE_BRIDGE_PORT = port
+      const error = await resolveBridge(cwd).catch((caught: unknown) => caught)
+      expect(error).toBeInstanceOf(BridgeConfigError)
+      expect(error).toHaveProperty(
+        'message',
+        'GENIE_BRIDGE_PORT must be an integer from 1 to 65535.',
+      )
+    },
+  )
+
+  it('names GENIE_BRIDGE_URL when its value is malformed', async () => {
+    process.env.GENIE_BRIDGE_URL = 'http://127.0.0.1:4390'
+    await expect(resolveBridge(cwd)).rejects.toThrow('GENIE_BRIDGE_URL must use ws:// or wss://.')
+  })
+
+  it('reports a stale descendant discovery file relative to the searched directory', async () => {
+    await mkdir(join(cwd, '.git'))
+    const file = join(cwd, 'apps', 'shop', GENIE_DISCOVERY_FILE)
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, JSON.stringify({ url: 'ws://127.0.0.1:4321/__genie/ws', pid: 999_999 }))
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    try {
+      await resolveBridge(cwd)
+      expect(JSON.parse(String(stderr.mock.calls[0]?.[0]))).toMatchObject({
+        reason: 'stale_discovery',
+        data: { file: join('apps', 'shop', GENIE_DISCOVERY_FILE) },
+      })
+    } finally {
+      stderr.mockRestore()
+    }
   })
 
   it('does not search downward from an arbitrary nested directory', async () => {

@@ -1,5 +1,6 @@
 import { type Fiber, getRDTHook } from 'bippy'
 import { defineCollector, defineCollectorTool, type GenieCollector } from '../../client'
+import { roundMilliseconds } from '../../protocol'
 import type { NodeId } from './contracts'
 import {
   reactClearRendersContract,
@@ -32,6 +33,7 @@ import {
   reactToggleSuspenseFallbackContract,
   stylexInspectContract,
 } from './contracts'
+import type { EffectEventsInput } from './effect-contract'
 import { getEffectScheduleEventsWithOwnership } from './effect-events'
 import { getEffectAuditReport, getEffectTrackingCoverage } from './effect-tracker'
 import { getErrorState } from './error-tracker'
@@ -112,6 +114,28 @@ function currentEffectCoverage() {
     ...renderCoverage,
     complete: renderCoverage.complete && truncatedEffectLists === 0,
     truncatedEffectLists,
+  }
+}
+
+async function effectTimeline({
+  component,
+  afterDocumentCommitId,
+  limit,
+  appOnly,
+}: EffectEventsInput) {
+  const tracking = isTracking()
+  const documentCommitId = getDocumentCommitId()
+  const coverage = currentEffectCoverage()
+  return {
+    tracking,
+    documentCommitId,
+    ...(await getEffectScheduleEventsWithOwnership({
+      appOnly,
+      component,
+      afterDocumentCommitId,
+      limit,
+    })),
+    coverage,
   }
 }
 
@@ -323,7 +347,14 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactResetOverridesContract,
-        handler: () => resetOverrides(),
+        handler: async () => {
+          const commitsBefore = getCommitCount()
+          const result = resetOverrides()
+          const rerendered = result.cleared.some((entry) => entry.outcome !== 'skipped-unmounted')
+          return rerendered
+            ? { ...result, commitObserved: await observeCommitAfterOverride(commitsBefore) }
+            : result
+        },
       }),
       defineCollectorTool({
         contract: reactDomForComponentContract,
@@ -674,43 +705,10 @@ export function reactCollector(): GenieCollector {
           }
         },
       }),
-      defineCollectorTool({
-        contract: reactEffectEventsContract,
-        handler: async ({ component, afterDocumentCommitId, limit, appOnly }) => {
-          const tracking = isTracking()
-          const documentCommitId = getDocumentCommitId()
-          const coverage = currentEffectCoverage()
-          return {
-            tracking,
-            documentCommitId,
-            ...(await getEffectScheduleEventsWithOwnership({
-              appOnly,
-              component,
-              afterDocumentCommitId,
-              limit,
-            })),
-            coverage,
-          }
-        },
-      }),
+      defineCollectorTool({ contract: reactEffectEventsContract, handler: effectTimeline }),
       defineCollectorTool({
         contract: reactEffectTimelineContract,
-        handler: async ({ component, afterDocumentCommitId, limit, appOnly }) => {
-          const tracking = isTracking()
-          const documentCommitId = getDocumentCommitId()
-          const coverage = currentEffectCoverage()
-          return {
-            tracking,
-            documentCommitId,
-            ...(await getEffectScheduleEventsWithOwnership({
-              appOnly,
-              component,
-              afterDocumentCommitId,
-              limit,
-            })),
-            coverage,
-          }
-        },
+        handler: effectTimeline,
       }),
       defineCollectorTool({
         contract: reactErrorStateContract,
@@ -794,7 +792,7 @@ export function reactCollector(): GenieCollector {
             slowest: bySelfTime.map((r) => ({
               id: r.id,
               name: r.name,
-              selfTime: r.selfTime,
+              selfTime: roundMilliseconds(r.selfTime),
               renders: r.renders,
             })),
             mostRerendered: byRenders.map((r) => ({

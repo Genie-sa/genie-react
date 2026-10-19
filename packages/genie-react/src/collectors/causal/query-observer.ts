@@ -31,6 +31,17 @@ export function isQueryObserver(value: object): boolean {
   )
 }
 
+/** TanStack's MutationObserver: observer-shaped, with mutate/reset and no query. */
+export function isMutationObserver(value: object): boolean {
+  return (
+    queryObserverOptions(value) !== null &&
+    observerMethod(value, 'mutate') !== null &&
+    observerMethod(value, 'reset') !== null &&
+    observerMethod(value, 'getCurrentResult') !== null &&
+    observerMethod(value, 'getCurrentQuery') === null
+  )
+}
+
 export function queryObserverIdentity(
   observer: object,
   identityOptions: QueryObserverIdentityOptions = {},

@@ -259,6 +259,25 @@ describe('compareCaptureCohorts', () => {
     expect(result.metrics[1]?.delta.regressionPct).toBeCloseTo(8.3333, 4)
   })
 
+  it('headlines significant changes and refuses thin cohorts without budgets', () => {
+    const cohort = (prefix: string, renders: number[]) =>
+      renders.map((value, index) => capture(`${prefix}${index}`, { renders: value }))
+    const result = compare(
+      cohort('b', [10, 11, 12, 11, 10]),
+      cohort('c', [13, 14, 13, 15, 14]),
+      ['react.renders', 'performance.avgFps'],
+      [],
+      5,
+    )
+
+    expect(result.overall).toBe('informational')
+    expect(result.metrics[0]?.verdict).toBe('informational')
+    expect(result.metrics[0]?.reasons[0]).toMatch(
+      /^regressed 27\.27\d*% \(median 11 -> 14, p=0\.0\d+\)$/,
+    )
+    expect(result.metrics[1]?.verdict).toBe('insufficient-data')
+  })
+
   it('passes absolute and percentage budgets when repeated candidates improve', () => {
     const baseline = [9, 10, 11].map((renders, index) =>
       capture(`b${index}`, { renders, unnecessary: 2, selfTimeMs: 4 }),

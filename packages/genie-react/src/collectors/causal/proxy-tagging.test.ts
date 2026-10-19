@@ -83,7 +83,7 @@ describe('proxy tagging', () => {
     result.revoke()
     expect(isPlainObject(result.proxy)).toBe(false)
     expect(deepDiff({ value: result.proxy }, { value: {} }, { plainObjectDepth: 1 })).toEqual({
-      changes: [{ kind: 'reference-only', path: '/value' }],
+      changes: [{ kind: 'identity-changed-uninspected', path: '/value' }],
       visited: 2,
       truncated: true,
     })
@@ -103,7 +103,10 @@ describe('proxy tagging', () => {
       {
         name: 'state',
         referenceOnly: false,
-        deepDiff: { changes: [{ kind: 'reference-only', path: '' }], truncated: true },
+        deepDiff: {
+          changes: [{ kind: 'identity-changed-uninspected', path: '' }],
+          truncated: true,
+        },
         after: { kind: 'object', preview: '[proxy not inspected]' },
       },
       { name: 'items', referenceOnly: false, deepDiff: { truncated: true } },

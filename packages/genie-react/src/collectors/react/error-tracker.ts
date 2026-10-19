@@ -178,6 +178,7 @@ export async function getErrorState(query: {
 
   // Match each caught boundary to its console-logged error by name, consuming each log once so same-named boundaries can't grab the same (or an unrelated) entry. Forced boundaries never threw, so they carry no log.
   const consumed = new Set<number>()
+  const forcedErrorIds = new Set(forcedErrorBoundaries().map(getFiberId))
   const organicCaught = [...caught.values()].map((entry) => {
     const boundaryName = nameOf(entry.fiber)
     const index = errorLog.findIndex(
@@ -189,7 +190,8 @@ export async function getErrorState(query: {
       boundaryId: entry.boundaryId,
       boundaryName,
       log: index >= 0 ? errorLog[index] : null,
-      forced: false,
+      // React DevTools' forced error goes through a real DidCapture commit, so only the override registry can tell it apart.
+      forced: forcedErrorIds.has(entry.boundaryId),
     }
   })
   const caughtIds = new Set(caught.keys())
@@ -212,7 +214,7 @@ export async function getErrorState(query: {
           sourceOwnership: ownership,
           throwingComponent: log?.throwingComponent ?? null,
           message: log?.message ?? (forced ? FORCED_ERROR_MESSAGE : null),
-          stack: log?.stack ?? null,
+          stack: log?.stack ? (includeSource ? log.stack : withoutLibraryFrames(log.stack)) : null,
           isLibraryBoundary: isLibrary,
           forced,
         }
@@ -220,13 +222,15 @@ export async function getErrorState(query: {
   )
 
   const suspendedIds = new Set(suspended.keys())
-  const forcedSuspended = dedupeByBoundaryId(forcedSuspenseBoundaries(), suspendedIds)
+  const forcedSuspenseFibers = forcedSuspenseBoundaries()
+  const forcedSuspenseIds = new Set(forcedSuspenseFibers.map(getFiberId))
+  const forcedSuspended = dedupeByBoundaryId(forcedSuspenseFibers, suspendedIds)
   const suspendedCandidates: SuspendedBoundary[] = await Promise.all(
     [
       ...[...suspended.values()].map((entry) => ({
         fiber: entry.fiber,
         boundaryId: entry.id,
-        forced: false,
+        forced: forcedSuspenseIds.has(entry.id),
       })),
       ...forcedSuspended.map((entry) => ({ ...entry, forced: true })),
     ]
@@ -235,7 +239,7 @@ export async function getErrorState(query: {
         const classification = await classify(fiber)
         return {
           boundaryId,
-          boundaryName: nameOf(fiber),
+          boundaryName: suspenseBoundaryName(fiber),
           source: includeSource ? classification.source : null,
           sourceOwnership: classification.ownership,
           isFallbackShowing: true,
@@ -258,6 +262,21 @@ export async function getErrorState(query: {
       caught.size + forcedCaught.length > caughtCandidates.length ||
       suspended.size + forcedSuspended.length > suspendedCandidates.length,
   }
+}
+
+function suspenseBoundaryName(fiber: Fiber): string {
+  const name = nameOf(fiber)
+  return name === 'Anonymous' ? 'Suspense' : name
+}
+
+const STACK_FRAME = /^\s*at\s|@/
+
+/** Drop frames from installed packages (React's own work loop dominates a boundary error's stack). */
+export function withoutLibraryFrames(stack: string): string {
+  const lines = stack.split('\n')
+  const kept = lines.filter((line) => !STACK_FRAME.test(line) || !line.includes('/node_modules/'))
+  const omitted = lines.length - kept.length
+  return omitted > 0 ? [...kept, `    … ${omitted} library frames omitted`].join('\n') : stack
 }
 
 // Forced boundaries are appended after organic ones, so a real thrown error always wins the hint; a forced-only state gets its own reset guidance.

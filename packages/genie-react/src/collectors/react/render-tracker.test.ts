@@ -7,6 +7,8 @@ import {
   registerRouterStore,
 } from '../causal/external-store-registry'
 import { wasInstanceObserved, wasInstanceRenderUnanalyzed } from './instance-identity'
+import { noteDocumentCommit, resetObservationStateForTests } from './observation'
+import { createRenderEvidenceBudget, inputCoverage } from './render-budget'
 import {
   childrenChanged,
   clearRenders,
@@ -46,22 +48,6 @@ import { defaultWorkTags } from './work-tags'
 
 const MEMO = defaultWorkTags.SimpleMemoComponent
 
-const cloneFailure = vi.hoisted(() => ({ next: false }))
-
-vi.mock('../structured-clone', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../structured-clone')>()
-  return {
-    ...actual,
-    clonePlainData: <T>(value: T): T => {
-      if (cloneFailure.next) {
-        cloneFailure.next = false
-        throw new Error('clone failed')
-      }
-      return actual.clonePlainData(value)
-    },
-  }
-})
-
 // Source-map helpers stay deterministic; individual fixtures provide _debugSource when app ownership matters.
 vi.mock('bippy/source', () => ({
   getSource: async () => null,
@@ -100,7 +86,21 @@ function componentFiber(opts: {
 
 const render = (fiber: Fiber, phase: RenderPhase) => recordRender(fiber, phase)
 
-beforeEach(() => clearRenders())
+beforeEach(() => {
+  resetObservationStateForTests()
+  clearRenders()
+})
+
+it('rounds reported render times to hundredths of a millisecond', async () => {
+  render(componentFiber({ name: 'Profiled', actualDuration: 0.10000002384185791 }), 'mount')
+
+  expect((await getRenders({ sort: 'renders', limit: 1 }))[0]).toMatchObject({
+    selfTime: 0.1,
+    totalTime: 0.1,
+    cumulativeSelfTime: 0.1,
+    cumulativeTotalTime: 0.1,
+  })
+})
 
 it('sorts by updates rather than total renders before applying the result limit', async () => {
   const mounting = componentFiber({ name: 'MountHeavy' })
@@ -257,10 +257,15 @@ describe('diffStateChanges safety bounds', () => {
     expect(change?.before).not.toBe(before)
     expect(change?.after).not.toBe(after)
     expect(change?.before).toEqual({
-      __genie_dehydrated__: true,
-      kind: 'object',
-      preview: '[object fields not inspected]',
-      path: [],
+      nested: {
+        value: {
+          __genie_dehydrated__: true,
+          kind: 'object',
+          preview: '[object fields not inspected]',
+          path: ['nested', 'value'],
+        },
+      },
+      self: { __genie_dehydrated__: true, kind: 'circular', preview: '[Circular]', path: ['self'] },
     })
   })
 })
@@ -482,9 +487,13 @@ describe('causal render attribution', () => {
       [{ memoizedState: observer }, externalStoreHook(after)],
       [{ memoizedState: observer }, externalStoreHook(before)],
     )
-    cloneFailure.next = true
+    Object.defineProperty(fiber, 'actualDuration', {
+      get: () => {
+        throw new Error('timing unavailable')
+      },
+    })
 
-    expect(() => render(fiber, 'update')).toThrow('clone failed')
+    expect(() => render(fiber, 'update')).toThrow('timing unavailable')
     expect(querySubscriberFor(observer)).toBeNull()
     expect(
       (await getRenderCauseEventsReport({ component: 'AtomicQuery', limit: 1 })).events,
@@ -632,6 +641,81 @@ describe('causal render attribution', () => {
     expect(diffContextChanges(fiber)).toEqual([])
   })
 
+  const contextConsumer = (
+    name: string,
+    context: object,
+    current: unknown[],
+    previous: unknown[],
+  ): Fiber => {
+    const dependencies = (values: unknown[]) => ({
+      firstContext: values.reduceRight<unknown>(
+        (next, memoizedValue) => ({ context, memoizedValue, next }),
+        null,
+      ),
+    })
+    const fiber = causalFiber(name, [], [], { dependencies: dependencies(current) })
+    Object.assign(fiber.alternate as object, { dependencies: dependencies(previous) })
+    return fiber
+  }
+
+  it('compares plain-object Context values field by field', () => {
+    const context = { displayName: 'Theme' }
+    const [cause] = diffContextChanges(
+      contextConsumer('Header', context, [{ mode: 'dark', size: 2 }], [{ mode: 'light', size: 2 }]),
+    )
+    expect(cause).toMatchObject({
+      before: { mode: 'light', size: 2 },
+      after: { mode: 'dark', size: 2 },
+      deepDiff: {
+        changes: [{ kind: 'value', path: '/mode', before: 'light', after: 'dark' }],
+        truncated: false,
+      },
+    })
+  })
+
+  it('never calls an uncompared Context value reference-only and discloses the gap', () => {
+    class Theme {
+      constructor(readonly mode: string) {}
+    }
+    const evidence = createRenderEvidenceBudget()
+    const [cause] = diffContextChanges(
+      contextConsumer('Header', {}, [new Theme('dark')], [new Theme('dark')]),
+      evidence,
+    )
+    expect(cause).toMatchObject({
+      deepDiff: { changes: [{ kind: 'identity-changed-uninspected', path: '' }], truncated: true },
+    })
+    expect(inputCoverage(evidence).complete).toBe(false)
+  })
+
+  it('reports one cause when a Context dependency is recorded twice', () => {
+    const context = { displayName: 'Theme' }
+    const causes = diffContextChanges(
+      contextConsumer('Header', context, ['dark', 'dark'], ['light', 'light']),
+    )
+    expect(causes).toHaveLength(1)
+    expect(causes[0]).toMatchObject({ contextIndex: 0, name: 'Theme' })
+  })
+
+  it('counts a Context value with a new identity and equal contents as avoidable', async () => {
+    const context = { displayName: 'Theme' }
+    render(contextConsumer('SameTheme', context, [{ mode: 'dark' }], [{ mode: 'dark' }]), 'update')
+    render(contextConsumer('NewTheme', context, [{ mode: 'dark' }], [{ mode: 'light' }]), 'update')
+
+    const reports = new Map(
+      (await getRenders({ sort: 'unnecessary', limit: 10 })).map((report) => [report.name, report]),
+    )
+    expect(reports.get('SameTheme')).toMatchObject({
+      necessity: 'unnecessary',
+      noObservedInputChange: 1,
+      causes: [{ kind: 'context', deepDiff: { changes: [{ kind: 'reference-only', path: '' }] } }],
+    })
+    expect(reports.get('NewTheme')).toMatchObject({
+      necessity: 'necessary',
+      noObservedInputChange: 0,
+    })
+  })
+
   it('distinguishes nearest-parent propagation from an explicit unknown cause', async () => {
     const parentProps = {}
     const parent = componentFiber({ name: 'Parent', props: parentProps, prevProps: parentProps })
@@ -740,6 +824,20 @@ describe('causal render attribution', () => {
     const bounded = await getRenderCauseEventsReport({ limit: 1 })
     expect(bounded.events).toHaveLength(1)
     expect(bounded.omittedByLimit).toBe(1)
+  })
+
+  it('filters cause events by the document commit ID shown on each event', async () => {
+    const firstCommit = noteDocumentCommit()
+    render(causalFiber('EarlierRow', [externalStoreHook(2)], [externalStoreHook(1)]), 'update')
+    const secondCommit = noteDocumentCommit()
+    render(causalFiber('LaterRow', [externalStoreHook(3)], [externalStoreHook(2)]), 'update')
+
+    const names = async (query: { commit?: number; afterCommit?: number }) =>
+      (await getRenderCauseEventsReport({ limit: 10, ...query })).events.map(
+        (event) => `${event.componentName}@${event.documentCommitId}`,
+      )
+    expect(await names({ commit: firstCommit })).toEqual([`EarlierRow@${firstCommit}`])
+    expect(await names({ afterCommit: firstCommit })).toEqual([`LaterRow@${secondCommit}`])
   })
 
   it('keeps cause rows and metadata on the same call-start state', async () => {
@@ -918,7 +1016,7 @@ describe('recordRender unnecessary accounting', () => {
     ])
   })
 
-  it('reports changed class state without claiming unsafe deep paths', async () => {
+  it('reports changed class state fields by path', async () => {
     const type = function Counter(): null {
       return null
     }
@@ -941,22 +1039,12 @@ describe('recordRender unnecessary accounting', () => {
         name: 'class state',
         kind: 'state',
         unstable: false,
-        before: {
-          __genie_dehydrated__: true,
-          kind: 'object',
-          preview: '[object fields not inspected]',
-          path: [],
-        },
-        after: {
-          __genie_dehydrated__: true,
-          kind: 'object',
-          preview: '[object fields not inspected]',
-          path: [],
-        },
+        before: { count: 1 },
+        after: { count: 2 },
         deepDiff: {
-          changes: [{ kind: 'reference-only', path: '' }],
-          visited: 1,
-          truncated: true,
+          changes: [{ kind: 'value', path: '/count', before: 1, after: 2 }],
+          visited: 2,
+          truncated: false,
         },
       },
     ])
@@ -1201,6 +1289,20 @@ describe('commit analysis budget', () => {
     })
   })
 
+  it('shrinks a grown budget back after a run of commits that fit it', () => {
+    clearRenders({ budget: { fiberLimit: 250, operationLimit: 20_000, timeLimitMs: 8 } })
+    exhaustOneCommit()
+    exhaustOneCommit()
+    const withinBudget = () => finalizeCommitAnalysisBudget(createCommitAnalysisBudget())
+
+    for (let commit = 0; commit < 29; commit += 1) withinBudget()
+    expect(getRenderObservationConfig()).toMatchObject({ adaptiveScale: 3, timeLimitMs: 24 })
+    withinBudget()
+    expect(getRenderObservationConfig()).toMatchObject({ adaptiveScale: 2, timeLimitMs: 16 })
+    for (let commit = 0; commit < 100; commit += 1) withinBudget()
+    expect(getRenderObservationConfig()).toMatchObject({ adaptiveScale: 1, timeLimitMs: 8 })
+  })
+
   it('stops adaptive growth at the ceiling', () => {
     clearRenders({ budget: { fiberLimit: 20_000, operationLimit: 2_000_000, timeLimitMs: 500 } })
     exhaustOneCommit()
@@ -1367,6 +1469,22 @@ describe('pending component unmount coverage', () => {
     expect(getRenderTrackingCoverage('measurement').targeted?.complete).toBe(false)
   })
 
+  it('releases the render record of an unmount evicted from a full buffer', async () => {
+    clearRenders({ lifecycle: { bufferLimit: 1, targetReserve: 0 } })
+    const evicted = componentFiber({ name: 'EvictedRow', props: {} })
+    const kept = componentFiber({ name: 'KeptRow', props: {} })
+    render(evicted, 'mount')
+    render(kept, 'mount')
+
+    queuePendingUnmount(1, evicted)
+    queuePendingUnmount(1, kept)
+
+    expect(getDroppedPendingUnmountFiberCount()).toBe(1)
+    expect((await getRenders({ sort: 'renders', limit: 10 })).map((r) => r.name)).toEqual([
+      'KeptRow',
+    ])
+  })
+
   it('ignores host unmounts and reports bounded component overflow', () => {
     const host = asFiber({ tag: 5, type: 'div' })
     for (let index = 0; index < 1_100; index += 1) queuePendingUnmount(1, host)
@@ -1522,6 +1640,36 @@ describe('memo-aware prop causes', () => {
         { kind: 'props', name: 'count', referenceOnly: false },
       ],
     })
+  })
+
+  it('keeps the parent as the cause of a plain wrapper that received new children', async () => {
+    renderUnder(
+      componentFiber({
+        name: 'Wrapper',
+        props: { children: { type: 'span' } },
+        prevProps: { children: { type: 'span' } },
+      }),
+    )
+    renderUnder(
+      componentFiber({
+        name: 'MemoWrapper',
+        tag: MEMO,
+        props: { children: { type: 'span' } },
+        prevProps: { children: { type: 'span' } },
+      }),
+    )
+
+    const records = await byName()
+    expect(records.get('Wrapper')).toMatchObject({
+      necessity: 'unknown',
+      noObservedInputChange: 0,
+      causes: [{ kind: 'parent', parentName: 'Parent' }, { kind: 'children' }],
+    })
+    expect(records.get('MemoWrapper')).toMatchObject({
+      necessity: 'necessary',
+      causes: [{ kind: 'children' }],
+    })
+    expect(records.get('MemoWrapper')?.causes).toHaveLength(1)
   })
 
   it('attributes a memo render to props without calling reference-only churn necessary', async () => {

@@ -27,4 +27,28 @@ describe('commit work budget', () => {
     expect(consumeCommitWork(budget, 'identity')).toBe(false)
     expect(commitWorkExhaustions(budget)).toEqual(['identity'])
   })
+
+  it('reads the clock once per batch of operations and stays exhausted after the deadline', () => {
+    let now = 0
+    let clockReads = 0
+    const budget = createCommitWorkBudget({
+      operationLimit: 1_000,
+      timeLimitMs: 5,
+      now: () => {
+        clockReads += 1
+        return now
+      },
+    })
+    clockReads = 0
+
+    for (let operation = 0; operation < 32; operation += 1) consumeCommitWork(budget, 'scan')
+    expect(clockReads).toBe(2)
+
+    now = 5
+    let allowedAfterDeadline = 0
+    while (consumeCommitWork(budget, 'scan')) allowedAfterDeadline += 1
+    expect(allowedAfterDeadline).toBeLessThan(16)
+    expect(consumeCommitWork(budget, 'late')).toBe(false)
+    expect(commitWorkExhaustions(budget)).toEqual(['late', 'scan'])
+  })
 })

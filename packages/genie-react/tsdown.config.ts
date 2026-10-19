@@ -23,6 +23,7 @@ export default defineConfig([
       navigation: 'src/navigation/index.ts',
       'react-freeze': 'src/react-freeze.ts',
       tools: 'src/tools.ts',
+      production: 'src/production.ts',
       script: 'src/script.ts',
       next: 'src/next/index.ts',
       protocol: 'src/protocol/index.ts',
@@ -42,6 +43,7 @@ export default defineConfig([
     entry: {
       vite: 'src/vite/index.ts',
       hub: 'src/hub/index.ts',
+      'hub/token': 'src/hub/token.ts',
     },
     platform: 'node',
     clean: false,

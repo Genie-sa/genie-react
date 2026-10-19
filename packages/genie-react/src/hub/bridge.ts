@@ -1,7 +1,6 @@
-import './ws-env'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
-import { WebSocket, WebSocketServer } from 'ws'
+import type { WebSocket } from 'ws'
 import {
   type AgentErrorCode,
   type AgentMessage,
@@ -51,6 +50,7 @@ import {
   type UpgradeVerdict,
 } from './upgrade-policy'
 import { matchesOf, parseQueryList, queryStateOf, routerStateOf } from './wire-guards'
+import { ws } from './ws-env'
 
 type BridgeLogLevel = 'info' | 'warn' | 'error'
 type BridgeLogger = (level: BridgeLogLevel, message: string, meta?: unknown) => void
@@ -255,7 +255,7 @@ function unrefTimer(timer: ReturnType<typeof setInterval>): void {
 
 /** The hub: a `noServer` WSS mountable on Vite's HTTP server; calls route to the targeted tab's newest document (explicit `agent/invoke.sessionId`, else the only or already-targeted tab), and it answers the `devtools_status`/`devtools_wait` meta tools itself. */
 export class GenieBridge {
-  private readonly wss = new WebSocketServer({ noServer: true })
+  private readonly wss = new ws.WebSocketServer({ noServer: true })
   private readonly agents = new Set<WebSocket>()
   private readonly pending = new Map<string, PendingRequest>()
   private readonly connectionWaiters = new Set<() => void>()
@@ -628,7 +628,7 @@ export class GenieBridge {
 
   private sweepDeadConnections(): void {
     for (const socket of this.connections) {
-      if (socket.readyState !== WebSocket.OPEN) continue
+      if (socket.readyState !== ws.WebSocket.OPEN) continue
       if (this.responsiveSockets.has(socket)) {
         this.responsiveSockets.delete(socket)
         socket.ping()
@@ -1020,14 +1020,24 @@ export class GenieBridge {
         this.send(socket, { kind: 'bridge/pong', id: message.id })
         return
       case 'agent/invoke':
-        void this.handleInvoke(
+        this.handleInvoke(
           socket,
           message.id,
           message.tool,
           message.args,
           message.sessionId,
           message.timeoutMs,
-        )
+        ).catch((error: unknown) => {
+          this.log('error', `${message.tool} failed inside the hub`, error)
+          this.result(
+            socket,
+            message.id,
+            false,
+            undefined,
+            `${message.tool} failed inside the Genie hub: ${error instanceof Error ? error.message : String(error)}`,
+            { errorCode: 'tool-error' },
+          )
+        })
         return
     }
   }
@@ -1254,6 +1264,12 @@ export class GenieBridge {
       !this.hasSession(sessionId) &&
       !(await this.waitForConnection(input.timeoutMs, sessionId))
     ) {
+      // A reloading tab may still claim the target, so only a wait that never found it reports which targets exist.
+      if (sessionId && this.apps.size > 0) {
+        const { error, ...extra } = this.unknownSession(sessionId)
+        this.result(agent, id, false, undefined, error, extra)
+        return
+      }
       finish({ state: 'failed', reason: 'no app connected' })
       return
     }
@@ -1285,7 +1301,11 @@ export class GenieBridge {
     }
     let lastCheck: WaitCheck = { state: 'pending' }
     while (Date.now() < deadline) {
-      const check = await this.checkCondition(input, target, pollState)
+      const check = await this.checkCondition(
+        { ...input, deadline: input.deadline ?? deadline },
+        target,
+        pollState,
+      )
       lastCheck = check
       if (check.state !== 'pending') return check
       await delay(POLL_INTERVAL_MS)
@@ -1336,12 +1356,24 @@ export class GenieBridge {
       return this.checkSettle(input, session, pollState)
     }
     if (!session) return { state: 'pending' }
+    let toolFailure: string | undefined
+    const request = async (tool: string, args: unknown): Promise<AppResponse> => {
+      const response = await this.appRequestForSession(tool, args, session, input.deadline)
+      // A missing tool or rejected arguments never satisfy the condition, so fail now; other errors (an uncached query) may clear on a later poll.
+      if (!response.ok && (response.errorCode === 'invalid-args' || !toolDescriptor(session, tool)))
+        toolFailure ??= `${tool} failed: ${response.error ?? response.errorCode}`
+      return response
+    }
+    const check = await this.checkAppCondition(input, request)
+    return toolFailure === undefined ? check : { state: 'failed', reason: toolFailure }
+  }
+
+  private async checkAppCondition(
+    input: WaitInput,
+    request: (tool: string, args: unknown) => Promise<AppResponse>,
+  ): Promise<WaitCheck> {
     if (input.condition === 'component') {
-      const res = await this.appRequestForSession(
-        'react_find_components',
-        { query: input.name ?? '', limit: 1 },
-        session,
-      )
+      const res = await request('react_find_components', { query: input.name ?? '', limit: 1 })
       const matches = matchesOf(res.result)
       return {
         state: res.ok && matches !== undefined && matches.length > 0 ? 'met' : 'pending',
@@ -1354,7 +1386,7 @@ export class GenieBridge {
           input.queryHash === undefined
             ? { queryKey: input.queryKey }
             : { queryHash: input.queryHash }
-        const res = await this.appRequestForSession('query_get', selector, session)
+        const res = await request('query_get', selector)
         const query = queryStateOf(res.result)
         if (!res.ok || !query) return { state: 'pending' }
         const match = queryIdentity(query)
@@ -1366,7 +1398,7 @@ export class GenieBridge {
       }
 
       if (input.name) {
-        const res = await this.appRequestForSession('query_list', { limit: 500 }, session)
+        const res = await request('query_list', { limit: 500 })
         const queries = parseQueryList(res.result)
         if (!res.ok || !queries || queries.length === 0) return { state: 'pending' }
         const relevant = queries.filter((query) => legacyQueryMatches(query, input.name ?? ''))
@@ -1385,7 +1417,7 @@ export class GenieBridge {
           lastObserved: { fetchStatus: query.fetchStatus ?? null },
         }
       }
-      const fetching = await this.appRequestForSession('query_is_fetching', {}, session)
+      const fetching = await request('query_is_fetching', {})
       const state = queryStateOf(fetching.result)
       return {
         state: fetching.ok && state?.fetching === 0 && state.mutating === 0 ? 'met' : 'pending',
@@ -1396,7 +1428,7 @@ export class GenieBridge {
       }
     }
     if (input.condition === 'navigation') {
-      const res = await this.appRequestForSession('router_get_state', {}, session)
+      const res = await request('router_get_state', {})
       const state = routerStateOf(res.result)
       if (!res.ok || !state) return { state: 'pending' }
       return {
@@ -1513,7 +1545,12 @@ export class GenieBridge {
       if (!toolDescriptor(session, 'query_is_fetching')) {
         return unsupported('query_is_fetching')
       }
-      const response = await this.appRequestForSession('query_is_fetching', {}, session)
+      const response = await this.appRequestForSession(
+        'query_is_fetching',
+        {},
+        session,
+        input.deadline,
+      )
       const result = recordOf(response.result)
       const fetching = result ? numberField(result, 'fetching') : null
       const mutating = result ? (numberField(result, 'mutating') ?? 0) : null
@@ -1526,7 +1563,12 @@ export class GenieBridge {
       if (!toolDescriptor(session, 'router_get_state')) {
         return unsupported('router_get_state')
       }
-      const response = await this.appRequestForSession('router_get_state', {}, session)
+      const response = await this.appRequestForSession(
+        'router_get_state',
+        {},
+        session,
+        input.deadline,
+      )
       const result = routerStateOf(response.result)
       return {
         status: response.ok && result?.isLoading === false ? 'met' : 'pending',
@@ -1538,7 +1580,12 @@ export class GenieBridge {
     }
     if (!toolDescriptor(session, 'browser_fps')) return unsupported('browser_fps')
     if (pollState.frameCheck?.status === 'met') return pollState.frameCheck
-    const response = await this.appRequestForSession('browser_fps', { durationMs: 250 }, session)
+    const response = await this.appRequestForSession(
+      'browser_fps',
+      { durationMs: 250 },
+      session,
+      input.deadline,
+    )
     const result = recordOf(response.result)
     const comparable = result?.comparable === true
     pollState.frameCheck = {
@@ -1565,8 +1612,9 @@ export class GenieBridge {
     sessionId?: string,
     timeoutMs?: number,
   ): void {
+    // Agents choose their own ids, so a colliding in-flight id gets a hub-minted one to keep two agents' replies apart.
     this.sendAppRequest(
-      id,
+      this.pending.has(id) ? newId() : id,
       tool,
       args,
       ({ ok, result, error, ...extra }) => this.result(agent, id, ok, result, error, extra),
@@ -1616,6 +1664,21 @@ export class GenieBridge {
       return
     }
     const { session, retargeted } = resolution
+    // A tab that was already open only stands in for a reloading default on reads; a mutation there would change the wrong tab.
+    if (
+      retargeted &&
+      this.defaultTabReload !== null &&
+      toolDescriptor(session, tool)?.annotations?.readOnlyHint !== true
+    ) {
+      settle({
+        ok: false,
+        errorCode: 'not-connected',
+        errorDetails: { hubCode: 'SESSION_RELOADING' },
+        retryInMs: BUSY_RETRY_MS,
+        error: `The targeted tab ${JSON.stringify(this.defaultTabKey)} is reconnecting after a reload and "${tool}" is not read-only, so it was not run on another tab; retry shortly, or target a tab explicitly.`,
+      })
+      return
+    }
     const settleWithSession = (response: AppResponse): void =>
       settle({ ...response, session, ...(retargeted ? { retargeted } : {}) })
     const fullTimeout = Math.min(
@@ -1833,8 +1896,9 @@ export class GenieBridge {
   }
 
   private broadcastStatus(): void {
-    const status = { kind: 'bridge/status' as const, ...this.getStatus() }
-    for (const agent of this.agents) this.send(agent, status)
+    if (this.agents.size === 0) return
+    const frame = encodeMessage({ kind: 'bridge/status', ...this.getStatus() })
+    for (const agent of this.agents) if (agent.readyState === ws.WebSocket.OPEN) agent.send(frame)
   }
 
   private result(
@@ -1880,7 +1944,7 @@ export class GenieBridge {
   }
 
   private send(socket: WebSocket, message: unknown): void {
-    if (socket.readyState === WebSocket.OPEN) socket.send(encodeMessage(message))
+    if (socket.readyState === ws.WebSocket.OPEN) socket.send(encodeMessage(message))
   }
 }
 

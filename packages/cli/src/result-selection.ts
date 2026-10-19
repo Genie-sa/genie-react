@@ -55,8 +55,8 @@ interface Match {
 /** Select nested output with RFC 6901 JSON Pointer or a dotted path with `*` / `[*]`. */
 export function selectResult(result: unknown, expression: string): SelectionEnvelope {
   const segments = parseSelection(expression)
-  const matches = selectMatches([{ path: '', value: result }], segments)
-  if (matches.length === 0) {
+  const { matches, emptyWildcard } = selectMatches([{ path: '', value: result }], segments)
+  if (matches.length === 0 && !emptyWildcard) {
     const available = isRecord(result)
       ? Object.keys(result)
           .sort()
@@ -68,7 +68,6 @@ export function selectResult(result: unknown, expression: string): SelectionEnve
       { expression, available },
     )
   }
-  const matchedPaths = matches.map(({ path }) => path || '/')
   const selectedLeaves = matches.reduce(
     (count, match) => Math.min(MAX_COUNTED_PATHS, count + countLeafPaths(match.value)),
     0,
@@ -80,13 +79,11 @@ export function selectResult(result: unknown, expression: string): SelectionEnve
     selection: {
       expression,
       matchedPathCount: matches.length,
-      matchedPaths: matchedPaths.slice(0, 200),
+      matchedPaths: matches.map(({ path }) => path || '/'),
       omittedPathCount: Math.max(0, totalLeaves - selectedLeaves),
     },
-    result:
-      matches.length === 1
-        ? matches[0]?.value
-        : matches.map((match) => ({ path: match.path || '/', value: match.value })),
+    // A wildcard always yields an array (possibly empty), aligned index-for-index with matchedPaths.
+    result: hasWildcard(segments) ? matches.map(({ value }) => value) : matches[0]?.value,
   }
 }
 
@@ -246,9 +243,24 @@ function parseSelection(expression: string): string[] {
   return segments
 }
 
-function selectMatches(matches: Match[], segments: string[]): Match[] {
+function hasWildcard(segments: readonly string[]): boolean {
+  return segments.includes('*')
+}
+
+/** `emptyWildcard`: matching stopped only because a wildcard ran over empty collections, which is an empty result rather than a wrong path. */
+function selectMatches(
+  matches: Match[],
+  segments: string[],
+): { matches: Match[]; emptyWildcard: boolean } {
   let current = matches
   for (const segment of segments) {
+    if (
+      segment === '*' &&
+      current.length > 0 &&
+      current.every(({ value }) => isEmptyCollection(value))
+    ) {
+      return { matches: [], emptyWildcard: true }
+    }
     const next: Match[] = []
     for (const match of current) {
       if (segment === '*') {
@@ -278,7 +290,13 @@ function selectMatches(matches: Match[], segments: string[]): Match[] {
     }
     current = next
   }
-  return current
+  return { matches: current, emptyWildcard: false }
+}
+
+function isEmptyCollection(value: unknown): boolean {
+  return Array.isArray(value)
+    ? value.length === 0
+    : isRecord(value) && Object.keys(value).length === 0
 }
 
 function countLeafPaths(value: unknown): number {

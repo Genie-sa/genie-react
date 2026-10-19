@@ -288,7 +288,10 @@ export const devtoolsCaptureCreateContract = defineAgentToolContract({
           (domains) => new Set(domains).size === domains.length,
           'include domains must be unique',
         )
-        .default(['react', 'effects', 'query', 'router', 'memory']),
+        .optional()
+        .describe(
+          'Domains to capture. Defaults to whichever of react, effects, query, router, and memory the app advertises.',
+        ),
       maxAttempts: z.number().int().min(1).max(5).default(3),
       view: outputViewSchema('the retained artifact with every section'),
     })
@@ -445,8 +448,10 @@ export const devtoolsStatusContract = defineAgentToolContract({
   input: z.object({
     includeTools: z
       .boolean()
-      .default(true)
-      .describe('Include full tool descriptors; set false for a compact status response.'),
+      .default(false)
+      .describe(
+        'Include full tool descriptors (large). Prefer the CLI `genie-react tools [group|name]` for discovery.',
+      ),
   }),
   output: z.object({
     connected: z.boolean(),

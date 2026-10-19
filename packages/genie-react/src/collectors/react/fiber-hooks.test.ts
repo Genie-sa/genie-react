@@ -122,6 +122,17 @@ describe('inspectFiber hook entries', () => {
     expect(hooks[1]).not.toHaveProperty('value')
   })
 
+  it('collapses function placeholders to their preview while keeping other values', () => {
+    function refetch(): void {}
+    const updatedAt = new Date(0)
+    const fiber = functionFiber(chain([stateHook({ refetch, updatedAt, listeners: [refetch] })]))
+    expect(inspectFiber(fiber, { depth: 2 }).hooks[0]?.value).toEqual({
+      refetch: 'ƒ refetch()',
+      updatedAt,
+      listeners: ['ƒ refetch()'],
+    })
+  })
+
   it('reports no hooks for a class component', () => {
     const fiber = asFiber({
       tag: ClassComponentTag,

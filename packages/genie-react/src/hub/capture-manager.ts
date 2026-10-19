@@ -43,6 +43,13 @@ interface CaptureRequestResult {
   error?: string
   errorCode?: AgentErrorCode
   errorDetails?: ToolErrorDetails
+  retryInMs?: number
+}
+
+class CaptureInterruptedError extends Error {
+  constructor(readonly response: CaptureRequestResult) {
+    super('The app document changed during capture. Retry against the ready successor.')
+  }
 }
 
 export interface CaptureSession {
@@ -59,10 +66,8 @@ export type CaptureInvocation =
   | { ok: true; result: unknown; session?: CaptureSession }
   | (Omit<SessionUnavailable, 'errorCode'> & {
       ok: false
-      errorCode: Extract<
-        AgentErrorCode,
-        'invalid-args' | 'not-connected' | 'unknown-session' | 'tool-error'
-      >
+      errorCode: AgentErrorCode
+      retryInMs?: number
       session?: CaptureSession
     })
 
@@ -107,6 +112,16 @@ const CAPTURE_RECIPES: Record<CaptureDomain, CaptureRecipeTool[]> = {
   ],
   memory: [{ name: 'browser_get_memory', args: {} }],
   performance: [{ name: 'browser_fps', args: { durationMs: 250 } }],
+}
+
+const DEFAULT_CAPTURE_DOMAINS: CaptureDomain[] = ['react', 'effects', 'query', 'router', 'memory']
+
+function defaultCaptureDomains(tools: ToolDescriptor[]): CaptureDomain[] {
+  const advertised = new Set(tools.map((tool) => tool.name))
+  const domains = DEFAULT_CAPTURE_DOMAINS.filter((domain) =>
+    CAPTURE_RECIPES[domain].some((recipe) => advertised.has(recipe.name)),
+  )
+  return domains.length > 0 ? domains : ['react']
 }
 
 const CAPTURE_TOOL_NAMES = new Set([
@@ -218,13 +233,26 @@ export class CaptureManager<TSession extends CaptureSession> {
       }
     }
     try {
-      const capture = await this.create(session, parsed.data)
+      const capture = await this.create(session, {
+        ...parsed.data,
+        include: parsed.data.include ?? defaultCaptureDomains(session.tools),
+      })
       return {
         ok: true,
         result: parsed.data.view === 'full' ? capture : captureReadSummary(capture),
         session,
       }
     } catch (error) {
+      if (error instanceof CaptureInterruptedError) {
+        return {
+          ok: false,
+          error: error.message,
+          errorCode: 'not-connected',
+          errorDetails: error.response.errorDetails,
+          retryInMs: error.response.retryInMs,
+          session,
+        }
+      }
       return { ok: false, error: errorMessage(error), errorCode: 'tool-error', session }
     }
   }
@@ -378,7 +406,7 @@ export class CaptureManager<TSession extends CaptureSession> {
     }
     const response = await this.options.request(session, recipe.name, args)
     if (!response.ok && response.errorCode === 'not-connected') {
-      throw new Error('The app document changed during capture. Retry against the ready successor.')
+      throw new CaptureInterruptedError(response)
     }
     const durationMs = Date.now() - startedAt
     return response.ok
@@ -412,7 +440,10 @@ export class CaptureManager<TSession extends CaptureSession> {
 
   private assertSameDocument(session: TSession): void {
     if (!this.options.isCurrentSession(session)) {
-      throw new Error('The app document changed during capture. Retry against the ready successor.')
+      throw new CaptureInterruptedError({
+        ok: false,
+        errorDetails: { hubCode: 'SESSION_DISCONNECTED' satisfies HubErrorCode },
+      })
     }
   }
 

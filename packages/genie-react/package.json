@@ -32,6 +32,7 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "production": "./dist/production.js",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
@@ -72,6 +73,7 @@
     },
     "./tools": {
       "types": "./dist/tools.d.ts",
+      "production": "./dist/production.js",
       "import": "./dist/tools.js",
       "default": "./dist/tools.js"
     },
@@ -94,6 +96,11 @@
       "types": "./dist/hub.d.ts",
       "import": "./dist/hub.js",
       "default": "./dist/hub.js"
+    },
+    "./hub/token": {
+      "types": "./dist/hub/token.d.ts",
+      "import": "./dist/hub/token.js",
+      "default": "./dist/hub/token.js"
     },
     "./protocol": {
       "types": "./dist/protocol.d.ts",

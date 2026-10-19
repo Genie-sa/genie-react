@@ -19,7 +19,8 @@ defaults to `{bufferLimit:1000,targetReserve:100}`; `bufferLimit` is an integer 
 `targetReserve` is an integer from 0 to 5000, and the reserve cannot exceed the buffer.
 
 The expanded maxima are opt-in; defaults are unchanged. `adaptive:true` increases only later commit
-budgets after exhaustion and cannot restore evidence skipped by the exhausted commit. For a
+budgets after exhaustion, up to 4x, and steps back down after 30 commits in a row fit the budget. It
+cannot restore evidence skipped by the exhausted commit. For a
 one-action window, especially on a large React Native tree, discard incomplete coverage and rerun
 the action from a fresh window with an explicitly larger budget.
 
@@ -211,10 +212,11 @@ npx @genie-react/cli call react_get_renders \
 coverage explain the render; request `view:"full"` for the changed values and `deepDiff` paths.
 Compatibility counts such as `unnecessary` are not proof that a render is safe to remove.
 
-Props cause a render only for components that can skip it on equal props: `memo` components and
-classes that extend `PureComponent` or define `shouldComponentUpdate`. Any other component lists its
-own state, context, store, or `children` changes first, otherwise `parent`, and its changed props
-follow as observed inputs. With complete coverage, a render of those components whose changed props
+Props, `children` included, cause a render only for components that can skip it on equal props:
+`memo` components and classes that extend `PureComponent` or define `shouldComponentUpdate`. Any
+other component lists its own state, context, or store changes first, otherwise `parent`, and its
+changed props and `children` follow as observed inputs. State or context that received a new object
+with equal contents does not make a render `necessary` and counts toward `noObservedInputChange`. With complete coverage, a render of those components whose changed props
 were all reference-only or new functions counts toward `functionIdentityPropRenders` when any function
 changed identity, usually an inline callback, and toward `referenceOnlyPropRenders` otherwise.
 `undeterminedReferencePropRenders` counts renders whose reference changes a partial scan or a
@@ -235,6 +237,7 @@ notification delivery. Dynamic and private auto-tracked policies remain unavaila
 and are never removed by this check.
 
 **Input:** `commit` and `afterCommit` are optional nonnegative integers and are mutually exclusive.
+Both match the `documentCommitId` shown on every event.
 `component` is an optional substring. `limit` is an integer from 1 to 500 and defaults to 100.
 `appOnly` defaults to `true`. `view` is `summary` (default) or `full`; the summary names each cause,
 while `full` adds input values, `deepDiff`, Query notification details, `assessment`, `instance`,
@@ -802,7 +805,8 @@ defaults to `{bufferLimit:1000,targetReserve:100}`; `bufferLimit` is an integer 
 `targetReserve` is an integer from 0 to 5000, and the reserve cannot exceed the buffer.
 
 The expanded maxima are opt-in; defaults are unchanged. `adaptive:true` increases only later commit
-budgets after exhaustion and cannot restore evidence skipped by the exhausted commit. For a
+budgets after exhaustion, up to 4x, and steps back down after 30 commits in a row fit the budget. It
+cannot restore evidence skipped by the exhausted commit. For a
 one-action profile, especially on a large React Native tree, discard incomplete coverage and rerun
 the flow from a fresh profile with an explicitly larger budget.
 

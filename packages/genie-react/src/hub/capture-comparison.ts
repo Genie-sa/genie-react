@@ -133,9 +133,9 @@ function compareMetric(
     input,
   )
 
-  if (budget && notComparableReasons.length > 0) {
+  if (notComparableReasons.length > 0) {
     verdict = 'not-comparable'
-  } else if (budget && sampleFloor < input.minimumRuns) {
+  } else if (sampleFloor < input.minimumRuns) {
     verdict = 'insufficient-data'
     reasons.push(
       `requires ${input.minimumRuns} usable samples per cohort after warm-up and outlier exclusion; found ${baselineStats.samples} baseline and ${candidateStats.samples} candidate`,
@@ -167,6 +167,12 @@ function compareMetric(
         }
       }
     }
+  } else if (regressionPct !== null) {
+    reasons.push(
+      confidence.significant && Math.abs(regressionPct) >= input.minimumEffectPct
+        ? `${regressionPct > 0 ? 'regressed' : 'improved'} ${Math.abs(regressionPct)}% (median ${baselineStats.median} -> ${candidateStats.median}, p=${confidence.pValue})`
+        : `no significant change (${regressionPct}%, p=${confidence.pValue}); pass budgets to gate on it`,
+    )
   }
 
   return {
@@ -427,34 +433,28 @@ function permutationPValue(baseline: number[], candidate: number[]): number | nu
   if (baseline.length === 0 || candidate.length === 0) return null
   const combined = [...baseline, ...candidate]
   const baselineSize = baseline.length
-  const observed = Math.abs(average(candidate) - average(baseline))
+  const candidateSize = candidate.length
+  const total = combined.reduce((sum, value) => sum + value, 0)
+  // Each split's mean difference follows from its baseline sum, so the walk carries one number instead of allocating index sets.
+  const meanDifference = (baselineSum: number): number =>
+    Math.abs((total - baselineSum) / candidateSize - baselineSum / baselineSize)
+  const observed = meanDifference(baseline.reduce((sum, value) => sum + value, 0))
   let permutations = 0
   let atLeastAsExtreme = 0
-  const selected: number[] = []
 
-  const visit = (start: number): void => {
-    if (selected.length === baselineSize) {
-      const selectedSet = new Set(selected)
-      const permutedBaseline = selected.map((index) => combined[index] ?? 0)
-      const permutedCandidate = combined.filter((_, index) => !selectedSet.has(index))
-      const difference = Math.abs(average(permutedCandidate) - average(permutedBaseline))
+  const visit = (start: number, chosen: number, baselineSum: number): void => {
+    if (chosen === baselineSize) {
       permutations += 1
-      if (difference + Number.EPSILON >= observed) atLeastAsExtreme += 1
+      if (meanDifference(baselineSum) + Number.EPSILON >= observed) atLeastAsExtreme += 1
       return
     }
-    const remaining = baselineSize - selected.length
+    const remaining = baselineSize - chosen
     for (let index = start; index <= combined.length - remaining; index += 1) {
-      selected.push(index)
-      visit(index + 1)
-      selected.pop()
+      visit(index + 1, chosen + 1, baselineSum + (combined[index] ?? 0))
     }
   }
-  visit(0)
+  visit(0, 0, 0)
   return permutations === 0 ? null : round4(atLeastAsExtreme / permutations)
-}
-
-function average(values: number[]): number {
-  return values.reduce((sum, value) => sum + value, 0) / values.length
 }
 
 /** Type-7 linear quantile, matching the common R/NumPy default and behaving sensibly for small samples. */

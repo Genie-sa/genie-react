@@ -114,6 +114,14 @@ describe('production component removal', () => {
     expect(resolveId.call(null, 'genie-react/protocol')).toBeNull()
   })
 
+  it('stubs the TanStack-free tools entry exactly like the root runtime', async () => {
+    const id = resolveId.call(null, 'genie-react/tools')
+    expect(id).toBe('\0virtual:dev-only-runtime-noop')
+    const code = load.call(null, id as string) as string
+    const exported = [...code.matchAll(/export (?:const|class) (\w+)/g)].map((match) => match[1])
+    expect(exported.sort()).toEqual(Object.keys(await import('../production')).sort())
+  })
+
   it('removes custom-tool helper calls and their protocol-only arguments', async () => {
     const out = await stripTools.call(
       productionCtx,
@@ -127,6 +135,16 @@ useTool({ description: 'react_get_tree', handler: () => tool })
     expect(out?.code).not.toContain('query_list')
     expect(out?.code).not.toContain('react_get_tree')
     expect(out?.code).toContain('const tool = undefined')
+  })
+
+  it('removes helper calls imported from genie-react/tools', async () => {
+    const out = await stripTools.call(
+      productionCtx,
+      `import { useGenieTool } from 'genie-react/tools'\nuseGenieTool({ description: 'react_get_tree' })\n`,
+      '/app/src/tools.js',
+    )
+
+    expect(out?.code).not.toContain('react_get_tree')
   })
 })
 
@@ -273,6 +291,53 @@ describe('cloudflare coexistence', () => {
     } finally {
       httpServer.emit('close')
       await new Promise((resolve) => setTimeout(resolve, 100))
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps the standalone hub alive across a Vite restart, which opens the new server first', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'genie-cf-restart-'))
+    const start = async () => {
+      const main = genie({ react: false })[0] as Plugin
+      getHook<(this: unknown, config: unknown) => void>(main, 'configResolved').call(null, {
+        plugins: [{ name: 'vite-plugin-cloudflare' }],
+      })
+      const httpServer = new EventEmitter()
+      await getHook<(this: unknown, server: unknown) => Promise<void>>(
+        main,
+        'configureServer',
+      ).call(null, {
+        config: { root, logger: { info: () => undefined } },
+        httpServer,
+        middlewares: { use: () => undefined },
+      })
+      const module = await getHook<(this: unknown, id: string) => Promise<string | null>>(
+        main,
+        'load',
+      ).call({}, '\0virtual:genie-client')
+      return { httpServer, url: /url: "(ws:[^"]+)"/.exec(module ?? '')?.[1] }
+    }
+    const reachable = (url: string | undefined) =>
+      new Promise<boolean>((resolve) => {
+        const socket = new WebSocket(`${url}?role=app`)
+        socket.onopen = () => {
+          socket.close()
+          resolve(true)
+        }
+        socket.onerror = () => resolve(false)
+      })
+    try {
+      const first = await start()
+      const restarted = await start()
+      first.httpServer.emit('close')
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      expect(restarted.url).toBe(first.url)
+      expect(await reachable(restarted.url)).toBe(true)
+      restarted.httpServer.emit('close')
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(await reachable(restarted.url)).toBe(false)
+    } finally {
       await rm(root, { recursive: true, force: true })
     }
   })

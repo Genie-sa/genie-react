@@ -8,7 +8,6 @@ import {
   bridgeUrlFor,
   GenieBridge,
   removeDiscoveryFile,
-  type StartHubResult,
   startGenieHub,
   writeDiscoveryFile,
 } from '../hub'
@@ -148,6 +147,7 @@ export class GenieToolError extends Error {
   }
 }
 `
+const PRODUCTION_NOOP_SOURCES = new Set(['genie-react', 'genie-react/tools'])
 const PRODUCTION_NOOP_CALLS = new Set([
   'defineGenieTool',
   'registerGenieTools',
@@ -178,7 +178,7 @@ function removeProductionHelperCalls(code: string, program: AstNode): string {
   for (const statement of body) {
     if (!isAstNode(statement) || statement.type !== 'ImportDeclaration') continue
     const source = isAstNode(statement.source) ? statement.source.value : undefined
-    if (source !== 'genie-react') continue
+    if (typeof source !== 'string' || !PRODUCTION_NOOP_SOURCES.has(source)) continue
     const specifiers = Array.isArray(statement.specifiers) ? statement.specifiers : []
     for (const specifier of specifiers) {
       if (!isAstNode(specifier) || specifier.type !== 'ImportSpecifier') continue
@@ -243,7 +243,6 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
   let bridge: GenieBridge | null = null
   let warnedMissingHook = false
   let cloudflare = false
-  let hub: StartHubResult | null = null
   let hubWsUrl: string | null = null
 
   async function resolveHook(ctx: Rollup.PluginContext): Promise<boolean> {
@@ -272,7 +271,7 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
         },
         // esbuild pre-bundling bypasses the peer stubs (black-screening TanStack-less apps), so genie-react must stay excluded; pre-listing its nested deps keeps the first post-install boot from a mid-run re-optimize (stale 504s).
         optimizeDeps: {
-          exclude: ['genie-react'],
+          exclude: ['genie-react', 'genie-react/tools'],
           include: [...NESTED_OPTIMIZED_DEPS, ...installedTanstackIncludes(root)],
         },
         server: {
@@ -316,25 +315,23 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
       if (!enabled) return
       server.middlewares.use(denyGenieState)
       const httpServer = server.httpServer
-      if (!httpServer) return
-
+      if (!httpServer) {
+        // Middleware mode also hosts Vitest and Storybook, where a hub would claim the project's discovery file.
+        if (!process.env.VITEST)
+          server.config.logger.warn(
+            '[genie] Vite runs in middleware mode, so it has no server to host the bridge; run `npx @genie-react/cli hub` and pass its URL to the client.',
+          )
+        return
+      }
       if (cloudflare) {
-        const result = await startGenieHub({
-          rootDir: server.config.root,
-          allowedOrigins: options.allowedOrigins,
-        })
-        hub = result
-        hubWsUrl = result.url
+        const root = server.config.root
+        hubWsUrl = await acquireStandaloneHub(root, server, options.allowedOrigins)
         server.config.logger.info(
-          `[genie] @cloudflare/vite-plugin detected — its workerd proxy drops this port's WebSocket upgrades, so the bridge runs on a standalone hub at ${result.url}`,
+          `[genie] @cloudflare/vite-plugin detected — its workerd proxy drops this port's WebSocket upgrades, so the bridge runs on a standalone hub at ${hubWsUrl}`,
         )
         httpServer.once('close', () => {
-          const current = hub
-          hub = null
           hubWsUrl = null
-          if (current?.status !== 'started') return
-          void current.handle.close()
-          void removeDiscoveryFile(server.config.root)
+          releaseStandaloneHub(root, server)
         })
         return
       }
@@ -379,13 +376,64 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
   return [plugin, optionalPeersPlugin(), productionNoopPlugin(), productionToolStripPlugin()]
 }
 
+interface StandaloneHub {
+  started: Promise<{ url: string; close: (() => Promise<void>) | null }>
+  owner: object
+}
+
+// Vite builds a restarted server before closing the old one, so the hub belongs to whichever server claimed it last, per process and root.
+const STANDALONE_HUBS = Symbol.for('genie-react:vite-standalone-hubs')
+
+function standaloneHubs(): Map<string, StandaloneHub> {
+  const holder = globalThis as unknown as Record<symbol, Map<string, StandaloneHub> | undefined>
+  holder[STANDALONE_HUBS] ??= new Map()
+  return holder[STANDALONE_HUBS]
+}
+
+async function acquireStandaloneHub(
+  root: string,
+  owner: object,
+  allowedOrigins: readonly string[] | undefined,
+): Promise<string> {
+  const hubs = standaloneHubs()
+  const existing = hubs.get(root)
+  if (existing) {
+    existing.owner = owner
+    return (await existing.started).url
+  }
+  // Recorded before it settles, so a second server for this root joins the same start instead of racing it.
+  const started = startGenieHub({ rootDir: root, allowedOrigins }).then((result) => {
+    const handle = result.status === 'started' ? result.handle : null
+    return { url: result.url, close: handle ? () => handle.close() : null }
+  })
+  hubs.set(root, { started, owner })
+  try {
+    return (await started).url
+  } catch (error) {
+    if (hubs.get(root)?.started === started) hubs.delete(root)
+    throw error
+  }
+}
+
+function releaseStandaloneHub(root: string, owner: object): void {
+  const hubs = standaloneHubs()
+  const current = hubs.get(root)
+  if (current?.owner !== owner) return
+  hubs.delete(root)
+  void current.started.then(({ close }) => {
+    if (!close) return
+    void close()
+    void removeDiscoveryFile(root)
+  })
+}
+
 function productionNoopPlugin(): Plugin {
   return {
     name: 'genie:production-noop',
     apply: 'build',
     enforce: 'pre',
     resolveId(source) {
-      return source === 'genie-react' ? PRODUCTION_RUNTIME_ID : null
+      return PRODUCTION_NOOP_SOURCES.has(source) ? PRODUCTION_RUNTIME_ID : null
     },
     load(id) {
       return id === PRODUCTION_RUNTIME_ID ? PRODUCTION_RUNTIME_CODE : null
@@ -470,8 +518,12 @@ async function writeDiscovery(
 ): Promise<void> {
   if (!address || typeof address === 'string') return
   const url = bridgeUrlFor(address.address, address.port)
-  await writeDiscoveryFile(server.config.root, { url, port: address.port, token })
-  server.config.logger.info(`[genie] bridge ready at ${url}`)
+  const published = await writeDiscoveryFile(server.config.root, { url, port: address.port, token })
+  if (published) server.config.logger.info(`[genie] bridge ready at ${url}`)
+  else
+    server.config.logger.warn(
+      `[genie] another running dev server or hub already publishes this project, so the genie CLI reaches that one, not ${url}. Stop it, or pass --url ${url} to the CLI.`,
+    )
 }
 
 async function removeDiscovery(server: ViteDevServer): Promise<void> {

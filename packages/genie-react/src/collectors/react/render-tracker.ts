@@ -17,8 +17,8 @@ import {
   registerQuerySubscriber,
   setExternalStoreObservation,
 } from '../causal/external-store-registry'
-import { clonePlainData, safeStructuredClone } from '../structured-clone'
-import { didFiberCommit, getTimings } from './bippy-compat'
+import { safeStructuredClone } from '../structured-clone'
+import { getTimings } from './bippy-compat'
 import { type CommitWorkBudget, commitWorkExhaustions, consumeCommitWork } from './commit-budget'
 import { recordResultingEffectCommit } from './effect-events'
 import {
@@ -88,7 +88,12 @@ import type {
   RetainedRenderCauseEvent,
 } from './render-model'
 import { draftRenderRecord } from './render-model'
-import { assessRender, type CurrentCommitEvidence, type RenderAssessment } from './render-outcomes'
+import {
+  assessRender,
+  type CurrentCommitEvidence,
+  hasOwnHostMutation,
+  type RenderAssessment,
+} from './render-outcomes'
 import {
   buildCurrentAggregateMeasurement,
   buildRenderCauseEventsReport,
@@ -170,6 +175,7 @@ let targetedFibersProcessed = 0
 let targetedFibersSkipped = 0
 let droppedTargetUnmountFibers = 0
 let adaptiveBudgetScale = 1
+let commitsWithinAdaptiveBudget = 0
 
 export interface RenderObservationOptions {
   components?: string[]
@@ -221,6 +227,9 @@ let unmountedRootMembership = new WeakMap<Fiber, boolean>()
 const ADAPTIVE_FIBER_CEILING = 20_000
 const ADAPTIVE_OPERATION_CEILING = 2_000_000
 const ADAPTIVE_TIME_CEILING_MS = 500
+const ADAPTIVE_MAX_SCALE = 4
+// Hysteresis: one cheap commit after a burst must not shrink the budget the next burst needs.
+const ADAPTIVE_DECAY_COMMITS = 30
 
 const DID_CAPTURE = 0b1000_0000
 const RECENT_CAUSE_EVENT_LIMIT = 1_000
@@ -325,7 +334,9 @@ export function startRenderTracking(): boolean {
         const candidates: { fiber: Fiber; phase: RenderPhase }[] = []
         const targetedCandidates: { fiber: Fiber; phase: RenderPhase }[] = []
         try {
-          traverseRenderedFibers(root, (fiber, phase) => {
+          traverseRenderedFibers(root, (fiber, reportedPhase) => {
+            // Bippy reports a Suspense re-reveal as a mount; a fiber with an alternate has committed before.
+            const phase = reportedPhase === 'mount' && fiber.alternate ? 'update' : reportedPhase
             const targeted = isObservationTarget(fiber)
             const traversalWork = targeted ? budget.targetWork : budget.work
             if (
@@ -344,10 +355,10 @@ export function startRenderTracking(): boolean {
               return
             }
             budget.currentCommitEvidence.renderedFibers.add(fiber)
-            if (isHostFiber(fiber)) {
+            if (isHostFiber(fiber) || isHostTextFiber(fiber)) {
               try {
                 // The traversal proves this host rendered now; its mutation flag is not used alone.
-                if (didFiberCommit(fiber)) {
+                if (hasOwnHostMutation(fiber)) {
                   budget.currentCommitEvidence.hostMutationFibers.add(fiber)
                 }
               } catch {
@@ -407,7 +418,7 @@ export function disposeRenderTracking(): void {
   clearMeasurementSpans()
   renderPages = new Map()
   noteAnalysisInvalidation()
-  for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(restoreFiberId(pending))
+  for (const pending of pendingUnmounts) forgetUnmountWithoutTombstone(pending)
   pendingUnmounts.length = 0
   invalidateLiveInstancesForRefresh()
   instrumentation?.()
@@ -509,7 +520,8 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   targetedFibersSkipped = 0
   droppedTargetUnmountFibers = 0
   adaptiveBudgetScale = 1
-  for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(restoreFiberId(pending))
+  commitsWithinAdaptiveBudget = 0
+  for (const pending of pendingUnmounts) forgetUnmountWithoutTombstone(pending)
   pendingUnmounts.length = 0
   clears++
   clearEffects()
@@ -1176,6 +1188,11 @@ function recordRenderAtomic(
       deepDiff: change.deepDiff,
     }),
   )
+  // Only a fiber that can bail out on equal props renders because of them, children included; any other fiber re-renders with its parent.
+  const bailsOutOnProps = canBailOutOnProps(fiber)
+  const childrenCauses: RenderCause[] = childrenDidChange
+    ? [{ kind: 'children', evidence: 'exact' }]
+    : []
   const otherCauses: RenderCause[] = [
     ...stateChanges.map(
       (change): RenderCause => ({
@@ -1188,12 +1205,10 @@ function recordRenderAtomic(
         ...('hook' in change ? { hook: change.hook } : {}),
       }),
     ),
-    ...(childrenDidChange ? ([{ kind: 'children', evidence: 'exact' }] as const) : []),
+    ...(bailsOutOnProps ? childrenCauses : []),
     ...contextChanges,
     ...externalStoreChanges,
   ]
-  // Only a fiber that can bail out on equal props renders because of them; any other fiber re-renders with its parent.
-  const bailsOutOnProps = canBailOutOnProps(fiber)
   const propsCauseRender = bailsOutOnProps && propCauses.length > 0
   const parentResult =
     otherCauses.length === 0 && !propsCauseRender
@@ -1203,7 +1218,7 @@ function recordRenderAtomic(
   const causalAnalysisComplete = coverage.complete && parentResult.complete
   const observedCauses: RenderCause[] = propsCauseRender
     ? [...propCauses, ...otherCauses]
-    : [...otherCauses, ...propCauses]
+    : [...otherCauses, ...propCauses, ...(bailsOutOnProps ? [] : childrenCauses)]
   const causes: RenderCause[] = parentCause
     ? [parentCause, ...observedCauses]
     : observedCauses.length > 0
@@ -1212,10 +1227,11 @@ function recordRenderAtomic(
         ? [{ kind: 'unknown', evidence: 'unknown', reason: 'causal-analysis-incomplete' }]
         : [{ kind: 'unknown', evidence: 'unknown', reason: 'no-observable-fiber-input-change' }]
   const valuePropChanged = propsCauseRender && propChanges.some(hasObservedValueChange)
+  const valueCauses = otherCauses.filter((cause) => !isIdentityOnlyCause(cause))
   const necessity: RenderNecessity =
-    otherCauses.length > 0 || valuePropChanged
+    valueCauses.length > 0 || valuePropChanged
       ? 'necessary'
-      : !causalAnalysisComplete || parentCause || propChanges.length > 0
+      : !causalAnalysisComplete || parentCause || propChanges.length > 0 || childrenDidChange
         ? 'unknown'
         : 'unnecessary'
   const effects: EffectScheduleObservation = effectPreparation?.observation ?? {
@@ -1250,13 +1266,12 @@ function recordRenderAtomic(
   record.necessity = necessity
   record.assessment = assessment
   record.inputCoverage = coverage
-  // A render is unnecessary only when none of props/state/children/context changed — new children or context are legitimate reasons.
+  // New children, store snapshots, or state and context with new contents are legitimate reasons to render.
   if (
     coverage.complete &&
-    changes.length === 0 &&
+    propChanges.length === 0 &&
     !childrenDidChange &&
-    contextChanges.length === 0 &&
-    externalStoreChanges.length === 0
+    valueCauses.length === 0
   ) {
     record.unnecessary += 1
   }
@@ -1299,8 +1314,17 @@ function countPropOnlyMemoRender(
   }
 }
 
+/** State or context replaced by a new object whose contents a complete diff found equal. */
+function isIdentityOnlyCause(cause: RenderCause): boolean {
+  if (cause.kind !== 'state' && cause.kind !== 'context') return false
+  const { changes, truncated } = cause.deepDiff
+  return !truncated && changes.length > 0 && changes.every((diff) => diff.kind === 'reference-only')
+}
+
 function hasObservedValueChange(change: PropRenderChange): boolean {
-  return change.deepDiff.changes.some((diff) => diff.kind !== 'reference-only')
+  return change.deepDiff.changes.some(
+    (diff) => diff.kind !== 'reference-only' && diff.kind !== 'identity-changed-uninspected',
+  )
 }
 
 /** A reference change whose bounded diff stopped before it could rule a value change in or out. */
@@ -1314,16 +1338,13 @@ interface PreparedCauseEventEvidence {
   inputCoverage: RenderInputCoverage
 }
 
+// Retained evidence is never mutated after this point and every read clones it, so it is shared rather than copied per render.
 function prepareCauseEventEvidence(
   causes: RenderCause[],
   assessment: RenderAssessment,
   coverage: RenderInputCoverage,
 ): PreparedCauseEventEvidence {
-  return {
-    causes: clonePlainData(causes),
-    assessment: clonePlainData(assessment),
-    inputCoverage: { ...coverage },
-  }
+  return { causes, assessment, inputCoverage: { ...coverage } }
 }
 
 function recordPendingUnmounts(rendererId: number, budget: CommitAnalysisBudget): void {
@@ -1382,8 +1403,17 @@ export function queuePendingUnmount(rendererId: number, fiber: Fiber): void {
     pendingUnmounts.findIndex((_, index) => !protectedTargetIndices.has(index)),
   )
   const [dropped] = pendingUnmounts.splice(evictionIndex, 1)
+  if (dropped) forgetUnmountWithoutTombstone(dropped)
   if (dropped?.targeted) droppedTargetUnmountFibers += 1
   droppedPendingUnmountFibers += 1
+}
+
+/** An unmount that cannot be reported still has to release its record, or the record pins the detached fiber. */
+function forgetUnmountWithoutTombstone(pending: PendingUnmount): void {
+  const fiber = restoreFiberId(pending)
+  discardExcludedInstanceUnmount(fiber)
+  removeEffectRecord(fiber)
+  records.delete(pending.fiberId)
 }
 
 /** Bippy 0.7.3+ forgets a fiber's id once its unmount callbacks return; the deferred lifecycle needs the mounted id. */
@@ -1395,7 +1425,7 @@ function restoreFiberId({ fiber, fiberId }: PendingUnmount): Fiber {
 function discardPendingUnmounts(rendererId: number): void {
   const retained: PendingUnmount[] = []
   for (const pending of pendingUnmounts) {
-    if (pending.rendererId === rendererId) discardExcludedInstanceUnmount(restoreFiberId(pending))
+    if (pending.rendererId === rendererId) forgetUnmountWithoutTombstone(pending)
     else retained.push(pending)
   }
   pendingUnmounts.length = 0
@@ -1442,15 +1472,27 @@ export function finalizeCommitAnalysisBudget(budget: CommitAnalysisBudget): void
     ...commitWorkExhaustions(budget.work),
     ...commitWorkExhaustions(budget.targetWork).map((subsystem) => `target:${subsystem}`),
   ]
-  if (exhausted.length === 0) return
+  if (exhausted.length === 0) {
+    decayAdaptiveBudget()
+    return
+  }
   markMeasurementIncomplete()
   budgetExhaustedCommits += 1
   for (const subsystem of exhausted) {
     budgetExhaustedSubsystems.set(subsystem, (budgetExhaustedSubsystems.get(subsystem) ?? 0) + 1)
   }
-  if (observationConfiguration.budget.adaptive && adaptiveBudgetScale < 4) {
+  commitsWithinAdaptiveBudget = 0
+  if (observationConfiguration.budget.adaptive && adaptiveBudgetScale < ADAPTIVE_MAX_SCALE) {
     adaptiveBudgetScale += 1
   }
+}
+
+function decayAdaptiveBudget(): void {
+  if (adaptiveBudgetScale <= 1) return
+  commitsWithinAdaptiveBudget += 1
+  if (commitsWithinAdaptiveBudget < ADAPTIVE_DECAY_COMMITS) return
+  commitsWithinAdaptiveBudget = 0
+  adaptiveBudgetScale -= 1
 }
 
 function renderedParentCause(

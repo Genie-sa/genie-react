@@ -14,7 +14,7 @@ import {
   setFiberId,
 } from 'bippy'
 import type { z } from 'zod'
-import { dehydrate } from '../../protocol'
+import { dehydrate, isDehydratedNode } from '../../protocol'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 import { getNearestHostFibers } from './bippy-compat'
 import { type hookEntrySchema, type hookKindSchema, MAX_HOOKS, type NodeId } from './contracts'
@@ -115,7 +115,8 @@ const UNCLASSIFIED_FIBER: FiberClassification = {
 
 export function registerFiber(fiber: Fiber): NodeId {
   const id = asNodeId(getFiberId(fiber))
-  if (fiber.alternate) setFiberId(fiber.alternate, id)
+  // bippy's setFiberId allocates a WeakRef and finalizer registration per call, so only mirror a missing or stale id.
+  if (fiber.alternate && getFiberId(fiber.alternate) !== id) setFiberId(fiber.alternate, id)
   if (!fiberRegistry.delete(id) && fiberRegistry.size >= REGISTRY_LIMIT) {
     const oldest = fiberRegistry.keys().next().value
     if (oldest !== undefined) fiberRegistry.delete(oldest)
@@ -724,13 +725,25 @@ export function matchDetail(fiber: Fiber, propsDepth: number): { kind: string; p
   return { kind: fiberKind(fiber), props: dehydrate(fiber.memoizedProps, { depth: propsDepth }) }
 }
 
+/** Resolve an id under the given root first, then under every other committed root (portals into a second createRoot, modals, widgets). */
 export function findFiberById(root: Fiber, id: NodeId): Fiber | null {
+  const fromRoot = findFiberByIdWithin(root, id)
+  if (fromRoot) return fromRoot
+  for (const other of findAllCommittedRootFibers().roots) {
+    if (other === root) continue
+    const found = findFiberByIdWithin(other, id)
+    if (found) return found
+  }
+  fiberRegistry.delete(id)
+  return null
+}
+
+function findFiberByIdWithin(root: Fiber, id: NodeId): Fiber | null {
   const cached = fiberRegistry.get(id)
   if (cached) {
     // Resolving the mounted buffer via return-link climbs stays O(depth); bippy's getLatestFiber falls back to a full-root scan when profiler timings are absent. Stale entries fall through to the walk below.
     if (isMounted(cached, root)) return cached
     if (cached.alternate && isMounted(cached.alternate, root)) return cached.alternate
-    fiberRegistry.delete(id)
   }
 
   let found: Fiber | null = null
@@ -803,6 +816,20 @@ export function classifyHook(hook: MemoizedState): HookKind {
 }
 
 /** One hook entry for react_inspect_component: its kind, whether it is stateful, its stateful ordinal, and its value/deps (never throws on classification). */
+/** Dehydrate for inspection; a function cannot be hydrated further, so its placeholder collapses to the `ƒ name()` preview. */
+function inspectValue(value: unknown, options: Parameters<typeof dehydrate>[1]): unknown {
+  return collapseFunctionPlaceholders(dehydrate(value, options))
+}
+
+function collapseFunctionPlaceholders(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || value instanceof Date) return value
+  if (isDehydratedNode(value)) return value.kind === 'function' ? value.preview : value
+  if (Array.isArray(value)) return value.map(collapseFunctionPlaceholders)
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, collapseFunctionPlaceholders(entry)]),
+  )
+}
+
 function describeHook(
   hook: MemoizedState,
   index: number,
@@ -812,8 +839,8 @@ function describeHook(
   const kind = classifyHook(hook)
   const ms = hook.memoizedState
   const valueOrDeps = isEffectHookState(ms)
-    ? { deps: dehydrate(ms.deps, { depth }) }
-    : { value: dehydrate(ms, { depth }) }
+    ? { deps: inspectValue(ms.deps, { depth }) }
+    : { value: inspectValue(ms, { depth }) }
   return {
     index,
     kind,
@@ -839,13 +866,13 @@ export function inspectFiber(
   options: { path?: Array<string | number>; depth: number },
 ): InspectResult {
   const kind = fiberKind(fiber)
-  const props = dehydrate(fiber.memoizedProps, { depth: options.depth, path: options.path })
+  const props = inspectValue(fiber.memoizedProps, { depth: options.depth, path: options.path })
   let state: unknown
   let hooks: HookEntry[] = []
 
   if (kind === 'class') {
     const instance = fiber.stateNode as { state?: unknown } | null
-    state = dehydrate(instance?.state ?? fiber.memoizedState, { depth: options.depth })
+    state = inspectValue(instance?.state ?? fiber.memoizedState, { depth: options.depth })
   } else if (kind === 'function' || kind === 'memo' || kind === 'forwardRef') {
     let statefulOrdinal = 0
     hooks = hookChain(fiber).map((hook, index) => {
@@ -906,6 +933,21 @@ export function domForFiber(fiber: Fiber, options: { limit: number }): DomForRes
 }
 
 const HOST_SUBTREE_SCAN_LIMIT = 5_000
+
+/** The locator of the first host node a component renders, without describing its siblings or reading text. */
+export function firstHostSelector(fiber: Fiber): string | null {
+  const stack: Fiber[] = fiber.child ? [fiber.child] : []
+  let scanned = 0
+  while (stack.length > 0 && scanned < HOST_SUBTREE_SCAN_LIMIT) {
+    const node = stack.pop() as Fiber
+    scanned += 1
+    if (isElement(node.stateNode)) return hostSelectorOf(node.stateNode)
+    if (isNativeHostFiber(node)) return describeNativeHostFiber(node).selector
+    if (node.sibling) stack.push(node.sibling)
+    if (node.child) stack.push(node.child)
+  }
+  return null
+}
 
 /** Every DOM element anywhere under a fiber, in tree order — nested components included — bounded by a fiber scan cap. */
 export function hostElementsWithin(fiber: Fiber): Element[] {

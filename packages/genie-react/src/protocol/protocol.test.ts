@@ -209,7 +209,6 @@ describe('capture protocol', () => {
   it('applies bounded defaults and rejects ambiguous or terminal-unsafe names', () => {
     expect(devtoolsCaptureCreateContract.input.parse({ name: 'before fix' })).toEqual({
       name: 'before fix',
-      include: ['react', 'effects', 'query', 'router', 'memory'],
       maxAttempts: 3,
       view: 'summary',
     })

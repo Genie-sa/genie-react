@@ -1,26 +1,23 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
-import { CAPTURE_DOMAINS, type CaptureDomain, errorMessage } from 'genie-react/protocol'
+import { CAPTURE_DOMAINS, type CaptureDomain } from './capture-domains'
 import {
-  formatAgentFailure,
-  renderResult,
-  runBatch,
-  runCall,
-  runCaptureExport,
-  runStatus,
-  runTools,
-} from './agent'
-import { CLI_OPTIONS, COMMAND_OPTIONS, COMMANDS, cliHelp, POSITIONAL_LIMITS } from './cli-help'
+  CLI_OPTIONS,
+  COMMAND_OPTIONS,
+  COMMANDS,
+  cliHelp,
+  POSITIONAL_LIMITS,
+  parseArgsFailureMessage,
+} from './cli-help'
 import { writeDiagnostic, writeJson } from './cli-output'
+import { formatAgentFailure } from './failure-format'
 import { isRecord } from './guards'
-import { runHub } from './hub-command'
-import { runDoctor, runLiveDoctor } from './index'
-import { runLink } from './link'
 import { installOutputFailureHandler, setOutputContext } from './output-safety'
 import { genieCommand } from './package-manager'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
-import { runInitCommand } from './setup-output'
+
+// Command modules load on demand: the bridge client, protocol schemas and hub stay out of --help, --version and argument errors.
 
 installOutputFailureHandler()
 setOutputContext({ operation: 'cli' })
@@ -150,6 +147,10 @@ async function main(): Promise<number> {
     writeCliFailure('--select requires a non-empty JSON Pointer or dotted path.')
     return 1
   }
+  if (values.session !== undefined && command === 'doctor' && !values.live) {
+    writeCliFailure('--session applies to doctor --live only.', 'doctor')
+    return 1
+  }
   if (values.fields !== undefined && values.select !== undefined) {
     writeCliFailure('Choose either --fields or --select, not both.')
     return 1
@@ -217,35 +218,22 @@ async function main(): Promise<number> {
   }
 
   switch (command) {
-    case 'init':
+    case 'init': {
+      const { runInitCommand } = await import('./setup-output')
       return runInitCommand({
         dryRun: values['dry-run'] ?? false,
         yes: values.yes ?? false,
         maxBytes,
       })
+    }
     case 'doctor': {
-      const logger = { info: () => undefined, error: () => undefined }
-      const result = values.live ? await runLiveDoctor({ logger }) : runDoctor({ logger })
-      process.stdout.write(
-        `${renderResult(
-          'doctor',
-          {
-            ...result,
-            schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
-            status: result.ok ? 'ok' : 'error',
-            reason: result.ok ? 'checks_passed' : 'checks_failed',
-            message: result.ok
-              ? 'Setup checks passed.'
-              : 'Setup checks failed. Follow the reported remediation steps.',
-            userActionRequired: !result.ok,
-          },
-          true,
-          undefined,
-          values.select,
-          maxBytes,
-        )}\n`,
-      )
-      return result.ok ? 0 : 1
+      const { runDoctorCommand } = await import('./doctor-command')
+      return runDoctorCommand({
+        live: values.live ?? false,
+        session: values.session,
+        select: values.select,
+        maxBytes,
+      })
     }
     case 'hub': {
       const port = values.port ? Number(values.port) : undefined
@@ -253,18 +241,29 @@ async function main(): Promise<number> {
         writeCliFailure('--port must be an integer from 1 to 65535.')
         return 1
       }
+      const { runHub } = await import('./hub-command')
       return runHub({ port, maxBytes })
     }
-    case 'link':
+    case 'link': {
+      const { runLink } = await import('./link')
       return runLink({ genieRoot: positionals[1], maxBytes })
-    case 'tools':
+    }
+    case 'tools': {
+      const { runTools } = await import('./agent')
       return runTools(positionals[1], agentOptions)
-    case 'status':
+    }
+    case 'status': {
+      const { runStatus } = await import('./agent')
       return runStatus(agentOptions)
-    case 'call':
+    }
+    case 'call': {
+      const { runCall } = await import('./agent')
       return runCall(positionals[1], positionals[2], agentOptions)
-    case 'batch':
+    }
+    case 'batch': {
+      const { runBatch } = await import('./agent')
       return runBatch(positionals[1], agentOptions)
+    }
     case 'capture': {
       if (positionals[1] !== 'export') {
         writeCliFailure('Capture currently requires the `export` subcommand.')
@@ -274,9 +273,10 @@ async function main(): Promise<number> {
       try {
         sections = parseCaptureSections(values.section)
       } catch (error) {
-        writeCliFailure(errorMessage(error))
+        writeCliFailure(error instanceof Error ? error.message : String(error))
         return 1
       }
+      const { runCaptureExport } = await import('./agent')
       return runCaptureExport(positionals[2], {
         ...agentOptions,
         output: values.output,
@@ -301,9 +301,8 @@ main()
       typeof error.code === 'string' &&
       error.code.startsWith('ERR_PARSE_ARGS_')
     if (argumentError) {
-      writeCliFailure(
-        `Invalid command-line arguments. Use the options and value types from ${genieCommand(['--help']).command}.`,
-      )
+      const command = process.argv.slice(2).find((arg) => Object.hasOwn(COMMANDS, arg))
+      writeCliFailure(parseArgsFailureMessage(error, command), command)
     } else {
       writeJson(
         JSON.parse(

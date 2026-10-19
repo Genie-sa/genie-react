@@ -16,7 +16,6 @@ import {
   type ToolOutput,
 } from 'genie-react/protocol'
 import { WebSocket } from 'ws'
-import { genieCommand } from './package-manager'
 
 export interface GenieAgentLinkOptions {
   /** Bridge URL, or a resolver re-invoked on every (re)connect so the link self-heals when the URL changes. */
@@ -29,6 +28,8 @@ export interface GenieAgentLinkOptions {
   reconnectDelayMs?: number
   /** Target a specific app session when several tabs are connected (default: the only or already-targeted tab). */
   sessionId?: string
+  /** Reject at once when nothing listens at the URL instead of retrying until `connectTimeoutMs`; for guessed URLs. */
+  failFastOnRefused?: boolean
 }
 
 /** Grace added on top of a per-call `timeoutMs` so the bridge's typed answer (timeout/busy) wins the race with the link's own guard. */
@@ -59,6 +60,24 @@ export class BridgeCallError extends Error {
   }
 }
 
+/** No bridge answered at `url`, or the open connection dropped before a pending call answered (`lost`). */
+export class BridgeUnreachableError extends BridgeCallError {
+  readonly url: string
+  readonly lost: boolean
+
+  constructor(url: string, lost = false) {
+    super(
+      lost
+        ? `Genie bridge connection at ${url} closed before the call answered`
+        : `Genie bridge not reachable at ${url}`,
+      { errorCode: 'not-connected' },
+    )
+    this.name = 'BridgeUnreachableError'
+    this.url = url
+    this.lost = lost
+  }
+}
+
 /** A tool result with the app document that answered it, when the call reached one. */
 export interface AnsweredResult {
   result: unknown
@@ -71,6 +90,11 @@ interface Pending {
   resolve: (value: AnsweredResult) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
+}
+
+interface OpenWaiter {
+  timer: ReturnType<typeof setTimeout>
+  settle: (error?: Error) => void
 }
 
 export interface InvokeOptions {
@@ -89,8 +113,23 @@ export class BridgeRejectedError extends Error {
   }
 }
 
+/** How the CLI reached the hub; `source` is `flag`, `env`, `file`, `workspace` or `fallback`. */
+export interface BridgeConnectionInfo {
+  url: string
+  source: string
+  authenticated: boolean
+}
+
 /** Fixed remediation per refusal status; the hub's own text is not echoed into agent-facing output. */
-export function bridgeRejectionHint(error: BridgeRejectedError): string {
+export function bridgeRejectionHint(
+  error: BridgeRejectedError,
+  connection?: BridgeConnectionInfo,
+): string {
+  if (error.status === 401 && connection?.authenticated === false) {
+    return connection.source === 'fallback'
+      ? `No .genie/bridge.json was found from this directory upward, so the CLI tried the default address ${connection.url} without an agent token, and the hub there (likely another project's) refused it. Run from the app directory whose dev server or hub you want, or pass --url together with GENIE_BRIDGE_TOKEN.`
+      : 'The hub requires an agent token and none was found for it. Run the CLI as the same user as the hub from its app directory, or set GENIE_BRIDGE_TOKEN alongside --url or GENIE_BRIDGE_URL.'
+  }
   if (error.status === 401) {
     return 'The hub rejected the agent token: it restarted, a different hub answered, or genie-react and @genie-react/cli versions differ. Re-run from the app directory so the hub is rediscovered; with --url or GENIE_BRIDGE_URL for a hub outside this directory tree, also set GENIE_BRIDGE_TOKEN.'
   }
@@ -109,15 +148,16 @@ export class GenieAgentLink {
   private readonly invokeTimeoutMs: number
   private readonly reconnectDelayMs: number
   private readonly sessionId: string | undefined
+  private readonly failFastOnRefused: boolean
   private readonly pending = new Map<string, Pending>()
+  private readonly openWaiters = new Set<OpenWaiter>()
   private ws: WebSocket | null = null
   private status: BridgeStatusMessage | null = null
   private currentUrl = ''
-  private openWaiters: Array<() => void> = []
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private connecting = false
   private closed = false
-  private rejection: BridgeRejectedError | null = null
+  private rejection: BridgeRejectedError | BridgeUnreachableError | null = null
 
   /** Invoked whenever the bridge pushes a status update (e.g. an app connects with new tools). */
   onStatus: ((status: BridgeStatusMessage) => void) | null = null
@@ -131,6 +171,7 @@ export class GenieAgentLink {
     this.invokeTimeoutMs = options.invokeTimeoutMs ?? 30_000
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1_000
     this.sessionId = options.sessionId
+    this.failFastOnRefused = options.failFastOnRefused ?? false
   }
 
   start(): void {
@@ -208,12 +249,17 @@ export class GenieAgentLink {
   close(): void {
     this.closed = true
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.rejectPending(new Error('agent link closed'))
+    this.flushOpenWaiters(new Error('agent link closed'))
+    this.ws?.close()
+  }
+
+  private rejectPending(error: Error): void {
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer)
-      pending.reject(new Error('agent link closed'))
+      pending.reject(error)
     }
     this.pending.clear()
-    this.ws?.close()
   }
 
   private async connect(): Promise<void> {
@@ -253,18 +299,27 @@ export class GenieAgentLink {
       this.flushOpenWaiters()
     })
     ws.on('message', (data) => this.onMessage(data.toString()))
-    ws.on('error', (error) => this.log(`socket error: ${errorMessage(error)}`))
+    ws.on('error', (error) => {
+      this.log(`socket error: ${errorMessage(error)}`)
+      if (this.failFastOnRefused && isConnectionRefused(error)) {
+        this.rejection = new BridgeUnreachableError(url)
+      }
+    })
     ws.on('close', () => {
       this.ws = null
       this.status = null
+      // A dropped hub cannot answer in-flight calls, so they fail now instead of waiting out their timeouts.
+      this.rejectPending(new BridgeUnreachableError(url, true))
+      if (this.rejection instanceof BridgeUnreachableError) {
+        this.flushOpenWaiters()
+        return
+      }
       if (!this.closed) this.scheduleReconnect()
     })
   }
 
-  private flushOpenWaiters(): void {
-    const waiters = this.openWaiters
-    this.openWaiters = []
-    for (const waiter of waiters) waiter()
+  private flushOpenWaiters(error?: Error): void {
+    for (const waiter of [...this.openWaiters]) waiter.settle(error)
   }
 
   private scheduleReconnect(): void {
@@ -312,22 +367,28 @@ export class GenieAgentLink {
 
   private ensureConnection(): Promise<WebSocket> {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) return Promise.resolve(this.ws)
+    if (this.closed) return Promise.reject(new Error('agent link closed'))
+    if (this.rejection instanceof BridgeUnreachableError) return Promise.reject(this.rejection)
     return new Promise<WebSocket>((resolve, reject) => {
-      const onOpen = () => {
-        clearTimeout(timer)
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) resolve(this.ws)
-        else reject(this.rejection ?? new Error('bridge connection closed before it was ready'))
+      const waiter: OpenWaiter = {
+        timer: setTimeout(() => {
+          this.openWaiters.delete(waiter)
+          reject(new BridgeUnreachableError(this.currentUrl || '(unresolved)'))
+        }, this.connectTimeoutMs),
+        settle: (error) => {
+          clearTimeout(waiter.timer)
+          this.openWaiters.delete(waiter)
+          if (error) reject(error)
+          else if (this.ws && this.ws.readyState === WebSocket.OPEN) resolve(this.ws)
+          else reject(this.rejection ?? new Error('bridge connection closed before it was ready'))
+        },
       }
-      const timer = setTimeout(() => {
-        this.openWaiters = this.openWaiters.filter((waiter) => waiter !== onOpen)
-        reject(
-          new Error(
-            `Genie bridge not reachable at ${this.currentUrl || '(unresolved)'}. Start it: Vite apps run the dev server with the genie() plugin; Next.js/other apps run ${genieCommand(['hub']).command} (or next dev with instrumentation).`,
-          ),
-        )
-      }, this.connectTimeoutMs)
-      this.openWaiters.push(onOpen)
+      this.openWaiters.add(waiter)
       if (!this.ws && !this.reconnectTimer && !this.connecting) void this.connect()
     })
   }
+}
+
+function isConnectionRefused(error: Error): boolean {
+  return 'code' in error && error.code === 'ECONNREFUSED'
 }

@@ -11,6 +11,7 @@ import type { reactListOverridesContract, reactResetOverridesContract } from './
 import {
   classifyHook,
   contextDependencies,
+  findAllCommittedRootFibers,
   findRootFiber,
   type HookKind,
   hookChain,
@@ -86,7 +87,8 @@ interface RegistryEntry {
   fiber: Fiber | null
   componentName: string
   detail: string
-  restore?: (renderer: DevRenderer) => void
+  /** Receives the live buffer: an edit applied to the stale alternate is discarded by the next render. */
+  restore?: (renderer: DevRenderer, live: Fiber) => void
   originals?: Record<string, unknown>
   latest?: Record<string, unknown>
   prevValue?: unknown
@@ -121,13 +123,15 @@ function removeEntry(kind: OverrideKind, fiber: Fiber): void {
 
 // A stored fiber is mounted when its latest buffer (or alternate) is still reachable from the current root; used only for the list `mounted` flag and to decide whether reset can re-apply.
 function mountedFiber(fiber: Fiber): Fiber | null {
-  const root = findRootFiber()
-  if (!root) return null
+  const roots = new Set(findAllCommittedRootFibers().roots)
+  const primary = findRootFiber()
+  if (primary) roots.add(primary)
+  if (roots.size === 0) return null
   for (const candidate of [fiber, fiber.alternate]) {
     if (!candidate) continue
     let current: Fiber | null = getLatestFiber(candidate)
     while (current) {
-      if (current === root) return getLatestFiber(candidate)
+      if (roots.has(current)) return getLatestFiber(candidate)
       current = current.return
     }
   }
@@ -156,7 +160,7 @@ function recordPropsOverride(
     detail,
     originals,
     latest,
-    restore: (renderer) => overrideFiberPropsRaw(fiber, originals, renderer),
+    restore: (renderer, live) => overrideFiberPropsRaw(live, originals, renderer),
   })
 }
 
@@ -184,8 +188,8 @@ function recordHookOverride(
   const existing = findEntry('hook', fiber)
   const restore =
     existing?.restore ??
-    ((renderer: DevRenderer) =>
-      renderer.overrideHookState?.(fiber, flatIndex, path.map(String), prior))
+    ((renderer: DevRenderer, live: Fiber) =>
+      renderer.overrideHookState?.(live, flatIndex, path.map(String), prior))
   upsertEntry({
     kind: 'hook',
     fiber,
@@ -210,7 +214,7 @@ function recordContextOverride(
     componentName: contextName,
     detail: `${contextName} value ← ${previewValue(nextValue)} (was ${previewValue(original)})`,
     prevValue: original,
-    restore: (renderer) => overrideFiberPropsRaw(provider, { value: original }, renderer),
+    restore: (renderer, live) => overrideFiberPropsRaw(live, { value: original }, renderer),
   })
 }
 
@@ -267,7 +271,8 @@ function clearEntry(
   const live = mountedFiber(entry.fiber)
   if (!live || !renderer || !entry.restore)
     return entry.kind === 'hook' ? 'released' : 'skipped-unmounted'
-  entry.restore(renderer)
+  entry.restore(renderer, live)
+  scheduleRenderer?.scheduleUpdate?.(live)
   return 'restored'
 }
 

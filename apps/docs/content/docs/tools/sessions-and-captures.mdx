@@ -17,11 +17,11 @@ metadata.
 
 Checks the selected app document and lists every connected tab.
 
-**Input:** `includeTools` is an optional boolean and defaults to `true`; set it to `false` to omit
-the tool descriptors.
+**Input:** `includeTools` is an optional boolean and defaults to `false`; set it to `true` to add
+the full tool descriptors. Prefer `genie-react tools [group|name]` for discovery.
 
 ```bash
-npx @genie-react/cli call devtools_status '{"includeTools":false}' \
+npx @genie-react/cli call devtools_status '{}' \
   --session logical-review --json
 ```
 
@@ -111,8 +111,8 @@ Creates one immutable, schema-versioned runtime artifact for the selected physic
 
 **Input:** `name` is required, trimmed, 1–80 characters, and cannot contain control characters.
 `include` is an optional list of 1–6 unique values from `react`, `effects`, `query`, `router`,
-`memory`, and `performance`; it defaults to `["react","effects","query","router","memory"]` and
-does not include `performance`.
+`memory`, and `performance`; it defaults to whichever of `react`, `effects`, `query`, `router`, and
+`memory` the app advertises, and never includes `performance` by default.
 `maxAttempts` is an optional integer from 1–5 and defaults to 3. `view` is `summary` (default) or
 `full`; `full` returns the retained artifact with every section.
 

@@ -13,7 +13,7 @@ import { queryCollector, routerCollector } from '../collectors/tanstack'
 import { isQueryClient, isRouter } from '../collectors/tanstack/guards'
 
 export interface StartGenieOptions {
-  /** Hub WebSocket URL (required; RN has no location to derive it from). iOS sim: ws://127.0.0.1:4390/__genie/ws, Android emulator: ws://10.0.2.2:4390/__genie/ws, device: ws://<LAN-IP>:4390/__genie/ws. */
+  /** Hub WebSocket URL (required; RN has no location to derive it from). iOS sim: ws://127.0.0.1:4390/__genie/ws, Android emulator: ws://10.0.2.2:4390/__genie/ws; the hub binds loopback, so a physical device needs a port forward. */
   url: string
   appName?: string
   plugins?: readonly string[]

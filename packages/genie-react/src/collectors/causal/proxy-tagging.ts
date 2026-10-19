@@ -1,18 +1,11 @@
+import { isProductionBuild } from '../../production-build'
+
 const REGISTRY_KEY = Symbol.for('genie-react:proxy-registry')
 
 type RegistryHolder = Record<symbol, WeakSet<object> | undefined>
 
 function registry(): WeakSet<object> | undefined {
   return (globalThis as unknown as RegistryHolder)[REGISTRY_KEY]
-}
-
-// Written as a literal `process.env.NODE_ENV` so client bundlers statically replace it; the catch covers runtimes with no `process` global.
-function isProductionBuild(): boolean {
-  try {
-    return process.env.NODE_ENV === 'production'
-  } catch {
-    return false
-  }
 }
 
 /** Record every Proxy created after this call so app proxies are never reflected on; one install per realm survives HMR and duplicate bundles. */

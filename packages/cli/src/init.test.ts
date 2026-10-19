@@ -387,6 +387,41 @@ describe('runDoctor — Next.js', () => {
   })
 })
 
+describe('runDoctor — discovery and skill checks', () => {
+  it('finds the hub discovery file from a subdirectory instead of reporting no hub', async () => {
+    const dir = await project({ 'package.json': pkg({ react: '^19' }) })
+    const file = join(dir, GENIE_DISCOVERY_FILE)
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(
+      file,
+      JSON.stringify({ url: 'ws://127.0.0.1:4390/__genie/ws', port: 4390, pid: process.pid }),
+    )
+    const nested = join(dir, 'src', 'components')
+    await mkdir(nested, { recursive: true })
+
+    const result = runDoctor({ cwd: nested, logger: silent })
+
+    expect(result.bridge?.url).toBe('ws://127.0.0.1:4390/__genie/ws')
+    expect(result.checks).toContainEqual(
+      expect.objectContaining({ label: expect.stringContaining('hub discovery file'), ok: true }),
+    )
+  })
+
+  it('treats a missing agent skill as a warning but drifted guidance as a failure', async () => {
+    const dir = await project({ 'package.json': pkg({ react: '^19' }) })
+    const skillCheck = () =>
+      runDoctor({ cwd: dir, logger: silent }).checks.find(
+        (check) => check.label === 'agent skill matches the bundled CLI guidance',
+      )
+
+    expect(skillCheck()).toMatchObject({ ok: false, critical: false })
+
+    await mkdir(join(dir, '.agents/skills/genie'), { recursive: true })
+    await writeFile(join(dir, '.agents/skills/genie/SKILL.md'), staleSkill('0.8.0'))
+    expect(skillCheck()).toMatchObject({ ok: false, critical: true })
+  })
+})
+
 describe('runInit — idempotency and dry-run', () => {
   it('installs stale agent guidance and references from the bundled version and doctor verifies their hash', async () => {
     const dir = await project({
@@ -729,6 +764,43 @@ describe('runLiveDoctor', () => {
       if (hub.status === 'started') await hub.handle.close()
     }
   }, 15_000)
+
+  it('probes the requested --session and names an unknown one', async () => {
+    const dir = await project({ 'package.json': pkg({ react: '^19' }) })
+    const hub = await startGenieHub({ rootDir: dir })
+    try {
+      const live = await runLiveDoctor({ cwd: dir, logger: silent, session: 'missing-tab' })
+      const check = live.checks.find((c) => c.label === 'bridge accepts agent connections')
+      expect(check?.ok).toBe(false)
+      expect(check?.detail).toContain('--session target is not connected')
+    } finally {
+      if (hub.status === 'started') await hub.handle.close()
+    }
+  }, 15_000)
+
+  it('records an ambiguous bridge selection as a failed check instead of crashing', async () => {
+    const dir = await project({ 'package.json': pkg({ react: '^19' }), '.git/HEAD': '' })
+    for (const app of ['a', 'b']) {
+      const file = join(dir, app, GENIE_DISCOVERY_FILE)
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(
+        file,
+        JSON.stringify({
+          url: `ws://127.0.0.1:${app === 'a' ? 4501 : 4502}/__genie/ws`,
+          pid: process.pid,
+        }),
+      )
+    }
+    const live = await runLiveDoctor({ cwd: dir, logger: silent, timeoutMs: 300 })
+    expect(live.ok).toBe(false)
+    expect(live.checks).toContainEqual(
+      expect.objectContaining({
+        label: 'bridge selection',
+        ok: false,
+        detail: expect.stringContaining('Multiple live Genie bridges'),
+      }),
+    )
+  })
 
   it('reports nothing listening when the discovery file points at a dead port', async () => {
     const dir = await project({ 'package.json': pkg({ react: '^19' }) })

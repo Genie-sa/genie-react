@@ -82,6 +82,28 @@ describe('<Genie /> with a plugin-injected client already running', () => {
   })
 })
 
+describe('<Genie /> when a QueryClient appears after the first mount', () => {
+  it('registers the query collector, and a timeline that sees it, on the running client', async () => {
+    const register = vi.fn()
+    ;(globalThis as Record<string, unknown>)[GENIE_GLOBAL_KEY] = { register }
+    const { Genie, QueryClientContext } = await loadGenie(undefined)
+    const queryClient = { getQueryCache: () => ({}) }
+
+    const view = render(
+      createElement(QueryClientContext.Provider, { value: undefined }, createElement(Genie)),
+    )
+    register.mockClear()
+    view.rerender(
+      createElement(QueryClientContext.Provider, { value: queryClient }, createElement(Genie)),
+    )
+
+    expect(register.mock.calls.map((call) => call[0])).toEqual([
+      { __collector: 'query', query: queryClient },
+      { __collector: 'timeline' },
+    ])
+  })
+})
+
 describe('<Genie /> under a TanStack Router', () => {
   it('adds the router collector, and the query collector when a QueryClient is in context', async () => {
     const router = { options: { context: { queryClient: { getQueryCache: () => ({}) } } } }
