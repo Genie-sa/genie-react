@@ -71,6 +71,8 @@ export interface FailureDetails {
   requiredKeys?: string[]
   unknownKeys?: string[]
   validKeys?: string[]
+  /** Each unknown key mapped to the valid key it most likely meant. */
+  didYouMean?: Record<string, string>
   app?: NonNullable<ToolErrorDetails['app']>
   availability?: { reason: string }
   hubCode?: HubErrorCode
@@ -399,10 +401,16 @@ function invalidArgsFailure(
   ]
   const requiredKeys = details.requiredKeys && safeTokens(details.requiredKeys)
   const validKeys = details.validKeys && safeTokens(details.validKeys)
+  const didYouMean = keySuggestions(
+    namedUnknownKeys,
+    validKeys ?? [],
+    (requiredKeys ?? []).filter((key) => !sentKeys.has(key)),
+  )
   const described = [
     issues.length > 0 ? 'details.issues' : undefined,
     requiredKeys?.length ? 'details.requiredKeys' : undefined,
     unknownKeys.length > 0 && validKeys?.length ? 'details.validKeys' : undefined,
+    didYouMean ? 'details.didYouMean' : undefined,
   ].filter((field) => field !== undefined)
   const hubCode = hubCodeOf(details, context.tool, 'invalid-args')
   const example = correctedExample(context.tool, details.exampleArgs, sent, [
@@ -448,10 +456,28 @@ function invalidArgsFailure(
       requiredKeys,
       unknownKeys: namedUnknownKeys.length > 0 ? namedUnknownKeys : undefined,
       validKeys,
+      didYouMean,
       hubCode,
       interactionId: blockingInteractionId,
     }),
   }
+}
+
+/** A near spelling of a valid key, or the one missing required key when only one key was unknown. */
+function keySuggestions(
+  unknownKeys: readonly string[],
+  validKeys: readonly string[],
+  missingRequiredKeys: readonly string[],
+): Record<string, string> | undefined {
+  const onlyMissingKey =
+    unknownKeys.length === 1 && missingRequiredKeys.length === 1
+      ? missingRequiredKeys[0]
+      : undefined
+  const pairs = unknownKeys.flatMap((key) => {
+    const suggestion = suggestToolNames(validKeys, key, 1)[0] ?? onlyMissingKey
+    return suggestion ? [[key, suggestion] as const] : []
+  })
+  return pairs.length > 0 ? Object.fromEntries(pairs) : undefined
 }
 
 /** Bridges that predate structured details still reject `devtools_wait` with prose only; keep its known-good call. */

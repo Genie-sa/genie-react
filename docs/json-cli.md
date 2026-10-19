@@ -24,7 +24,7 @@ Reasons are snake_case and stable:
 | `reason` | Meaning | `details` |
 | --- | --- | --- |
 | `invalid_input` | The CLI rejected its own input, such as JSON, `--fields`, `--select`, `--url`, `GENIE_BRIDGE_URL`, `GENIE_BRIDGE_PORT`, or several live bridges below a workspace root | `fields: {unknown, available}`, `selection: {expression?, available}` |
-| `invalid_args` | The tool rejected its arguments | `issues: [{path, message, expected?, allowed?, received?}]`, `requiredKeys`, `unknownKeys`, `validKeys`, `hubCode`; `correctedExample` shows the argument shape |
+| `invalid_args` | The tool rejected its arguments | `issues: [{path, message, expected?, allowed?, received?}]`, `requiredKeys`, `unknownKeys`, `validKeys`, `didYouMean`, `hubCode`; `correctedExample` shows the argument shape |
 | `unknown_tool` | The selected app advertises no such tool | `suggestions`, names from the app's catalog |
 | `tool_unavailable` | The tool is advertised with `available:false` | `availability: {reason}` |
 | `tool_error` | The tool ran and failed | `app: {code?, message, hint?}` from a `GenieToolError` or the error text the tool reported, or `hubCode` for a hub tool |
