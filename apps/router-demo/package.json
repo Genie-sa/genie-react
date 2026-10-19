@@ -21,7 +21,7 @@
     "@tanstack/router-plugin": "^1.132.0",
     "lucide-react": "^1.52.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "react-dom": "^19.3.1",
     "tailwindcss": "^4.1.18",
     "zod": "^4.4.3"
   },
@@ -36,7 +36,7 @@
     "@testing-library/react": "^16.3.3",
     "@types/node": "^22.10.2",
     "@types/react": "^19.2.0",
-    "@types/react-dom": "^19.2.0",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "jsdom": "^28.1.0",
     "typescript": "^6.0.2",

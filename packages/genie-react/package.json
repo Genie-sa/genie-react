@@ -175,7 +175,7 @@
     "@testing-library/react": "^16.3.3",
     "@types/babel__core": "^7.20.5",
     "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
+    "@types/react-dom": "^19.3.0",
     "@types/ws": "^8.18.1",
     "jsdom": "^28.1.0",
     "react": "^19.3.1",
