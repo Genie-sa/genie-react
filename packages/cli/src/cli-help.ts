@@ -205,8 +205,14 @@ export const COMMANDS: Record<string, Command> = {
   status: {
     description: 'Inspect bridge readiness and resolve connected app sessions',
     arguments: [],
-    options: [...CONNECTION, ...SELECTION, 'sessions-only', 'marker'],
-    examples: [['status', '--sessions-only']],
+    options: [...CONNECTION, ...SELECTION, 'wait', 'sessions-only', 'marker'],
+    examples: [
+      ['status', '--sessions-only'],
+      ['status', '--session', 'my-agent', '--wait', '15000'],
+    ],
+    notes: [
+      'Without --wait, status reports at once. --wait waits up to that many milliseconds for the --session target, or any app when none is given, to be ready; on timeout it fails with not_connected. details.session.registeredTabs is 0 when no browser tab has registered with the hub.',
+    ],
   },
   call: {
     description: 'Invoke one tool using its live input schema',
@@ -296,6 +302,7 @@ export function cliHelp(name?: string): unknown {
           ...CLI_OPTIONS[option],
           ...OPTION_DETAILS[option],
           ...(option === 'wait' && name === 'tools' ? { default: 12000 } : {}),
+          ...(option === 'wait' && name === 'status' ? { default: undefined } : {}),
           required: command?.requiredOptions?.includes(option) ?? false,
         },
       ]),

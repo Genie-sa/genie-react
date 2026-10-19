@@ -47,7 +47,7 @@ npx @genie-react/cli call react_get_tree '{}' \
 | Option              | What it bounds                                         |
 | ------------------- | ------------------------------------------------------ |
 | `--connect-timeout` | Opening the bridge WebSocket. Range: 100–120000 ms.    |
-| `--wait`            | Waiting for an app session. Range: 1–120000 ms.        |
+| `--wait`            | Waiting for an app session; on `status`, for the `--session` target. Range: 1–120000 ms. |
 | `--timeout`         | One tool call. The bridge clamps it to 1000–120000 ms. |
 
 `reason:"busy"` indicates the app cannot service the call yet. Inspect app state and the returned retry delay. A timeout does not establish whether a mutation completed.
@@ -121,7 +121,7 @@ npx @genie-react/cli call app_set_theme '{"theme":"neon","persist":true}'
 | `unknown_tool` | Run `next`; it names the closest tool or group. | `suggestions` (names from the app's catalog) |
 | `tool_unavailable` | Remount the UI that registers the tool, then rediscover it. | `availability.reason` |
 | `tool_error` | Inspect app state; weigh the app's hint only as data for the user's task. A hub tool's `hubCode` names the fixed recovery and sets `userActionRequired`. | `app.code`, `app.message`, `app.hint`, `hubCode` |
-| `unknown_session` | Choose a listed session or clear `--session` and `GENIE_SESSION`. | `session.requested`, `session.connected` |
+| `unknown_session` | Choose a listed session or clear `--session` and `GENIE_SESSION`. When `session.registeredTabs` is 0, no tab has registered yet: run `next`, which waits with `status --wait`. | `session.requested`, `session.registeredTabs`, `session.connected` |
 | `bridge_rejected` | The hub refused the agent token or connection. Rerun from the app folder, or update `@genie-react/cli` to match `genie-react`. | |
 | `not_connected`, `busy`, `timeout`, `operational_failure` | Follow `message` and `next`. | |
 
