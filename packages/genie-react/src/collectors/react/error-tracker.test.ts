@@ -181,12 +181,45 @@ describe('getErrorState — DevTools-forced boundaries', () => {
     expect(state.blankTreeHint).not.toMatch(/react_reset_overrides/)
   })
 
-  it('de-dupes a boundary that is both organically caught and forced (organic wins)', async () => {
+  it('reports a DevTools-forced boundary that committed DidCapture once, flagged forced', async () => {
     const eb = boundaryFiber('DupEB')
     recordErrorState(eb)
     forced.errors = [eb]
     const state = await getErrorState({})
     expect(state.caughtErrors).toHaveLength(1)
-    expect(state.caughtErrors[0]?.forced).toBe(false)
+    expect(state.caughtErrors[0]?.forced).toBe(true)
+    expect(state.blankTreeHint).toMatch(/react_reset_overrides/)
+  })
+
+  it('flags a forced Suspense boundary that also committed its fallback and names it Suspense', async () => {
+    const boundary = asFiber({ tag: SuspenseComponentTag, type: null, memoizedState: {} })
+    recordErrorState(boundary)
+    forced.suspense = [boundary]
+    expect((await getErrorState({})).suspended).toMatchObject([
+      { boundaryName: 'Suspense', forced: true },
+    ])
+  })
+})
+
+describe('getErrorState — stacks without source', () => {
+  it('drops node_modules frames from caught error stacks when includeSource is false', async () => {
+    const error = new Error('Boomer exploded on purpose')
+    error.stack = [
+      'Error: Boomer exploded on purpose',
+      '    at Boomer (http://localhost:3000/src/Boomer.tsx:4:9)',
+      '    at beginWork (http://localhost:3000/node_modules/.vite/deps/react-dom_client.js:6141:139)',
+      '    at workLoopSync (http://localhost:3000/node_modules/.vite/deps/react-dom_client.js:8325:37)',
+    ].join('\n')
+    console.error(reactBoundaryArgs[0], error, ...reactBoundaryArgs.slice(2))
+    recordErrorState(boundaryFiber('ErrorBoundary'))
+
+    const [caught] = (await getErrorState({ includeSource: false })).caughtErrors
+    expect(caught?.stack).toBe(
+      [
+        'Error: Boomer exploded on purpose',
+        '    at Boomer (http://localhost:3000/src/Boomer.tsx:4:9)',
+        '    … 2 library frames omitted',
+      ].join('\n'),
+    )
   })
 })

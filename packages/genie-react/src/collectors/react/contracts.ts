@@ -640,7 +640,9 @@ export const reactErrorStateContract = defineAgentToolContract({
     includeSource: z
       .boolean()
       .default(true)
-      .describe('Resolve the file:line of each boundary/component (async source-map lookup).'),
+      .describe(
+        'Resolve the file:line of each boundary/component (async source-map lookup). When false, stacks also drop frames from node_modules.',
+      ),
     limit: z.number().int().min(1).max(100).default(20),
   }),
   output: z.object({
