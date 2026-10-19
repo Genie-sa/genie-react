@@ -1,5 +1,13 @@
 # @genie-react/cli
 
+## 0.16.0
+
+### Patch Changes
+
+- 3fe0b53: When no discovery file exists, fall back to the standalone hub's port 4390 unless the app has a Vite config, instead of always guessing Vite's 5173. `doctor --live` and every command now probe the right port for Next.js and React Native apps.
+- Updated dependencies [3fe0b53]
+  - genie-react@0.16.0
+
 ## 0.15.1
 
 ### Patch Changes

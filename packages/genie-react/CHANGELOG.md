@@ -1,5 +1,11 @@
 # genie-react
 
+## 0.16.0
+
+### Minor Changes
+
+- 3fe0b53: Add `genie-react/tools`, which exports `defineGenieTool`, `GenieToolError`, `registerGenieTools`, `useGenieTool`, and `useGenieTools` without importing TanStack, so Next.js, React Native, and other apps without both TanStack peers can use the app tool hooks. The root `genie-react` entry still exports them alongside `<Genie />`.
+
 ## 0.15.1
 
 ## 0.15.0
