@@ -3,12 +3,15 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// `npx skills add Genie-sa/genie-react` reads skills/genie from git; packages/cli/skill is the only source.
+// `npx skills add Genie-sa/genie-react` reads skills/genie from git; packages/cli/skill is the only source,
+// and its metadata version follows @genie-react/cli so doctor's bundledSkill matches the installed CLI.
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SOURCE = join(ROOT, 'packages/cli/skill')
 const MIRROR = join(ROOT, 'skills/genie')
 const check = process.argv.includes('--check')
+const VERSION_LINE = /^(\s*version:\s*)["']?[^\s"']+["']?$/m
+const { version } = JSON.parse(readFileSync(join(ROOT, 'packages/cli/package.json'), 'utf8'))
 
 const markdownIn = (directory) => {
   try {
@@ -23,6 +26,21 @@ const sourceFiles = markdownIn(SOURCE)
 if (sourceFiles.length === 0) {
   console.error(`No skill files found in ${SOURCE}`)
   process.exit(1)
+}
+
+const skill = read(SOURCE, 'SKILL.md')
+if (!VERSION_LINE.test(skill)) {
+  console.error('packages/cli/skill/SKILL.md has no metadata version line to stamp')
+  process.exit(1)
+}
+const stamped = skill.replace(VERSION_LINE, `$1"${version}"`)
+if (stamped !== skill) {
+  if (check) {
+    console.error(`packages/cli/skill/SKILL.md says another version than @genie-react/cli ${version}`)
+    console.error('Run: node scripts/sync-skill.mjs')
+    process.exit(1)
+  }
+  writeFileSync(join(SOURCE, 'SKILL.md'), stamped)
 }
 const mirrorFiles = markdownIn(MIRROR)
 const drift = [

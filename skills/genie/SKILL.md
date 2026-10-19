@@ -2,7 +2,7 @@
 name: genie
 description: Inspect a running React or React Native app with Genie. Use for render causes, effects, Query and Router state, interaction timelines, performance comparisons, or app_* tools for login, fixtures, and UI states.
 metadata:
-  version: "0.16.0"
+  version: "0.18.1"
   package: "@genie-react/cli"
 ---
 
