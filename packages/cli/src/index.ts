@@ -1227,9 +1227,9 @@ function ensureAgentSkill(ctx: ApplyContext): InitArtifact[] {
   return artifacts
 }
 
-/** The bundled skill rendered for this project's package manager; null when the package lost its skill files. */
 const BUNDLED_SKILL_DIRECTORY = fileURLToPath(new URL('../skill', import.meta.url))
 
+/** The bundled skill rendered for this project's package manager; null when the package lost its skill files. */
 function readBundledSkill(cwd: string) {
   const files = readSkillFiles(BUNDLED_SKILL_DIRECTORY)
   return files && renderSkillFiles(files, cwd)
