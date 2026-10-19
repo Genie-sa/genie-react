@@ -170,6 +170,7 @@ let targetedFibersProcessed = 0
 let targetedFibersSkipped = 0
 let droppedTargetUnmountFibers = 0
 let adaptiveBudgetScale = 1
+let commitsWithinAdaptiveBudget = 0
 
 export interface RenderObservationOptions {
   components?: string[]
@@ -221,6 +222,9 @@ let unmountedRootMembership = new WeakMap<Fiber, boolean>()
 const ADAPTIVE_FIBER_CEILING = 20_000
 const ADAPTIVE_OPERATION_CEILING = 2_000_000
 const ADAPTIVE_TIME_CEILING_MS = 500
+const ADAPTIVE_MAX_SCALE = 4
+// Hysteresis: one cheap commit after a burst must not shrink the budget the next burst needs.
+const ADAPTIVE_DECAY_COMMITS = 30
 
 const DID_CAPTURE = 0b1000_0000
 const RECENT_CAUSE_EVENT_LIMIT = 1_000
@@ -509,6 +513,7 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   targetedFibersSkipped = 0
   droppedTargetUnmountFibers = 0
   adaptiveBudgetScale = 1
+  commitsWithinAdaptiveBudget = 0
   for (const pending of pendingUnmounts) forgetUnmountWithoutTombstone(pending)
   pendingUnmounts.length = 0
   clears++
@@ -1463,15 +1468,27 @@ export function finalizeCommitAnalysisBudget(budget: CommitAnalysisBudget): void
     ...commitWorkExhaustions(budget.work),
     ...commitWorkExhaustions(budget.targetWork).map((subsystem) => `target:${subsystem}`),
   ]
-  if (exhausted.length === 0) return
+  if (exhausted.length === 0) {
+    decayAdaptiveBudget()
+    return
+  }
   markMeasurementIncomplete()
   budgetExhaustedCommits += 1
   for (const subsystem of exhausted) {
     budgetExhaustedSubsystems.set(subsystem, (budgetExhaustedSubsystems.get(subsystem) ?? 0) + 1)
   }
-  if (observationConfiguration.budget.adaptive && adaptiveBudgetScale < 4) {
+  commitsWithinAdaptiveBudget = 0
+  if (observationConfiguration.budget.adaptive && adaptiveBudgetScale < ADAPTIVE_MAX_SCALE) {
     adaptiveBudgetScale += 1
   }
+}
+
+function decayAdaptiveBudget(): void {
+  if (adaptiveBudgetScale <= 1) return
+  commitsWithinAdaptiveBudget += 1
+  if (commitsWithinAdaptiveBudget < ADAPTIVE_DECAY_COMMITS) return
+  commitsWithinAdaptiveBudget = 0
+  adaptiveBudgetScale -= 1
 }
 
 function renderedParentCause(

@@ -1290,6 +1290,20 @@ describe('commit analysis budget', () => {
     })
   })
 
+  it('shrinks a grown budget back after a run of commits that fit it', () => {
+    clearRenders({ budget: { fiberLimit: 250, operationLimit: 20_000, timeLimitMs: 8 } })
+    exhaustOneCommit()
+    exhaustOneCommit()
+    const withinBudget = () => finalizeCommitAnalysisBudget(createCommitAnalysisBudget())
+
+    for (let commit = 0; commit < 29; commit += 1) withinBudget()
+    expect(getRenderObservationConfig()).toMatchObject({ adaptiveScale: 3, timeLimitMs: 24 })
+    withinBudget()
+    expect(getRenderObservationConfig()).toMatchObject({ adaptiveScale: 2, timeLimitMs: 16 })
+    for (let commit = 0; commit < 100; commit += 1) withinBudget()
+    expect(getRenderObservationConfig()).toMatchObject({ adaptiveScale: 1, timeLimitMs: 8 })
+  })
+
   it('stops adaptive growth at the ceiling', () => {
     clearRenders({ budget: { fiberLimit: 20_000, operationLimit: 2_000_000, timeLimitMs: 500 } })
     exhaustOneCommit()

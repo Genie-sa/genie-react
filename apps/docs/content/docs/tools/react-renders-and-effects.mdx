@@ -19,7 +19,8 @@ defaults to `{bufferLimit:1000,targetReserve:100}`; `bufferLimit` is an integer 
 `targetReserve` is an integer from 0 to 5000, and the reserve cannot exceed the buffer.
 
 The expanded maxima are opt-in; defaults are unchanged. `adaptive:true` increases only later commit
-budgets after exhaustion and cannot restore evidence skipped by the exhausted commit. For a
+budgets after exhaustion, up to 4x, and steps back down after 30 commits in a row fit the budget. It
+cannot restore evidence skipped by the exhausted commit. For a
 one-action window, especially on a large React Native tree, discard incomplete coverage and rerun
 the action from a fresh window with an explicitly larger budget.
 
@@ -804,7 +805,8 @@ defaults to `{bufferLimit:1000,targetReserve:100}`; `bufferLimit` is an integer 
 `targetReserve` is an integer from 0 to 5000, and the reserve cannot exceed the buffer.
 
 The expanded maxima are opt-in; defaults are unchanged. `adaptive:true` increases only later commit
-budgets after exhaustion and cannot restore evidence skipped by the exhausted commit. For a
+budgets after exhaustion, up to 4x, and steps back down after 30 commits in a row fit the budget. It
+cannot restore evidence skipped by the exhausted commit. For a
 one-action profile, especially on a large React Native tree, discard incomplete coverage and rerun
 the flow from a fresh profile with an explicitly larger budget.
 
