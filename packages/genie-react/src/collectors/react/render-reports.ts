@@ -1,3 +1,4 @@
+import { roundMilliseconds } from '../../protocol'
 import { wrapperAncestryOf } from './fiber'
 import { countExternalStoreHooks, type RenderCauseEvent } from './render-causes'
 import {
@@ -181,6 +182,10 @@ async function classifyRecordReports(
       appOwned,
       report: {
         ...rest,
+        selfTime: roundMilliseconds(rest.selfTime),
+        totalTime: roundMilliseconds(rest.totalTime),
+        cumulativeSelfTime: roundMilliseconds(rest.cumulativeSelfTime),
+        cumulativeTotalTime: roundMilliseconds(rest.cumulativeTotalTime),
         causes: withReportEvidence(rest.causes, source, hookSources, externalStoreCount),
         noObservedInputChange: rest.unnecessary,
         compiler: {

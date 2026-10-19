@@ -14,7 +14,7 @@ import {
   setFiberId,
 } from 'bippy'
 import type { z } from 'zod'
-import { dehydrate } from '../../protocol'
+import { dehydrate, isDehydratedNode } from '../../protocol'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 import { getNearestHostFibers } from './bippy-compat'
 import { type hookEntrySchema, type hookKindSchema, MAX_HOOKS, type NodeId } from './contracts'
@@ -816,6 +816,20 @@ export function classifyHook(hook: MemoizedState): HookKind {
 }
 
 /** One hook entry for react_inspect_component: its kind, whether it is stateful, its stateful ordinal, and its value/deps (never throws on classification). */
+/** Dehydrate for inspection; a function cannot be hydrated further, so its placeholder collapses to the `ƒ name()` preview. */
+function inspectValue(value: unknown, options: Parameters<typeof dehydrate>[1]): unknown {
+  return collapseFunctionPlaceholders(dehydrate(value, options))
+}
+
+function collapseFunctionPlaceholders(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || value instanceof Date) return value
+  if (isDehydratedNode(value)) return value.kind === 'function' ? value.preview : value
+  if (Array.isArray(value)) return value.map(collapseFunctionPlaceholders)
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, collapseFunctionPlaceholders(entry)]),
+  )
+}
+
 function describeHook(
   hook: MemoizedState,
   index: number,
@@ -825,8 +839,8 @@ function describeHook(
   const kind = classifyHook(hook)
   const ms = hook.memoizedState
   const valueOrDeps = isEffectHookState(ms)
-    ? { deps: dehydrate(ms.deps, { depth }) }
-    : { value: dehydrate(ms, { depth }) }
+    ? { deps: inspectValue(ms.deps, { depth }) }
+    : { value: inspectValue(ms, { depth }) }
   return {
     index,
     kind,
@@ -852,13 +866,13 @@ export function inspectFiber(
   options: { path?: Array<string | number>; depth: number },
 ): InspectResult {
   const kind = fiberKind(fiber)
-  const props = dehydrate(fiber.memoizedProps, { depth: options.depth, path: options.path })
+  const props = inspectValue(fiber.memoizedProps, { depth: options.depth, path: options.path })
   let state: unknown
   let hooks: HookEntry[] = []
 
   if (kind === 'class') {
     const instance = fiber.stateNode as { state?: unknown } | null
-    state = dehydrate(instance?.state ?? fiber.memoizedState, { depth: options.depth })
+    state = inspectValue(instance?.state ?? fiber.memoizedState, { depth: options.depth })
   } else if (kind === 'function' || kind === 'memo' || kind === 'forwardRef') {
     let statefulOrdinal = 0
     hooks = hookChain(fiber).map((hook, index) => {

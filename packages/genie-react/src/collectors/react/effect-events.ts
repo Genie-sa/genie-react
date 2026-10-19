@@ -323,8 +323,8 @@ function completeExecution(
   event.execution = {
     status: 'observed',
     evidence: 'exact',
-    startedAt,
-    completedAt,
+    startedAt: round3(startedAt),
+    completedAt: round3(completedAt),
     durationMs: round3(completedAt - startedAt),
     outcome,
     ...(error === undefined ? {} : { error: errorMessage(error) }),
@@ -343,8 +343,8 @@ function completeCleanup(
   event.cleanupExecution = {
     status: 'observed',
     evidence: 'exact',
-    startedAt,
-    completedAt,
+    startedAt: round3(startedAt),
+    completedAt: round3(completedAt),
     durationMs: round3(completedAt - startedAt),
     outcome,
     ...(error === undefined ? {} : { error: errorMessage(error) }),

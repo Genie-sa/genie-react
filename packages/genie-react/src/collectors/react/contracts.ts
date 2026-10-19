@@ -228,7 +228,7 @@ export const reactInspectComponentContract = defineAgentToolContract({
   name: 'react_inspect_component',
   title: 'Inspect a React component',
   description:
-    'Inspect a component by id: its props, plus state (class components) or hooks (function components), depth-bounded. Each hook reports its `kind` (state/reducer/effect/layout-effect/memo/callback/ref/other), whether it is `stateful`, and for stateful hooks a `stateIndex` — the ordinal you pass to react_override_hook_state instead of counting flat hook positions past library hooks. Pass `path` to hydrate deeper into a nested prop value.',
+    'Inspect a component by id: its props, plus state (class components) or hooks (function components), depth-bounded. Each hook reports its `kind` (state/reducer/effect/layout-effect/memo/callback/ref/other), whether it is `stateful`, and for stateful hooks a `stateIndex` — the ordinal you pass to react_override_hook_state instead of counting flat hook positions past library hooks. Functions appear as their `ƒ name()` preview string. Pass `path` to hydrate deeper into a nested prop value.',
   group: 'react.inspect',
   input: z.object({
     id: nodeIdSchema,

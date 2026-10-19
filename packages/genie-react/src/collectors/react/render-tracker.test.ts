@@ -91,6 +91,17 @@ beforeEach(() => {
   clearRenders()
 })
 
+it('rounds reported render times to hundredths of a millisecond', async () => {
+  render(componentFiber({ name: 'Profiled', actualDuration: 0.10000002384185791 }), 'mount')
+
+  expect((await getRenders({ sort: 'renders', limit: 1 }))[0]).toMatchObject({
+    selfTime: 0.1,
+    totalTime: 0.1,
+    cumulativeSelfTime: 0.1,
+    cumulativeTotalTime: 0.1,
+  })
+})
+
 it('sorts by updates rather than total renders before applying the result limit', async () => {
   const mounting = componentFiber({ name: 'MountHeavy' })
   const updating = componentFiber({ name: 'UpdateHeavy' })

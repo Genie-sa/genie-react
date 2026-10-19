@@ -1,5 +1,6 @@
 import { type Fiber, getRDTHook } from 'bippy'
 import { defineCollector, defineCollectorTool, type GenieCollector } from '../../client'
+import { roundMilliseconds } from '../../protocol'
 import type { NodeId } from './contracts'
 import {
   reactClearRendersContract,
@@ -801,7 +802,7 @@ export function reactCollector(): GenieCollector {
             slowest: bySelfTime.map((r) => ({
               id: r.id,
               name: r.name,
-              selfTime: r.selfTime,
+              selfTime: roundMilliseconds(r.selfTime),
               renders: r.renders,
             })),
             mostRerendered: byRenders.map((r) => ({
