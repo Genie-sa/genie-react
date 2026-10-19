@@ -269,7 +269,7 @@ describe('GenieBridge tab sessions', () => {
     expect(handle.bridge.getStatus().sessions[0]).not.toHaveProperty('successorSessionId')
   })
 
-  it('keeps the default on a reloading tab while a tab that was already open answers meanwhile', async () => {
+  it('keeps the default on a reloading tab while a tab that was already open answers reads meanwhile', async () => {
     await start({ targetReloadGraceMs: 2_000 })
     const agent = await open(`${url}?role=agent`)
     const tabA = await openDocument('a-1', 'tab-a', 1, 'alpha')
@@ -289,11 +289,17 @@ describe('GenieBridge tab sessions', () => {
     const started = Date.now()
     expect((await waitReady(agent)).result.ok).toBe(true)
     expect(Date.now() - started).toBeLessThan(500)
-    const meanwhileId = call(agent)
+    const meanwhileId = call(agent, undefined, 'peek')
     await respond(tabB, meanwhileId)
     expect(await agent.inbox.wait(isResult(meanwhileId))).toMatchObject({
       result: { from: 'b-1' },
       retargeted: true,
+    })
+    const mutationId = call(agent)
+    expect(await agent.inbox.wait(isResult(mutationId))).toMatchObject({
+      ok: false,
+      errorCode: 'not-connected',
+      errorDetails: { hubCode: 'SESSION_RELOADING' },
     })
 
     const reloaded = await openDocument('a-2', 'tab-a', 2, 'alpha')

@@ -1664,6 +1664,21 @@ export class GenieBridge {
       return
     }
     const { session, retargeted } = resolution
+    // A tab that was already open only stands in for a reloading default on reads; a mutation there would change the wrong tab.
+    if (
+      retargeted &&
+      this.defaultTabReload !== null &&
+      toolDescriptor(session, tool)?.annotations?.readOnlyHint !== true
+    ) {
+      settle({
+        ok: false,
+        errorCode: 'not-connected',
+        errorDetails: { hubCode: 'SESSION_RELOADING' },
+        retryInMs: BUSY_RETRY_MS,
+        error: `The targeted tab ${JSON.stringify(this.defaultTabKey)} is reconnecting after a reload and "${tool}" is not read-only, so it was not run on another tab; retry shortly, or target a tab explicitly.`,
+      })
+      return
+    }
     const settleWithSession = (response: AppResponse): void =>
       settle({ ...response, session, ...(retargeted ? { retargeted } : {}) })
     const fullTimeout = Math.min(
