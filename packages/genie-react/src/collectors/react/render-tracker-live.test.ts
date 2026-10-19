@@ -282,6 +282,25 @@ describe('render tracking against a live React tree', () => {
     expect((await leafCohort()).instances).toEqual([])
   })
 
+  it('resolves a component mounted in a second React root by id', () => {
+    view = render(createElement(KeyedList))
+    const modalContainer = document.body.appendChild(document.createElement('div'))
+    const modal = render(createElement(StrictCounter), { container: modalContainer })
+    try {
+      const owner = owningComponentFor(modal.getByRole('button'), 1)
+      if (!owner) throw new Error('StrictCounter has no owning fiber')
+      const root = findRootFiber()
+      if (!root) throw new Error('No committed root')
+
+      const resolved = findFiberById(root, owner.id)
+      expect(resolved && getLatestFiber(resolved)).toBe(getLatestFiber(owner.fiber))
+      expect(root.child?.type).toBe(KeyedList)
+    } finally {
+      modal.unmount()
+      modalContainer.remove()
+    }
+  })
+
   it('resolves a stale alternate to the fiber React committed last', () => {
     view = render(createElement(StrictCounter))
     const button = view.getByRole('button')

@@ -725,13 +725,25 @@ export function matchDetail(fiber: Fiber, propsDepth: number): { kind: string; p
   return { kind: fiberKind(fiber), props: dehydrate(fiber.memoizedProps, { depth: propsDepth }) }
 }
 
+/** Resolve an id under the given root first, then under every other committed root (portals into a second createRoot, modals, widgets). */
 export function findFiberById(root: Fiber, id: NodeId): Fiber | null {
+  const fromRoot = findFiberByIdWithin(root, id)
+  if (fromRoot) return fromRoot
+  for (const other of findAllCommittedRootFibers().roots) {
+    if (other === root) continue
+    const found = findFiberByIdWithin(other, id)
+    if (found) return found
+  }
+  fiberRegistry.delete(id)
+  return null
+}
+
+function findFiberByIdWithin(root: Fiber, id: NodeId): Fiber | null {
   const cached = fiberRegistry.get(id)
   if (cached) {
     // Resolving the mounted buffer via return-link climbs stays O(depth); bippy's getLatestFiber falls back to a full-root scan when profiler timings are absent. Stale entries fall through to the walk below.
     if (isMounted(cached, root)) return cached
     if (cached.alternate && isMounted(cached.alternate, root)) return cached.alternate
-    fiberRegistry.delete(id)
   }
 
   let found: Fiber | null = null
