@@ -2,6 +2,7 @@ import {
   type AgentErrorCode,
   type AgentToolContract,
   type AppInfo,
+  dehydrate,
   devtoolsInteractionBeginContract,
   devtoolsInteractionStopContract,
   type HubErrorCode,
@@ -27,6 +28,7 @@ interface InteractionRequestResult {
   error?: string
   errorCode?: AgentErrorCode
   errorDetails?: ToolErrorDetails
+  retryInMs?: number
 }
 
 export interface InteractionSession {
@@ -59,10 +61,8 @@ export type InteractionInvocation =
   | { ok: true; result: unknown; session?: InteractionSession }
   | (Omit<SessionUnavailable, 'errorCode'> & {
       ok: false
-      errorCode: Extract<
-        AgentErrorCode,
-        'invalid-args' | 'not-connected' | 'unknown-session' | 'tool-error'
-      >
+      errorCode: AgentErrorCode
+      retryInMs?: number
       session?: InteractionSession
     })
 
@@ -153,15 +153,24 @@ export class InteractionManager<TSession extends InteractionSession> {
     }
     const session = this.options.resolveSession(sessionTarget)
     if (!session) return this.noSession(sessionTarget)
-    if (
-      this.starting.has(session.sessionId) ||
-      [...this.active.values()].some(
-        (interaction) => interaction.session.sessionId === session.sessionId,
-      )
-    ) {
+    const recordingId = [...this.active].find(
+      ([, interaction]) => interaction.session.sessionId === session.sessionId,
+    )?.[0]
+    if (recordingId) {
       return {
         ok: false,
-        error: `Session ${JSON.stringify(session.sessionId)} already has a starting or recording interaction. Stop it before beginning another; clearing now would invalidate its boundary.`,
+        error: `Session ${JSON.stringify(session.sessionId)} is already recording interaction ${JSON.stringify(recordingId)}. Stop it with devtools_interaction_stop {"interactionId":${JSON.stringify(recordingId)}} before beginning another.`,
+        errorCode: 'invalid-args',
+        errorDetails: {
+          hubCode: 'INTERACTION_ACTIVE' satisfies HubErrorCode,
+          interactionId: recordingId,
+        },
+      }
+    }
+    if (this.starting.has(session.sessionId)) {
+      return {
+        ok: false,
+        error: `Session ${JSON.stringify(session.sessionId)} is already starting an interaction. Wait for that devtools_interaction_begin call to return, then stop it before beginning another.`,
         errorCode: 'invalid-args',
         errorDetails: { hubCode: 'INTERACTION_ACTIVE' satisfies HubErrorCode },
       }
@@ -211,7 +220,9 @@ export class InteractionManager<TSession extends InteractionSession> {
       return {
         ok: false,
         error: response.error ?? 'react_clear_renders failed while beginning the interaction.',
-        errorCode: response.errorCode === 'invalid-args' ? 'invalid-args' : 'tool-error',
+        errorCode: response.errorCode ?? 'tool-error',
+        errorDetails: response.errorDetails,
+        retryInMs: response.retryInMs,
       }
     }
     if (
@@ -467,7 +478,13 @@ export class InteractionManager<TSession extends InteractionSession> {
       capturedAt,
       durationMs: Date.now() - started,
       ...(response.ok
-        ? { result: response.result }
+        ? {
+            result: dehydrate(response.result, {
+              depth: 12,
+              maxEntries: 1_000,
+              maxStringLength: 10_000,
+            }),
+          }
         : { error: response.error ?? `${tool} failed.` }),
     }
   }

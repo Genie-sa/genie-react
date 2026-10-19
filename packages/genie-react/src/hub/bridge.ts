@@ -1020,14 +1020,24 @@ export class GenieBridge {
         this.send(socket, { kind: 'bridge/pong', id: message.id })
         return
       case 'agent/invoke':
-        void this.handleInvoke(
+        this.handleInvoke(
           socket,
           message.id,
           message.tool,
           message.args,
           message.sessionId,
           message.timeoutMs,
-        )
+        ).catch((error: unknown) => {
+          this.log('error', `${message.tool} failed inside the hub`, error)
+          this.result(
+            socket,
+            message.id,
+            false,
+            undefined,
+            `${message.tool} failed inside the Genie hub: ${error instanceof Error ? error.message : String(error)}`,
+            { errorCode: 'tool-error' },
+          )
+        })
         return
     }
   }
@@ -1254,6 +1264,12 @@ export class GenieBridge {
       !this.hasSession(sessionId) &&
       !(await this.waitForConnection(input.timeoutMs, sessionId))
     ) {
+      // A reloading tab may still claim the target, so only a wait that never found it reports which targets exist.
+      if (sessionId && this.apps.size > 0) {
+        const { error, ...extra } = this.unknownSession(sessionId)
+        this.result(agent, id, false, undefined, error, extra)
+        return
+      }
       finish({ state: 'failed', reason: 'no app connected' })
       return
     }
@@ -1285,7 +1301,11 @@ export class GenieBridge {
     }
     let lastCheck: WaitCheck = { state: 'pending' }
     while (Date.now() < deadline) {
-      const check = await this.checkCondition(input, target, pollState)
+      const check = await this.checkCondition(
+        { ...input, deadline: input.deadline ?? deadline },
+        target,
+        pollState,
+      )
       lastCheck = check
       if (check.state !== 'pending') return check
       await delay(POLL_INTERVAL_MS)
@@ -1336,12 +1356,24 @@ export class GenieBridge {
       return this.checkSettle(input, session, pollState)
     }
     if (!session) return { state: 'pending' }
+    let toolFailure: string | undefined
+    const request = async (tool: string, args: unknown): Promise<AppResponse> => {
+      const response = await this.appRequestForSession(tool, args, session, input.deadline)
+      // A broken or missing tool never satisfies the condition, so fail now instead of polling to the timeout.
+      if (!response.ok && isAppErrorCode(response.errorCode))
+        toolFailure ??= `${tool} failed: ${response.error ?? response.errorCode}`
+      return response
+    }
+    const check = await this.checkAppCondition(input, request)
+    return toolFailure === undefined ? check : { state: 'failed', reason: toolFailure }
+  }
+
+  private async checkAppCondition(
+    input: WaitInput,
+    request: (tool: string, args: unknown) => Promise<AppResponse>,
+  ): Promise<WaitCheck> {
     if (input.condition === 'component') {
-      const res = await this.appRequestForSession(
-        'react_find_components',
-        { query: input.name ?? '', limit: 1 },
-        session,
-      )
+      const res = await request('react_find_components', { query: input.name ?? '', limit: 1 })
       const matches = matchesOf(res.result)
       return {
         state: res.ok && matches !== undefined && matches.length > 0 ? 'met' : 'pending',
@@ -1354,7 +1386,7 @@ export class GenieBridge {
           input.queryHash === undefined
             ? { queryKey: input.queryKey }
             : { queryHash: input.queryHash }
-        const res = await this.appRequestForSession('query_get', selector, session)
+        const res = await request('query_get', selector)
         const query = queryStateOf(res.result)
         if (!res.ok || !query) return { state: 'pending' }
         const match = queryIdentity(query)
@@ -1366,7 +1398,7 @@ export class GenieBridge {
       }
 
       if (input.name) {
-        const res = await this.appRequestForSession('query_list', { limit: 500 }, session)
+        const res = await request('query_list', { limit: 500 })
         const queries = parseQueryList(res.result)
         if (!res.ok || !queries || queries.length === 0) return { state: 'pending' }
         const relevant = queries.filter((query) => legacyQueryMatches(query, input.name ?? ''))
@@ -1385,7 +1417,7 @@ export class GenieBridge {
           lastObserved: { fetchStatus: query.fetchStatus ?? null },
         }
       }
-      const fetching = await this.appRequestForSession('query_is_fetching', {}, session)
+      const fetching = await request('query_is_fetching', {})
       const state = queryStateOf(fetching.result)
       return {
         state: fetching.ok && state?.fetching === 0 && state.mutating === 0 ? 'met' : 'pending',
@@ -1396,7 +1428,7 @@ export class GenieBridge {
       }
     }
     if (input.condition === 'navigation') {
-      const res = await this.appRequestForSession('router_get_state', {}, session)
+      const res = await request('router_get_state', {})
       const state = routerStateOf(res.result)
       if (!res.ok || !state) return { state: 'pending' }
       return {
@@ -1513,7 +1545,12 @@ export class GenieBridge {
       if (!toolDescriptor(session, 'query_is_fetching')) {
         return unsupported('query_is_fetching')
       }
-      const response = await this.appRequestForSession('query_is_fetching', {}, session)
+      const response = await this.appRequestForSession(
+        'query_is_fetching',
+        {},
+        session,
+        input.deadline,
+      )
       const result = recordOf(response.result)
       const fetching = result ? numberField(result, 'fetching') : null
       const mutating = result ? (numberField(result, 'mutating') ?? 0) : null
@@ -1526,7 +1563,12 @@ export class GenieBridge {
       if (!toolDescriptor(session, 'router_get_state')) {
         return unsupported('router_get_state')
       }
-      const response = await this.appRequestForSession('router_get_state', {}, session)
+      const response = await this.appRequestForSession(
+        'router_get_state',
+        {},
+        session,
+        input.deadline,
+      )
       const result = routerStateOf(response.result)
       return {
         status: response.ok && result?.isLoading === false ? 'met' : 'pending',
@@ -1538,7 +1580,12 @@ export class GenieBridge {
     }
     if (!toolDescriptor(session, 'browser_fps')) return unsupported('browser_fps')
     if (pollState.frameCheck?.status === 'met') return pollState.frameCheck
-    const response = await this.appRequestForSession('browser_fps', { durationMs: 250 }, session)
+    const response = await this.appRequestForSession(
+      'browser_fps',
+      { durationMs: 250 },
+      session,
+      input.deadline,
+    )
     const result = recordOf(response.result)
     const comparable = result?.comparable === true
     pollState.frameCheck = {
@@ -1565,8 +1612,9 @@ export class GenieBridge {
     sessionId?: string,
     timeoutMs?: number,
   ): void {
+    // Agents choose their own ids, so a colliding in-flight id gets a hub-minted one to keep two agents' replies apart.
     this.sendAppRequest(
-      id,
+      this.pending.has(id) ? newId() : id,
       tool,
       args,
       ({ ok, result, error, ...extra }) => this.result(agent, id, ok, result, error, extra),
@@ -1833,8 +1881,9 @@ export class GenieBridge {
   }
 
   private broadcastStatus(): void {
-    const status = { kind: 'bridge/status' as const, ...this.getStatus() }
-    for (const agent of this.agents) this.send(agent, status)
+    if (this.agents.size === 0) return
+    const frame = encodeMessage({ kind: 'bridge/status', ...this.getStatus() })
+    for (const agent of this.agents) if (agent.readyState === WebSocket.OPEN) agent.send(frame)
   }
 
   private result(
@@ -1892,6 +1941,10 @@ function interruptedCallError(hubCode: InterruptionCode, mayHaveCompleted: boole
   return mayHaveCompleted
     ? `${cause}; the call is not read-only and may have completed, so inspect app state before retrying.`
     : `${cause}; retry the call.`
+}
+
+function isAppErrorCode(code: AgentErrorCode | undefined): boolean {
+  return code === 'invalid-args' || code === 'tool-error'
 }
 
 function recordOf(value: unknown): Record<string, unknown> | null {

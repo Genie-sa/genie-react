@@ -193,14 +193,16 @@ export const toolErrorDetailsSchema = z.object({
   hubCode: z.string().optional(),
   /** The call was not read-only and its document vanished before answering, so its side effects may have happened. */
   mayHaveCompleted: z.boolean().optional(),
+  /** The recording that blocks a new interaction on the same tab (`INTERACTION_ACTIVE`). */
+  interactionId: z.string().optional(),
 })
 export type ToolErrorDetails = z.infer<typeof toolErrorDetailsSchema>
 
 // Details are advisory: a malformed or newer shape degrades to absent instead of rejecting the whole frame.
 const errorDetailsField = toolErrorDetailsSchema.optional().catch(undefined)
-/** Only the hub authors `hubCode` and `mayHaveCompleted`, so parsing an app frame strips ones an app tries to forge. */
+/** Only the hub authors `hubCode`, `mayHaveCompleted`, and `interactionId`, so parsing an app frame strips ones an app tries to forge. */
 const appErrorDetailsField = toolErrorDetailsSchema
-  .omit({ hubCode: true, mayHaveCompleted: true })
+  .omit({ hubCode: true, mayHaveCompleted: true, interactionId: true })
   .optional()
   .catch(undefined)
 

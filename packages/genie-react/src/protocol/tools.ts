@@ -445,8 +445,10 @@ export const devtoolsStatusContract = defineAgentToolContract({
   input: z.object({
     includeTools: z
       .boolean()
-      .default(true)
-      .describe('Include full tool descriptors; set false for a compact status response.'),
+      .default(false)
+      .describe(
+        'Include full tool descriptors (large). Prefer the CLI `genie-react tools [group|name]` for discovery.',
+      ),
   }),
   output: z.object({
     connected: z.boolean(),

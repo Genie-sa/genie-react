@@ -78,7 +78,12 @@ describe('GenieBridge', () => {
     expect(echoResult.result.echoed).toEqual({ hello: 'world' })
 
     const statusId2 = newId()
-    send(agent, { kind: 'agent/invoke', id: statusId2, tool: 'devtools_status', args: {} })
+    send(agent, {
+      kind: 'agent/invoke',
+      id: statusId2,
+      tool: 'devtools_status',
+      args: { includeTools: true },
+    })
     const statusAfter = await agentInbox.wait(isResult(statusId2))
     expect(statusAfter.result.connected).toBe(true)
     expect(statusAfter.result.app.name).toBe('demo')

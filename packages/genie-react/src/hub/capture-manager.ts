@@ -43,6 +43,13 @@ interface CaptureRequestResult {
   error?: string
   errorCode?: AgentErrorCode
   errorDetails?: ToolErrorDetails
+  retryInMs?: number
+}
+
+class CaptureInterruptedError extends Error {
+  constructor(readonly response: CaptureRequestResult) {
+    super('The app document changed during capture. Retry against the ready successor.')
+  }
 }
 
 export interface CaptureSession {
@@ -59,10 +66,8 @@ export type CaptureInvocation =
   | { ok: true; result: unknown; session?: CaptureSession }
   | (Omit<SessionUnavailable, 'errorCode'> & {
       ok: false
-      errorCode: Extract<
-        AgentErrorCode,
-        'invalid-args' | 'not-connected' | 'unknown-session' | 'tool-error'
-      >
+      errorCode: AgentErrorCode
+      retryInMs?: number
       session?: CaptureSession
     })
 
@@ -225,6 +230,16 @@ export class CaptureManager<TSession extends CaptureSession> {
         session,
       }
     } catch (error) {
+      if (error instanceof CaptureInterruptedError) {
+        return {
+          ok: false,
+          error: error.message,
+          errorCode: 'not-connected',
+          errorDetails: error.response.errorDetails,
+          retryInMs: error.response.retryInMs,
+          session,
+        }
+      }
       return { ok: false, error: errorMessage(error), errorCode: 'tool-error', session }
     }
   }
@@ -378,7 +393,7 @@ export class CaptureManager<TSession extends CaptureSession> {
     }
     const response = await this.options.request(session, recipe.name, args)
     if (!response.ok && response.errorCode === 'not-connected') {
-      throw new Error('The app document changed during capture. Retry against the ready successor.')
+      throw new CaptureInterruptedError(response)
     }
     const durationMs = Date.now() - startedAt
     return response.ok
@@ -412,7 +427,10 @@ export class CaptureManager<TSession extends CaptureSession> {
 
   private assertSameDocument(session: TSession): void {
     if (!this.options.isCurrentSession(session)) {
-      throw new Error('The app document changed during capture. Retry against the ready successor.')
+      throw new CaptureInterruptedError({
+        ok: false,
+        errorDetails: { hubCode: 'SESSION_DISCONNECTED' satisfies HubErrorCode },
+      })
     }
   }
 
