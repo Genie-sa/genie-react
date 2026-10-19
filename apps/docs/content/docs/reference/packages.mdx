@@ -7,6 +7,7 @@ icon: Package
 | Package or export        | Purpose                                                     |
 | ------------------------ | ----------------------------------------------------------- |
 | `genie-react`            | The `<Genie />` app component.                              |
+| `genie-react/tools`      | App tool hooks and registration, without TanStack imports.  |
 | `genie-react/vite`       | Vite plugin and embedded hub.                               |
 | `genie-react/script`     | Development-only script component for SSR layouts.          |
 | `genie-react/next`       | Next.js hub registration and `<GenieScript />`.             |
@@ -30,7 +31,8 @@ icon: Package
 | TanStack Query  | 5 or newer        |
 | TanStack Router | 1 or newer        |
 
-Query and Router are separate optional integrations. The Vite plugin supplies development stubs
-when either package is absent. The Next.js Query setup registers `queryCollector` directly and does
+Query and Router are separate optional integrations. The root `genie-react` entry imports both for
+`<Genie />` context discovery, and the Vite plugin supplies development stubs when either package is
+absent. Other apps without both import app tools from `genie-react/tools`. The Next.js Query setup registers `queryCollector` directly and does
 not install or use TanStack Router. Native and collector-only entries register only the integrations
 the app passes.

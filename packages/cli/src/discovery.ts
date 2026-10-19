@@ -2,7 +2,7 @@ import type { Dirent } from 'node:fs'
 import { access, readdir, readFile, unlink } from 'node:fs/promises'
 import { dirname, join, parse, relative } from 'node:path'
 import { readAgentToken } from 'genie-react/hub'
-import { GENIE_DISCOVERY_FILE, GENIE_WS_PATH } from 'genie-react/protocol'
+import { GENIE_DEFAULT_HUB_PORT, GENIE_DISCOVERY_FILE, GENIE_WS_PATH } from 'genie-react/protocol'
 import { writeDiagnostic } from './cli-output'
 import { isRecord } from './guards'
 
@@ -67,6 +67,14 @@ export interface ResolvedBridge {
 }
 
 const DISCOVERY_ROOT_MARKERS = ['.git', 'pnpm-workspace.yaml'] as const
+export const VITE_CONFIG_FILES = [
+  'vite.config.ts',
+  'vite.config.mts',
+  'vite.config.mjs',
+  'vite.config.js',
+  'vite.config.cjs',
+] as const
+const VITE_DEV_PORT = 5173
 const IGNORED_DISCOVERY_DIRS = new Set([
   '.git',
   '.next',
@@ -107,7 +115,11 @@ export async function resolveBridge(cwd: string = process.cwd()): Promise<Resolv
     )
   }
 
-  const port = process.env.GENIE_BRIDGE_PORT ?? '5173'
+  // Vite serves the bridge from its dev server; every other app reaches the standalone hub.
+  const defaultPort = (await hasAnyFile(cwd, VITE_CONFIG_FILES))
+    ? VITE_DEV_PORT
+    : GENIE_DEFAULT_HUB_PORT
+  const port = process.env.GENIE_BRIDGE_PORT ?? defaultPort
   return { url: normalizeBridgeUrl(`ws://127.0.0.1:${port}${GENIE_WS_PATH}`), source: 'fallback' }
 }
 
@@ -196,7 +208,7 @@ async function readDiscoveryUpward(startDir: string): Promise<LocatedDiscovery |
 
 // Search downward only from a monorepo root; a nested directory could select a sibling app, while home or `/` would be costly.
 async function readWorkspaceDiscoveries(cwd: string): Promise<LocatedDiscovery[]> {
-  if (!(await isWorkspaceRoot(cwd))) return []
+  if (!(await hasAnyFile(cwd, DISCOVERY_ROOT_MARKERS))) return []
   const found: LocatedDiscovery[] = []
 
   const visit = async (dir: string, depth: number): Promise<void> => {
@@ -226,13 +238,13 @@ async function readWorkspaceDiscoveries(cwd: string): Promise<LocatedDiscovery[]
   return [...unique.values()].sort((a, b) => a.file.localeCompare(b.file))
 }
 
-async function isWorkspaceRoot(cwd: string): Promise<boolean> {
-  for (const marker of DISCOVERY_ROOT_MARKERS) {
+async function hasAnyFile(cwd: string, names: readonly string[]): Promise<boolean> {
+  for (const name of names) {
     try {
-      await access(join(cwd, marker))
+      await access(join(cwd, name))
       return true
     } catch {
-      // Try the next marker.
+      // Try the next name.
     }
   }
   return false

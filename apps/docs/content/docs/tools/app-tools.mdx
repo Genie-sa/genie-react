@@ -23,7 +23,7 @@ npx @genie-react/cli tools app
 and React Navigation native stacks. Register its three tools and forward navigator events to it:
 
 ```tsx
-import { registerGenieTools } from 'genie-react/client'
+import { registerGenieTools } from 'genie-react/tools'
 import { createNavigationTools } from 'genie-react/navigation'
 
 // Create once for this navigator's lifetime, for example inside the layout component's effect.
@@ -111,7 +111,7 @@ The examples import `zod`; add it to the app directly (`pnpm add zod`) — genie
 it internally, but package managers do not expose transitive dependencies to your imports.
 
 ```tsx
-import { useGenieTool } from 'genie-react'
+import { useGenieTool } from 'genie-react/tools'
 import { z } from 'zod'
 
 useGenieTool({
@@ -133,7 +133,7 @@ One `useGenieTools` call registers a whole panel; inline handlers keep the same 
 guarantee:
 
 ```tsx
-import { defineGenieTool, useGenieTools } from 'genie-react'
+import { defineGenieTool, useGenieTools } from 'genie-react/tools'
 import { z } from 'zod'
 
 useGenieTools([
@@ -161,7 +161,7 @@ Outside React, `registerGenieTools` works from a store, an API client, or module
 for the genie client if it has not started yet, and returns an unregister function:
 
 ```ts
-import { defineGenieTool, registerGenieTools } from 'genie-react/client'
+import { defineGenieTool, registerGenieTools } from 'genie-react/tools'
 import { useCartStore } from './cart-store'
 
 const unregister = registerGenieTools(

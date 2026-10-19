@@ -9,7 +9,7 @@ Load this reference only when creating or changing the app-owned tools that Geni
 - Pass definitions to `<Genie tools={tools} />` for app-lifetime tools.
 - Use `registerGenieTools` outside React, such as in a store or API client. Keep and call its unregister function when that lifetime ends.
 
-The hooks and `<Genie>` come from the root `genie-react` entry, which imports `@tanstack/react-query` and `@tanstack/react-router`. Vite's `genie()` plugin stubs whichever is missing. Any other app lacking either one, such as Next.js or React Native, imports `defineGenieTool` and `registerGenieTools` from `genie-react/client` instead and returns `registerGenieTools(...)` from a `useEffect` that depends on the state its handlers read.
+Import all of these from `genie-react/tools`, which loads in any app, with or without TanStack.
 
 This step is complete when every tool has one deliberate owner and lifetime.
 
@@ -18,7 +18,7 @@ This step is complete when every tool has one deliberate owner and lifetime.
 Apps import Zod 4 directly; add it as a direct dependency rather than importing Genie's private copy.
 
 ```tsx
-import { defineGenieTool, useGenieTools } from 'genie-react'
+import { defineGenieTool, useGenieTools } from 'genie-react/tools'
 import { z } from 'zod'
 import { useAuth } from './auth'
 
@@ -72,7 +72,7 @@ Read current state at call time. Return plain serializable data, never DOM nodes
 Use `GenieToolError` to identify expected failures in the runtime:
 
 ```ts
-import { GenieToolError } from 'genie-react'
+import { GenieToolError } from 'genie-react/tools'
 
 throw new GenieToolError('cart is empty', {
   code: 'CART_EMPTY',
@@ -89,7 +89,7 @@ This step is complete when success is bounded plain data and every recoverable d
 ## 4. Register outside React when needed
 
 ```ts
-import { defineGenieTool, registerGenieTools } from 'genie-react/client'
+import { defineGenieTool, registerGenieTools } from 'genie-react/tools'
 
 const unregister = registerGenieTools(
   defineGenieTool({

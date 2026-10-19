@@ -22,6 +22,7 @@ export default defineConfig([
       native: 'src/native/index.ts',
       navigation: 'src/navigation/index.ts',
       'react-freeze': 'src/react-freeze.ts',
+      tools: 'src/tools.ts',
       script: 'src/script.ts',
       next: 'src/next/index.ts',
       protocol: 'src/protocol/index.ts',

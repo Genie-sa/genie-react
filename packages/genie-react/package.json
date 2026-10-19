@@ -70,6 +70,11 @@
       "import": "./dist/native.js",
       "default": "./dist/native.js"
     },
+    "./tools": {
+      "types": "./dist/tools.d.ts",
+      "import": "./dist/tools.js",
+      "default": "./dist/tools.js"
+    },
     "./script": {
       "types": "./dist/script.d.ts",
       "import": "./dist/script.js",

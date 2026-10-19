@@ -28,6 +28,7 @@ import {
   isTokenTransportSafe,
   parseBridgeDiscovery,
   resolveBridge,
+  VITE_CONFIG_FILES,
 } from './discovery'
 import { isRecord } from './guards'
 import { genieCommand, packageManagerCommands } from './package-manager'
@@ -41,14 +42,6 @@ const defaultLogger: Logger = {
   info: (message) => process.stdout.write(`${message}\n`),
   error: (message) => process.stderr.write(`${message}\n`),
 }
-
-const VITE_CONFIG_FILES = [
-  'vite.config.ts',
-  'vite.config.mts',
-  'vite.config.mjs',
-  'vite.config.js',
-  'vite.config.cjs',
-] as const
 
 const GENIE_PACKAGE = 'genie-react'
 const VITE_PLUGIN_SPECIFIER = 'genie-react/vite'
