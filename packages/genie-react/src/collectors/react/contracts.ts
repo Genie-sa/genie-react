@@ -35,6 +35,7 @@ export type NodeId = z.infer<typeof nodeIdSchema>
 
 /** Cap on the memoizedState hook walk, shared by the inspector, the hook-state override, and its contract. */
 export const MAX_HOOKS = 100
+export const MAX_CUSTOM_HOOK_DEPTH = 12
 
 const treeNodeSchema = z.object({
   id: z.number(),
@@ -214,6 +215,14 @@ export const hookEntrySchema = z.object({
     .describe(
       'Present only on stateful hooks: the 0-based ordinal among them, to pass as react_override_hook_state stateIndex.',
     ),
+  customHooks: z
+    .array(z.string())
+    .max(MAX_CUSTOM_HOOK_DEPTH)
+    .nullable()
+    .optional()
+    .describe(
+      'Custom hooks that called this hook, outermost first (e.g. ["useCart","useQuery"]); absent when the component called it directly; null when the hook inspector could not see this hook (useEffectEvent), so its caller is unknown.',
+    ),
   value: z
     .unknown()
     .optional()
@@ -224,11 +233,17 @@ export const hookEntrySchema = z.object({
     .describe('Present on effect/layout-effect hooks: the dependency array, depth-bounded.'),
 })
 
+export const customHookGroupingSchema = z
+  .enum(['exact', 'partial', 'unavailable'])
+  .describe(
+    'exact: every hook carries its custom-hook chain. partial: hooks with customHooks null have an unknown caller; the rest are exact. unavailable: the hook inspector failed or did not match the mounted hooks (conditional hooks, render that throws), so no hook carries customHooks.',
+  )
+
 export const reactInspectComponentContract = defineAgentToolContract({
   name: 'react_inspect_component',
   title: 'Inspect a React component',
   description:
-    'Inspect a component by id: its props, plus state (class components) or hooks (function components), depth-bounded. Each hook reports its `kind` (state/reducer/effect/layout-effect/memo/callback/ref/other), whether it is `stateful`, and for stateful hooks a `stateIndex` — the ordinal you pass to react_override_hook_state instead of counting flat hook positions past library hooks. Functions appear as their `ƒ name()` preview string. Pass `path` to hydrate deeper into a nested prop value.',
+    'Inspect a component by id: its props, plus state (class components) or hooks (function components), depth-bounded. Each hook reports its `kind` (state/reducer/effect/layout-effect/memo/callback/ref/other), whether it is `stateful`, for stateful hooks a `stateIndex` — the ordinal you pass to react_override_hook_state instead of counting flat hook positions past library hooks — and `customHooks`, the custom-hook chain that called it (e.g. ["useCart","useQuery"]), so you can tell which hook to edit. Functions appear as their `ƒ name()` preview string. Pass `path` to hydrate deeper into a nested prop value.',
   group: 'react.inspect',
   input: z.object({
     id: nodeIdSchema,
@@ -245,6 +260,7 @@ export const reactInspectComponentContract = defineAgentToolContract({
     props: z.unknown(),
     state: z.unknown().optional(),
     hooks: z.array(hookEntrySchema),
+    customHookGrouping: customHookGroupingSchema.optional(),
     wrapperAncestry: z.array(wrapperFrameSchema).max(9).default([]),
   }),
   annotations: { readOnlyHint: true },

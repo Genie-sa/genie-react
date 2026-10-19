@@ -13,11 +13,19 @@ import {
   type MemoizedState,
   setFiberId,
 } from 'bippy'
+import { getFiberHooks } from 'bippy/source'
 import type { z } from 'zod'
 import { dehydrate, isDehydratedNode } from '../../protocol'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 import { getNearestHostFibers } from './bippy-compat'
-import { type hookEntrySchema, type hookKindSchema, MAX_HOOKS, type NodeId } from './contracts'
+import {
+  type customHookGroupingSchema,
+  type hookEntrySchema,
+  type hookKindSchema,
+  MAX_HOOKS,
+  type NodeId,
+} from './contracts'
+import { type CustomHookChain, customHookChains } from './hook-groups'
 import {
   classifyFibersWithinBudget,
   type FiberClassification,
@@ -93,6 +101,7 @@ export interface InspectResult {
   props: unknown
   state: unknown
   hooks: HookEntry[]
+  customHookGrouping?: z.infer<typeof customHookGroupingSchema>
   wrapperAncestry: WrapperFrame[]
 }
 
@@ -815,7 +824,6 @@ export function classifyHook(hook: MemoizedState): HookKind {
   return 'other'
 }
 
-/** One hook entry for react_inspect_component: its kind, whether it is stateful, its stateful ordinal, and its value/deps (never throws on classification). */
 /** Dehydrate for inspection; a function cannot be hydrated further, so its placeholder collapses to the `ƒ name()` preview. */
 function inspectValue(value: unknown, options: Parameters<typeof dehydrate>[1]): unknown {
   return collapseFunctionPlaceholders(dehydrate(value, options))
@@ -832,11 +840,12 @@ function collapseFunctionPlaceholders(value: unknown): unknown {
 
 function describeHook(
   hook: MemoizedState,
+  kind: HookKind,
   index: number,
   stateIndex: number | null,
+  customHooks: CustomHookChain | undefined,
   depth: number,
 ): HookEntry {
-  const kind = classifyHook(hook)
   const ms = hook.memoizedState
   const valueOrDeps = isEffectHookState(ms)
     ? { deps: inspectValue(ms.deps, { depth }) }
@@ -846,7 +855,23 @@ function describeHook(
     kind,
     stateful: stateIndex !== null,
     ...(stateIndex !== null ? { stateIndex } : {}),
+    ...(customHooks === null || customHooks?.length ? { customHooks } : {}),
     ...valueOrDeps,
+  }
+}
+
+/** Shadow-renders the component with React DevTools' hook inspector, the same re-render DevTools runs on select. */
+function inspectCustomHookChains(
+  fiber: Fiber,
+  chain: readonly MemoizedState[],
+  slotKinds: readonly HookKind[],
+): CustomHookChain[] | null {
+  if (slotKinds.length === 0) return []
+  const truncated = chain.at(-1)?.next != null
+  try {
+    return customHookChains(getFiberHooks(fiber), slotKinds, truncated)
+  } catch {
+    return null
   }
 }
 
@@ -869,15 +894,31 @@ export function inspectFiber(
   const props = inspectValue(fiber.memoizedProps, { depth: options.depth, path: options.path })
   let state: unknown
   let hooks: HookEntry[] = []
+  let customHookGrouping: InspectResult['customHookGrouping']
 
   if (kind === 'class') {
     const instance = fiber.stateNode as { state?: unknown } | null
     state = inspectValue(instance?.state ?? fiber.memoizedState, { depth: options.depth })
   } else if (kind === 'function' || kind === 'memo' || kind === 'forwardRef') {
+    const chain = hookChain(fiber)
+    const kinds = chain.map(classifyHook)
+    const customHooks = inspectCustomHookChains(fiber, chain, kinds)
+    customHookGrouping = !customHooks
+      ? 'unavailable'
+      : customHooks.includes(null)
+        ? 'partial'
+        : 'exact'
     let statefulOrdinal = 0
-    hooks = hookChain(fiber).map((hook, index) => {
+    hooks = chain.map((hook, index) => {
       const stateIndex = isStatefulHook(hook) ? statefulOrdinal++ : null
-      return describeHook(hook, index, stateIndex, options.depth)
+      return describeHook(
+        hook,
+        kinds[index] ?? 'other',
+        index,
+        stateIndex,
+        customHooks?.[index],
+        options.depth,
+      )
     })
   }
 
@@ -888,6 +929,7 @@ export function inspectFiber(
     props,
     state,
     hooks,
+    ...(customHookGrouping ? { customHookGrouping } : {}),
     wrapperAncestry: wrapperAncestryOf(fiber),
   }
 }

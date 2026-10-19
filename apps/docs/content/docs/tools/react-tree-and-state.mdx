@@ -178,16 +178,30 @@ npx @genie-react/cli call react_inspect_component \
       "kind": "state",
       "stateful": true,
       "stateIndex": 0,
+      "customHooks": ["useCheckout", "useStepper"],
       "value": { "step": 2 }
     }
   ],
+  "customHookGrouping": "exact",
   "wrapperAncestry": []
 }
 ```
 
+Each hook's `customHooks` lists the custom hooks that called it, outermost first. It is absent when
+the component called the hook directly. To build it, Genie re-renders the component once with React's
+hook inspector, the same re-render React DevTools runs when you select a component.
+`customHookGrouping` says how far to trust it:
+
+| Value         | Meaning                                                                                                   |
+| ------------- | --------------------------------------------------------------------------------------------------------- |
+| `exact`       | Every hook carries its custom-hook chain.                                                                 |
+| `partial`     | Hooks with `customHooks: null` were hidden from the inspector (`useEffectEvent`); the rest are exact.     |
+| `unavailable` | The re-render threw or called different hooks than the mounted render, so no hook carries `customHooks`. |
+
 **Agent use:** Use the returned `stateIndex` and current value to decide whether a hook override is
-needed and which nested `path` to change. Hook output stops at 100 entries, and memo-versus-callback
-detection is best effort.
+needed and which nested `path` to change. Use `customHooks` to find the hook to edit: the last entry is
+the innermost custom hook. Hook output stops at 100 entries, and memo-versus-callback detection is best
+effort.
 
 ## `react_dom_for_component`
 
