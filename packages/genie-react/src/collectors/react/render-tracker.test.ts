@@ -1456,6 +1456,22 @@ describe('pending component unmount coverage', () => {
     expect(getRenderTrackingCoverage('measurement').targeted?.complete).toBe(false)
   })
 
+  it('releases the render record of an unmount evicted from a full buffer', async () => {
+    clearRenders({ lifecycle: { bufferLimit: 1, targetReserve: 0 } })
+    const evicted = componentFiber({ name: 'EvictedRow', props: {} })
+    const kept = componentFiber({ name: 'KeptRow', props: {} })
+    render(evicted, 'mount')
+    render(kept, 'mount')
+
+    queuePendingUnmount(1, evicted)
+    queuePendingUnmount(1, kept)
+
+    expect(getDroppedPendingUnmountFiberCount()).toBe(1)
+    expect((await getRenders({ sort: 'renders', limit: 10 })).map((r) => r.name)).toEqual([
+      'KeptRow',
+    ])
+  })
+
   it('ignores host unmounts and reports bounded component overflow', () => {
     const host = asFiber({ tag: 5, type: 'div' })
     for (let index = 0; index < 1_100; index += 1) queuePendingUnmount(1, host)

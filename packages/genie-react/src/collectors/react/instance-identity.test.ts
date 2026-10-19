@@ -93,6 +93,35 @@ describe('React component instance identity', () => {
     })
   })
 
+  it('locates an unmounted instance by its first host without reading text or siblings', () => {
+    const reads = { text: 0, siblingAttributes: 0 }
+    const element = (testId: string, onAttribute: () => void) => ({
+      nodeType: 1,
+      tagName: 'LI',
+      classList: [],
+      getAttribute: (name: string) => {
+        onAttribute()
+        return name === 'data-testid' ? testId : null
+      },
+      get textContent() {
+        reads.text += 1
+        return 'row text'
+      },
+    })
+    const row = component('Row')
+    const first = Object.assign(host('li'), { stateNode: element('row-a', () => {}) })
+    const second = Object.assign(host('li'), {
+      stateNode: element('row-b', () => {
+        reads.siblingAttributes += 1
+      }),
+    })
+    attach(row, [first, second])
+    noteInstanceRender(row, 'mount', 1, 1)
+
+    expect(noteInstanceRender(row, 'unmount', 2, 2).hostSelector).toBe('[data-testid="row-a"]')
+    expect(reads).toEqual({ text: 0, siblingAttributes: 0 })
+  })
+
   it('creates a tombstone and increments generation when the same key remounts', () => {
     beginInstanceObservation('observation:1')
     const parent = component('Rows')

@@ -908,6 +908,21 @@ export function domForFiber(fiber: Fiber, options: { limit: number }): DomForRes
 
 const HOST_SUBTREE_SCAN_LIMIT = 5_000
 
+/** The locator of the first host node a component renders, without describing its siblings or reading text. */
+export function firstHostSelector(fiber: Fiber): string | null {
+  const stack: Fiber[] = fiber.child ? [fiber.child] : []
+  let scanned = 0
+  while (stack.length > 0 && scanned < HOST_SUBTREE_SCAN_LIMIT) {
+    const node = stack.pop() as Fiber
+    scanned += 1
+    if (isElement(node.stateNode)) return hostSelectorOf(node.stateNode)
+    if (isNativeHostFiber(node)) return describeNativeHostFiber(node).selector
+    if (node.sibling) stack.push(node.sibling)
+    if (node.child) stack.push(node.child)
+  }
+  return null
+}
+
 /** Every DOM element anywhere under a fiber, in tree order — nested components included — bounded by a fiber scan cap. */
 export function hostElementsWithin(fiber: Fiber): Element[] {
   const elements: Element[] = []

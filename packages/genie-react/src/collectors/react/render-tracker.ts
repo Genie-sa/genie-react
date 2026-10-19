@@ -407,7 +407,7 @@ export function disposeRenderTracking(): void {
   clearMeasurementSpans()
   renderPages = new Map()
   noteAnalysisInvalidation()
-  for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(restoreFiberId(pending))
+  for (const pending of pendingUnmounts) forgetUnmountWithoutTombstone(pending)
   pendingUnmounts.length = 0
   invalidateLiveInstancesForRefresh()
   instrumentation?.()
@@ -509,7 +509,7 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   targetedFibersSkipped = 0
   droppedTargetUnmountFibers = 0
   adaptiveBudgetScale = 1
-  for (const pending of pendingUnmounts) discardExcludedInstanceUnmount(restoreFiberId(pending))
+  for (const pending of pendingUnmounts) forgetUnmountWithoutTombstone(pending)
   pendingUnmounts.length = 0
   clears++
   clearEffects()
@@ -1386,8 +1386,17 @@ export function queuePendingUnmount(rendererId: number, fiber: Fiber): void {
     pendingUnmounts.findIndex((_, index) => !protectedTargetIndices.has(index)),
   )
   const [dropped] = pendingUnmounts.splice(evictionIndex, 1)
+  if (dropped) forgetUnmountWithoutTombstone(dropped)
   if (dropped?.targeted) droppedTargetUnmountFibers += 1
   droppedPendingUnmountFibers += 1
+}
+
+/** An unmount that cannot be reported still has to release its record, or the record pins the detached fiber. */
+function forgetUnmountWithoutTombstone(pending: PendingUnmount): void {
+  const fiber = restoreFiberId(pending)
+  discardExcludedInstanceUnmount(fiber)
+  removeEffectRecord(fiber)
+  records.delete(pending.fiberId)
 }
 
 /** Bippy 0.7.3+ forgets a fiber's id once its unmount callbacks return; the deferred lifecycle needs the mounted id. */
@@ -1399,7 +1408,7 @@ function restoreFiberId({ fiber, fiberId }: PendingUnmount): Fiber {
 function discardPendingUnmounts(rendererId: number): void {
   const retained: PendingUnmount[] = []
   for (const pending of pendingUnmounts) {
-    if (pending.rendererId === rendererId) discardExcludedInstanceUnmount(restoreFiberId(pending))
+    if (pending.rendererId === rendererId) forgetUnmountWithoutTombstone(pending)
     else retained.push(pending)
   }
   pendingUnmounts.length = 0
