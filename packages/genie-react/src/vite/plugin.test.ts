@@ -295,6 +295,53 @@ describe('cloudflare coexistence', () => {
     }
   })
 
+  it('keeps the standalone hub alive across a Vite restart, which opens the new server first', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'genie-cf-restart-'))
+    const start = async () => {
+      const main = genie({ react: false })[0] as Plugin
+      getHook<(this: unknown, config: unknown) => void>(main, 'configResolved').call(null, {
+        plugins: [{ name: 'vite-plugin-cloudflare' }],
+      })
+      const httpServer = new EventEmitter()
+      await getHook<(this: unknown, server: unknown) => Promise<void>>(
+        main,
+        'configureServer',
+      ).call(null, {
+        config: { root, logger: { info: () => undefined } },
+        httpServer,
+        middlewares: { use: () => undefined },
+      })
+      const module = await getHook<(this: unknown, id: string) => Promise<string | null>>(
+        main,
+        'load',
+      ).call({}, '\0virtual:genie-client')
+      return { httpServer, url: /url: "(ws:[^"]+)"/.exec(module ?? '')?.[1] }
+    }
+    const reachable = (url: string | undefined) =>
+      new Promise<boolean>((resolve) => {
+        const socket = new WebSocket(`${url}?role=app`)
+        socket.onopen = () => {
+          socket.close()
+          resolve(true)
+        }
+        socket.onerror = () => resolve(false)
+      })
+    try {
+      const first = await start()
+      const restarted = await start()
+      first.httpServer.emit('close')
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      expect(restarted.url).toBe(first.url)
+      expect(await reachable(restarted.url)).toBe(true)
+      restarted.httpServer.emit('close')
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(await reachable(restarted.url)).toBe(false)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('keeps the same-origin client url without cloudflare', async () => {
     const main = genie({ react: false })[0] as Plugin
     const configResolved = getHook<(this: unknown, config: unknown) => void>(main, 'configResolved')

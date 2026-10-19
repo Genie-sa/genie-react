@@ -14,3 +14,4 @@ Production builds and hub reliability.
 - **Captures default to the domains the app advertises**, so apps without a router or Query no longer get incomplete captures with warnings.
 - **`devtools_capture_compare` is faster and says more.** The permutation test no longer blocks the dev server (755 ms → 27 ms at 10+10 captures), metrics without budgets get a headline reason (`regressed 14% (median …, p=…)`), and thin or incomparable cohorts are flagged even without budgets.
 - **`devtools_status` defaults `includeTools` to `false`**, so a bare call returns a compact status instead of the full catalog; use `genie-react tools` for discovery.
+- **Vite standalone hubs survive restarts.** With `@cloudflare/vite-plugin`, a config change no longer shuts down the hub the restarted server just adopted, and Vite `middlewareMode` (custom Express/SSR servers) now starts a standalone hub instead of injecting a client with no bridge.

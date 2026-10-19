@@ -8,7 +8,6 @@ import {
   bridgeUrlFor,
   GenieBridge,
   removeDiscoveryFile,
-  type StartHubResult,
   startGenieHub,
   writeDiscoveryFile,
 } from '../hub'
@@ -244,7 +243,6 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
   let bridge: GenieBridge | null = null
   let warnedMissingHook = false
   let cloudflare = false
-  let hub: StartHubResult | null = null
   let hubWsUrl: string | null = null
 
   async function resolveHook(ctx: Rollup.PluginContext): Promise<boolean> {
@@ -317,26 +315,26 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
       if (!enabled) return
       server.middlewares.use(denyGenieState)
       const httpServer = server.httpServer
-      if (!httpServer) return
-
-      if (cloudflare) {
-        const result = await startGenieHub({
-          rootDir: server.config.root,
-          allowedOrigins: options.allowedOrigins,
-        })
-        hub = result
-        hubWsUrl = result.url
+      if (cloudflare || !httpServer) {
+        const root = server.config.root
+        hubWsUrl = await acquireStandaloneHub(root, server, options.allowedOrigins)
         server.config.logger.info(
-          `[genie] @cloudflare/vite-plugin detected — its workerd proxy drops this port's WebSocket upgrades, so the bridge runs on a standalone hub at ${result.url}`,
+          cloudflare
+            ? `[genie] @cloudflare/vite-plugin detected — its workerd proxy drops this port's WebSocket upgrades, so the bridge runs on a standalone hub at ${hubWsUrl}`
+            : `[genie] Vite runs in middleware mode, so the bridge runs on a standalone hub at ${hubWsUrl}`,
         )
-        httpServer.once('close', () => {
-          const current = hub
-          hub = null
+        const release = (): void => {
           hubWsUrl = null
-          if (current?.status !== 'started') return
-          void current.handle.close()
-          void removeDiscoveryFile(server.config.root)
-        })
+          releaseStandaloneHub(root, server)
+        }
+        if (httpServer) httpServer.once('close', release)
+        else {
+          const close = server.close.bind(server)
+          server.close = async () => {
+            release()
+            await close()
+          }
+        }
         return
       }
 
@@ -378,6 +376,48 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
   }
 
   return [plugin, optionalPeersPlugin(), productionNoopPlugin(), productionToolStripPlugin()]
+}
+
+interface StandaloneHub {
+  url: string
+  close: (() => Promise<void>) | null
+  owner: object
+}
+
+// Vite builds a restarted server before closing the old one, so the hub belongs to whichever server claimed it last, per process and root.
+const STANDALONE_HUBS = Symbol.for('genie-react:vite-standalone-hubs')
+
+function standaloneHubs(): Map<string, StandaloneHub> {
+  const holder = globalThis as unknown as Record<symbol, Map<string, StandaloneHub> | undefined>
+  holder[STANDALONE_HUBS] ??= new Map()
+  return holder[STANDALONE_HUBS]
+}
+
+async function acquireStandaloneHub(
+  root: string,
+  owner: object,
+  allowedOrigins: readonly string[] | undefined,
+): Promise<string> {
+  const hubs = standaloneHubs()
+  const existing = hubs.get(root)
+  if (existing) {
+    existing.owner = owner
+    return existing.url
+  }
+  const result = await startGenieHub({ rootDir: root, allowedOrigins })
+  const handle = result.status === 'started' ? result.handle : null
+  hubs.set(root, { url: result.url, close: handle ? () => handle.close() : null, owner })
+  return result.url
+}
+
+function releaseStandaloneHub(root: string, owner: object): void {
+  const hubs = standaloneHubs()
+  const current = hubs.get(root)
+  if (current?.owner !== owner) return
+  hubs.delete(root)
+  if (!current.close) return
+  void current.close()
+  void removeDiscoveryFile(root)
 }
 
 function productionNoopPlugin(): Plugin {
