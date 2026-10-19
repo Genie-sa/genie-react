@@ -12,8 +12,8 @@ import { readGenieGlobal } from '../protocol'
 import { useGenieTools } from './use-genie-tool'
 
 let started = false
-let wiredRouter: unknown
-let wiredQueryClient: unknown
+let wiredRouter: ReturnType<typeof useRouter> | undefined
+let wiredQueryClient: QueryClient | undefined
 
 export interface GenieProps {
   /** App name reported to the agent (defaults to the document title). */
@@ -100,5 +100,5 @@ function wireLateIntegrations(
     wiredQueryClient = queryClient
     client.register(queryCollector(queryClient))
   }
-  client.register(timelineCollector({ router, queryClient }))
+  client.register(timelineCollector({ router: wiredRouter, queryClient: wiredQueryClient }))
 }

@@ -315,26 +315,24 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
       if (!enabled) return
       server.middlewares.use(denyGenieState)
       const httpServer = server.httpServer
-      if (cloudflare || !httpServer) {
+      if (!httpServer) {
+        // Middleware mode also hosts Vitest and Storybook, where a hub would claim the project's discovery file.
+        if (!process.env.VITEST)
+          server.config.logger.warn(
+            '[genie] Vite runs in middleware mode, so it has no server to host the bridge; run `npx @genie-react/cli hub` and pass its URL to the client.',
+          )
+        return
+      }
+      if (cloudflare) {
         const root = server.config.root
         hubWsUrl = await acquireStandaloneHub(root, server, options.allowedOrigins)
         server.config.logger.info(
-          cloudflare
-            ? `[genie] @cloudflare/vite-plugin detected — its workerd proxy drops this port's WebSocket upgrades, so the bridge runs on a standalone hub at ${hubWsUrl}`
-            : `[genie] Vite runs in middleware mode, so the bridge runs on a standalone hub at ${hubWsUrl}`,
+          `[genie] @cloudflare/vite-plugin detected — its workerd proxy drops this port's WebSocket upgrades, so the bridge runs on a standalone hub at ${hubWsUrl}`,
         )
-        const release = (): void => {
+        httpServer.once('close', () => {
           hubWsUrl = null
           releaseStandaloneHub(root, server)
-        }
-        if (httpServer) httpServer.once('close', release)
-        else {
-          const close = server.close.bind(server)
-          server.close = async () => {
-            release()
-            await close()
-          }
-        }
+        })
         return
       }
 
@@ -379,8 +377,7 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
 }
 
 interface StandaloneHub {
-  url: string
-  close: (() => Promise<void>) | null
+  started: Promise<{ url: string; close: (() => Promise<void>) | null }>
   owner: object
 }
 
@@ -402,12 +399,20 @@ async function acquireStandaloneHub(
   const existing = hubs.get(root)
   if (existing) {
     existing.owner = owner
-    return existing.url
+    return (await existing.started).url
   }
-  const result = await startGenieHub({ rootDir: root, allowedOrigins })
-  const handle = result.status === 'started' ? result.handle : null
-  hubs.set(root, { url: result.url, close: handle ? () => handle.close() : null, owner })
-  return result.url
+  // Recorded before it settles, so a second server for this root joins the same start instead of racing it.
+  const started = startGenieHub({ rootDir: root, allowedOrigins }).then((result) => {
+    const handle = result.status === 'started' ? result.handle : null
+    return { url: result.url, close: handle ? () => handle.close() : null }
+  })
+  hubs.set(root, { started, owner })
+  try {
+    return (await started).url
+  } catch (error) {
+    if (hubs.get(root)?.started === started) hubs.delete(root)
+    throw error
+  }
 }
 
 function releaseStandaloneHub(root: string, owner: object): void {
@@ -415,9 +420,11 @@ function releaseStandaloneHub(root: string, owner: object): void {
   const current = hubs.get(root)
   if (current?.owner !== owner) return
   hubs.delete(root)
-  if (!current.close) return
-  void current.close()
-  void removeDiscoveryFile(root)
+  void current.started.then(({ close }) => {
+    if (!close) return
+    void close()
+    void removeDiscoveryFile(root)
+  })
 }
 
 function productionNoopPlugin(): Plugin {
@@ -511,8 +518,12 @@ async function writeDiscovery(
 ): Promise<void> {
   if (!address || typeof address === 'string') return
   const url = bridgeUrlFor(address.address, address.port)
-  await writeDiscoveryFile(server.config.root, { url, port: address.port, token })
-  server.config.logger.info(`[genie] bridge ready at ${url}`)
+  const published = await writeDiscoveryFile(server.config.root, { url, port: address.port, token })
+  if (published) server.config.logger.info(`[genie] bridge ready at ${url}`)
+  else
+    server.config.logger.warn(
+      `[genie] another running dev server or hub already publishes this project, so the genie CLI reaches that one, not ${url}. Stop it, or pass --url ${url} to the CLI.`,
+    )
 }
 
 async function removeDiscovery(server: ViteDevServer): Promise<void> {

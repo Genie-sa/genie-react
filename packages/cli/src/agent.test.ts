@@ -728,6 +728,29 @@ describe('agent failure output', () => {
     })
   })
 
+  it('names the blocking interaction and how to stop it', async () => {
+    const interactionId = 'int_78fe499b-e33a-46a6-a954-106068cafcb0'
+    const failure = await describeFailure(
+      new BridgeCallError('raw', {
+        errorCode: 'invalid-args',
+        details: { hubCode: 'INTERACTION_ACTIVE', interactionId },
+      }),
+      { tool: 'devtools_interaction_begin', args: { name: 'second' }, session: 'tab-a' },
+    )
+
+    expect(failure.details).toMatchObject({ hubCode: 'INTERACTION_ACTIVE', interactionId })
+    expect(failure.next?.argv).toEqual([
+      'pnpm',
+      'exec',
+      'genie-react',
+      'call',
+      'devtools_interaction_stop',
+      JSON.stringify({ interactionId }),
+      '--session',
+      'tab-a',
+    ])
+  })
+
   it('ignores a hubCode on an app tool, which only the hub can author', async () => {
     const invalid = await describeFailure(
       new BridgeCallError('raw', {

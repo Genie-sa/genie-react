@@ -187,6 +187,28 @@ describe('GenieBridge robustness', () => {
     expect(Date.now() - started).toBeLessThan(1_000)
   })
 
+  it('keeps waiting for a query that is not cached yet', async () => {
+    const url = await startBridge()
+    let polls = 0
+    await connectApp(url, ['query_get'], () => {
+      polls += 1
+      return polls < 3
+        ? { ok: false, errorCode: 'tool-error', error: 'Query not found for ["todo",2].' }
+        : ok({ queryHash: '["todo",2]', queryKey: ['todo', 2], fetchStatus: 'idle' })
+    })
+    const { ws, inbox } = await connectAgent(url)
+    send(ws, {
+      kind: 'agent/invoke',
+      id: 'wait',
+      tool: 'devtools_wait',
+      args: { condition: 'query-settled', queryKey: ['todo', 2], timeoutMs: 3_000 },
+    })
+    const result = await inbox.wait(isResult('wait'), 5_000)
+
+    expect(result.result).toMatchObject({ ok: true })
+    expect(polls).toBe(3)
+  })
+
   it('lists the connected targets when a wait names a session that never appears', async () => {
     const url = await startBridge()
     await connectApp(url, REACT_TOOLS, () => ok({ matches: [{}] }), 'real-session')

@@ -74,6 +74,8 @@ export interface FailureDetails {
   app?: NonNullable<ToolErrorDetails['app']>
   availability?: { reason: string }
   hubCode?: HubErrorCode
+  /** The recording that blocks a new interaction (`INTERACTION_ACTIVE`). */
+  interactionId?: string
   /** The interrupted call was not read-only, so the app may have applied it before the document went away. */
   mayHaveCompleted?: true
   suggestions?: string[]
@@ -183,6 +185,9 @@ function hubCodeOf(
     return ROUTING_ERROR_CODES.has(errorCode) ? hubCode : undefined
   return tool !== undefined && HUB_TOOLS.has(tool) ? hubCode : undefined
 }
+
+// Hub-minted (`int_<uuid>`), so it is safe to echo into a runnable next command.
+const INTERACTION_ID = /^int_[0-9a-f-]{36}$/
 
 /** Fixed recovery guidance per hub code, so a recognized code never puts upstream text into `message`. */
 const HUB_GUIDANCE: Record<HubErrorCode, { message: string; next?: NextCommand }> = {
@@ -420,7 +425,17 @@ function invalidArgsFailure(
           ? undefined
           : 'Inspect the tool schema with next and correct the arguments.',
   ]
-  const hubNext = hubCode && HUB_GUIDANCE[hubCode].next
+  const blockingInteractionId =
+    hubCode === 'INTERACTION_ACTIVE' && INTERACTION_ID.test(details.interactionId ?? '')
+      ? details.interactionId
+      : undefined
+  const hubNext = blockingInteractionId
+    ? nextCommand(
+        'call',
+        'devtools_interaction_stop',
+        JSON.stringify({ interactionId: blockingInteractionId }),
+      )
+    : hubCode && HUB_GUIDANCE[hubCode].next
   return {
     reason: 'invalid_args',
     message: sentences.filter((sentence) => sentence !== undefined).join(' '),
@@ -434,6 +449,7 @@ function invalidArgsFailure(
       unknownKeys: namedUnknownKeys.length > 0 ? namedUnknownKeys : undefined,
       validKeys,
       hubCode,
+      interactionId: blockingInteractionId,
     }),
   }
 }

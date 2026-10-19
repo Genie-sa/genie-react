@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { type AddressInfo, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -46,18 +47,42 @@ describe('removeDiscoveryFile', () => {
     expect(await readAgentToken(root)).toBeUndefined()
   })
 
-  it('does not take over a root another live process publishes', async () => {
+  const listening = async () => {
+    const server = createServer()
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    return { server, url: `ws://127.0.0.1:${port}/__genie/ws` }
+  }
+
+  it('does not take over a root another live bridge publishes', async () => {
+    const { server, url } = await listening()
+    try {
+      await writeDiscoveryFile(root, info)
+      const discovery = JSON.parse(await readFile(join(root, GENIE_DISCOVERY_FILE), 'utf8'))
+      const owned = JSON.stringify({ ...discovery, url, pid: process.ppid })
+      await writeFile(join(root, GENIE_DISCOVERY_FILE), owned)
+
+      const result = await writeDiscoveryFile(root, { ...info, port: 4391, token: 'second' })
+
+      expect(result).toBeNull()
+      expect(await readFile(join(root, GENIE_DISCOVERY_FILE), 'utf8')).toBe(owned)
+      expect(await readAgentToken(root)).toBe('secret')
+    } finally {
+      server.close()
+    }
+  })
+
+  it('replaces a discovery file whose live pid no longer serves its endpoint', async () => {
+    const { server, url } = await listening()
+    server.close()
     await writeDiscoveryFile(root, info)
-    const livePid = process.ppid
     const discovery = JSON.parse(await readFile(join(root, GENIE_DISCOVERY_FILE), 'utf8'))
-    const owned = JSON.stringify({ ...discovery, pid: livePid })
-    await writeFile(join(root, GENIE_DISCOVERY_FILE), owned)
+    await writeFile(
+      join(root, GENIE_DISCOVERY_FILE),
+      JSON.stringify({ ...discovery, url, pid: process.ppid }),
+    )
 
-    const result = await writeDiscoveryFile(root, { ...info, port: 4391, token: 'second' })
-
-    expect(result).toBeNull()
-    expect(await readFile(join(root, GENIE_DISCOVERY_FILE), 'utf8')).toBe(owned)
-    expect(await readAgentToken(root)).toBe('secret')
+    expect(await writeDiscoveryFile(root, { ...info, token: 'second' })).not.toBeNull()
   })
 
   it('replaces a discovery file whose process is gone', async () => {

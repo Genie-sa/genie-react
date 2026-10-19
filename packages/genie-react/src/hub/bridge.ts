@@ -1359,8 +1359,8 @@ export class GenieBridge {
     let toolFailure: string | undefined
     const request = async (tool: string, args: unknown): Promise<AppResponse> => {
       const response = await this.appRequestForSession(tool, args, session, input.deadline)
-      // A broken or missing tool never satisfies the condition, so fail now instead of polling to the timeout.
-      if (!response.ok && isAppErrorCode(response.errorCode))
+      // A missing tool or rejected arguments never satisfy the condition, so fail now; other errors (an uncached query) may clear on a later poll.
+      if (!response.ok && (response.errorCode === 'invalid-args' || !toolDescriptor(session, tool)))
         toolFailure ??= `${tool} failed: ${response.error ?? response.errorCode}`
       return response
     }
@@ -1956,10 +1956,6 @@ function interruptedCallError(hubCode: InterruptionCode, mayHaveCompleted: boole
   return mayHaveCompleted
     ? `${cause}; the call is not read-only and may have completed, so inspect app state before retrying.`
     : `${cause}; retry the call.`
-}
-
-function isAppErrorCode(code: AgentErrorCode | undefined): boolean {
-  return code === 'invalid-args' || code === 'tool-error'
 }
 
 function recordOf(value: unknown): Record<string, unknown> | null {

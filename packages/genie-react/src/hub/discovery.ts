@@ -1,5 +1,5 @@
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { isIPv6 } from 'node:net'
+import { connect, isIPv6 } from 'node:net'
 import { dirname, join } from 'node:path'
 import { GENIE_DISCOVERY_FILE, GENIE_WS_PATH } from '../protocol'
 import { agentTokenFile, writeAgentToken } from './agent-token'
@@ -25,8 +25,7 @@ export async function writeDiscoveryFile(
   const { token, ...endpoint } = info
   const file = join(rootDir, GENIE_DISCOVERY_FILE)
   // A second dev server or hub for the same root must not take over: its exit would delete the files and strand the first, still-running bridge.
-  const owner = await discoveryOwnerPid(file)
-  if (owner !== null && owner !== process.pid && isPidAlive(owner)) return null
+  if (await publishedByAnotherLiveBridge(file)) return null
   const directory = dirname(file)
   await mkdir(directory, { recursive: true, mode: 0o700 })
   await chmod(directory, 0o700)
@@ -67,6 +66,39 @@ export async function removeDiscoveryFile(rootDir: string): Promise<void> {
 
 async function removeIfOwned(file: string): Promise<void> {
   if ((await discoveryOwnerPid(file)) === process.pid) await rm(file, { force: true })
+}
+
+// A live pid alone can be a recycled one after a crash, so the owner must also still accept connections on its published endpoint.
+async function publishedByAnotherLiveBridge(file: string): Promise<boolean> {
+  const owner = await discoveryOwnerPid(file)
+  if (owner === null || owner === process.pid || !isPidAlive(owner)) return false
+  const endpoint = await publishedEndpoint(file)
+  return endpoint !== null && (await acceptsConnections(endpoint.host, endpoint.port))
+}
+
+async function publishedEndpoint(file: string): Promise<{ host: string; port: number } | null> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(file, 'utf8'))
+    const url = typeof parsed === 'object' && parsed !== null && 'url' in parsed ? parsed.url : null
+    if (typeof url !== 'string') return null
+    const { hostname, port } = new URL(url)
+    return { host: hostname.replace(/^\[|\]$/g, ''), port: Number(port) }
+  } catch {
+    return null
+  }
+}
+
+function acceptsConnections(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ host, port, timeout: 500 })
+    const finish = (accepted: boolean): void => {
+      socket.destroy()
+      resolve(accepted)
+    }
+    socket.once('connect', () => finish(true))
+    socket.once('timeout', () => finish(false))
+    socket.once('error', () => finish(false))
+  })
 }
 
 /** The `pid` recorded in a discovery or token file; null when the file is missing, unreadable or carries none. */
