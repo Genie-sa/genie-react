@@ -239,6 +239,11 @@ export class GenieClient {
     this.lastHeartbeatSentAt = now
   }
 
+  // Before app/ready the hub would read a heartbeat as legacy readiness, so collector start-up stays silent.
+  private sendLivenessAfterReady(): void {
+    if (this.heartbeatTimer !== null) this.sendHeartbeat()
+  }
+
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer)
     this.heartbeatTimer = null
@@ -262,9 +267,9 @@ export class GenieClient {
 
   private context(): CollectorContext {
     return {
-      pushSnapshot: (domain, data) =>
-        this.send({ kind: 'app/snapshot', domain, data, ts: Date.now() }),
-      pushEvent: (domain, event) => this.send({ kind: 'app/event', domain, event, ts: Date.now() }),
+      // The hub reads snapshot and event frames only as liveness, which the throttled heartbeat proves without encoding a payload per cache batch.
+      pushSnapshot: () => this.sendLivenessAfterReady(),
+      pushEvent: () => this.sendLivenessAfterReady(),
       refreshTools: () => {
         this.rebuildCollectorTools()
         this.sendHello()

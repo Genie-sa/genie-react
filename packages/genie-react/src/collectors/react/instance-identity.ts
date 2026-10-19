@@ -1,6 +1,6 @@
 import { type Fiber, isCompositeFiber, isHostFiber, type RenderPhase } from 'bippy'
 import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
-import { domForFiber, nameOf, registerFiber } from './fiber'
+import { firstHostSelector, nameOf, registerFiber } from './fiber'
 import { classifyFiberFromCache, type FiberClassification } from './source'
 
 export type LogicalIdentityEvidence = 'keyed' | 'positional' | 'unknown'
@@ -271,27 +271,29 @@ function prepareInstanceDescription(
   budget?: CommitWorkBudget,
 ): PreparedInstanceRender {
   const fiberId = registerFiber(fiber) as number
-  const structure = structuralIdentity(fiber, budget)
   const existing = liveInstances.get(fiberId)
+  if (existing && captureHostSelector) {
+    const instance = {
+      ...existing,
+      hostSelector: consumeCommitWork(budget, 'host-selector')
+        ? (hostSelectorFor(fiber) ?? existing.hostSelector)
+        : existing.hostSelector,
+    }
+    return { instance, publish: () => liveInstances.set(fiberId, instance) }
+  }
+  const structure = structuralIdentity(fiber, budget)
   if (existing) {
-    const instance = captureHostSelector
-      ? {
-          ...existing,
-          hostSelector: consumeCommitWork(budget, 'host-selector')
-            ? (hostSelectorFor(fiber) ?? existing.hostSelector)
-            : existing.hostSelector,
-        }
-      : ({
-          ...existing,
-          ...structure,
-          mountGenerationEvidence:
-            existing.mountGenerationEvidence === 'unknown'
-              ? 'unknown'
-              : mountObserved || existing.mountGenerationEvidence === 'exact'
-                ? 'exact'
-                : 'inferred',
-          hostSelector: existing.hostSelector,
-        } satisfies InstanceDescriptor)
+    const instance = {
+      ...existing,
+      ...structure,
+      mountGenerationEvidence:
+        existing.mountGenerationEvidence === 'unknown'
+          ? 'unknown'
+          : mountObserved || existing.mountGenerationEvidence === 'exact'
+            ? 'exact'
+            : 'inferred',
+      hostSelector: existing.hostSelector,
+    } satisfies InstanceDescriptor
     return {
       instance,
       publish: () => liveInstances.set(fiberId, instance),
@@ -518,7 +520,7 @@ function isUniqueSiblingKey(fiber: Fiber, key: string, budget?: CommitWorkBudget
 
 function hostSelectorFor(fiber: Fiber): string | null {
   try {
-    return domForFiber(fiber, { limit: 1 }).elements[0]?.selector ?? null
+    return firstHostSelector(fiber)
   } catch {
     return null
   }

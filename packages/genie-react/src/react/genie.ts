@@ -5,11 +5,15 @@ import type { GenieAppTool } from '../app-tools'
 import { createGenieClient, sessionCollector } from '../client'
 import { defaultAppCollectors } from '../collectors/defaults'
 import { reactCollector } from '../collectors/react'
+import { queryCollector, routerCollector } from '../collectors/tanstack'
 import { isQueryClient } from '../collectors/tanstack/guards'
+import { timelineCollector } from '../collectors/timeline'
 import { readGenieGlobal } from '../protocol'
 import { useGenieTools } from './use-genie-tool'
 
 let started = false
+let wiredRouter: unknown
+let wiredQueryClient: unknown
 
 export interface GenieProps {
   /** App name reported to the agent (defaults to the document title). */
@@ -53,8 +57,14 @@ export function Genie(props: GenieProps = {}): null {
     (isQueryClient(providerQueryClient) ? providerQueryClient : undefined)
 
   useEffect(() => {
-    if (started || typeof window === 'undefined') return
+    if (typeof window === 'undefined') return
+    if (started) {
+      wireLateIntegrations(router, queryClient)
+      return
+    }
     started = true
+    wiredRouter = router
+    wiredQueryClient = queryClient
 
     const collectors = defaultAppCollectors({ plugins, router, queryClient })
 
@@ -70,4 +80,25 @@ export function Genie(props: GenieProps = {}): null {
   }, [router, queryClient, appName, plugins])
 
   return null
+}
+
+/** A router or QueryClient that appears after the first mount (lazy providers, auth-gated trees) still gets its tools. */
+function wireLateIntegrations(
+  router: ReturnType<typeof useRouter> | undefined,
+  queryClient: QueryClient | undefined,
+): void {
+  const routerChanged = router !== undefined && router !== wiredRouter
+  const queryClientChanged = queryClient !== undefined && queryClient !== wiredQueryClient
+  if (!routerChanged && !queryClientChanged) return
+  const client = readGenieGlobal()
+  if (!client) return
+  if (routerChanged) {
+    wiredRouter = router
+    client.register(routerCollector(router))
+  }
+  if (queryClientChanged) {
+    wiredQueryClient = queryClient
+    client.register(queryCollector(queryClient))
+  }
+  client.register(timelineCollector({ router, queryClient }))
 }

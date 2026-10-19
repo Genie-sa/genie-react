@@ -62,14 +62,21 @@ const deepDiffSchema = z.object({
       }),
       z.object({ kind: z.literal('added'), path: z.string(), after: deepDiffValueSchema }),
       z.object({ kind: z.literal('removed'), path: z.string(), before: deepDiffValueSchema }),
-      z.object({ kind: z.literal('reference-only'), path: z.string() }),
+      z
+        .object({ kind: z.literal('reference-only'), path: z.string() })
+        .describe('Contents were compared completely and are equal; only the identity is new.'),
+      z
+        .object({ kind: z.literal('identity-changed-uninspected'), path: z.string() })
+        .describe(
+          'Identity changed but contents were not compared: an opaque object, a function, a value past the inspected depth, or an accessor.',
+        ),
     ]),
   ),
   visited: z.number().int().nonnegative(),
   truncated: z
     .boolean()
     .describe(
-      'True when paths are incomplete. Arbitrary object internals stay opaque; arrays, first-level plain-object props, and documented store fields can expose exact paths.',
+      'True when paths are incomplete. Arbitrary object internals stay opaque; arrays, first-level plain-object props, plain-object state and context up to two levels, and documented store fields can expose exact paths.',
     ),
 })
 
@@ -412,7 +419,11 @@ export const renderComponentSchema = z.object({
   unnecessary: z
     .number()
     .describe('Legacy count; use noObservedInputChange and assessment for new integrations.'),
-  noObservedInputChange: z.number(),
+  noObservedInputChange: z
+    .number()
+    .describe(
+      'Updates with complete input coverage where no input held a new value: nothing changed, or state or context only received a new object with equal contents.',
+    ),
   referenceOnlyPropRenders: z
     .number()
     .describe(
@@ -866,8 +877,18 @@ export const reactRenderCausesContract = defineAgentToolContract({
   group: 'react.render',
   input: z
     .object({
-      commit: z.number().int().nonnegative().optional(),
-      afterCommit: z.number().int().nonnegative().optional(),
+      commit: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe('Only events from this documentCommitId, as shown on every event.'),
+      afterCommit: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe('Only events with a documentCommitId greater than this.'),
       component: z.string().optional().describe('Only components whose name contains this string.'),
       limit: z.number().int().min(1).max(500).default(100),
       appOnly: z

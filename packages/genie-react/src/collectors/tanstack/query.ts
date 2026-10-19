@@ -98,6 +98,28 @@ const keyFilterSchema = z.object({
 
 const filterOutput = z.object({ ok: z.boolean(), matched: z.number() })
 
+const MATCHED_QUERY_LIMIT = 20
+
+const refreshOutput = filterOutput.extend({
+  queries: z
+    .array(
+      z.object({
+        queryHash: z.string(),
+        queryKey: z.unknown(),
+        status: z.enum(['pending', 'error', 'success']),
+        fetchStatus: z.enum(['fetching', 'paused', 'idle']),
+        error: z.string().optional(),
+      }),
+    )
+    .describe(
+      `Matched queries with their state after the call settles, first ${MATCHED_QUERY_LIMIT}.`,
+    ),
+  hint: z
+    .string()
+    .optional()
+    .describe('Present when nothing matched; lists some cached query keys to retry with.'),
+})
+
 const queryListContract = defineAgentToolContract({
   name: 'query_list',
   title: 'List TanStack queries',
@@ -295,7 +317,7 @@ const queryInvalidateContract = defineAgentToolContract({
   description: 'Invalidate matching queries — marks them stale and refetches the active ones.',
   group: 'action',
   input: keyFilterSchema,
-  output: filterOutput,
+  output: refreshOutput,
   annotations: { idempotentHint: true },
 })
 
@@ -306,7 +328,7 @@ const queryRefetchContract = defineAgentToolContract({
     'Refetch matching queries immediately. Operates on existing cache entries; use query_fetch when you also want the resolved data returned.',
   group: 'action',
   input: keyFilterSchema,
-  output: filterOutput,
+  output: refreshOutput,
   annotations: { idempotentHint: true },
 })
 
@@ -705,6 +727,31 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
   const countMatched = (queryKey: unknown[] | undefined, exact: boolean) =>
     queryCache().findAll({ queryKey, exact }).length
 
+  const refreshResult = (queryKey: unknown[] | undefined, exact: boolean) => {
+    const matches = queryCache().findAll({ queryKey, exact })
+    const queries = matches.slice(0, MATCHED_QUERY_LIMIT).map((query) => ({
+      queryHash: query.queryHash,
+      queryKey: dehydrate(query.queryKey, { depth: 3 }),
+      status: query.state.status,
+      fetchStatus: query.state.fetchStatus,
+      error: formatError(query.state.error),
+    }))
+    if (matches.length > 0) return { ok: true, matched: matches.length, queries }
+    const knownKeys = queryCache()
+      .getAll()
+      .slice(0, 5)
+      .map((query) => query.queryHash)
+    return {
+      ok: true,
+      matched: 0,
+      queries,
+      hint:
+        knownKeys.length > 0
+          ? `No query matched ${JSON.stringify(queryKey ?? [])}${exact ? ' exactly' : ' as a prefix'}. Cached keys include ${knownKeys.join(', ')}.`
+          : 'The query cache is empty.',
+    }
+  }
+
   const findMutation = (mutationId: number): CachedMutation | undefined =>
     mutationCache()
       .getAll()
@@ -891,17 +938,15 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
       defineCollectorTool({
         contract: queryInvalidateContract,
         handler: async ({ queryKey, exact }) => {
-          const matched = countMatched(queryKey, exact)
           await queryClient.invalidateQueries({ queryKey, exact })
-          return { ok: true, matched }
+          return refreshResult(queryKey, exact)
         },
       }),
       defineCollectorTool({
         contract: queryRefetchContract,
         handler: async ({ queryKey, exact }) => {
-          const matched = countMatched(queryKey, exact)
           await queryClient.refetchQueries({ queryKey, exact })
-          return { ok: true, matched }
+          return refreshResult(queryKey, exact)
         },
       }),
       defineCollectorTool({

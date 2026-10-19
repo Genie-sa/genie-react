@@ -11,6 +11,7 @@ import { type RenderResult, render } from '@testing-library/react'
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { CollectorContext, GenieCollector } from '../../client'
+import { getDocumentCommitId, noteDocumentCommit } from '../react/observation'
 import { type TimelineReadReport, type TimelineReport, timelineCollector } from './index'
 
 const context: CollectorContext = {
@@ -55,12 +56,25 @@ it('records actual React commits without changing render outcomes and detaches o
   const commits = report.events.filter((event) => event.domain === 'react')
   expect(commits).toHaveLength(1)
   expect(commits[0]?.type).toBe('commit')
+  expect(commits[0]?.details.documentCommitId).toBeNull()
   call(collector, 'timeline_stop', { id: recording.id })
   await act(async () => root.rerender(createElement('span', null, 'stopped')))
   expect(container.textContent).toBe('stopped')
   expect(call<TimelineReadReport>(collector, 'timeline_read', { id: recording.id }).events).toEqual(
     report.events,
   )
+})
+
+it('joins React commits to the document commit sequence', async () => {
+  const collector = timelineCollector()
+  cleanup = collector.start?.(context) || undefined
+  const recording = call<TimelineReport>(collector, 'timeline_start', { name: 'join' })
+  noteDocumentCommit()
+  await act(async () => root.rerender(createElement('span', null, 'joined')))
+  const report = call<TimelineReadReport>(collector, 'timeline_read', { id: recording.id })
+  expect(report.events.find((event) => event.domain === 'react')?.details).toMatchObject({
+    documentCommitId: getDocumentCommitId(),
+  })
 })
 
 it('observes real TanStack navigation around a loader and retains only in-window lifecycle events', async () => {

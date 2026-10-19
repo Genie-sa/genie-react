@@ -534,15 +534,10 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
     findings = all
       .map((record) => ({
         ...record,
-        effects: record.effects.filter((effect) => effect.provenance.ownership === 'app'),
+        effects: record.effects.filter((effect) => isAppOwnedEffect(record, effect)),
         effectsOmitted: record.effectsOmitted,
       }))
-      .filter(
-        (record) =>
-          record.effects.length > 0 &&
-          (record.componentProvenance.ownership === 'app' ||
-            record.effects.some((effect) => effect.provenance.ownership === 'app')),
-      )
+      .filter((record) => record.effects.length > 0)
     libraryEffectsHidden = totalEffects(all) - totalEffects(findings)
     appEffectsAfterAppOnly = totalEffects(findings)
   }
@@ -576,6 +571,18 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
     hotnessCriteria,
     ...(packageFilter === undefined ? {} : { packageFilter }),
   }
+}
+
+/** An effect whose own hook source is unresolved belongs to its component, so app components keep their effects. */
+function isAppOwnedEffect(
+  record: EffectAuditRecord,
+  effect: EffectAuditRecord['effects'][number],
+): boolean {
+  const ownership = effect.provenance.ownership
+  return (
+    ownership === 'app' ||
+    (ownership === 'unknown' && record.componentProvenance.ownership === 'app')
+  )
 }
 
 function snapshotEffectRecords(): EffectRecord[] {

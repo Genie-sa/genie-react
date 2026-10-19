@@ -108,9 +108,14 @@ function knownQueryResult(value: unknown): Record<string, unknown> | undefined {
   const result: Record<string, unknown> = {}
   for (const key of QUERY_RESULT_FIELDS) {
     const descriptor = safeOwnPropertyDescriptor(value, key)
-    if (isDataDescriptor(descriptor)) result[key] = descriptor.value
+    if (isDataDescriptor(descriptor)) result[key] = serializableResultValue(descriptor.value)
   }
   return result
+}
+
+// Error message and stack are own non-enumerable properties, so a plain walk would show `{}`.
+function serializableResultValue(value: unknown): unknown {
+  return value instanceof Error ? { name: value.name, message: value.message } : value
 }
 
 export function summarizeQueryObserver(observer: object) {

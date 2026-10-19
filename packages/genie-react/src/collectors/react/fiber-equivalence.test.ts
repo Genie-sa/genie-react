@@ -1,5 +1,5 @@
 import { type Fiber, isCompositeFiber, isHostFiber } from 'bippy'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   buildTree,
   findByName,
@@ -267,6 +267,23 @@ describe('optimized walkers preserve pre-optimization behavior', () => {
           }
         }
       }
+    }
+  })
+
+  it('mirrors an id onto the alternate buffer once instead of on every registration', () => {
+    const current = makeFiber(FunctionComponentTag, namedComponent('Row'), null)
+    const alternate = makeFiber(FunctionComponentTag, current.type, null)
+    current.alternate = alternate
+    alternate.alternate = current
+    const register = vi.spyOn(FinalizationRegistry.prototype, 'register')
+    try {
+      const id = registerFiber(current)
+      for (let commit = 0; commit < 50; commit += 1) {
+        expect(registerFiber(commit % 2 === 0 ? alternate : current)).toBe(id)
+      }
+      expect(register.mock.calls.length).toBeLessThanOrEqual(2)
+    } finally {
+      register.mockRestore()
     }
   })
 

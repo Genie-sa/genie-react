@@ -574,6 +574,28 @@ describe('per-effect source attribution', () => {
     })
   })
 
+  it('keeps an app component effect under appOnly when its hook source is unresolved', async () => {
+    inspector.getFiberHooks.mockImplementation(() => {
+      throw new Error('shadow render disabled')
+    })
+    makeComponent('AppPanel', {
+      fileName: '/src/panel.tsx',
+      lineNumber: 4,
+      columnNumber: 0,
+    }).commit('mount', [{ tag: PASSIVE | HAS_EFFECT, deps: [] }])
+    makeComponent('LibraryPanel', {
+      fileName: '/node_modules/lib/panel.js',
+      lineNumber: 4,
+      columnNumber: 0,
+    }).commit('mount', [{ tag: PASSIVE | HAS_EFFECT, deps: [] }])
+
+    const report = await getEffectAuditReportWithHooks({ limit: 50, appOnly: true })
+
+    expect(report.components.map((record) => record.name)).toEqual(['AppPanel'])
+    expect(report.components[0]?.effects[0]?.provenance.ownership).toBe('unknown')
+    expect(report.libraryEffectsHidden).toBe(1)
+  })
+
   it('marks every effect as library when no effect call-site is app code (data-only component)', async () => {
     // Every inspected call-site is library and the commit list has extra internal effects: the component wrote no useEffect, so the whole list is library noise.
     inspector.getFiberHooks.mockReturnValue([

@@ -1,4 +1,4 @@
-import { QueryClient, QueryObserver } from '@tanstack/react-query'
+import { MutationObserver, QueryClient, QueryObserver } from '@tanstack/react-query'
 import type { Fiber } from 'bippy'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
@@ -304,6 +304,21 @@ function policyCauses(
     evidence,
   )
 }
+
+describe('external-store labels', () => {
+  it('labels a useMutation snapshot by its MutationObserver', () => {
+    const observer = new MutationObserver(new QueryClient(), { mutationFn: async () => 'ok' })
+    const snapshot = observer.getCurrentResult()
+    const fiber = causalFiber(
+      [{ memoizedState: observer }, externalStoreHook(snapshot)],
+      [{ memoizedState: observer }, externalStoreHook({ ...snapshot })],
+    )
+
+    expect(diffExternalStoreChanges(fiber)).toMatchObject([
+      { kind: 'external-store', storeLabel: 'tanstack-mutation-observer' },
+    ])
+  })
+})
 
 describe('current Query notification policy compatibility', () => {
   it.each([

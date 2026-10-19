@@ -27,7 +27,10 @@ export type DeepDiffChange =
   | { kind: 'value'; path: string; before: DeepDiffValue; after: DeepDiffValue }
   | { kind: 'added'; path: string; after: DeepDiffValue }
   | { kind: 'removed'; path: string; before: DeepDiffValue }
+  /** Both sides were walked completely and hold equal contents under a new identity. */
   | { kind: 'reference-only'; path: string }
+  /** Identity changed but the contents were not compared (opaque, too deep, or behind an accessor). */
+  | { kind: 'identity-changed-uninspected'; path: string }
 
 export interface DeepDiffOptions {
   maxDepth?: number
@@ -164,7 +167,7 @@ function walk(
   if (isOpaqueReference(before, beforeKind) || isOpaqueReference(after, afterKind)) {
     /* Structural reflection can invoke unbounded Proxy traps. Keep only incomplete identity. */
     state.truncated = true
-    recordChange(state, { kind: 'reference-only', path })
+    recordChange(state, { kind: 'identity-changed-uninspected', path })
   } else {
     recordChange(state, {
       kind: 'value',
@@ -186,7 +189,7 @@ function walkContainers(
 ): boolean {
   if (depth >= state.maxDepth) {
     state.truncated = true
-    recordChange(state, { kind: 'reference-only', path })
+    recordChange(state, { kind: 'identity-changed-uninspected', path })
     return true
   }
   if (hasActivePair(state, before, after)) {
@@ -227,7 +230,7 @@ function walkContainers(
           state,
           isDataDescriptor(afterDescriptor)
             ? { kind: 'added', path: childPath, after: snapshotValue(afterDescriptor.value, state) }
-            : { kind: 'reference-only', path: childPath },
+            : { kind: 'identity-changed-uninspected', path: childPath },
         )
         childChanged = true
         continue
@@ -242,7 +245,7 @@ function walkContainers(
                 path: childPath,
                 before: snapshotValue(beforeDescriptor.value, state),
               }
-            : { kind: 'reference-only', path: childPath },
+            : { kind: 'identity-changed-uninspected', path: childPath },
         )
         childChanged = true
         continue
@@ -250,7 +253,7 @@ function walkContainers(
       if (!isDataDescriptor(beforeDescriptor) || !isDataDescriptor(afterDescriptor)) {
         if (!consumeVisit(state)) break
         state.truncated = true
-        recordChange(state, { kind: 'reference-only', path: childPath })
+        recordChange(state, { kind: 'identity-changed-uninspected', path: childPath })
         childChanged = true
         continue
       }
@@ -270,7 +273,11 @@ function walkContainers(
     !state.workExhausted &&
     !state.changesExhausted
   ) {
-    recordChange(state, { kind: 'reference-only', path })
+    const kind =
+      beforeScan.hasSymbolKeys || afterScan.hasSymbolKeys
+        ? 'identity-changed-uninspected'
+        : 'reference-only'
+    recordChange(state, { kind, path })
   }
   return true
 }
@@ -286,7 +293,9 @@ function recordArrayLengthChange(
   const lengthPath = appendPointer(path, 'length', state)
   if (!isDataDescriptor(beforeLength) || !isDataDescriptor(afterLength)) {
     state.truncated = true
-    if (consumeVisit(state)) recordChange(state, { kind: 'reference-only', path: lengthPath })
+    if (consumeVisit(state)) {
+      recordChange(state, { kind: 'identity-changed-uninspected', path: lengthPath })
+    }
     return true
   }
   if (Object.is(beforeLength.value, afterLength.value)) return false
@@ -339,6 +348,8 @@ function isOpaqueReference(value: unknown, kind: ContainerKind | null): boolean 
 interface PropertyScan {
   properties: { key: string; descriptor: PropertyDescriptor }[]
   complete: boolean
+  /** Symbol-keyed fields are never compared, so their presence rules out a reference-only claim. */
+  hasSymbolKeys?: boolean
 }
 
 function scanArrayProperties(value: object, state: DiffState): PropertyScan {
@@ -353,9 +364,10 @@ function scanArrayProperties(value: object, state: DiffState): PropertyScan {
 function scanPlainObjectProperties(value: object, state: DiffState): PropertyScan {
   const keys = plainOwnKeys(value)
   if (keys === undefined) return { properties: [], complete: false }
-  // Symbol-keyed fields are never compared, so their presence rules out a reference-only claim.
-  if (hasOwnSymbolKeys(value)) state.truncated = true
-  return scanOwnProperties(value, keys.length, (index) => keys[index] ?? '', state)
+  const scan = scanOwnProperties(value, keys.length, (index) => keys[index] ?? '', state)
+  if (!hasOwnSymbolKeys(value)) return scan
+  state.truncated = true
+  return { ...scan, hasSymbolKeys: true }
 }
 
 function scanOwnProperties(

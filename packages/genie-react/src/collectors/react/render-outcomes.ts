@@ -1,8 +1,6 @@
-import { type Fiber, isHostFiber, type MemoizedState, type RenderPhase } from 'bippy'
-import { didFiberCommit } from './bippy-compat'
+import { type Fiber, type MemoizedState, ReactFiberFlags, type RenderPhase } from 'bippy'
 import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
 import type { RenderCause } from './render-causes'
-import { isHostTextFiber } from './work-tags'
 
 const HOST_SCAN_LIMIT = 500
 const HOOK_SCAN_LIMIT = 1_000
@@ -73,7 +71,15 @@ export function pendingRenderAssessment(): RenderAssessment {
   }
 }
 
-/** Inspect only this component's descendants so sibling mutations are never misattributed. */
+const HOST_MUTATION_FLAGS =
+  ReactFiberFlags.Placement | ReactFiberFlags.Update | ReactFiberFlags.ChildDeletion
+
+/** A host or text fiber's own DOM work; subtree flags and flags left over from earlier commits are not evidence. */
+export function hasOwnHostMutation(fiber: Fiber): boolean {
+  return (fiber.flags & HOST_MUTATION_FLAGS) !== 0
+}
+
+/** Inspect only this component's rendered descendants so sibling or stale mutations are never misattributed. */
 export function scanSubtreeHostMutations(
   fiber: Fiber,
   limit = HOST_SCAN_LIMIT,
@@ -86,30 +92,22 @@ export function scanSubtreeHostMutations(
     if (fiber.child) stack.push(fiber.child)
     let visited = 0
     let count = 0
-    let directCaptureComplete = true
 
     while (stack.length > 0 && visited < limit) {
       if (!consumeCommitWork(budget, 'host-mutations')) break
       const node = stack.pop()
       if (!node) continue
       visited += 1
-      if (isHostFiber(node) && commitEvidence.hostMutationFibers.has(node)) count += 1
-      if (isHostTextFiber(node)) {
-        try {
-          if (didFiberCommit(node)) count += 1
-        } catch {
-          directCaptureComplete = false
-        }
-      }
+      if (commitEvidence.hostMutationFibers.has(node)) count += 1
       if (node.sibling) stack.push(node.sibling)
-      if (node.child) stack.push(node.child)
+      // A subtree React skipped this commit cannot hold this commit's host work.
+      if (node.child && commitEvidence.renderedFibers.has(node)) stack.push(node.child)
     }
 
     return {
       count,
       pendingSubtrees: stack.length,
-      complete:
-        stack.length === 0 && commitEvidence.hostMutationCaptureComplete && directCaptureComplete,
+      complete: stack.length === 0 && commitEvidence.hostMutationCaptureComplete,
     }
   } catch {
     return { count: 0, pendingSubtrees: 0, complete: false }

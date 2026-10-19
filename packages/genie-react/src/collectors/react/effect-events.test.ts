@@ -133,6 +133,33 @@ describe('effect schedule events', () => {
     ])
   })
 
+  it('stops joining execution to a schedule event evicted from the retained window', () => {
+    const schedule = () =>
+      recordEffectSchedule({
+        fiber: fiber(),
+        profileCommitId: 1,
+        phase: 'mount',
+        effectIndex: 0,
+        kind: 'effect',
+        dependencies: [],
+        previousDependencies: null,
+      })
+    schedule()
+    const evictedId = getEffectScheduleEvents({ limit: 1 }).events[0]?.effectEventId
+    for (let index = 0; index < 1_000; index += 1) schedule()
+    const retainedId = getEffectScheduleEvents({ limit: 1 }).events[0]?.effectEventId
+
+    expect(runObservedEffectCreate(evictedId ?? '', () => 'ran')).toBe('ran')
+    runObservedEffectCreate(retainedId ?? '', () => undefined)
+
+    const retained = getEffectScheduleEvents({ limit: 1_000 }).events
+    expect(retained.some((event) => event.effectEventId === evictedId)).toBe(false)
+    expect(retained[0]).toMatchObject({
+      effectEventId: retainedId,
+      execution: { status: 'observed' },
+    })
+  })
+
   it('does not invent changed slots for mount or non-list dependencies', () => {
     expect(changedDependencySlots(null, null)).toEqual({
       slots: [],

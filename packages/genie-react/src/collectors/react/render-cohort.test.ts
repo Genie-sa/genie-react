@@ -793,6 +793,7 @@ describe('render lifecycle cohorts', () => {
     })
   })
 
+  // Two 12k-fiber trees take about 2s alone and exceed the 5s default under a parallel suite.
   it('shares one fiber scan budget across all roots', async () => {
     const firstRoot = hostChain(12_000)
     const secondRoot = hostChain(12_000)
@@ -823,5 +824,5 @@ describe('render lifecycle cohorts', () => {
         scannedRootCount: 2,
       },
     })
-  })
+  }, 20_000)
 })

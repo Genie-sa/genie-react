@@ -44,7 +44,7 @@ describe('deepDiff', () => {
     })
 
     expect(deepDiff(before, after)).toMatchObject({
-      changes: [{ kind: 'reference-only', path: '' }],
+      changes: [{ kind: 'identity-changed-uninspected', path: '' }],
       truncated: true,
     })
     expect(reads).toBe(0)
@@ -74,7 +74,7 @@ describe('deepDiff', () => {
       { kind: 'added', path: '/added', after: 2 },
     ])
     expect(deepDiff(accessor({}), accessor({}), { plainObjectDepth: 1 })).toMatchObject({
-      changes: [{ kind: 'reference-only', path: '/computed' }],
+      changes: [{ kind: 'identity-changed-uninspected', path: '/computed' }],
       truncated: true,
     })
     expect(reads).toBe(0)
@@ -91,7 +91,7 @@ describe('deepDiff', () => {
   it('marks plain objects with symbol keys as truncated', () => {
     const key = Symbol('key')
     expect(deepDiff({ [key]: 1, a: 1 }, { [key]: 1, a: 1 }, { plainObjectDepth: 1 })).toEqual({
-      changes: [{ kind: 'reference-only', path: '' }],
+      changes: [{ kind: 'identity-changed-uninspected', path: '' }],
       visited: 2,
       truncated: true,
     })
@@ -102,7 +102,7 @@ describe('deepDiff', () => {
       count = 1
     }
     expect(deepDiff(new Value(), new Value(), { plainObjectDepth: 1 })).toMatchObject({
-      changes: [{ kind: 'reference-only', path: '' }],
+      changes: [{ kind: 'identity-changed-uninspected', path: '' }],
       truncated: true,
     })
   })
@@ -149,7 +149,7 @@ describe('deepDiff', () => {
     }
 
     expect(deepDiff(before, after)).toMatchObject({
-      changes: [{ kind: 'reference-only', path: '/0' }],
+      changes: [{ kind: 'identity-changed-uninspected', path: '/0' }],
       truncated: true,
     })
     expect(reads).toBe(0)
@@ -181,7 +181,7 @@ describe('deepDiff', () => {
     ],
   ])('marks unsupported changed references incomplete', (before, after) => {
     expect(deepDiff(before, after)).toMatchObject({
-      changes: [{ kind: 'reference-only', path: '' }],
+      changes: [{ kind: 'identity-changed-uninspected', path: '' }],
       truncated: true,
     })
   })
@@ -222,7 +222,7 @@ describe('deepDiff', () => {
     const result = deepDiff([[1]], [[2]], { maxDepth: 1 })
 
     expect(result).toEqual({
-      changes: [{ kind: 'reference-only', path: '/0' }],
+      changes: [{ kind: 'identity-changed-uninspected', path: '/0' }],
       visited: 2,
       truncated: true,
     })

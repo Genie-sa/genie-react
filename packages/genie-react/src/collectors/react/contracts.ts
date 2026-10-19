@@ -228,7 +228,7 @@ export const reactInspectComponentContract = defineAgentToolContract({
   name: 'react_inspect_component',
   title: 'Inspect a React component',
   description:
-    'Inspect a component by id: its props, plus state (class components) or hooks (function components), depth-bounded. Each hook reports its `kind` (state/reducer/effect/layout-effect/memo/callback/ref/other), whether it is `stateful`, and for stateful hooks a `stateIndex` — the ordinal you pass to react_override_hook_state instead of counting flat hook positions past library hooks. Pass `path` to hydrate deeper into a nested prop value.',
+    'Inspect a component by id: its props, plus state (class components) or hooks (function components), depth-bounded. Each hook reports its `kind` (state/reducer/effect/layout-effect/memo/callback/ref/other), whether it is `stateful`, and for stateful hooks a `stateIndex` — the ordinal you pass to react_override_hook_state instead of counting flat hook positions past library hooks. Functions appear as their `ƒ name()` preview string. Pass `path` to hydrate deeper into a nested prop value.',
   group: 'react.inspect',
   input: z.object({
     id: nodeIdSchema,
@@ -625,6 +625,13 @@ export const reactResetOverridesContract = defineAgentToolContract({
       }),
     ),
     remaining: z.number().describe('Overrides still tracked after the reset (always 0).'),
+    commitObserved: z
+      .boolean()
+      .nullable()
+      .optional()
+      .describe(
+        'Whether React committed after the restore, so the UI shows the real values again. false means it did not re-render yet; null means commits cannot be observed. Omitted when nothing needed a re-render.',
+      ),
   }),
   annotations: { destructiveHint: true, idempotentHint: true },
 })
@@ -640,7 +647,9 @@ export const reactErrorStateContract = defineAgentToolContract({
     includeSource: z
       .boolean()
       .default(true)
-      .describe('Resolve the file:line of each boundary/component (async source-map lookup).'),
+      .describe(
+        'Resolve the file:line of each boundary/component (async source-map lookup). When false, stacks also drop frames from node_modules.',
+      ),
     limit: z.number().int().min(1).max(100).default(20),
   }),
   output: z.object({

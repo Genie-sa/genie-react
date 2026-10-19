@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { defineAgentToolContract } from '../protocol'
 import { FakeSocket, type Frame } from '../test-support/fake-socket'
 import { createGenieClient } from './client'
-import { defineCollector, defineCollectorTool } from './collector'
+import { type CollectorContext, defineCollector, defineCollectorTool } from './collector'
 
 const echoContract = defineAgentToolContract({
   name: 'echo',
@@ -82,13 +82,44 @@ describe('GenieClient', () => {
     socket.open()
 
     const frames = socket.decoded()
-    expect(frames.map((frame) => frame.kind)).toEqual(['app/hello', 'app/snapshot', 'app/ready'])
+    expect(frames.map((frame) => frame.kind)).toEqual(['app/hello', 'app/ready'])
     expect(frames[0]).toMatchObject({
       logicalSessionId: 'logical-a',
       documentGeneration: 3,
       sessionName: 'review-a',
     })
-    expect(frames[2].sessionId).toBe(frames[0].sessionId)
+    expect(frames[1].sessionId).toBe(frames[0].sessionId)
+    client.stop()
+  })
+
+  it('turns collector snapshots and events into throttled heartbeats instead of payload frames', () => {
+    const socket = new FakeSocket()
+    let context: CollectorContext | undefined
+    const client = createGenieClient({
+      appName: 'quiet-app',
+      collectors: [
+        defineCollector({
+          meta: { id: 'cache', title: 'Cache' },
+          start: (ctx) => {
+            context = ctx
+          },
+        }),
+      ],
+      socketFactory: () => socket,
+    })
+    client.start()
+    socket.open()
+
+    for (let batch = 0; batch < 20; batch += 1) {
+      context?.pushSnapshot('query', { queries: batch })
+      context?.pushEvent('query', { batch })
+    }
+
+    expect(socket.decoded().map((frame) => frame.kind)).toEqual([
+      'app/hello',
+      'app/ready',
+      'app/heartbeat',
+    ])
     client.stop()
   })
 

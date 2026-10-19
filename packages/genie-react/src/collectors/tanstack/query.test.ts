@@ -328,13 +328,54 @@ describe('queryCollector', () => {
       queryKey: ['todos'],
       exact: false,
     })) as { ok: boolean; matched: number }
-    expect(prefix).toEqual({ ok: true, matched: 2 })
+    expect(prefix).toMatchObject({ ok: true, matched: 2 })
 
     const exact = (await call(collector, 'query_invalidate', {
       queryKey: ['todos'],
       exact: true,
     })) as { ok: boolean; matched: number }
-    expect(exact).toEqual({ ok: true, matched: 1 })
+    expect(exact).toMatchObject({ ok: true, matched: 1 })
+  })
+
+  it('query_refetch lists each matched key with its settled status', async () => {
+    const client = new QueryClient()
+    client.setQueryDefaults(['todos'], {
+      queryFn: () => Promise.reject(new Error('offline')),
+      retry: false,
+    })
+    client.setQueryData(['todos'], [])
+    const collector = queryCollector(client)
+
+    const result = await call(collector, 'query_refetch', { queryKey: ['todos'], exact: false })
+
+    expect(result).toEqual({
+      ok: true,
+      matched: 1,
+      queries: [
+        {
+          queryHash: '["todos"]',
+          queryKey: ['todos'],
+          status: 'error',
+          fetchStatus: 'idle',
+          error: 'offline',
+        },
+      ],
+    })
+  })
+
+  it('query_invalidate names cached keys when nothing matched', async () => {
+    const client = new QueryClient()
+    client.setQueryData(['todos'], [])
+    const collector = queryCollector(client)
+
+    const result = await call(collector, 'query_invalidate', { queryKey: ['todo'], exact: false })
+
+    expect(result).toEqual({
+      ok: true,
+      matched: 0,
+      queries: [],
+      hint: 'No query matched ["todo"] as a prefix. Cached keys include ["todos"].',
+    })
   })
 
   it('query_set_data writes data that round-trips through query_get', async () => {
