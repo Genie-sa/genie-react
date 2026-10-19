@@ -72,6 +72,16 @@ async function createCapture(captures: CaptureManager<CaptureSession>, name: str
 }
 
 describe('capture manager artifacts', () => {
+  it('defaults to the domains the app advertises', async () => {
+    const result = await manager().invoke('devtools_capture_create', {
+      name: 'defaults',
+      maxAttempts: 1,
+      view: 'full',
+    })
+
+    expect(result.ok && (result.result as CaptureArtifact).include).toEqual(['react', 'query'])
+  })
+
   it('points every missing capture ID at the argument that named it', async () => {
     const captures = manager()
     const baseline = await createCapture(captures, 'baseline')

@@ -133,9 +133,9 @@ function compareMetric(
     input,
   )
 
-  if (budget && notComparableReasons.length > 0) {
+  if (notComparableReasons.length > 0) {
     verdict = 'not-comparable'
-  } else if (budget && sampleFloor < input.minimumRuns) {
+  } else if (sampleFloor < input.minimumRuns) {
     verdict = 'insufficient-data'
     reasons.push(
       `requires ${input.minimumRuns} usable samples per cohort after warm-up and outlier exclusion; found ${baselineStats.samples} baseline and ${candidateStats.samples} candidate`,
@@ -167,6 +167,12 @@ function compareMetric(
         }
       }
     }
+  } else if (regressionPct !== null) {
+    reasons.push(
+      confidence.significant && Math.abs(regressionPct) >= input.minimumEffectPct
+        ? `${regressionPct > 0 ? 'regressed' : 'improved'} ${Math.abs(regressionPct)}% (median ${baselineStats.median} -> ${candidateStats.median}, p=${confidence.pValue})`
+        : `no significant change (${regressionPct}%, p=${confidence.pValue}); pass budgets to gate on it`,
+    )
   }
 
   return {

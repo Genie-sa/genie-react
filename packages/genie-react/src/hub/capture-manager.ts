@@ -114,6 +114,16 @@ const CAPTURE_RECIPES: Record<CaptureDomain, CaptureRecipeTool[]> = {
   performance: [{ name: 'browser_fps', args: { durationMs: 250 } }],
 }
 
+const DEFAULT_CAPTURE_DOMAINS: CaptureDomain[] = ['react', 'effects', 'query', 'router', 'memory']
+
+function defaultCaptureDomains(tools: ToolDescriptor[]): CaptureDomain[] {
+  const advertised = new Set(tools.map((tool) => tool.name))
+  const domains = DEFAULT_CAPTURE_DOMAINS.filter((domain) =>
+    CAPTURE_RECIPES[domain].some((recipe) => advertised.has(recipe.name)),
+  )
+  return domains.length > 0 ? domains : ['react']
+}
+
 const CAPTURE_TOOL_NAMES = new Set([
   devtoolsCaptureCreateContract.name,
   devtoolsCaptureListContract.name,
@@ -223,7 +233,10 @@ export class CaptureManager<TSession extends CaptureSession> {
       }
     }
     try {
-      const capture = await this.create(session, parsed.data)
+      const capture = await this.create(session, {
+        ...parsed.data,
+        include: parsed.data.include ?? defaultCaptureDomains(session.tools),
+      })
       return {
         ok: true,
         result: parsed.data.view === 'full' ? capture : captureReadSummary(capture),
