@@ -18,7 +18,7 @@
     "@tanstack/react-query": "latest",
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
-    "@tanstack/router-plugin": "^1.132.0",
+    "@tanstack/router-plugin": "^1.168.48",
     "lucide-react": "^1.52.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
