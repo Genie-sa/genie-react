@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # The job installs a package outside the lockfile, so it must never save a cache other workflows restore.
       - name: Setup
