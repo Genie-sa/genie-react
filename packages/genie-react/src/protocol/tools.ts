@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { defineAgentToolContract } from './contract'
+import { reactPendingWorkContract } from './pending-work'
 import {
   appInfoSchema,
   sessionSummarySchema,
@@ -491,7 +492,7 @@ export const reactQuiesceContract = defineAgentToolContract({
   name: 'react_quiesce',
   title: 'Wait for React commits to become idle',
   description:
-    'Wait until no React document commit is observed for idleMs. Returns idle, timed-out, or unavailable with elapsed time and commits observed since the first valid sample. Does not establish query, animation-frame, or future scheduled work completion. Session changes or counter resets cannot prove idle.',
+    'Wait until no React document commit is observed for idleMs and React holds no pending work: no root with an uncommitted or suspended update (a pending transition) and no Suspense boundary showing a fallback. Returns idle, timed-out, or unavailable with elapsed time, commits observed since the first valid sample, and the last pendingWork sample. pendingWork is null when the app runtime cannot report it; idle then covers commits only. Does not establish query, animation-frame, timer, or promise completion outside React. Session changes or counter resets cannot prove idle.',
   group: 'react.render',
   input: z
     .object({
@@ -513,6 +514,11 @@ export const reactQuiesceContract = defineAgentToolContract({
     documentCommitId: z.number().int().nonnegative().nullable(),
     sessionId: z.string().nullable(),
     renderCollection: z.string().nullable(),
+    pendingWork: reactPendingWorkContract.output
+      .nullable()
+      .describe(
+        'Last pending React work sample; null when the runtime does not advertise react_pending_work or it was never read.',
+      ),
     reason: z.string().optional(),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },

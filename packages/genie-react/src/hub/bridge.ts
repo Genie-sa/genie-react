@@ -20,7 +20,10 @@ import {
   type HubErrorCode,
   metaToolDescriptors,
   newId,
+  type PendingReactWork,
+  reactPendingWorkContract,
   reactQuiesceContract,
+  safeDiagnostic,
   type SessionSummary,
   type ToolDescriptor,
   type ToolErrorDetails,
@@ -1138,6 +1141,8 @@ export class GenieBridge {
     let observedCommits = 0
     let documentCommitId: number | null = null
     let renderCollection: string | null = null
+    let pendingWork: PendingReactWork | null = null
+    let pendingReason: string | undefined
     const finish = (outcome: 'idle' | 'timed-out' | 'unavailable', reason?: string) =>
       this.result(
         agent,
@@ -1151,6 +1156,7 @@ export class GenieBridge {
           documentCommitId,
           sessionId: session?.sessionId ?? null,
           renderCollection,
+          pendingWork,
           ...(reason ? { reason } : {}),
         },
         undefined,
@@ -1192,6 +1198,9 @@ export class GenieBridge {
         renderCollection =
           typeof sample?.renderCollection === 'string' ? sample.renderCollection : null
       }
+      const observedWork = reactPendingWorkContract.output.safeParse(sample?.pendingWork)
+      if (observedWork.success) pendingWork = observedWork.data
+      pendingReason = check.status === 'pending' ? check.reason : undefined
       if (check.status === 'unsupported' || check.status === 'failed') {
         finish('unavailable', check.reason)
         return
@@ -1206,7 +1215,7 @@ export class GenieBridge {
     }
     finish(
       'timed-out',
-      'React idle was not observed before timeoutMs. Inspect pending work and retry.',
+      pendingReason ?? 'React idle was not observed before timeoutMs. Inspect pending work and retry.',
     )
   }
 
@@ -1531,15 +1540,14 @@ export class GenieBridge {
         pollState.reactChangedAt = now
       }
       const quietForMs = now - pollState.reactChangedAt
-      return {
-        status: quietForMs >= input.quietMs ? 'met' : 'pending',
-        lastObserved: {
-          documentCommitId: commit,
-          renderCollection,
-          quietForMs,
-          requiredQuietMs: input.quietMs,
-        },
+      const observed = {
+        documentCommitId: commit,
+        renderCollection,
+        quietForMs,
+        requiredQuietMs: input.quietMs,
       }
+      if (quietForMs < input.quietMs) return { status: 'pending', lastObserved: observed }
+      return this.checkPendingReactWork(session, input, pollState, observed)
     }
     if (domain === 'query') {
       if (!toolDescriptor(session, 'query_is_fetching')) {
@@ -1602,6 +1610,47 @@ export class GenieBridge {
       },
     }
     return pollState.frameCheck
+  }
+
+  /** A quiet commit counter is not idle while React holds uncommitted work: a suspended transition never commits, and a Suspense fallback waits on data without one. */
+  private async checkPendingReactWork(
+    session: AppSession,
+    input: WaitInput,
+    pollState: WaitPollState,
+    observed: Record<string, unknown> & { documentCommitId: number },
+  ): Promise<WaitDomainCheck> {
+    if (!toolDescriptor(session, reactPendingWorkContract.name)) {
+      return { status: 'met', lastObserved: { ...observed, pendingWork: null } }
+    }
+    const response = await this.appRequestForSession(
+      reactPendingWorkContract.name,
+      {},
+      session,
+      input.deadline,
+    )
+    const parsed = reactPendingWorkContract.output.safeParse(response.result)
+    if (!response.ok || !parsed.success) {
+      return {
+        status: 'pending',
+        reason: `Pending React work could not be read: ${response.error ?? 'malformed react_pending_work result'}.`,
+        lastObserved: { ...observed, pendingWork: null },
+      }
+    }
+    const pendingWork = parsed.data
+    if (pendingWork.documentCommitId !== observed.documentCommitId) {
+      pollState.reactCommit = pendingWork.documentCommitId
+      pollState.reactChangedAt = Date.now()
+      return {
+        status: 'pending',
+        lastObserved: { ...observed, documentCommitId: pendingWork.documentCommitId, pendingWork },
+      }
+    }
+    const blocking = pendingWorkReason(pendingWork)
+    return {
+      status: blocking === null ? 'met' : 'pending',
+      ...(blocking === null ? {} : { reason: blocking }),
+      lastObserved: { ...observed, pendingWork },
+    }
   }
 
   private forwardToApp(
@@ -1956,6 +2005,24 @@ function interruptedCallError(hubCode: InterruptionCode, mayHaveCompleted: boole
   return mayHaveCompleted
     ? `${cause}; the call is not read-only and may have completed, so inspect app state before retrying.`
     : `${cause}; retry the call.`
+}
+
+function pendingWorkReason(work: PendingReactWork): string | null {
+  const parts: string[] = []
+  if (work.scheduledRoots > 0) {
+    parts.push(
+      `${work.scheduledRoots} root${work.scheduledRoots === 1 ? ' has' : 's have'} an uncommitted or suspended update (for example a pending transition)`,
+    )
+  }
+  if (work.suspendedBoundaries > 0) {
+    const names = work.boundaries
+      .map((boundary) => safeDiagnostic(boundary.boundaryName, 80))
+      .join(', ')
+    parts.push(
+      `${work.suspendedBoundaries} Suspense boundar${work.suspendedBoundaries === 1 ? 'y shows' : 'ies show'} a fallback${names ? ` (${names})` : ''}`,
+    )
+  }
+  return parts.length === 0 ? null : `React work is still pending: ${parts.join('; ')}.`
 }
 
 function recordOf(value: unknown): Record<string, unknown> | null {
