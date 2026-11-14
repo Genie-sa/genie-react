@@ -378,9 +378,7 @@ function renderCoverageSignature(
   })
 }
 
-/**
- * Modified z-scores (Iglewicz and Hoaglin) over both cohorts pooled: a rule that ignores cohort labels keeps the permutation test exact, where per-cohort trimming inflates false A/A changes. A zero MAD falls back to the mean absolute deviation instead of rejecting every value off the median.
- */
+/** Modified z-scores (Iglewicz and Hoaglin) over both cohorts pooled: a label-blind rule keeps the permutation test exact where per-cohort trimming inflates false A/A changes, and a zero MAD falls back to the mean absolute deviation instead of rejecting every value off the median. */
 function pooledOutlierRule(samples: MetricSample[], threshold: number): (value: number) => boolean {
   if (samples.length < 3) return () => false
   const values = samples.map((sample) => sample.value).sort((left, right) => left - right)

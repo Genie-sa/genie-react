@@ -16,8 +16,8 @@ import {
   type BridgeConnectionInfo,
   BridgeRejectedError,
   BridgeUnreachableError,
-  VersionSkewError,
   bridgeRejectionHint,
+  VersionSkewError,
 } from './agent-link'
 import { BridgeConfigError, type ResolvedBridge } from './discovery'
 import { DEFAULT_ERROR_CODES } from './failure-format'

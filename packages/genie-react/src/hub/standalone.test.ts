@@ -14,19 +14,22 @@ interface HttpReply {
 
 function request(port: number, path: string, hostHeader?: string): Promise<HttpReply> {
   return new Promise((resolve, reject) => {
-    get({ host: '127.0.0.1', port, path, headers: hostHeader ? { host: hostHeader } : {} }, (res) => {
-      let body = ''
-      res.on('data', (chunk) => {
-        body += String(chunk)
-      })
-      res.on('end', () =>
-        resolve({
-          status: res.statusCode ?? 0,
-          body,
-          contentType: res.headers['content-type'],
-        }),
-      )
-    }).on('error', reject)
+    get(
+      { host: '127.0.0.1', port, path, headers: hostHeader ? { host: hostHeader } : {} },
+      (res) => {
+        let body = ''
+        res.on('data', (chunk) => {
+          body += String(chunk)
+        })
+        res.on('end', () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            body,
+            contentType: res.headers['content-type'],
+          }),
+        )
+      },
+    ).on('error', reject)
   })
 }
 

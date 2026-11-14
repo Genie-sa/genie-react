@@ -117,9 +117,10 @@ describe('wire decoding under hostile input', () => {
   })
 
   it('never lets an app frame carry hub-only failure details', () => {
-    const parsed = appMessageSchema.parse(
-      decodeFrame(encodeMessage(VALID_FRAMES[3])),
-    ) as Extract<Frame, { kind: 'app/response' }>
+    const parsed = appMessageSchema.parse(decodeFrame(encodeMessage(VALID_FRAMES[3]))) as Extract<
+      Frame,
+      { kind: 'app/response' }
+    >
     expect(parsed.errorDetails).toEqual({})
   })
 })

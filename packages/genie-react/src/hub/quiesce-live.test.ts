@@ -15,7 +15,14 @@ import { WebSocket } from 'ws'
 import { GenieClient, type SocketLike } from '../client'
 import { reactCollector } from '../collectors/react'
 import { newId, reactQuiesceContract } from '../protocol'
-import { createTestBridge, type Frame, Inbox, isResult, open, send } from './bridge-test-harness'
+import {
+  createTestBridge,
+  type Frame,
+  type Inbox,
+  isResult,
+  open,
+  send,
+} from './bridge-test-harness'
 import type { StandaloneBridgeHandle } from './standalone'
 
 let handle: StandaloneBridgeHandle

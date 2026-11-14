@@ -59,7 +59,6 @@ import {
 import { getMeasurementEnvironment } from './measurement-environment'
 import { openMeasurementSpan, readMeasurementSpan } from './measurement-spans'
 import { getAnalysisGeneration, getDocumentCommitId } from './observation'
-import { getPendingReactWork } from './pending-work'
 import {
   applyContextOverride,
   applyErrorOverride,
@@ -69,6 +68,7 @@ import {
   overrideFiberProps,
   resetOverrides,
 } from './overrides'
+import { getPendingReactWork } from './pending-work'
 import { getRefreshEvents, startRefreshTracking } from './refresh-tracker'
 import { getRenderCohort } from './render-cohort'
 import { reactMeasureContract, reactRendersSinceContract } from './render-contract'

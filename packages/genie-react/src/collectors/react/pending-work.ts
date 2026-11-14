@@ -1,8 +1,8 @@
 import { _fiberRoots, type Fiber, getFiberId } from 'bippy'
 import { MAX_PENDING_WORK_BOUNDARIES, type PendingReactWork } from '../../protocol'
 import { nameOf } from './fiber'
-import { forcedSuspenseBoundaries } from './overrides'
 import { getDocumentCommitId } from './observation'
+import { forcedSuspenseBoundaries } from './overrides'
 import { isSuspenseFiber } from './work-tags'
 
 const MAX_SCANNED_FIBERS = 50_000
