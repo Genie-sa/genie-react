@@ -75,6 +75,7 @@ describe('react_get_renders output contract', () => {
           },
           renders: 1,
           mounts: 0,
+          unmounted: false,
           updates: 1,
           unnecessary: 0,
           noObservedInputChange: 0,

@@ -40,6 +40,8 @@ export interface RenderRecord {
   necessity: RenderNecessity
   assessment: RenderAssessment
   inputCoverage: RenderInputCoverage
+  /** The instance unmounted inside this window; its renders stay counted. */
+  unmounted: boolean
   /** Live handle used only for report-time source classification. */
   fiber: Fiber
 }
@@ -144,6 +146,7 @@ export function draftRenderRecord(
           scanTruncated: true,
           propsNotEnumerated: false,
         },
+        unmounted: false,
         fiber: input.fiber,
       }
   record.fiber = input.fiber

@@ -86,6 +86,20 @@ function componentFiber(opts: {
 
 const render = (fiber: Fiber, phase: RenderPhase) => recordRender(fiber, phase)
 
+/** Record an update whose nearest component ancestor rendered in the same commit. */
+function renderUnderRenderedParent(fiber: Fiber): void {
+  const parentProps = {}
+  const parent = componentFiber({
+    name: 'RenderedParent',
+    props: parentProps,
+    prevProps: parentProps,
+  })
+  Object.assign(fiber, { return: parent })
+  const budget = createCommitAnalysisBudget()
+  budget.currentCommitEvidence.renderedFibers.add(parent)
+  recordRender(fiber, 'update', undefined, budget.work, budget.currentCommitEvidence)
+}
+
 beforeEach(() => {
   resetObservationStateForTests()
   clearRenders()
@@ -742,8 +756,11 @@ describe('causal render attribution', () => {
       causes: [{ kind: 'parent', parentName: 'Parent', evidence: 'inferred' }],
     })
     expect(reports.get('Unknown')).toMatchObject({
-      necessity: 'unnecessary',
-      causes: [{ kind: 'unknown', evidence: 'unknown' }],
+      necessity: 'unknown',
+      noObservedInputChange: 0,
+      causes: [
+        { kind: 'unknown', evidence: 'unknown', reason: 'no-observable-fiber-input-change' },
+      ],
       assessment: {
         inputEvidence: 'none-observed',
         optimizationSafety: 'not-proven-safe',
@@ -1133,43 +1150,43 @@ describe('recordRender unnecessary accounting', () => {
       'update',
     )
 
-    expect((await byName()).get('DerivedOnly')).toMatchObject({ changes: [], unnecessary: 1 })
+    expect((await byName()).get('DerivedOnly')).toMatchObject({
+      changes: [],
+      unnecessary: 0,
+      necessity: 'unknown',
+    })
   })
 
   it('claims no observed input change only when no prop value changed', async () => {
     const shared = { node: true }
     const pureProps = { a: 1, children: shared }
-    render(
+    renderUnderRenderedParent(
       componentFiber({
         name: 'Pure',
         props: pureProps,
         prevProps: pureProps,
       }),
-      'update',
     )
-    render(
+    renderUnderRenderedParent(
       componentFiber({
         name: 'FreshContainer',
         props: { a: 1, children: shared },
         prevProps: { a: 1, children: shared },
       }),
-      'update',
     )
-    render(
+    renderUnderRenderedParent(
       componentFiber({
         name: 'Changed',
         props: { a: 2, children: shared },
         prevProps: { a: 1, children: shared },
       }),
-      'update',
     )
-    render(
+    renderUnderRenderedParent(
       componentFiber({
         name: 'ChildOnly',
         props: { children: { id: 'next' } },
         prevProps: { children: { id: 'prev' } },
       }),
-      'update',
     )
 
     const records = await byName()
