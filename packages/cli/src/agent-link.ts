@@ -349,10 +349,7 @@ export class GenieAgentLink {
       this.status = null
       // A dropped hub cannot answer in-flight calls, so they fail now instead of waiting out their timeouts.
       this.rejectPending(new BridgeUnreachableError(url, true))
-      if (
-        this.rejection instanceof BridgeUnreachableError ||
-        this.rejection instanceof VersionSkewError
-      ) {
+      if (this.rejectedForGood()) {
         this.flushOpenWaiters()
         return
       }
@@ -425,6 +422,13 @@ export class GenieAgentLink {
     this.flushOpenWaiters()
   }
 
+  /** A missing hub at a guessed URL, or a hub from another release line, will not change by reconnecting. */
+  private rejectedForGood(): boolean {
+    return (
+      this.rejection instanceof BridgeUnreachableError || this.rejection instanceof VersionSkewError
+    )
+  }
+
   private isOpen(): boolean {
     return this.ws?.readyState === WebSocket.OPEN && this.status !== null && this.rejection === null
   }
@@ -432,11 +436,7 @@ export class GenieAgentLink {
   private ensureConnection(): Promise<WebSocket> {
     if (this.isOpen() && this.ws) return Promise.resolve(this.ws)
     if (this.closed) return Promise.reject(new Error('agent link closed'))
-    if (
-      this.rejection instanceof BridgeUnreachableError ||
-      this.rejection instanceof VersionSkewError
-    )
-      return Promise.reject(this.rejection)
+    if (this.rejectedForGood()) return Promise.reject(this.rejection)
     return new Promise<WebSocket>((resolve, reject) => {
       const waiter: OpenWaiter = {
         timer: setTimeout(() => {
