@@ -7,6 +7,8 @@ import {
   type BridgeStatusMessage,
   type BusyTelemetry,
   decodeAgentBoundMessage,
+  devtoolsInteractionStopContract,
+  devtoolsWaitContract,
   encodeMessage,
   errorMessage,
   newId,
@@ -139,6 +141,30 @@ export function bridgeRejectionHint(
   return `The hub refused the connection (HTTP ${error.status}). Update genie-react and @genie-react/cli to matching versions.`
 }
 
+const HUB_WAIT_CONTRACTS = [
+  reactQuiesceContract,
+  devtoolsWaitContract,
+  devtoolsInteractionStopContract,
+] as const
+
+/** Gives the bridge its per-call budget plus a grace window, so its typed timeout/busy answer arrives before this local guard fires; hub waits run as long as their own `timeoutMs` asks. */
+export function localInvokeTimeoutMs(
+  tool: string,
+  args: unknown,
+  options: InvokeOptions,
+  defaultTimeoutMs: number,
+): number {
+  if (options.timeoutMs !== undefined) return options.timeoutMs + INVOKE_GRACE_MS
+  const contract = HUB_WAIT_CONTRACTS.find((candidate) => candidate.name === tool)
+  const parsed = contract?.input.safeParse(args ?? {})
+  if (!parsed?.success) return defaultTimeoutMs
+  const waitMs = parsed.data.timeoutMs + INVOKE_GRACE_MS
+  // Interaction stop reads its evidence after the settle wait, so it keeps the ordinary budget on top.
+  return contract === devtoolsInteractionStopContract
+    ? waitMs + defaultTimeoutMs
+    : Math.max(defaultTimeoutMs, waitMs)
+}
+
 /** Agent-side WebSocket client to the bridge; reconnects and re-resolves the URL each attempt to survive dev-server restarts. */
 export class GenieAgentLink {
   private readonly resolveUrl: () => string | Promise<string>
@@ -216,13 +242,7 @@ export class GenieAgentLink {
   ): Promise<AnsweredResult> {
     const ws = await this.ensureConnection()
     const id = newId()
-    // Give the bridge its per-call budget plus a grace window, so its typed timeout/busy result arrives before this local guard fires.
-    const quiesce =
-      tool === reactQuiesceContract.name ? reactQuiesceContract.input.safeParse(args ?? {}) : null
-    const callTimeoutMs =
-      options.timeoutMs ?? (quiesce?.success ? quiesce.data.timeoutMs : undefined)
-    const localTimeoutMs =
-      callTimeoutMs === undefined ? this.invokeTimeoutMs : callTimeoutMs + INVOKE_GRACE_MS
+    const localTimeoutMs = localInvokeTimeoutMs(tool, args, options, this.invokeTimeoutMs)
     return new Promise<AnsweredResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)

@@ -9,6 +9,8 @@ import {
   BridgeUnreachableError,
   GenieAgentLink,
   type GenieAgentLinkOptions,
+  INVOKE_GRACE_MS,
+  localInvokeTimeoutMs,
 } from './agent-link'
 
 // biome-ignore lint/suspicious/noExplicitAny: test harness deals in decoded wire frames
@@ -206,6 +208,38 @@ describe('GenieAgentLink', () => {
     )
     const result = await link.invoke('react_quiesce', { idleMs: 100, timeoutMs: 150 })
     expect(result).toMatchObject({ outcome: 'timed-out' })
+  })
+
+  it('lets devtools_wait and interaction stop finish their requested budgets beyond the default guard', async () => {
+    const { url } = await makeBridge()
+    const link = makeLink({ url, invokeTimeoutMs: 25 })
+    link.start()
+    const waited = await link.invoke('devtools_wait', {
+      condition: 'component',
+      name: 'Never',
+      timeoutMs: 300,
+    })
+    expect(waited).toMatchObject({ ok: false, reason: 'no app connected' })
+  })
+
+  it('sizes the local guard from each hub wait budget', () => {
+    expect(localInvokeTimeoutMs('devtools_wait', { timeoutMs: 45_000 }, {}, 20_000)).toBe(
+      45_000 + INVOKE_GRACE_MS,
+    )
+    expect(localInvokeTimeoutMs('react_quiesce', { timeoutMs: 1_000 }, {}, 20_000)).toBe(20_000)
+    expect(
+      localInvokeTimeoutMs(
+        'devtools_interaction_stop',
+        { interactionId: 'i', timeoutMs: 30_000 },
+        {},
+        20_000,
+      ),
+    ).toBe(30_000 + INVOKE_GRACE_MS + 20_000)
+    expect(localInvokeTimeoutMs('app_slow', { timeoutMs: 45_000 }, {}, 20_000)).toBe(20_000)
+    expect(localInvokeTimeoutMs('devtools_wait', { timeoutMs: 'soon' }, {}, 20_000)).toBe(20_000)
+    expect(localInvokeTimeoutMs('devtools_wait', {}, { timeoutMs: 5_000 }, 20_000)).toBe(
+      5_000 + INVOKE_GRACE_MS,
+    )
   })
 
   it('reconnects after the socket closes and heals onto a new bridge', async () => {
