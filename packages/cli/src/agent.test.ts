@@ -537,13 +537,54 @@ describe('agent failure output', () => {
     expect(await describeFailure(new Error('socket hang up'), {})).toEqual({
       reason: 'operational_failure',
       errorCode: 'operational-failure',
-      message: 'Run pnpm exec genie-react doctor --live to inspect connectivity and app state.',
+      message:
+        'Run pnpm exec genie-react doctor --live to inspect connectivity and app state. If it repeats while setup checks pass, it may be a Genie bug: pipe a description into feedback to preview a report for the maintainers; nothing is sent without --submit.',
       userActionRequired: true,
       next: {
         command: 'pnpm exec genie-react doctor --live',
         argv: ['pnpm', 'exec', 'genie-react', 'doctor', '--live'],
       },
+      feedback: {
+        command:
+          'pnpm exec genie-react feedback --kind bug --reason operational_failure --message -',
+        argv: [
+          'pnpm',
+          'exec',
+          'genie-react',
+          'feedback',
+          '--kind',
+          'bug',
+          '--reason',
+          'operational_failure',
+          '--message',
+          '-',
+        ],
+      },
     })
+  })
+
+  it('suggests feedback for an unexpected failure only, naming the tool only when Genie ships it', async () => {
+    const unexpected = new Error('Cannot read properties of undefined')
+    const builtIn = await describeFailure(unexpected, { tool: 'react_get_tree' })
+    expect(builtIn.feedback?.argv.slice(-5)).toEqual([
+      'operational_failure',
+      '--tool',
+      'react_get_tree',
+      '--message',
+      '-',
+    ])
+    for (const tool of ['app_acme_refund', 'acme_internal_tool', "react_x'; rm -rf ~"]) {
+      const failure = await describeFailure(unexpected, { tool })
+      expect(failure.feedback?.argv).not.toContain('--tool')
+      expect(failure.feedback?.command).not.toContain('acme')
+    }
+    for (const error of [
+      new BridgeCallError('raw', { errorCode: 'invalid-args' }),
+      new BridgeCallError('raw', { errorCode: 'tool-error' }),
+      new BridgeCallError('raw', { errorCode: 'busy' }),
+    ]) {
+      expect((await describeFailure(error, { tool: 'react_get_tree' })).feedback).toBeUndefined()
+    }
   })
 
   it('omits an unsafe requested session and unsafe connected ids', async () => {
