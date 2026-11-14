@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { WebSocket } from 'ws'
-import { newId } from '../protocol'
+import { GENIE_REACT_VERSION, newId } from '../protocol'
 import {
   createTestBridge,
   delay,
@@ -45,11 +45,15 @@ describe('GenieBridge routing hardening', () => {
     await handle.close()
   })
 
-  const openDocument = async (sessionId: string): Promise<Document> => {
+  const openDocument = async (
+    sessionId: string,
+    runtimeVersion: string | null = GENIE_REACT_VERSION,
+  ): Promise<Document> => {
     const { ws, inbox } = await open(`${url}?role=app`)
     send(ws, {
       kind: 'app/hello',
       protocol: 1,
+      ...(runtimeVersion === null ? {} : { runtimeVersion }),
       sessionId,
       logicalSessionId: `tab-${sessionId}`,
       documentGeneration: 1,
@@ -137,5 +141,22 @@ describe('GenieBridge routing hardening', () => {
     } finally {
       clearInterval(keepAlive)
     }
+  })
+
+  it('reports each runtime version and warns about a runtime from another release line', async () => {
+    await start()
+    await openDocument('current')
+    await openDocument('older', '0.17.3')
+    await openDocument('unversioned', null)
+    await expect.poll(() => handle.bridge.getStatus().sessions.length).toBe(3)
+    const status = handle.bridge.getStatus()
+    expect(status.hub).toEqual({ version: GENIE_REACT_VERSION, protocol: 1 })
+    expect(status.sessions.find((session) => session.sessionId === 'older')?.runtimeVersion).toBe(
+      '0.17.3',
+    )
+    const skewed = status.warnings.filter((warning) => warning.includes('the hub is genie-react'))
+    expect(skewed).toHaveLength(2)
+    expect(skewed.join('\n')).toContain('"older" runs genie-react runtime "0.17.3"')
+    expect(skewed.join('\n')).toContain('"unversioned" runs a genie-react runtime that predates')
   })
 })

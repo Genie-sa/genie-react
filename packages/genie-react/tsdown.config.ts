@@ -1,10 +1,15 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'tsdown'
+
+const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+const versionDefine = { __GENIE_REACT_VERSION__: JSON.stringify(version) }
 
 const shared = {
   format: ['esm'],
   dts: true,
   treeshake: true,
   fixedExtension: false,
+  define: versionDefine,
 } satisfies Parameters<typeof defineConfig>[0]
 
 // Browser and Node entries build separately; browser entries share chunks, so the injected client and <Genie /> get one module instance per page.
@@ -52,6 +57,7 @@ export default defineConfig([
   {
     format: ['esm', 'cjs'],
     entry: { babel: 'src/babel/index.ts' },
+    define: versionDefine,
     platform: 'node',
     dts: true,
     fixedExtension: true,
@@ -69,6 +75,6 @@ export default defineConfig([
     // Self-contained on purpose: the hub serves this single file to pages with no bundler integration.
     deps: { alwaysBundle: [/./], onlyBundle: false },
     // Only dev pages load this file, but minifying would otherwise fold NODE_ENV to "production" and compile out dev-only runtime such as proxy tagging.
-    define: { 'process.env.NODE_ENV': '"development"' },
+    define: { ...versionDefine, 'process.env.NODE_ENV': '"development"' },
   },
 ])

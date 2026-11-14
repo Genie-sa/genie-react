@@ -16,8 +16,11 @@ import {
   devtoolsStatusContract,
   devtoolsWaitContract,
   encodeMessage,
+  GENIE_PROTOCOL_VERSION,
+  GENIE_REACT_VERSION,
   GENIE_WS_PATH,
   type HubErrorCode,
+  type HubInfo,
   metaToolDescriptors,
   newId,
   type PendingReactWork,
@@ -26,6 +29,7 @@ import {
   safeDiagnostic,
   type SessionSummary,
   type ToolDescriptor,
+  sameReleaseLine,
   type ToolErrorDetails,
   toolValidationFailure,
   WAIT_CONDITIONS,
@@ -88,7 +92,10 @@ interface BridgeStatus {
   tools: ToolDescriptor[]
   sessions: SessionSummary[]
   warnings: string[]
+  hub: HubInfo
 }
+
+const HUB_INFO: HubInfo = { version: GENIE_REACT_VERSION, protocol: GENIE_PROTOCOL_VERSION }
 
 interface AppSession {
   socket: WebSocket
@@ -106,6 +113,7 @@ interface AppSession {
   readyAt?: number
   /** Last `app/heartbeat` receipt; undefined until the first beat, which is how legacy (never-beating) clients opt out of busy fast-fail. */
   lastHeartbeatAt?: number
+  runtimeVersion?: string
 }
 
 type AppHello = Extract<AppMessage, { kind: 'app/hello' }>
@@ -361,6 +369,7 @@ export class GenieBridge {
       tools: catalogOf(current),
       sessions: this.sessionSummaries(),
       warnings: this.statusWarnings(),
+      hub: HUB_INFO,
     }
   }
 
@@ -545,6 +554,7 @@ export class GenieBridge {
         current: session.sessionId === current?.sessionId,
         ...this.appOrigins.get(session.socket),
         ...(staleMs === null ? {} : { staleMs }),
+        ...(session.runtimeVersion === undefined ? {} : { runtimeVersion: session.runtimeVersion }),
       }
     })
   }
@@ -607,6 +617,16 @@ export class GenieBridge {
         ([logicalSessionId, sessions]) =>
           `Logical session collision ${JSON.stringify(logicalSessionId)} across ${sessions.join(', ')}; implicit and logical-id routing is paused until the cloned document is auto-forked.`,
       )
+    for (const session of this.apps.values()) {
+      if (
+        session.runtimeVersion !== undefined &&
+        sameReleaseLine(session.runtimeVersion, HUB_INFO.version)
+      )
+        continue
+      warnings.push(
+        `Session ${JSON.stringify(session.sessionId)} runs ${session.runtimeVersion === undefined ? 'a genie-react runtime that predates version reporting' : `genie-react runtime ${JSON.stringify(session.runtimeVersion)}`} but the hub is genie-react ${HUB_INFO.version}; tool results may not match what this hub and the CLI expect. Install one genie-react version, then restart the dev server and reload the app (clear the bundler's dependency cache if the version persists).`,
+      )
+    }
     const origins = [...this.apps.values()].map((session) => this.appOrigins.get(session.socket))
     const distinctOrigins = new Set(origins.map((entry) => entry?.origin))
     if (distinctOrigins.size > 1 && origins.some((entry) => entry?.originUnverified)) {
@@ -794,6 +814,7 @@ export class GenieBridge {
       readyAt: existing?.readyAt,
       // A re-hello from a once-heartbeating session is a live JS turn (reload, reconnect, or tool refresh), so clear stale/busy state immediately.
       lastHeartbeatAt: existing?.lastHeartbeatAt === undefined ? undefined : now,
+      runtimeVersion: message.runtimeVersion,
     }
     this.apps.set(message.sessionId, registered)
     for (const peer of olderPeers) {
@@ -1085,6 +1106,7 @@ export class GenieBridge {
           ...(parsed.data.includeTools ? { tools: catalogOf(target) } : {}),
           sessions: this.sessionSummaries(),
           warnings: this.statusWarnings(),
+          hub: HUB_INFO,
         },
         undefined,
         { session: target },

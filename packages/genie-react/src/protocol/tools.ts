@@ -3,6 +3,7 @@ import { defineAgentToolContract } from './contract'
 import { reactPendingWorkContract } from './pending-work'
 import {
   appInfoSchema,
+  hubInfoSchema,
   sessionSummarySchema,
   type ToolDescriptor,
   toolDescriptorSchema,
@@ -464,6 +465,7 @@ export const devtoolsStatusContract = defineAgentToolContract({
     tools: z.array(toolDescriptorSchema).optional(),
     sessions: z.array(sessionSummarySchema),
     warnings: z.array(z.string()),
+    hub: hubInfoSchema.optional(),
   }),
   annotations: { readOnlyHint: true },
 })

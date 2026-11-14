@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
-import { decodeFrame, newId } from '../protocol'
+import { decodeFrame, GENIE_REACT_VERSION, newId } from '../protocol'
 import {
   connect,
   createTestBridge,
@@ -61,6 +61,7 @@ describe('GenieBridge', () => {
     send(app, {
       kind: 'app/hello',
       protocol: 1,
+      runtimeVersion: GENIE_REACT_VERSION,
       sessionId: 's-1',
       app: { name: 'demo', reactVersion: '19.0.0', tanstack: { query: '5.101.2' } },
       capabilities: ['react', 'query'],
@@ -137,6 +138,7 @@ describe('GenieBridge', () => {
     send(app, {
       kind: 'app/hello',
       protocol: 1,
+      runtimeVersion: GENIE_REACT_VERSION,
       sessionId: 'capture-session',
       logicalSessionId: 'capture-tab',
       documentGeneration: 3,
@@ -292,6 +294,7 @@ describe('GenieBridge', () => {
     send(app, {
       kind: 'app/hello',
       protocol: 1,
+      runtimeVersion: GENIE_REACT_VERSION,
       sessionId: 'moving-session',
       app: { name: 'moving demo' },
       capabilities: ['react'],
@@ -367,6 +370,7 @@ describe('GenieBridge', () => {
     send(app, {
       kind: 'app/hello',
       protocol: 1,
+      runtimeVersion: GENIE_REACT_VERSION,
       sessionId: 'validation-session',
       app: { name: 'validation demo' },
       capabilities: [],
@@ -427,6 +431,7 @@ describe('GenieBridge', () => {
       send(app, {
         kind: 'app/hello',
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId,
         app: { name: tag },
         capabilities: ['react'],
@@ -532,6 +537,7 @@ describe('GenieBridge', () => {
     send(firstDocument, {
       kind: 'app/hello',
       protocol: 1,
+      runtimeVersion: GENIE_REACT_VERSION,
       sessionId: 'physical-1',
       logicalSessionId: 'logical-review',
       documentGeneration: 1,
@@ -578,6 +584,7 @@ describe('GenieBridge', () => {
     send(secondDocument, {
       kind: 'app/hello',
       protocol: 1,
+      runtimeVersion: GENIE_REACT_VERSION,
       sessionId: 'physical-2',
       logicalSessionId: 'logical-review',
       documentGeneration: 2,
@@ -628,6 +635,7 @@ describe('GenieBridge', () => {
       send(original, {
         kind: 'app/hello',
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId: 'original-physical',
         logicalSessionId: 'cloned-logical',
         documentGeneration: 4,
@@ -640,6 +648,7 @@ describe('GenieBridge', () => {
       send(clone, {
         kind: 'app/hello',
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId: 'clone-physical',
         logicalSessionId: 'cloned-logical',
         documentGeneration: 4,
@@ -703,6 +712,7 @@ describe('GenieBridge', () => {
     send(oldDocument, {
       kind: 'app/hello',
       protocol: 1,
+      runtimeVersion: GENIE_REACT_VERSION,
       sessionId: 'overlap-old',
       logicalSessionId: 'overlap-logical',
       documentGeneration: 2,
@@ -715,6 +725,7 @@ describe('GenieBridge', () => {
     send(newDocument, {
       kind: 'app/hello',
       protocol: 1,
+      runtimeVersion: GENIE_REACT_VERSION,
       sessionId: 'overlap-new',
       logicalSessionId: 'overlap-logical',
       documentGeneration: 3,
@@ -741,6 +752,7 @@ describe('GenieBridge', () => {
     const appHello = (name: string) => ({
       kind: 'app/hello',
       protocol: 1,
+      runtimeVersion: GENIE_REACT_VERSION,
       sessionId: 's-r',
       app: { name },
       capabilities: ['react'],
@@ -783,6 +795,7 @@ describe('GenieBridge', () => {
       const hello = {
         kind: 'app/hello' as const,
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId: 's-reload',
         app: { name: 'reloadable' },
         capabilities: [],
@@ -813,6 +826,7 @@ describe('GenieBridge', () => {
       send(app, {
         kind: 'app/hello',
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId: 's-2',
         app: { name: 'silent' },
         capabilities: [],
@@ -842,6 +856,7 @@ describe('GenieBridge', () => {
       send(app, {
         kind: 'app/hello',
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId: 's-busy',
         app: { name: 'busy' },
         capabilities: [],
@@ -883,6 +898,7 @@ describe('GenieBridge', () => {
       send(app, {
         kind: 'app/hello',
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId: 's-lateBusy',
         app: { name: 'lateBusy' },
         capabilities: [],
@@ -917,6 +933,7 @@ describe('GenieBridge', () => {
       send(app, {
         kind: 'app/hello',
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId: 's-timeoutOverride',
         app: { name: 'timeoutOverride' },
         capabilities: [],
@@ -957,6 +974,7 @@ describe('GenieBridge', () => {
       send(app, {
         kind: 'app/hello',
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId: 's-mutation',
         app: { name: 'mutation' },
         capabilities: ['react'],
@@ -1005,6 +1023,7 @@ describe('GenieBridge', () => {
       send(app, {
         kind: 'app/hello',
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId: 's-dead',
         app: { name: 'dead' },
         capabilities: [],
@@ -1033,6 +1052,7 @@ describe('GenieBridge', () => {
       const hello = (sessionId: string) => ({
         kind: 'app/hello' as const,
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId,
         app: { name: sessionId },
         capabilities: [],
@@ -1079,6 +1099,7 @@ describe('GenieBridge', () => {
       send(app, {
         kind: 'app/hello',
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId: 's-perCall',
         app: { name: 'silent' },
         capabilities: [],
@@ -1111,6 +1132,7 @@ describe('GenieBridge', () => {
       send(app, {
         kind: 'app/hello',
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId: 's-legacy',
         app: { name: 'legacy' },
         capabilities: [],
@@ -1140,6 +1162,7 @@ describe('GenieBridge', () => {
       send(zombie, {
         kind: 'app/hello',
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId: 's-zombie',
         app: { name: 'zombie' },
         capabilities: [],
@@ -1159,6 +1182,7 @@ describe('GenieBridge', () => {
       send(socket, {
         kind: 'app/hello',
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId,
         app: { name: sessionId },
         capabilities: ['react'],

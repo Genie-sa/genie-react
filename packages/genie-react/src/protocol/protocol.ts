@@ -101,7 +101,16 @@ export const sessionSummarySchema = z.object({
   originUnverified: z.boolean().optional(),
   /** Present when a heartbeat-capable session went silent (likely a dead tab context); default routing skips it while a fresh session exists. */
   staleMs: z.number().optional(),
+  /** The genie-react release the app's in-page runtime was built from; absent for runtimes that predate version reporting. */
+  runtimeVersion: z.string().optional(),
 })
+
+/** The hub's own release and wire protocol, so an agent can refuse one from another release line instead of misreading it. */
+export const hubInfoSchema = z.object({
+  version: z.string(),
+  protocol: z.number().int(),
+})
+export type HubInfo = z.infer<typeof hubInfoSchema>
 export type SessionSummary = z.infer<typeof sessionSummarySchema>
 
 // ── App (browser) → Bridge ──────────────────────────────────────────────────
@@ -116,6 +125,7 @@ export const appHelloSchema = z.object({
   app: appInfoSchema,
   capabilities: z.array(z.string()),
   tools: z.array(toolDescriptorSchema),
+  runtimeVersion: z.string().max(64).optional(),
 })
 
 /** Sent after every collector has completed its synchronous startup work. */
@@ -347,6 +357,8 @@ export const bridgeStatusSchema = z.object({
   tools: z.array(toolDescriptorSchema),
   sessions: z.array(sessionSummarySchema).default([]),
   warnings: z.array(z.string()).default([]),
+  /** Absent from hubs that predate version reporting. */
+  hub: hubInfoSchema.optional(),
 })
 export type BridgeStatusMessage = z.infer<typeof bridgeStatusSchema>
 
