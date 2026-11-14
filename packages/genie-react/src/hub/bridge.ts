@@ -165,6 +165,8 @@ interface DefaultTabReload {
 
 type InterruptionCode = Extract<HubErrorCode, 'SESSION_DISCONNECTED' | 'SESSION_SUPERSEDED'>
 
+// Above the CLI's 50,000,000-byte output ceiling, so any result an agent can print still fits one frame.
+const MAX_FRAME_BYTES = 64 * 1024 * 1024
 const POLL_INTERVAL_MS = 150
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000
 
@@ -268,7 +270,7 @@ function unrefTimer(timer: ReturnType<typeof setInterval>): void {
 
 /** The hub: a `noServer` WSS mountable on Vite's HTTP server; calls route to the targeted tab's newest document (explicit `agent/invoke.sessionId`, else the only or already-targeted tab), and it answers the `devtools_status`/`devtools_wait` meta tools itself. */
 export class GenieBridge {
-  private readonly wss = new ws.WebSocketServer({ noServer: true })
+  private readonly wss = new ws.WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES })
   private readonly agents = new Set<WebSocket>()
   private readonly pending = new Map<string, PendingRequest>()
   private readonly connectionWaiters = new Set<() => void>()
@@ -298,6 +300,8 @@ export class GenieBridge {
   private readonly responsiveSockets = new WeakSet<WebSocket>()
   private readonly heartbeat: ReturnType<typeof setInterval>
   private readonly upgradePolicy: UpgradePolicy
+  /** The one document each app socket announced first; a socket cannot speak for a second document. */
+  private readonly socketDocuments = new WeakMap<WebSocket, string>()
   private readonly appOrigins = new WeakMap<
     WebSocket,
     Pick<SessionSummary, 'origin' | 'originUnverified'>
@@ -753,6 +757,14 @@ export class GenieBridge {
   }
 
   private registerDocument(socket: WebSocket, message: AppHello): void {
+    const announced = this.socketDocuments.get(socket)
+    if (announced !== undefined && announced !== message.sessionId) {
+      this.log('warn', 'ignored a hello for a second document on one socket', {
+        sessionId: announced,
+      })
+      return
+    }
+    this.socketDocuments.set(socket, message.sessionId)
     const now = Date.now()
     // Same-socket superseded documents were revived already; one reconnecting on a new socket drops the old one.
     this.evictSuperseded(message.sessionId)

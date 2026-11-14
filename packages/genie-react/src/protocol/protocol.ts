@@ -115,11 +115,13 @@ export type SessionSummary = z.infer<typeof sessionSummarySchema>
 
 // ── App (browser) → Bridge ──────────────────────────────────────────────────
 
+const documentIdSchema = z.string().min(1).max(128)
+
 export const appHelloSchema = z.object({
   kind: z.literal('app/hello'),
   protocol: z.number(),
-  sessionId: z.string(),
-  logicalSessionId: z.string().optional(),
+  sessionId: documentIdSchema,
+  logicalSessionId: documentIdSchema.optional(),
   documentGeneration: z.number().int().positive().optional(),
   sessionName: sessionNameSchema.optional(),
   app: appInfoSchema,
