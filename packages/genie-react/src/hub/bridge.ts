@@ -345,6 +345,11 @@ export class GenieBridge {
     return this.upgradePolicy.agentToken
   }
 
+  /** Whether a plain HTTP request's `Host` names this machine directly rather than a rebound domain. */
+  trustsHostHeader(hostHeader: string | undefined): boolean {
+    return this.upgradePolicy.trustsHostHeader(hostHeader)
+  }
+
   /** Returns `false` for non-{@link GENIE_WS_PATH} upgrades so another listener (e.g. Vite HMR) can handle them. */
   handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): boolean {
     if (new URL(request.url ?? '/', 'http://localhost').pathname !== GENIE_WS_PATH) return false
