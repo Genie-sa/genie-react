@@ -144,6 +144,8 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>
   busyTimer: ReturnType<typeof setTimeout> | null
   sessionId: string
+  /** Only the document the request was sent to may answer it. */
+  socket: WebSocket
   /** The tool is not read-only, so losing its document mid-call leaves its side effects unknown. */
   mayHaveCompleted: boolean
 }
@@ -457,7 +459,10 @@ export class GenieBridge {
       this.clearDefaultTabReload()
     }
     const resolution = this.tabDocument(key, documents)
-    return resolution.ok && retargeted ? { ...resolution, retargeted } : resolution
+    if (!resolution.ok || !retargeted) return resolution
+    return pin && replacement
+      ? { ...resolution, retargeted }
+      : { ...resolution, retargeted, standIn: true }
   }
 
   private tabDocument(key: string, documents: AppSession[]): SessionResolution<AppSession> {
@@ -470,7 +475,7 @@ export class GenieBridge {
       (candidate) => this.staleMsOf(candidate) === null,
     )
     return live && others.length === 0
-      ? { ok: true, session: live, retargeted: true }
+      ? { ok: true, session: live, retargeted: true, standIn: true }
       : { ok: true, session }
   }
 
@@ -707,7 +712,7 @@ export class GenieBridge {
       case 'app/response': {
         this.markSessionAlive(socket, true)
         const pending = this.pending.get(message.id)
-        if (!pending) return
+        if (!pending || pending.socket !== socket) return
         this.clearPendingTimers(pending)
         this.pending.delete(message.id)
         pending.settle({
@@ -1215,7 +1220,8 @@ export class GenieBridge {
     }
     finish(
       'timed-out',
-      pendingReason ?? 'React idle was not observed before timeoutMs. Inspect pending work and retry.',
+      pendingReason ??
+        'React idle was not observed before timeoutMs. Inspect pending work and retry.',
     )
   }
 
@@ -1712,20 +1718,24 @@ export class GenieBridge {
       settle(resolution)
       return
     }
-    const { session, retargeted } = resolution
-    // A tab that was already open only stands in for a reloading default on reads; a mutation there would change the wrong tab.
-    if (
-      retargeted &&
-      this.defaultTabReload !== null &&
-      toolDescriptor(session, tool)?.annotations?.readOnlyHint !== true
-    ) {
-      settle({
-        ok: false,
-        errorCode: 'not-connected',
-        errorDetails: { hubCode: 'SESSION_RELOADING' },
-        retryInMs: BUSY_RETRY_MS,
-        error: `The targeted tab ${JSON.stringify(this.defaultTabKey)} is reconnecting after a reload and "${tool}" is not read-only, so it was not run on another tab; retry shortly, or target a tab explicitly.`,
-      })
+    const { session, retargeted, standIn } = resolution
+    // Another tab only stands in for an absent or silent default on reads; a mutation there would change the wrong tab.
+    if (standIn && toolDescriptor(session, tool)?.annotations?.readOnlyHint !== true) {
+      settle(
+        this.defaultTabReload === null
+          ? {
+              ok: false,
+              errorCode: 'busy',
+              error: `The targeted tab ${JSON.stringify(this.defaultTabKey)} has not sent a heartbeat for over ${this.sessionStaleMs}ms (frozen, hung, or throttled in the background) and "${tool}" is not read-only, so it was not run on another tab; bring that tab to the foreground, or target a tab explicitly.`,
+            }
+          : {
+              ok: false,
+              errorCode: 'not-connected',
+              errorDetails: { hubCode: 'SESSION_RELOADING' },
+              retryInMs: BUSY_RETRY_MS,
+              error: `The targeted tab ${JSON.stringify(this.defaultTabKey)} is reconnecting after a reload and "${tool}" is not read-only, so it was not run on another tab; retry shortly, or target a tab explicitly.`,
+            },
+      )
       return
     }
     const settleWithSession = (response: AppResponse): void =>
@@ -1752,6 +1762,7 @@ export class GenieBridge {
       timer,
       busyTimer,
       sessionId: session.sessionId,
+      socket: session.socket,
       mayHaveCompleted: toolDescriptor(session, tool)?.annotations?.readOnlyHint !== true,
     })
     this.send(session.socket, { kind: 'bridge/request', id, tool, args })

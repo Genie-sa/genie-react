@@ -14,7 +14,13 @@ export interface SessionUnavailable {
 }
 
 export type SessionResolution<TSession> =
-  | { ok: true; session: TSession; retargeted?: boolean }
+  | {
+      ok: true
+      session: TSession
+      retargeted?: boolean
+      /** Answers in place of a default tab that is still the target but absent or silent; never safe for a mutation. */
+      standIn?: boolean
+    }
   | ({ ok: false } & SessionUnavailable)
 
 /** One browser tab: documents sharing a logical id, or a legacy document that never announced one. */

@@ -245,8 +245,7 @@ describe('capture comparison statistics against an independent reference', () =>
 
     it('keeps false regressions and improvements within the 5% level for skewed timings', () => {
       const rates = falseClaims((random) => {
-        const normal =
-          Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random())
+        const normal = Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random())
         return Math.round(Math.exp(3 + 0.4 * normal) * 100) / 100
       }, 2)
       expect(rates.regressionRate).toBeLessThanOrEqual(BOUND)
@@ -255,17 +254,26 @@ describe('capture comparison statistics against an independent reference', () =>
 
     it('returns the same verdict whatever order the capture IDs arrive in', () => {
       const random = mulberry32(7)
-      const before = cohort('b', Array.from({ length: RUNS }, () => (random() < 0.5 ? 3 : 4)))
+      const before = cohort(
+        'b',
+        Array.from({ length: RUNS }, () => (random() < 0.5 ? 3 : 4)),
+      )
       const after = cohort(
         'c',
         Array.from({ length: RUNS }, () => (random() < 0.5 ? 3 : 4)),
         60_000,
       )
       const forward = compareRenders(before, after, { warmupRuns: 1, maxRegressionPct: 0 })
-      const shuffled = compareRenders([...before].reverse(), [after[2], ...after.slice(3), ...after.slice(0, 2)].filter((capture): capture is CaptureArtifact => capture !== undefined), {
-        warmupRuns: 1,
-        maxRegressionPct: 0,
-      })
+      const shuffled = compareRenders(
+        [...before].reverse(),
+        [after[2], ...after.slice(3), ...after.slice(0, 2)].filter(
+          (capture): capture is CaptureArtifact => capture !== undefined,
+        ),
+        {
+          warmupRuns: 1,
+          maxRegressionPct: 0,
+        },
+      )
       expect(shuffled.metric).toEqual(forward.metric)
     })
   })

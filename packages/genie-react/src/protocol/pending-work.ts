@@ -15,12 +15,16 @@ export const reactPendingWorkContract = defineAgentToolContract({
       .number()
       .int()
       .nonnegative()
-      .describe('The document commit counter when the scan ran, so a caller can tell a commit raced it.'),
+      .describe(
+        'The document commit counter when the scan ran, so a caller can tell a commit raced it.',
+      ),
     scheduledRoots: z
       .number()
       .int()
       .nonnegative()
-      .describe('Mounted roots whose pending lanes are non-zero: an update React has not committed.'),
+      .describe(
+        'Mounted roots whose pending lanes are non-zero: an update React has not committed.',
+      ),
     suspendedBoundaries: z
       .number()
       .int()
