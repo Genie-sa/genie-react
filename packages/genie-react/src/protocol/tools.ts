@@ -372,7 +372,7 @@ export const devtoolsCaptureCompareContract = defineAgentToolContract({
   name: 'devtools_capture_compare',
   title: 'Compare repeated runtime captures',
   description:
-    'Compare repeated baseline and candidate capture cohorts with median, p95, and median absolute deviation (MAD). Apply optional typed regression budgets per metric. At least minimumRuns usable samples per cohort are required for a pass/fail budget verdict; smaller or missing cohorts remain explicit insufficient-data. Capture IDs must be unique and cannot appear in both cohorts.',
+    'Compare repeated baseline and candidate capture cohorts with median, p95, and median absolute deviation (MAD). Warm-up runs are the earliest captures of each cohort by creation time, whatever order the IDs are listed in. Outliers are judged by one modified z-score rule over both cohorts pooled, and significance is an exact two-sided permutation test of the mean difference. Apply optional typed regression budgets per metric. At least minimumRuns usable samples per cohort are required for a pass/fail budget verdict; smaller or missing cohorts remain explicit insufficient-data. Capture IDs must be unique and cannot appear in both cohorts.',
   group: 'meta',
   input: z
     .object({

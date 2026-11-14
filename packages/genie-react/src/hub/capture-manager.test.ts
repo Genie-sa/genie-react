@@ -243,6 +243,22 @@ describe('capture manager artifacts', () => {
     expect(verifyCaptureIntegrity(exportShape)).toBe(false)
   })
 
+  it('re-verifies an exported file and covers date values in the checksum', async () => {
+    const withDate = (at: number) =>
+      manager({ ...comparableRenders, lastCommitAt: new Date(at), ratio: Number.NaN })
+    const created = await createCapture(withDate(0), 'dated')
+    const exported = JSON.parse(JSON.stringify(created, null, 2))
+    expect(verifyCaptureIntegrity(captureArtifactSchema.parse(exported))).toBe(true)
+
+    const shifted = captureArtifactSchema.parse(exported)
+    const renders = shifted.sections.react?.tools.react_get_renders?.result as Record<
+      string,
+      unknown
+    >
+    renders.lastCommitAt = new Date(86_400_000).toISOString()
+    expect(verifyCaptureIntegrity(shifted)).toBe(false)
+  })
+
   it('summarizes pending query work as fetching plus mutations', async () => {
     const captures = manager()
     const result = await captures.invoke('devtools_capture_create', {
