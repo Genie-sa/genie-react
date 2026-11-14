@@ -18,7 +18,12 @@ import {
   scanInputEvidence,
   truncateInputScan,
 } from './render-budget'
-import { diffContextChanges, HOOK_WALK_LIMIT, stateValue } from './render-causes'
+import {
+  diffContextChanges,
+  HOOK_WALK_LIMIT,
+  isExternalStoreHook,
+  stateValue,
+} from './render-causes'
 import { isClassComponentFiber } from './work-tags'
 
 // One level covers the inline `{...}` literals that defeat memo without reflecting deep into app objects.
@@ -178,6 +183,44 @@ function isReference(value: unknown): boolean {
   return typeof value === 'function' || (typeof value === 'object' && value !== null)
 }
 
+/** React 19 leaves `dispatch` unset on the pending-state queues of useTransition and useActionState; every hook update queue still carries `lastRenderedReducer`. */
+function isStateQueueHook(hook: MemoizedState): boolean {
+  if (isStatefulHook(hook)) return true
+  const queue = safeOwnPropertyDescriptor(hook, 'queue')
+  return (
+    isDataDescriptor(queue) &&
+    typeof queue.value === 'object' &&
+    queue.value !== null &&
+    isDataDescriptor(safeOwnPropertyDescriptor(queue.value, 'lastRenderedReducer'))
+  )
+}
+
+/** Hooks Genie cannot classify, such as useDeferredValue, whose value changed; React rendered for them, so they rule out an unnecessary verdict. */
+export function diffUnclassifiedHooks(
+  fiber: Fiber,
+  evidence = createRenderEvidenceBudget(),
+): number[] {
+  if (isClassComponentFiber(fiber)) return []
+  const changed: number[] = []
+  let cur: MemoizedState | null = fiber.memoizedState
+  let alt: MemoizedState | null = fiber.alternate?.memoizedState ?? null
+  for (let index = 0; cur && alt && index < HOOK_WALK_LIMIT; index += 1) {
+    if (!scanInputEvidence(evidence, 'unclassified-hooks')) break
+    if (
+      !Object.is(cur.memoizedState, alt.memoizedState) &&
+      typeof cur.memoizedState !== 'function' &&
+      !isStateQueueHook(cur) &&
+      !isExternalStoreHook(cur) &&
+      classifyHook(cur) === 'other'
+    ) {
+      changed.push(index)
+    }
+    cur = cur.next
+    alt = alt.next
+  }
+  return changed
+}
+
 /** Reports changed useState/useReducer slots in one guarded hook-chain pass. */
 export function diffStateChanges(
   fiber: Fiber,
@@ -207,8 +250,8 @@ export function diffStateChanges(
   let stateIndex = 0
   while (cur && alt && index < HOOK_WALK_LIMIT) {
     if (!scanInputEvidence(evidence, 'state')) break
-    const currentStateful = isStatefulHook(cur)
-    const previousStateful = isStatefulHook(alt)
+    const currentStateful = isStateQueueHook(cur)
+    const previousStateful = isStateQueueHook(alt)
     if (currentStateful || previousStateful) {
       if (!Object.is(cur.memoizedState, alt.memoizedState)) {
         if (!retainInputEvidence(evidence)) {

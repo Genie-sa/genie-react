@@ -274,7 +274,7 @@ function walkContainers(
     !state.changesExhausted
   ) {
     const kind =
-      beforeScan.hasSymbolKeys || afterScan.hasSymbolKeys
+      beforeScan.hasUncomparedKeys || afterScan.hasUncomparedKeys
         ? 'identity-changed-uninspected'
         : 'reference-only'
     recordChange(state, { kind, path })
@@ -348,26 +348,57 @@ function isOpaqueReference(value: unknown, kind: ContainerKind | null): boolean 
 interface PropertyScan {
   properties: { key: string; descriptor: PropertyDescriptor }[]
   complete: boolean
-  /** Symbol-keyed fields are never compared, so their presence rules out a reference-only claim. */
-  hasSymbolKeys?: boolean
+  /** Own slots the scan found, enumerable or not. */
+  present: number
+  /** Symbol-keyed, non-enumerable, or non-index array fields are never compared, so their presence rules out a reference-only claim. */
+  hasUncomparedKeys?: boolean
 }
 
 function scanArrayProperties(value: object, state: DiffState): PropertyScan {
   const lengthDescriptor = safeOwnPropertyDescriptor(value, 'length')
   if (!isDataDescriptor(lengthDescriptor) || typeof lengthDescriptor.value !== 'number') {
-    return { properties: [], complete: false }
+    return { properties: [], complete: false, present: 0 }
   }
   const length = Math.max(0, Math.floor(lengthDescriptor.value))
-  return scanOwnProperties(value, length, String, state)
+  const scan = scanOwnProperties(value, length, String, state)
+  if (!scan.complete) return scan
+  // A RegExp match array keeps index and input beside its elements; `length` is the one expected extra name.
+  const extraNames = ownPropertyNameCount(value) - 1 - scan.present
+  return withUncomparedKeys(
+    scan,
+    extraNames !== 0 || scan.present !== scan.properties.length || hasOwnSymbolKeys(value),
+    state,
+  )
 }
 
 function scanPlainObjectProperties(value: object, state: DiffState): PropertyScan {
   const keys = plainOwnKeys(value)
-  if (keys === undefined) return { properties: [], complete: false }
+  if (keys === undefined) return { properties: [], complete: false, present: 0 }
   const scan = scanOwnProperties(value, keys.length, (index) => keys[index] ?? '', state)
-  if (!hasOwnSymbolKeys(value)) return scan
+  return withUncomparedKeys(
+    scan,
+    hasOwnSymbolKeys(value) || ownPropertyNameCount(value) !== keys.length,
+    state,
+  )
+}
+
+function withUncomparedKeys(
+  scan: PropertyScan,
+  uncompared: boolean,
+  state: DiffState,
+): PropertyScan {
+  if (!uncompared) return scan
   state.truncated = true
-  return { ...scan, hasSymbolKeys: true }
+  return { ...scan, hasUncomparedKeys: true }
+}
+
+/** Unreadable names count as more than any scan found, so the comparison is never claimed complete. */
+function ownPropertyNameCount(value: object): number {
+  try {
+    return Object.getOwnPropertyNames(value).length
+  } catch {
+    return Number.POSITIVE_INFINITY
+  }
 }
 
 function scanOwnProperties(
@@ -377,20 +408,23 @@ function scanOwnProperties(
   state: DiffState,
 ): PropertyScan {
   const properties: PropertyScan['properties'] = []
+  let present = 0
   const limit = Math.min(count, state.maxVisited, state.remainingPropertyScans)
   for (let index = 0; index < limit; index += 1) {
     if (state.outerBudget?.consumeVisit && !state.outerBudget.consumeVisit()) {
       state.truncated = true
       state.workExhausted = true
-      return { properties, complete: false }
+      return { properties, complete: false, present }
     }
     state.remainingPropertyScans -= 1
     const key = keyAt(index)
     const descriptor = safeOwnPropertyDescriptor(value, key)
-    if (descriptor === undefined) return { properties, complete: false }
-    if (descriptor?.enumerable) properties.push({ key, descriptor })
+    if (descriptor === undefined) return { properties, complete: false, present }
+    if (descriptor === null) continue
+    present += 1
+    if (descriptor.enumerable) properties.push({ key, descriptor })
   }
-  return { properties, complete: limit === count }
+  return { properties, complete: limit === count, present }
 }
 
 function snapshotValue(value: unknown, state: Pick<DiffState, 'truncated'>): DeepDiffValue {

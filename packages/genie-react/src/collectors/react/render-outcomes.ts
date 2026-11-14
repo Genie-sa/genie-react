@@ -114,7 +114,7 @@ export function scanSubtreeHostMutations(
   }
 }
 
-/** Hook/context pairing is complete only when both Fiber buffers line up within the bound. */
+/** Hook pairing is complete only when both Fiber buffers line up within the bound, and context pairing when no previously read Context went unread. */
 export function inputComparisonComplete(fiber: Fiber, budget?: CommitWorkBudget): boolean {
   try {
     let currentHook: MemoizedState | null = fiber.memoizedState
@@ -129,23 +129,25 @@ export function inputComparisonComplete(fiber: Fiber, budget?: CommitWorkBudget)
     }
     if (currentHook || previousHook) return false
 
+    const currentContexts = new Set<unknown>()
     let currentContext = fiber.dependencies?.firstContext ?? null
-    let previousContext = fiber.alternate?.dependencies?.firstContext ?? null
-    let contextsVisited = 0
-    while ((currentContext || previousContext) && contextsVisited < HOOK_SCAN_LIMIT) {
-      if (!consumeCommitWork(budget, 'input-completeness')) return false
-      if (
-        !currentContext ||
-        !previousContext ||
-        currentContext.context !== previousContext.context
-      ) {
+    for (let visited = 0; currentContext; visited += 1) {
+      if (visited >= HOOK_SCAN_LIMIT || !consumeCommitWork(budget, 'input-completeness')) {
         return false
       }
+      currentContexts.add(currentContext.context)
       currentContext = currentContext.next
-      previousContext = previousContext.next
-      contextsVisited += 1
     }
-    return !currentContext && !previousContext
+    // Reads pair by Context identity; only a Context this render stopped reading leaves its change unseen.
+    let previousContext = fiber.alternate?.dependencies?.firstContext ?? null
+    for (let visited = 0; previousContext; visited += 1) {
+      if (visited >= HOOK_SCAN_LIMIT || !consumeCommitWork(budget, 'input-completeness')) {
+        return false
+      }
+      if (!currentContexts.has(previousContext.context)) return false
+      previousContext = previousContext.next
+    }
+    return true
   } catch {
     return false
   }
@@ -162,7 +164,11 @@ export function assessRender(
   commitEvidence?: CurrentCommitEvidence,
 ): RenderAssessment {
   const observedInputKinds = causes
-    .filter((cause) => cause.evidence === 'exact' && cause.kind !== 'mount')
+    .filter(
+      (cause) =>
+        (cause.evidence === 'exact' && cause.kind !== 'mount') ||
+        (cause.kind === 'unknown' && cause.reason === 'unclassified-hook-changed'),
+    )
     .map((cause) => cause.kind)
   const inputEvidence: RenderInputEvidence =
     phase === 'mount'
