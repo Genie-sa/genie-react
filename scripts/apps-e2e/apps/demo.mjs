@@ -288,6 +288,7 @@ export default {
       async run(ctx) {
         await ctx.open('/dashboard')
         await ctx.page.getByText('Acme NA #1').waitFor()
+        await ctx.call('react_clear_renders', {})
         const all = await ctx.call('react_component_cohort', {
           component: 'MetricRow',
           exact: true,

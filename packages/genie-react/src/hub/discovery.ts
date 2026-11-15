@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { connect, isIPv6 } from 'node:net'
 import { dirname, join } from 'node:path'
 import { GENIE_DISCOVERY_FILE, GENIE_WS_PATH } from '../protocol'
@@ -24,25 +25,79 @@ export async function writeDiscoveryFile(
 ): Promise<string | null> {
   const { token, ...endpoint } = info
   const file = join(rootDir, GENIE_DISCOVERY_FILE)
-  // A second dev server or hub for the same root must not take over: its exit would delete the files and strand the first, still-running bridge.
-  if (await publishedByAnotherLiveBridge(file)) return null
   const directory = dirname(file)
   await mkdir(directory, { recursive: true, mode: 0o700 })
   await chmod(directory, 0o700)
   await ensureSelfIgnored(directory)
-  // Token first, so a CLI that already sees the new endpoint can authenticate to it.
-  const tokenFile = await writeAgentToken(rootDir, token)
-  // Write-then-rename so a concurrent CLI read never sees a torn file.
-  const temporary = `${file}.${process.pid}.tmp`
-  await rm(temporary, { force: true })
-  // The token path is recorded because a CLI running with a different TMPDIR (agent sandboxes) would otherwise look in the wrong per-user directory.
-  await writeFile(
-    temporary,
-    `${JSON.stringify({ ...endpoint, pid: process.pid, tokenFile }, null, 2)}\n`,
-    { mode: 0o600, flag: 'wx' },
-  )
-  await rename(temporary, file)
-  return file
+  // Two dev servers starting at once must not interleave: one's endpoint paired with the other's token authenticates nowhere.
+  return withPublishLock(directory, async () => {
+    // A second dev server or hub for the same root must not take over: its exit would delete the files and strand the first, still-running bridge.
+    if (await publishedByAnotherLiveBridge(file)) return null
+    // Token first, so a CLI that already sees the new endpoint can authenticate to it.
+    const tokenFile = await writeAgentToken(rootDir, token)
+    // Write-then-rename so a concurrent CLI read never sees a torn file.
+    const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
+    // The token path is recorded because a CLI running with a different TMPDIR (agent sandboxes) would otherwise look in the wrong per-user directory.
+    await writeFile(
+      temporary,
+      `${JSON.stringify({ ...endpoint, pid: process.pid, tokenFile }, null, 2)}\n`,
+      { mode: 0o600, flag: 'wx' },
+    )
+    await rename(temporary, file)
+    return file
+  })
+}
+
+const PUBLISH_LOCK = 'publish.lock'
+const PUBLISH_LOCK_WAIT_MS = 5_000
+// Publishing takes milliseconds; a lock this old belongs to a process that died or hung mid-publish.
+const PUBLISH_LOCK_STALE_MS = 10_000
+const PUBLISH_LOCK_POLL_MS = 20
+
+/** Runs `task` while holding an exclusive lock file in `directory`, taking over one whose owner died or that outlived any real publication. */
+export async function withPublishLock<T>(directory: string, task: () => Promise<T>): Promise<T> {
+  const lock = join(directory, PUBLISH_LOCK)
+  const owner = `${process.pid}:${randomUUID()}`
+  const deadline = Date.now() + PUBLISH_LOCK_WAIT_MS
+  for (;;) {
+    try {
+      await writeFile(lock, owner, { mode: 0o600, flag: 'wx' })
+      break
+    } catch (error) {
+      if (!isErrorCode(error, 'EEXIST')) throw error
+      if (await releaseStaleLock(lock)) continue
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `genie-react: ${lock} is held by another dev server or hub that is publishing this project; delete it if no such process is starting`,
+        )
+      }
+      await new Promise((resolve) => setTimeout(resolve, PUBLISH_LOCK_POLL_MS))
+    }
+  }
+  try {
+    return await task()
+  } finally {
+    if ((await readFile(lock, 'utf8').catch(() => null)) === owner) await rm(lock, { force: true })
+  }
+}
+
+async function releaseStaleLock(lock: string): Promise<boolean> {
+  const [holder, info] = await Promise.all([
+    readFile(lock, 'utf8').catch(() => null),
+    stat(lock).catch(() => null),
+  ])
+  if (holder === null || info === null) return true
+  const pid = Number(holder.split(':')[0])
+  const stale =
+    !Number.isInteger(pid) || !isPidAlive(pid) || Date.now() - info.mtimeMs > PUBLISH_LOCK_STALE_MS
+  // Re-read before removing, so a lock another process just took over is left alone.
+  if (!stale || (await readFile(lock, 'utf8').catch(() => null)) !== holder) return false
+  await rm(lock, { force: true })
+  return true
+}
+
+function isErrorCode(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code
 }
 
 // The directory holds only ephemeral state, so it keeps itself out of git without touching the project's .gitignore.
