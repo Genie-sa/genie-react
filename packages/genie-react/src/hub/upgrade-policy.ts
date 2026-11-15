@@ -112,6 +112,22 @@ export class UpgradePolicy {
     return this.loopbackAppPorts.has(portOf(origin)) ? 'verified' : null
   }
 
+  /** DNS rebinding can aim any hostname at loopback but never forge an IP literal or a loopback name, so plain HTTP answers only those and `allowedHosts`. */
+  trustsHostHeader(hostHeader: string | undefined): boolean {
+    if (!hostHeader) return false
+    let hostname: string
+    try {
+      hostname = new URL(`http://${hostHeader}`).hostname.toLowerCase()
+    } catch {
+      return false
+    }
+    return (
+      isIP(unbracket(hostname)) !== 0 ||
+      isLoopbackHostname(hostname) ||
+      this.isAllowedHost(hostname)
+    )
+  }
+
   private isAllowedHost(hostname: string): boolean {
     if (this.allowedHosts === true) return true
     return this.allowedHosts.some((allowed) =>

@@ -17,6 +17,7 @@ import {
   BridgeRejectedError,
   BridgeUnreachableError,
   bridgeRejectionHint,
+  VersionSkewError,
 } from './agent-link'
 import { BridgeConfigError, type ResolvedBridge } from './discovery'
 import { DEFAULT_ERROR_CODES } from './failure-format'
@@ -53,6 +54,7 @@ export type FailureErrorCode =
   | 'bridge-rejected'
   | 'bridge-unreachable'
   | 'operational-failure'
+  | 'version-mismatch'
 
 export interface NextCommand {
   command: string
@@ -87,6 +89,8 @@ export interface FailureDetails {
   fields?: { unknown: string[]; available: string[] }
   selection?: { expression?: string; available: string[] }
   bridge?: { url: string; source?: BridgeSource }
+  /** `hub: null` means the hub predates version reporting. */
+  versions?: { cli: string; hub: string | null }
 }
 
 export interface FailureOptions {
@@ -272,6 +276,7 @@ async function classify(error: unknown, context: FailureContext): Promise<Failur
     return { reason: 'invalid_input', message: error.message, userActionRequired: true }
   }
   if (error instanceof BridgeUnreachableError) return unreachableFailure(error, context)
+  if (error instanceof VersionSkewError) return versionSkewFailure(error)
   if (error instanceof BridgeRejectedError) {
     return {
       reason: 'bridge_rejected',
@@ -319,6 +324,28 @@ async function classify(error: unknown, context: FailureContext): Promise<Failur
         message:
           'The operation timed out. Inspect app state before retrying because remote work may still complete.',
       }
+  }
+}
+
+const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]{1,32})?$/
+
+function versionSkewFailure(error: VersionSkewError): Failure {
+  const cli = SEMVER.test(error.clientVersion) ? error.clientVersion : null
+  const hub = error.hubVersion !== null && SEMVER.test(error.hubVersion) ? error.hubVersion : null
+  const cliText = cli === null ? '@genie-react/cli' : `@genie-react/cli ${cli}`
+  const hubText =
+    error.hubVersion === null
+      ? 'a Genie hub that does not report its version (an older genie-react)'
+      : hub === null
+        ? 'a Genie hub from another genie-react release'
+        : `a Genie hub from genie-react ${hub}`
+  return {
+    reason: 'bridge_rejected',
+    errorCode: 'version-mismatch',
+    message: `${cliText} refused ${hubText}; their wire contracts differ, so results could be misread. Install the same version of genie-react and @genie-react/cli, then restart the dev server or hub.`,
+    userActionRequired: true,
+    next: nextCommand('doctor'),
+    ...(cli === null ? {} : { details: { versions: { cli, hub } } }),
   }
 }
 
