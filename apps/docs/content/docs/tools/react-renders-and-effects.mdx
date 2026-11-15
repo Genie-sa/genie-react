@@ -74,6 +74,12 @@ input evidence, and one `source` with `location` and `ownership` per component. 
 values and `deepDiff`, behavior `assessment`, `instance` details, `sourceProvenance`, and the legacy
 `unnecessary`, `unstableRenders`, `forget`, and `necessity` fields.
 
+`renders` counts committed renders: Strict Mode's second invocation, render attempts React discarded,
+and renders React bailed out of are not included. A component that unmounts inside the window keeps
+its counts and reports `unmounted: true`. Genie retains as many unmounted records as
+`lifecycle.bufferLimit` (default 1,000); older ones are evicted, counted in
+`coverage.droppedUnmountFibers`, and make the counts a lower bound.
+
 Use `nextCursor` with `cursor` to read the remainder; pass only `cursor` and optional `limit` or
 `view` on continuation calls. Pages retain the first report's ordering, counts, summary, source coverage, and
 observation metadata while new commits arrive. `pagination` reports the snapshot ID, row offset,
@@ -220,7 +226,12 @@ Props, `children` included, cause a render only for components that can skip it 
 `memo` components and classes that extend `PureComponent` or define `shouldComponentUpdate`. Any
 other component lists its own state, context, or store changes first, otherwise `parent`, and its
 changed props and `children` follow as observed inputs. State or context that received a new object
-with equal contents does not make a render `necessary` and counts toward `noObservedInputChange`. With complete coverage, a render of those components whose changed props
+with equal contents does not make a render `necessary` and counts toward `noObservedInputChange`.
+React renders a component on its own only for an input it saw change, so a render with no observed
+trigger and no rendered parent gets an `unknown` cause instead: `no-observable-fiber-input-change`
+for inputs Genie cannot read, such as `forceUpdate`, or `unclassified-hook-changed` with `hookIndex`
+for a hook it cannot classify, such as `useDeferredValue`. Neither counts toward
+`noObservedInputChange`. With complete coverage, a render of those components whose changed props
 were all reference-only or new functions counts toward `functionIdentityPropRenders` when any function
 changed identity, usually an inline callback, and toward `referenceOnlyPropRenders` otherwise.
 `undeterminedReferencePropRenders` counts renders whose reference changes a partial scan or a

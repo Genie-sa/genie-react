@@ -315,7 +315,7 @@ function dehydratedValue(
   }
 }
 
-function isExternalStoreHook(hook: MemoizedState | null): boolean {
+export function isExternalStoreHook(hook: MemoizedState | null): boolean {
   if (!hook) return false
   const queueDescriptor = safeOwnPropertyDescriptor(hook, 'queue')
   if (!isDataDescriptor(queueDescriptor) || !isRecord(queueDescriptor.value)) return false
@@ -905,53 +905,62 @@ export function diffContextChanges(
   fiber: Fiber,
   evidence = createRenderEvidenceBudget(),
 ): RenderCause[] {
+  const previousValues = readContextValues(fiber.alternate, evidence)
+  if (!previousValues) return []
   const causes: RenderCause[] = []
-  const reported = new Set<unknown>()
+  const compared = new Set<unknown>()
   let current = firstContextDependency(fiber)
-  let previous = firstContextDependency(fiber.alternate)
   let index = 0
-  while (current && previous && index < HOOK_WALK_LIMIT) {
-    if (!scanInputEvidence(evidence, 'context')) break
-    // Positional evidence is exact only for the same Context; repeat reads (and StrictMode re-renders) append duplicates.
-    if (
-      current.context === previous.context &&
-      !reported.has(current.context) &&
-      !Object.is(current.memoizedValue, previous.memoizedValue)
-    ) {
-      reported.add(current.context)
-      if (!retainInputEvidence(evidence)) {
-        current = current.next
-        previous = previous.next
-        index += 1
-        continue
-      }
-      const context = current.context as object
-      const displayNameDescriptor = safeOwnPropertyDescriptor(context, 'displayName')
-      const displayName = isDataDescriptor(displayNameDescriptor)
-        ? displayNameDescriptor.value
-        : undefined
-      if (displayNameDescriptor !== null && !isDataDescriptor(displayNameDescriptor)) {
-        truncateInputScan(evidence)
-      }
-      causes.push({
-        kind: 'context',
-        evidence: 'exact',
-        contextIndex: index,
-        name:
-          typeof displayName === 'string'
-            ? boundedContextName(displayName, evidence)
-            : `Context[${index}]`,
-        before: stateValue(previous.memoizedValue, evidence, STATE_PLAIN_OBJECT_DEPTH),
-        after: stateValue(current.memoizedValue, evidence, STATE_PLAIN_OBJECT_DEPTH),
-        deepDiff: diffStateWithBudget(previous.memoizedValue, current.memoizedValue, evidence),
-      })
+  // A conditional use() reorders the dependency list, so reads pair by Context identity; one render reads one value per Context.
+  for (; current && index < HOOK_WALK_LIMIT; index += 1, current = current.next) {
+    if (!scanInputEvidence(evidence, 'context')) return causes
+    const context = current.context
+    if (compared.has(context) || !previousValues.has(context)) continue
+    compared.add(context)
+    const previousValue = previousValues.get(context)
+    if (Object.is(current.memoizedValue, previousValue)) continue
+    if (!retainInputEvidence(evidence)) continue
+    const displayNameDescriptor = safeOwnPropertyDescriptor(context as object, 'displayName')
+    const displayName = isDataDescriptor(displayNameDescriptor)
+      ? displayNameDescriptor.value
+      : undefined
+    if (displayNameDescriptor !== null && !isDataDescriptor(displayNameDescriptor)) {
+      truncateInputScan(evidence)
     }
-    current = current.next
-    previous = previous.next
-    index += 1
+    causes.push({
+      kind: 'context',
+      evidence: 'exact',
+      contextIndex: index,
+      name:
+        typeof displayName === 'string'
+          ? boundedContextName(displayName, evidence)
+          : `Context[${index}]`,
+      before: stateValue(previousValue, evidence, STATE_PLAIN_OBJECT_DEPTH),
+      after: stateValue(current.memoizedValue, evidence, STATE_PLAIN_OBJECT_DEPTH),
+      deepDiff: diffStateWithBudget(previousValue, current.memoizedValue, evidence),
+    })
   }
-  if (current || previous) truncateInputScan(evidence)
+  // React also schedules a render when a Context this render stopped reading changes, and its new value is out of sight.
+  if (current || compared.size < previousValues.size) truncateInputScan(evidence)
   return causes
+}
+
+function readContextValues(
+  fiber: Fiber | null | undefined,
+  evidence: RenderEvidenceBudget,
+): Map<unknown, unknown> | null {
+  const values = new Map<unknown, unknown>()
+  let dependency = firstContextDependency(fiber)
+  for (let index = 0; dependency && index < HOOK_WALK_LIMIT; index += 1) {
+    if (!scanInputEvidence(evidence, 'context')) return null
+    if (!values.has(dependency.context)) values.set(dependency.context, dependency.memoizedValue)
+    dependency = dependency.next
+  }
+  if (dependency) {
+    truncateInputScan(evidence)
+    return null
+  }
+  return values
 }
 
 export function firstContextDependency(

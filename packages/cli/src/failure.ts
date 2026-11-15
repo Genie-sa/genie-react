@@ -21,6 +21,7 @@ import {
 } from './agent-link'
 import { BridgeConfigError, type ResolvedBridge } from './discovery'
 import { DEFAULT_ERROR_CODES } from './failure-format'
+import { FEEDBACK_HINT, feedbackSuggestion } from './feedback-options'
 import { isRecord } from './guards'
 import { genieCommand } from './package-manager'
 import { FieldSelectionError, ResultSelectionError } from './result-selection'
@@ -96,6 +97,8 @@ export interface FailureOptions {
   userActionRequired?: boolean
   retryInMs?: number
   next?: NextCommand
+  /** Previews a bug report for a failure that points at Genie itself rather than at how it was called. */
+  feedback?: NextCommand
   correctedExample?: { tool: string; args: Record<string, unknown> }
   busyTelemetry?: BusyTelemetry
   errorCode?: FailureErrorCode
@@ -285,8 +288,9 @@ async function classify(error: unknown, context: FailureContext): Promise<Failur
     const next = nextCommand('doctor', '--live')
     return {
       reason: 'operational_failure',
-      message: `Run ${next.command} to inspect connectivity and app state.`,
+      message: `Run ${next.command} to inspect connectivity and app state. ${FEEDBACK_HINT}`,
       next,
+      feedback: feedbackSuggestion('operational_failure', subject),
     }
   }
 
