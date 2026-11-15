@@ -47,6 +47,7 @@ import {
   clearMeasurementSpans,
   markMeasurementCollectionGap,
   markMeasurementIncomplete,
+  noteMeasurementUnmount,
   recordMeasurementRender,
 } from './measurement-spans'
 import {
@@ -77,6 +78,7 @@ import {
   childrenChanged,
   diffProps,
   diffStateChanges,
+  diffUnclassifiedHooks,
   isFunctionIdentityChange,
   type PropRenderChange,
   type RenderChange,
@@ -156,6 +158,9 @@ export type {
 export { createCommitAnalysisBudget }
 
 const records = new Map<number, RenderRecord>()
+/** Unmounted records keep their window's renders; past the lifecycle buffer bound the oldest are evicted and counted as dropped unmount evidence. */
+const unmountedRecordIds: number[] = []
+let evictedUnmountedRecords = 0
 const recentCauseEvents: RetainedRenderCauseEvent[] = []
 let commits = 0
 let installed = false
@@ -345,6 +350,8 @@ export function startRenderTracking(): boolean {
             const phase = reportedPhase === 'mount' && fiber.alternate ? 'update' : reportedPhase
             const targeted = isObservationTarget(fiber)
             const traversalWork = targeted ? budget.targetWork : budget.work
+            // Bippy reported this render; a declined analysis must not hide it from descendants looking for their rendered parent.
+            budget.currentCommitEvidence.renderedFibers.add(fiber)
             if (
               !consumeCommitWork(traversalWork, targeted ? 'target-traversal' : 'commit-traversal')
             ) {
@@ -360,7 +367,6 @@ export function startRenderTracking(): boolean {
               }
               return
             }
-            budget.currentCommitEvidence.renderedFibers.add(fiber)
             if (isHostFiber(fiber) || isHostTextFiber(fiber)) {
               try {
                 // The traversal proves this host rendered now; its mutation flag is not used alone.
@@ -504,6 +510,7 @@ function getDroppedUnmountEvidenceCount(): number {
   const identityCoverage = getInstanceIdentityCoverage()
   return (
     droppedPendingUnmountFibers +
+    evictedUnmountedRecords +
     identityCoverage.droppedTombstones +
     identityCoverage.excludedLifecycleFibers
   )
@@ -513,6 +520,8 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   renderPages = new Map()
   configureRenderObservation(options)
   records.clear()
+  unmountedRecordIds.length = 0
+  evictedUnmountedRecords = 0
   recentCauseEvents.length = 0
   commits = 0
   skippedCommitFibers = 0
@@ -1261,6 +1270,14 @@ function recordRenderAtomic(
     instance,
   )
   const childrenDidChange = childrenChanged(fiber, evidenceBudget)
+  const unclassifiedHookCauses = diffUnclassifiedHooks(fiber, evidenceBudget).map(
+    (hookIndex): RenderCause => ({
+      kind: 'unknown',
+      evidence: 'unknown',
+      reason: 'unclassified-hook-changed',
+      hookIndex,
+    }),
+  )
   const coverage = inputCoverage(evidenceBudget)
   const changes: RenderChange[] = [...propChanges, ...stateChanges]
   const propCauses = propChanges.map(
@@ -1306,9 +1323,12 @@ function recordRenderAtomic(
       : { cause: null, complete: true }
   const parentCause = parentResult.cause
   const causalAnalysisComplete = coverage.complete && parentResult.complete
-  const observedCauses: RenderCause[] = propsCauseRender
-    ? [...propCauses, ...otherCauses]
-    : [...otherCauses, ...propCauses, ...(bailsOutOnProps ? [] : childrenCauses)]
+  const observedCauses: RenderCause[] = [
+    ...(propsCauseRender
+      ? [...propCauses, ...otherCauses]
+      : [...otherCauses, ...propCauses, ...(bailsOutOnProps ? [] : childrenCauses)]),
+    ...unclassifiedHookCauses,
+  ]
   const causes: RenderCause[] = parentCause
     ? [parentCause, ...observedCauses]
     : observedCauses.length > 0
@@ -1318,12 +1338,20 @@ function recordRenderAtomic(
         : [{ kind: 'unknown', evidence: 'unknown', reason: 'no-observable-fiber-input-change' }]
   const valuePropChanged = propsCauseRender && propChanges.some(hasObservedValueChange)
   const valueCauses = otherCauses.filter((cause) => !isIdentityOnlyCause(cause))
+  // React renders a fiber on its own only for an input it saw change, so a render with no observed trigger is unexplained, not unnecessary.
+  const noObservedInputChange =
+    causalAnalysisComplete &&
+    unclassifiedHookCauses.length === 0 &&
+    (parentCause !== null || otherCauses.length > 0) &&
+    propChanges.length === 0 &&
+    !childrenDidChange &&
+    valueCauses.length === 0
   const necessity: RenderNecessity =
     valueCauses.length > 0 || valuePropChanged
       ? 'necessary'
-      : !causalAnalysisComplete || parentCause || propChanges.length > 0 || childrenDidChange
-        ? 'unknown'
-        : 'unnecessary'
+      : noObservedInputChange && parentCause === null
+        ? 'unnecessary'
+        : 'unknown'
   const effects: EffectScheduleObservation = effectPreparation?.observation ?? {
     scheduled: scheduledEffectCount(fiber),
     complete: true,
@@ -1356,15 +1384,7 @@ function recordRenderAtomic(
   record.necessity = necessity
   record.assessment = assessment
   record.inputCoverage = coverage
-  // New children, store snapshots, or state and context with new contents are legitimate reasons to render.
-  if (
-    coverage.complete &&
-    propChanges.length === 0 &&
-    !childrenDidChange &&
-    valueCauses.length === 0
-  ) {
-    record.unnecessary += 1
-  }
+  if (noObservedInputChange) record.unnecessary += 1
   if (bailsOutOnProps && otherCauses.length === 0) {
     countPropOnlyMemoRender(record, fiber, propChanges, coverage.complete)
   }
@@ -1464,10 +1484,21 @@ function recordPendingUnmounts(rendererId: number, budget: CommitAnalysisBudget)
       work,
     )
     removeEffectRecord(pending.fiber)
-    records.delete(instance.fiberId)
+    retainUnmountedRecord(instance.fiberId)
   }
   pendingUnmounts.length = 0
   pendingUnmounts.push(...retained)
+}
+
+function retainUnmountedRecord(id: number): void {
+  const record = records.get(id)
+  if (!record || record.unmounted) return
+  record.unmounted = true
+  noteMeasurementUnmount(id)
+  unmountedRecordIds.push(id)
+  if (unmountedRecordIds.length <= observationConfiguration.lifecycle.bufferLimit) return
+  const evicted = unmountedRecordIds.shift()
+  if (evicted !== undefined && records.delete(evicted)) evictedUnmountedRecords += 1
 }
 
 /** Record every fiber's root membership for its descendants, but queue only component lifecycles; host-node unmounts cannot produce cohort tombstones. */

@@ -7,10 +7,13 @@ import {
   type BridgeStatusMessage,
   type BusyTelemetry,
   decodeAgentBoundMessage,
+  devtoolsInteractionStopContract,
+  devtoolsWaitContract,
   encodeMessage,
   errorMessage,
   newId,
   reactQuiesceContract,
+  sameReleaseLine,
   type ToolErrorDetails,
   type ToolInput,
   type ToolOutput,
@@ -30,6 +33,8 @@ export interface GenieAgentLinkOptions {
   sessionId?: string
   /** Reject at once when nothing listens at the URL instead of retrying until `connectTimeoutMs`; for guessed URLs. */
   failFastOnRefused?: boolean
+  /** This client's release; a hub from another release line, or one that does not report its version, is refused. */
+  clientVersion?: string
 }
 
 /** Grace added on top of a per-call `timeoutMs` so the bridge's typed answer (timeout/busy) wins the race with the link's own guard. */
@@ -113,6 +118,21 @@ export class BridgeRejectedError extends Error {
   }
 }
 
+/** The hub belongs to another genie-react release line (or predates version reporting), so its answers could be misread. */
+export class VersionSkewError extends Error {
+  constructor(
+    readonly clientVersion: string,
+    readonly hubVersion: string | null,
+  ) {
+    super(
+      hubVersion === null
+        ? `The Genie hub does not report its version, so it predates @genie-react/cli ${clientVersion}`
+        : `The Genie hub runs genie-react ${hubVersion}, which is not compatible with @genie-react/cli ${clientVersion}`,
+    )
+    this.name = 'VersionSkewError'
+  }
+}
+
 /** How the CLI reached the hub; `source` is `flag`, `env`, `file`, `workspace` or `fallback`. */
 export interface BridgeConnectionInfo {
   url: string
@@ -139,6 +159,30 @@ export function bridgeRejectionHint(
   return `The hub refused the connection (HTTP ${error.status}). Update genie-react and @genie-react/cli to matching versions.`
 }
 
+const HUB_WAIT_CONTRACTS = [
+  reactQuiesceContract,
+  devtoolsWaitContract,
+  devtoolsInteractionStopContract,
+] as const
+
+/** Gives the bridge its per-call budget plus a grace window, so its typed timeout/busy answer arrives before this local guard fires; hub waits run as long as their own `timeoutMs` asks. */
+export function localInvokeTimeoutMs(
+  tool: string,
+  args: unknown,
+  options: InvokeOptions,
+  defaultTimeoutMs: number,
+): number {
+  if (options.timeoutMs !== undefined) return options.timeoutMs + INVOKE_GRACE_MS
+  const contract = HUB_WAIT_CONTRACTS.find((candidate) => candidate.name === tool)
+  const parsed = contract?.input.safeParse(args ?? {})
+  if (!parsed?.success) return defaultTimeoutMs
+  const waitMs = parsed.data.timeoutMs + INVOKE_GRACE_MS
+  // Interaction stop reads its evidence after the settle wait, so it keeps the ordinary budget on top.
+  return contract === devtoolsInteractionStopContract
+    ? waitMs + defaultTimeoutMs
+    : Math.max(defaultTimeoutMs, waitMs)
+}
+
 /** Agent-side WebSocket client to the bridge; reconnects and re-resolves the URL each attempt to survive dev-server restarts. */
 export class GenieAgentLink {
   private readonly resolveUrl: () => string | Promise<string>
@@ -149,6 +193,7 @@ export class GenieAgentLink {
   private readonly reconnectDelayMs: number
   private readonly sessionId: string | undefined
   private readonly failFastOnRefused: boolean
+  private readonly clientVersion: string | undefined
   private readonly pending = new Map<string, Pending>()
   private readonly openWaiters = new Set<OpenWaiter>()
   private ws: WebSocket | null = null
@@ -157,7 +202,7 @@ export class GenieAgentLink {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private connecting = false
   private closed = false
-  private rejection: BridgeRejectedError | BridgeUnreachableError | null = null
+  private rejection: BridgeRejectedError | BridgeUnreachableError | VersionSkewError | null = null
 
   /** Invoked whenever the bridge pushes a status update (e.g. an app connects with new tools). */
   onStatus: ((status: BridgeStatusMessage) => void) | null = null
@@ -172,6 +217,7 @@ export class GenieAgentLink {
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1_000
     this.sessionId = options.sessionId
     this.failFastOnRefused = options.failFastOnRefused ?? false
+    this.clientVersion = options.clientVersion
   }
 
   start(): void {
@@ -216,13 +262,7 @@ export class GenieAgentLink {
   ): Promise<AnsweredResult> {
     const ws = await this.ensureConnection()
     const id = newId()
-    // Give the bridge its per-call budget plus a grace window, so its typed timeout/busy result arrives before this local guard fires.
-    const quiesce =
-      tool === reactQuiesceContract.name ? reactQuiesceContract.input.safeParse(args ?? {}) : null
-    const callTimeoutMs =
-      options.timeoutMs ?? (quiesce?.success ? quiesce.data.timeoutMs : undefined)
-    const localTimeoutMs =
-      callTimeoutMs === undefined ? this.invokeTimeoutMs : callTimeoutMs + INVOKE_GRACE_MS
+    const localTimeoutMs = localInvokeTimeoutMs(tool, args, options, this.invokeTimeoutMs)
     return new Promise<AnsweredResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
@@ -289,7 +329,6 @@ export class GenieAgentLink {
     ws.on('open', () => {
       this.rejection = null
       this.log(`connected to bridge at ${url}`)
-      this.flushOpenWaiters()
     })
     ws.on('unexpected-response', (request, response) => {
       this.rejection = new BridgeRejectedError(response.statusCode ?? 0)
@@ -310,7 +349,7 @@ export class GenieAgentLink {
       this.status = null
       // A dropped hub cannot answer in-flight calls, so they fail now instead of waiting out their timeouts.
       this.rejectPending(new BridgeUnreachableError(url, true))
-      if (this.rejection instanceof BridgeUnreachableError) {
+      if (this.rejectedForGood()) {
         this.flushOpenWaiters()
         return
       }
@@ -360,15 +399,44 @@ export class GenieAgentLink {
         )
       }
     } else if (message.kind === 'bridge/status') {
+      const first = this.status === null
       this.status = message
+      if (first) this.acceptHub(message)
       this.onStatus?.(message)
     }
   }
 
+  /** The hub greets every agent with its status, so the link counts as open only once that status shows a hub this client can read. */
+  private acceptHub(status: BridgeStatusMessage): void {
+    const hubVersion = status.hub?.version ?? null
+    if (
+      this.clientVersion !== undefined &&
+      (hubVersion === null || !sameReleaseLine(hubVersion, this.clientVersion))
+    ) {
+      this.rejection = new VersionSkewError(this.clientVersion, hubVersion)
+      this.log(this.rejection.message)
+      this.flushOpenWaiters(this.rejection)
+      this.ws?.terminate()
+      return
+    }
+    this.flushOpenWaiters()
+  }
+
+  /** A missing hub at a guessed URL, or a hub from another release line, will not change by reconnecting. */
+  private rejectedForGood(): boolean {
+    return (
+      this.rejection instanceof BridgeUnreachableError || this.rejection instanceof VersionSkewError
+    )
+  }
+
+  private isOpen(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN && this.status !== null && this.rejection === null
+  }
+
   private ensureConnection(): Promise<WebSocket> {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) return Promise.resolve(this.ws)
+    if (this.isOpen() && this.ws) return Promise.resolve(this.ws)
     if (this.closed) return Promise.reject(new Error('agent link closed'))
-    if (this.rejection instanceof BridgeUnreachableError) return Promise.reject(this.rejection)
+    if (this.rejectedForGood()) return Promise.reject(this.rejection)
     return new Promise<WebSocket>((resolve, reject) => {
       const waiter: OpenWaiter = {
         timer: setTimeout(() => {
@@ -379,7 +447,7 @@ export class GenieAgentLink {
           clearTimeout(waiter.timer)
           this.openWaiters.delete(waiter)
           if (error) reject(error)
-          else if (this.ws && this.ws.readyState === WebSocket.OPEN) resolve(this.ws)
+          else if (this.isOpen() && this.ws) resolve(this.ws)
           else reject(this.rejection ?? new Error('bridge connection closed before it was ready'))
         },
       }

@@ -44,6 +44,10 @@ function getMeasureMemory(): (() => Promise<MemoryMeasurement>) | undefined {
   return typeof measure === 'function' ? measure.bind(perf) : undefined
 }
 
+function isReactNative(): boolean {
+  return typeof navigator !== 'undefined' && navigator.product === 'ReactNative'
+}
+
 function isCrossOriginIsolated(): boolean | undefined {
   return typeof crossOriginIsolated === 'undefined' ? undefined : crossOriginIsolated
 }
@@ -86,7 +90,7 @@ const browserGetMemoryContract = defineAgentToolContract({
   name: 'browser_get_memory',
   title: 'JavaScript heap usage',
   description:
-    'Read the current JavaScript heap size (used/total/limit, in bytes) via performance.memory when the runtime exposes numeric fields. This is runtime-wide, not React-specific memory. Chromium and React Native/Hermes expose different fields and precision; otherwise this returns supported:false with an explanatory note.',
+    'Read the current JavaScript heap size (used/total/limit, in bytes) via performance.memory when the runtime exposes numeric fields. This is runtime-wide, not React-specific memory. Chromium and React Native/Hermes expose different fields and precision; otherwise this returns supported:false with an explanatory note. In a browser, precision is possibly-quantized: Chromium rounds the values into coarse buckets and caches them unless launched with --enable-precise-memory-info, so a real heap change can read as none. Prefer browser_measure_memory for before/after comparisons.',
   group: 'memory',
   input: z.object({}),
   output: z.object({
@@ -94,6 +98,7 @@ const browserGetMemoryContract = defineAgentToolContract({
     usedJSHeapSize: z.number().optional(),
     totalJSHeapSize: z.number().optional(),
     jsHeapSizeLimit: z.number().optional(),
+    precision: z.enum(['possibly-quantized', 'runtime-reported']).optional(),
     note: z.string(),
   }),
   annotations: { readOnlyHint: true },
@@ -141,9 +146,17 @@ export function memoryCollector(): GenieCollector {
               note: 'performance.memory is present but did not expose numeric heap fields in this runtime.',
             }
           }
+          if (isReactNative()) {
+            return {
+              ...normalized,
+              precision: 'runtime-reported' as const,
+              note: 'JavaScript heap reported by the current runtime, not React-specific memory. Availability and precision vary by runtime.',
+            }
+          }
           return {
             ...normalized,
-            note: 'JavaScript heap reported by the current runtime, not React-specific memory. Availability and precision vary by runtime.',
+            precision: 'possibly-quantized' as const,
+            note: 'JavaScript heap reported by the browser, not React-specific memory. Chromium rounds these values into coarse buckets and caches them for up to 20 minutes unless it runs with --enable-precise-memory-info, so an unchanged reading does not show an unchanged heap. Use browser_measure_memory to compare.',
           }
         },
       }),
@@ -163,7 +176,17 @@ export function memoryCollector(): GenieCollector {
               note: 'performance.measureUserAgentSpecificMemory() requires a cross-origin-isolated context, but crossOriginIsolated is false. Serve the app with COOP "same-origin" and COEP "require-corp" headers.',
             }
           }
-          const measurement = await measure()
+          let measurement: MemoryMeasurement
+          try {
+            measurement = await measure()
+          } catch (error) {
+            const reason =
+              error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+            return {
+              supported: false,
+              note: `The browser refused performance.measureUserAgentSpecificMemory() (${reason.slice(0, 300)}). Chromium can expose the method in a cross-origin-isolated page yet refuse it, for example in headless or non-site-isolated processes.`,
+            }
+          }
           return {
             supported: true,
             bytes: measurement.bytes,

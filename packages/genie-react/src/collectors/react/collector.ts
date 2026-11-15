@@ -1,6 +1,6 @@
 import { type Fiber, getRDTHook } from 'bippy'
 import { defineCollector, defineCollectorTool, type GenieCollector } from '../../client'
-import { roundMilliseconds } from '../../protocol'
+import { reactPendingWorkContract, roundMilliseconds } from '../../protocol'
 import type { NodeId } from './contracts'
 import {
   reactClearRendersContract,
@@ -69,6 +69,7 @@ import {
   overrideFiberProps,
   resetOverrides,
 } from './overrides'
+import { getPendingReactWork } from './pending-work'
 import { getRefreshEvents, startRefreshTracking } from './refresh-tracker'
 import { getRenderCohort } from './render-cohort'
 import { reactMeasureContract, reactRendersSinceContract } from './render-contract'
@@ -131,16 +132,21 @@ async function effectTimeline({
   const tracking = isTracking()
   const documentCommitId = getDocumentCommitId()
   const coverage = currentEffectCoverage()
+  const report = await getEffectScheduleEventsWithOwnership({
+    appOnly,
+    component,
+    afterDocumentCommitId,
+    limit,
+  })
   return {
     tracking,
     documentCommitId,
-    ...(await getEffectScheduleEventsWithOwnership({
-      appOnly,
-      component,
-      afterDocumentCommitId,
-      limit,
-    })),
-    coverage,
+    ...report,
+    coverage: {
+      ...coverage,
+      complete:
+        coverage.complete && report.evictedEvents === 0 && report.refreshCommitsExcluded === 0,
+    },
   }
 }
 
@@ -722,6 +728,7 @@ export function reactCollector(): GenieCollector {
           getErrorState({ includeSource, limit, appOnly }),
       }),
       defineCollectorTool({ contract: reactSuspenseContract, handler: getSuspenseReport }),
+      defineCollectorTool({ contract: reactPendingWorkContract, handler: getPendingReactWork }),
       defineCollectorTool({
         contract: reactRefreshEventsContract,
         handler: ({ afterSequence, limit, includeSource, appOnly }) =>

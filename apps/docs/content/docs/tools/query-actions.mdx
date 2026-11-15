@@ -167,11 +167,15 @@ npx @genie-react/cli call query_set_data \
 **Output (selected fields):**
 
 ```json
-{ "ok": true }
+{ "ok": true, "queryHash": "[\"todos\"]", "created": false }
 ```
 
 **Agent use:** Writes an exact cache value, then decides whether observer delivery makes the
 rendered UI show the intended empty, edge, or optimistic state.
+
+The write targets the cached entry that matches the key exactly, including one hashed by a custom
+`queryKeyHashFn`. `created:true` means no entry matched and a new one was made under the default
+hash, so no mounted observer may read it.
 
 **Safety:** This replaces the cached value and can create a missing key. Read the value back and
 prove cache-to-UI delivery with `query_notifications`. Restore real data by refetching or reloading
@@ -204,9 +208,10 @@ npx @genie-react/cli call query_simulate_state \
 **Agent use:** Holds one exact query in a chosen error or pending state so the agent can inspect the
 corresponding live UI.
 
-**Safety:** Only existing queries can be simulated. A real fetch is cancelled first. Always
-restore the captured state with `query_restore_state`; collector cleanup also restores simulations
-that still reference live cache entries.
+**Safety:** Only existing queries can be simulated. A real fetch is cancelled first. While `pending`
+is simulated, TanStack treats the query as fetching and skips new fetches, including an app
+invalidation. Always end the simulation with `query_restore_state`; collector cleanup also restores
+simulations that still reference live cache entries.
 
 ## `query_restore_state`
 
@@ -224,14 +229,27 @@ npx @genie-react/cli call query_restore_state \
 **Output (selected fields):**
 
 ```json
-{ "ok": true, "restored": 1 }
+{
+  "ok": true,
+  "restored": 1,
+  "outcomes": [{ "queryHash": "[\"todos\"]", "outcome": "restored", "refetched": false }]
+}
 ```
 
-**Agent use:** Restores the exact pre-simulation snapshot so later cache and UI checks use real
-state.
+**Agent use:** Ends the simulation so later cache and UI checks use real state.
 
-Restoring one query without a retained simulation is an error. Use `{"all":true}` for cleanup when
-the simulated key is unknown; it returns the number of live simulations restored.
+Each outcome says how the real Query activity during the simulation was reconciled:
+
+- `restored`: nothing else touched the query; the captured state is back exactly.
+- `superseded`: real data arrived during the simulation and is kept, so the cache never moves back
+  to older data.
+- `merged`: the captured data is back, with a real error, invalidation, or still-running fetch kept.
+- `removed`: the query left the cache; nothing was restored.
+
+`refetched:true` means a fetch the simulation cancelled or suppressed, such as an app invalidation,
+was re-run for an active query. Restoring one query without a retained simulation is an error. Use
+`{"all":true}` for cleanup when the simulated key is unknown; `restored` counts simulations ended
+on queries that are still cached.
 
 ## `query_fetch`
 
@@ -313,5 +331,6 @@ npx @genie-react/cli call mutation_rerun \
 changes, callbacks, and resulting UI.
 
 **Safety:** This is not idempotent and can create real external effects. It also needs the retained
-mutation function. The returned data is depth-bounded to 3. Use a disposable fixture or perform the
+mutation function. A pending mutation, including one queued with `isPaused:true`, is rejected:
+running it again would execute it twice and leave the app's own `mutate` promise unresolved. The returned data is depth-bounded to 3. Use a disposable fixture or perform the
 application's domain-specific reversal after the check; there is no generic undo.

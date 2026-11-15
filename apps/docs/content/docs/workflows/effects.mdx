@@ -55,7 +55,11 @@ npx @genie-react/cli call react_effect_audit \
 ## Read the limits
 
 - Read `execution.status` to distinguish a schedule from observed execution.
+- Read `execution.trigger`: `strict-mode-replay` is StrictMode's development re-run, and
+  `reconnect` is a hidden subtree shown again. Neither is an extra schedule.
 - Read cleanup execution evidence separately from the presence of a cleanup function.
+- Credit an effect with a state update only through a `react-update` consequence, and with a
+  commit only through `resulting-commit`.
 - Attribute later requests or state writes only when the report explicitly observes that link.
 - Collect more equivalent updates when the audit says `insufficient-data`.
 

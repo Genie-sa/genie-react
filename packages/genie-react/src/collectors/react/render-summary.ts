@@ -40,6 +40,7 @@ export function summarizeRenderComponent(
     renders: component.renders,
     updates: component.updates,
     ...positive('mounts', component.mounts),
+    ...(component.unmounted ? { unmounted: true as const } : {}),
     ...memoCounters(component, sortKey),
     selfTime,
     totalTime,

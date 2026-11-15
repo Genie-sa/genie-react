@@ -84,6 +84,10 @@ function effectFiber(
     tag: 0,
     type,
     updateQueue: { lastEffect: nodes[nodes.length - 1] },
+    memoizedState: nodes.reduceRight<unknown>(
+      (next, effect) => ({ memoizedState: effect, next }),
+      null,
+    ),
     alternate: null,
     _debugSource: source,
   })
