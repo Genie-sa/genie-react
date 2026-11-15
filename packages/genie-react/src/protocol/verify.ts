@@ -145,7 +145,7 @@ export const verifyCauseSchema = z
       })
       .optional()
       .describe(
-        'Prop name, state hook name (state[0], reducer[1], class state), context display name, or queryHash; omitted allows any of that kind.',
+        'Prop name, state hook name (state[0], reducer[1], hook[2], this.state.count), context display name, or queryHash; omitted allows any of that kind.',
       ),
   })
   .strict()
@@ -545,7 +545,7 @@ export function formatVerifyClaim(claim: VerifyClaim): string {
       return `render ${formatVerifyTarget(claim.target)} ${bound}${counting}${remount}`
     }
     case 'render-causes':
-      return `render ${formatVerifyTarget(claim.target)} only ${claim.allow.map(formatVerifyCause).join(',')}`
+      return `render ${formatVerifyTarget(claim.target)} only ${claim.allow.map((cause) => formatVerifyCauseLabel(cause.kind, cause.name)).join(',')}`
     case 'effect-runs':
       return `effect ${formatVerifyTarget(claim.target)} max ${claim.max}`
     case 'effect-settles':
@@ -563,6 +563,12 @@ export function formatVerifyTarget(target: VerifyTarget | VerifyEffectTarget): s
   return `${target.component}${source}${key}${effect}`
 }
 
-function formatVerifyCause(cause: VerifyCause): string {
-  return cause.name === undefined ? cause.kind : `${cause.kind}.${cause.name}`
+/** State cause names already say what they are (a hook slot or class state), so a claim writes them without a `state.` prefix. */
+export const SELF_NAMED_STATE_CAUSE =
+  /^(?:(?:state|reducer|hook)\[\d{1,3}\]|this\.state(?:\.[^\s,]+)?)$/
+
+/** How a claim names a cause: `kind`, `kind.name`, or a bare state name such as `state[0]`. */
+export function formatVerifyCauseLabel(kind: string, name: string | null | undefined): string {
+  if (name === null || name === undefined) return kind
+  return kind === 'state' && SELF_NAMED_STATE_CAUSE.test(name) ? name : `${kind}.${name}`
 }

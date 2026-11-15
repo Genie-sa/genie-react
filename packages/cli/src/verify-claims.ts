@@ -1,8 +1,9 @@
-import type {
-  VerifyCause,
-  VerifyClaimInput,
-  VerifyEffectTarget,
-  VerifyTarget,
+import {
+  SELF_NAMED_STATE_CAUSE,
+  type VerifyCause,
+  type VerifyClaimInput,
+  type VerifyEffectTarget,
+  type VerifyTarget,
 } from 'genie-react/protocol'
 import { editDistance } from './tool-output'
 
@@ -95,11 +96,8 @@ function parseCount(word: string | undefined, position: number): number {
   return Number(word)
 }
 
-/** State causes are named by hook slot, such as state[0] or reducer[1]; the slot alone names one. */
-const STATE_SLOT = /^(?:state|reducer)\[\d{1,3}\]$/
-
 function parseCause(text: string, position: number): VerifyCause {
-  if (STATE_SLOT.test(text)) return { kind: 'state', name: text }
+  if (SELF_NAMED_STATE_CAUSE.test(text)) return { kind: 'state', name: text }
   const dot = text.indexOf('.')
   const kind = dot === -1 ? text : text.slice(0, dot)
   const name = dot === -1 ? undefined : text.slice(dot + 1)

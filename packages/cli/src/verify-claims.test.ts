@@ -77,6 +77,27 @@ describe('verify claim DSL', () => {
     }
   })
 
+  it.each([
+    ['state[0]', { kind: 'state', name: 'state[0]' }],
+    ['reducer[1]', { kind: 'state', name: 'reducer[1]' }],
+    ['hook[4]', { kind: 'state', name: 'hook[4]' }],
+    ['this.state', { kind: 'state', name: 'this.state' }],
+    ['this.state.count', { kind: 'state', name: 'this.state.count' }],
+    ['props.items', { kind: 'props', name: 'items' }],
+    ['context.Theme', { kind: 'context', name: 'Theme' }],
+    ['query.["tasks"]', { kind: 'query', name: '["tasks"]' }],
+    ['external-store', { kind: 'external-store' }],
+  ] as const)('prints the %s cause back as the caller wrote it', (text, cause) => {
+    const claim = verifyClaimSchema.parse({
+      kind: 'render-causes',
+      target: { component: 'App' },
+      allow: [cause],
+    })
+
+    expect(formatVerifyClaim(claim)).toBe(`render App only ${text}`)
+    expect(parseClaim(`render App only ${text}`)).toMatchObject({ allow: [cause] })
+  })
+
   it('keeps parent and external-store causes so begin can refuse them as never exact', () => {
     expect(parseClaim('render Row only parent,external-store')).toMatchObject({
       allow: [{ kind: 'parent' }, { kind: 'external-store' }],

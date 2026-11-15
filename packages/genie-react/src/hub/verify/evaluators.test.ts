@@ -285,6 +285,42 @@ describe('render-causes decision table', () => {
     expect(reasonOf(onlyState, evidence)).toBe(reason)
   })
 
+  it('labels observed causes the way a claim names them', () => {
+    const allowAll: VerifyClaimInput = {
+      ...onlyState,
+      allow: [
+        { kind: 'state' },
+        { kind: 'props' },
+        { kind: 'context' },
+        { kind: 'external-store' },
+      ],
+    }
+    const result = outcome(
+      allowAll,
+      withEvents([
+        renderEvent({
+          causes: [
+            { kind: 'state', evidence: 'exact', name: 'state[0]', reason: null },
+            { kind: 'state', evidence: 'exact', name: 'this.state.count', reason: null },
+            { kind: 'props', evidence: 'exact', name: 'appearance', reason: null },
+            { kind: 'context', evidence: 'exact', name: 'Theme', reason: null },
+            { kind: 'external-store', evidence: 'inferred', name: null, reason: null },
+          ],
+        }),
+      ]),
+    )
+
+    expect(result.observed).toMatchObject({
+      causes: [
+        'context.Theme',
+        'external-store',
+        'props.appearance',
+        'state[0]',
+        'this.state.count',
+      ],
+    })
+  })
+
   it('treats a Query cause as exact only when it joins a delivered notification', () => {
     const allowQuery: VerifyClaimInput = { ...onlyState, allow: [{ kind: 'query' }] }
     const delivered = renderEvent({
