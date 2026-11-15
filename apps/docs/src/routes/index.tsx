@@ -8,7 +8,7 @@ import { appDescription, appName } from '@/lib/shared'
 export const Route = createFileRoute('/')({
   head: () => {
     const head = pageHead({
-      title: `${appName} — Live React & TanStack DevTools for coding agents`,
+      title: `${appName}: verification for coding agents`,
       description: appDescription,
       path: '/',
     })
@@ -20,19 +20,38 @@ export const Route = createFileRoute('/')({
   component: Home,
 })
 
+const GUIDES = [
+  {
+    splat: 'guides/verify-a-fix',
+    title: 'Verify a fix',
+    summary:
+      'Declare what must be true, drive the interaction, and get a verdict with an exit code.',
+  },
+  {
+    splat: 'guides/optimize',
+    title: 'Optimize',
+    summary: 'Find renders that change nothing, fix the cause, and measure again.',
+  },
+  {
+    splat: 'guides/validate-ui-states',
+    title: 'Validate UI states',
+    summary: 'See loading, empty and error states without clicking through the app.',
+  },
+] as const
+
 function Home() {
   return (
     <HomeLayout {...baseOptions()}>
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center px-6 py-20 sm:py-28">
         <p className="mb-4 font-mono text-sm text-fd-muted-foreground">
-          Live app evidence for agents
+          Verification for coding agents
         </p>
         <h1 className="max-w-3xl text-4xl font-semibold tracking-tight sm:text-6xl">
-          See what React did. Find the cause. Check the result.
+          Prove the fix worked.
         </h1>
         <p className="mt-6 max-w-2xl text-lg leading-8 text-fd-muted-foreground">
-          Pair Genie with agent-browser or agent-device. The agent drives the UI, reads the live
-          React and TanStack state, then checks the change against live evidence.
+          Your agent drives the app with agent-browser or agent-device. Genie shows it what happened
+          inside React, TanStack Query and Router, and gives a pass or fail verdict.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <Link
@@ -50,37 +69,17 @@ function Home() {
           </a>
         </div>
         <div className="mt-14 grid gap-px overflow-hidden rounded-xl border bg-fd-border sm:grid-cols-3">
-          <Link
-            to="/docs/$"
-            params={{ _splat: 'case-studies/verify-ui-states' }}
-            className="bg-fd-background p-5 transition-colors hover:bg-fd-accent"
-          >
-            <h2 className="font-medium">Test hard-to-reach states</h2>
-            <p className="mt-2 text-sm leading-6 text-fd-muted-foreground">
-              Read props, hooks, and Context. Force rare states, verify the UI, and save
-              screenshots.
-            </p>
-          </Link>
-          <Link
-            to="/docs/$"
-            params={{ _splat: 'case-studies/render-and-effect' }}
-            className="bg-fd-background p-5 transition-colors hover:bg-fd-accent"
-          >
-            <h2 className="font-medium">Trace the observed cause</h2>
-            <p className="mt-2 text-sm leading-6 text-fd-muted-foreground">
-              Join one action to its hook change, render, effect, source, and coverage.
-            </p>
-          </Link>
-          <Link
-            to="/docs/$"
-            params={{ _splat: 'case-studies/prove-an-optimization' }}
-            className="bg-fd-background p-5 transition-colors hover:bg-fd-accent"
-          >
-            <h2 className="font-medium">Check the result</h2>
-            <p className="mt-2 text-sm leading-6 text-fd-muted-foreground">
-              Compare repeated runs and let the UI driver confirm behavior still works.
-            </p>
-          </Link>
+          {GUIDES.map((guide) => (
+            <Link
+              key={guide.splat}
+              to="/docs/$"
+              params={{ _splat: guide.splat }}
+              className="bg-fd-background p-5 transition-colors hover:bg-fd-accent"
+            >
+              <h2 className="font-medium">{guide.title}</h2>
+              <p className="mt-2 text-sm leading-6 text-fd-muted-foreground">{guide.summary}</p>
+            </Link>
+          ))}
         </div>
       </main>
       <SiteFooter />

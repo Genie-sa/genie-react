@@ -6,6 +6,7 @@ import {
 } from '@/lib/agent-responses'
 import { negotiatePageRepresentation, prefersHtmlStrictly } from '@/lib/content-negotiation'
 import { pageMarkdown } from '@/lib/markdown-pages'
+import { movedPageLocation } from '@/lib/moved-pages'
 import { isMachinePath, normalizePathname } from '@/lib/paths'
 
 const csrfMiddleware = createCsrfMiddleware({
@@ -36,7 +37,10 @@ function isHtmlNotFound(response: unknown): boolean {
 const agentMiddleware = createMiddleware().server(async ({ next, request }) => {
   if (request.method !== 'GET' && request.method !== 'HEAD') return next()
 
-  const pathname = normalizePathname(new URL(request.url).pathname)
+  const url = new URL(request.url)
+  const pathname = normalizePathname(url.pathname)
+  const movedTo = movedPageLocation(pathname)
+  if (movedTo) return Response.redirect(new URL(movedTo, url), 301)
   if (pathname.startsWith('/_') || isMachinePath(pathname)) return next()
 
   const accept = request.headers.get('Accept')
