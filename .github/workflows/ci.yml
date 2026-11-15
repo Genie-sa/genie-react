@@ -48,6 +48,9 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Test Babel plugin on Babel 8
+        run: pnpm test:babel8
+
       - name: Validate agent eval tasks
         run: pnpm eval --dry-run
 

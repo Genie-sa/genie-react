@@ -31,6 +31,7 @@
     "test:compatibility": "node scripts/check-compatibility.mjs",
     "check:compatibility": "pnpm build && pnpm test:compatibility",
     "test:react18": "node scripts/check-react18-corpus.mjs",
+    "test:babel8": "node scripts/check-babel-8.mjs",
     "test:effect-e2e": "node scripts/check-effect-e2e.mjs",
     "test:parallel-agents": "node scripts/check-parallel-agents.mjs",
     "test:agent-browser": "node scripts/check-agent-browser-e2e.mjs",
