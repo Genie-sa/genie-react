@@ -3,6 +3,7 @@ import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { WebSocket } from 'ws'
 import {
+  AGENT_TOOLS_QUERY_PARAM,
   type AgentErrorCode,
   type AgentMessage,
   type AgentToolContract,
@@ -264,6 +265,10 @@ function legacyQueryMatches(query: Record<string, unknown>, name: string): boole
 }
 
 /** A session's full catalog: its advertised tools plus the bridge-answered meta tools, so listings and toolCount agree. */
+function statusFrame(status: BridgeStatus, withTools: boolean) {
+  return { kind: 'bridge/status' as const, ...status, ...(withTools ? {} : { tools: [] }) }
+}
+
 function catalogOf(session: AppSession | null | undefined): ToolDescriptor[] {
   return [...(session?.tools ?? []), ...metaToolDescriptors]
 }
@@ -290,6 +295,7 @@ function unrefTimer(timer: ReturnType<typeof setInterval>): void {
 export class GenieBridge {
   private readonly wss = new ws.WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES })
   private readonly agents = new Set<WebSocket>()
+  private readonly agentsWithoutTools = new WeakSet<WebSocket>()
   private readonly pending = new Map<string, PendingRequest>()
   private readonly connectionWaiters = new Set<() => void>()
   private readonly requestTimeoutMs: number
@@ -388,17 +394,19 @@ export class GenieBridge {
 
   /** Returns `false` for non-{@link GENIE_WS_PATH} upgrades so another listener (e.g. Vite HMR) can handle them. */
   handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): boolean {
-    if (new URL(request.url ?? '/', 'http://localhost').pathname !== GENIE_WS_PATH) return false
+    const url = new URL(request.url ?? '/', 'http://localhost')
+    if (url.pathname !== GENIE_WS_PATH) return false
     const verdict = this.upgradePolicy.authorize(request)
     if (!verdict.ok) {
       this.log('warn', `rejected connection: ${verdict.reason}`)
       rejectUpgrade(socket, verdict.status, verdict.reason)
       return true
     }
+    const withTools = url.searchParams.get(AGENT_TOOLS_QUERY_PARAM) !== 'none'
     const caller = callerIdSchema.safeParse(request.headers[GENIE_CALLER_HEADER])
     this.wss.handleUpgrade(request, socket, head, (ws) => {
       if (caller.success && verdict.role === 'agent') this.agentCallers.set(ws, caller.data)
-      this.onConnection(ws, verdict)
+      this.onConnection(ws, verdict, withTools)
     })
     return true
   }
@@ -742,6 +750,7 @@ export class GenieBridge {
   private onConnection(
     socket: WebSocket,
     { role, origin, originUnverified }: Extract<UpgradeVerdict, { ok: true }>,
+    withTools: boolean,
   ): void {
     const connection: Connection = { socket, role }
     if (origin !== undefined) {
@@ -749,7 +758,7 @@ export class GenieBridge {
     }
     this.connections.add(socket)
     this.responsiveSockets.add(socket)
-    if (role === 'agent') this.registerAgent(socket)
+    if (role === 'agent') this.registerAgent(socket, withTools)
     socket.on('message', (data) => this.onMessage(connection, data.toString()))
     socket.on('pong', () => this.responsiveSockets.add(socket))
     socket.on('close', () => this.onClose(connection))
@@ -787,9 +796,10 @@ export class GenieBridge {
     }
   }
 
-  private registerAgent(socket: WebSocket): void {
+  private registerAgent(socket: WebSocket, withTools: boolean): void {
     this.agents.add(socket)
-    this.send(socket, { kind: 'bridge/status', ...this.statusFor(this.callerOf(socket)) })
+    if (!withTools) this.agentsWithoutTools.add(socket)
+    this.send(socket, statusFrame(this.statusFor(this.callerOf(socket)), withTools))
   }
 
   private callerOf(agent: WebSocket): string {
@@ -2151,10 +2161,12 @@ export class GenieBridge {
     for (const agent of this.agents) {
       if (agent.readyState !== ws.WebSocket.OPEN) continue
       const caller = this.callerOf(agent)
-      let frame = frames.get(caller)
+      const withTools = !this.agentsWithoutTools.has(agent)
+      const key = `${withTools ? 'catalog' : 'lean'}:${caller}`
+      let frame = frames.get(key)
       if (frame === undefined) {
-        frame = encodeMessage({ kind: 'bridge/status', ...this.statusFor(caller) })
-        frames.set(caller, frame)
+        frame = encodeMessage(statusFrame(this.statusFor(caller), withTools))
+        frames.set(key, frame)
       }
       agent.send(frame)
     }

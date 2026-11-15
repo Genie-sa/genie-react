@@ -34,6 +34,9 @@ jobs:
       - name: Verify JSON CLI transcripts
         run: node scripts/check-cli-json.mjs
 
+      - name: Guard CLI startup cost
+        run: node scripts/check-cli-startup.mjs
+
       - name: Typecheck Expo integration
         run: pnpm --filter @genie-react/expo-demo typecheck
 

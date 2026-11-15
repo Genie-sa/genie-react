@@ -605,13 +605,13 @@ importers:
       genie-react:
         specifier: workspace:*
         version: link:../genie-react
-      ws:
-        specifier: ^8.21.0
-        version: 8.21.0
     devDependencies:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
 
   packages/genie-react:
     dependencies:
