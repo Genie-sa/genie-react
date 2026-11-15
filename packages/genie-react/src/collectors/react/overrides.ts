@@ -140,19 +140,17 @@ function removeEntry(kind: OverrideKind, fiber: Fiber): void {
   }
 }
 
-// A stored fiber is mounted when its latest buffer (or alternate) is still reachable from the current root; used only for the list `mounted` flag and to decide whether reset can re-apply.
+/** The committed buffer of a stored fiber, or null once React deleted it. A child's `return` is rewritten only when its parent re-renders, so after a commit that bailed out above it the chain ends at the stale HostRoot buffer; the FiberRoot both buffers share decides instead, and deletion nulls `return` so a removed fiber reaches none. */
 function mountedFiber(fiber: Fiber): Fiber | null {
-  const roots = new Set(findAllCommittedRootFibers().roots)
+  const liveFiberRoots = new Set<unknown>(
+    findAllCommittedRootFibers().roots.map((root) => root.stateNode),
+  )
   const primary = findRootFiber()
-  if (primary) roots.add(primary)
-  if (roots.size === 0) return null
+  if (primary) liveFiberRoots.add(primary.stateNode)
   for (const candidate of [fiber, fiber.alternate]) {
-    if (!candidate) continue
-    let current: Fiber | null = getLatestFiber(candidate)
-    while (current) {
-      if (roots.has(current)) return getLatestFiber(candidate)
-      current = current.return
-    }
+    let top = candidate
+    while (top?.return) top = top.return
+    if (top && liveFiberRoots.has(top.stateNode)) return getLatestFiber(fiber)
   }
   return null
 }

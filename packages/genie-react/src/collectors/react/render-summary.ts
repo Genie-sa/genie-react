@@ -6,8 +6,9 @@ import {
   memoCounters,
   roundMilliseconds,
 } from '../../protocol'
+import type { ClassUpdate } from './class-updates'
 import type { InstanceDescriptor } from './instance-identity'
-import type { RenderCauseCounts, RenderCauseEvent } from './render-causes'
+import type { RenderCause, RenderCauseCounts, RenderCauseEvent } from './render-causes'
 import type { renderCauseEventSummarySchema, renderComponentSummarySchema } from './render-contract'
 import type { RenderReport } from './render-model'
 import type { RenderQuery } from './render-reports'
@@ -48,7 +49,7 @@ export function summarizeRenderComponent(
     ...(cumulativeTotalTime === totalTime ? {} : { cumulativeTotalTime }),
     latestDocumentCommitId: component.latestDocumentCommitId,
     causeCounts: nonZeroCounts(component.causeCounts),
-    causes: component.causes.map(compactRenderCause),
+    causes: component.causes.map(compactCause),
     necessity: component.necessity,
     necessityReason: component.necessityReason,
     inputEvidence: component.assessment.inputEvidence,
@@ -74,13 +75,29 @@ export function summarizeRenderCauseEvent(
     componentId: event.componentId,
     componentName: event.componentName,
     ...identity(event.instance),
-    causes: event.causes.map(compactRenderCause),
+    causes: event.causes.map(compactCause),
     necessity: event.necessity,
     necessityReason: event.necessityReason,
     inputEvidence: event.assessment.inputEvidence,
     ...incompleteInputCoverage(event.inputCoverage),
     ...wrapperRelation(event),
     source: compactSource(event.source, event.sourceOwnership),
+  }
+}
+
+type CompactCause = RenderComponentSummary['causes'][number]
+
+function compactCause(cause: RenderCause): CompactCause {
+  const compact = compactRenderCause(cause)
+  if ((cause.kind !== 'state' && cause.kind !== 'unknown') || !cause.classUpdates) return compact
+  return { ...compact, classUpdates: cause.classUpdates.map(compactClassUpdate) }
+}
+
+function compactClassUpdate({ fields: _fields, caller, ...update }: ClassUpdate) {
+  const location = caller?.file ? formatSourceLocation({ ...caller, file: caller.file }) : null
+  return {
+    ...update,
+    at: caller ? [caller.functionName, location].filter(Boolean).join(' ') || null : null,
   }
 }
 

@@ -713,6 +713,201 @@ describe('compareCaptureCohorts', () => {
   })
 })
 
+describe('compareCaptureCohorts render gaps outside the counted components', () => {
+  interface Gaps {
+    bundle?: string | null
+    analysisFailures?: { reason: string; fibers: number }[]
+    unknownComponents?: string[]
+    unknownComponentsOmitted?: number
+  }
+
+  // Mirrors what react_get_renders reports for each gap: a reason, the downgraded summary semantics, and the coverage behind it.
+  function gapped(id: string, renders: number, gaps: Gaps): CaptureArtifact {
+    const artifact = capture(id, { commits: 2, renders, updates: renders })
+    const result = artifact.sections.react?.tools.react_get_renders?.result as Record<
+      string,
+      unknown
+    >
+    const failures = gaps.analysisFailures ?? []
+    const failedFibers = failures.reduce((sum, failure) => sum + failure.fibers, 0)
+    const reasons = [
+      ...(failedFibers > 0 ? ['fiber-analysis-failed'] : []),
+      ...(gaps.unknownComponents ? ['app-source-classification-incomplete'] : []),
+    ]
+    const { bundle = 'mixed' } = gaps
+    if (bundle !== null) result.bundle = bundle
+    result.comparable = reasons.length === 0
+    result.notComparableReasons = reasons
+    result.summary = {
+      ...(result.summary as Record<string, unknown>),
+      semantics: gaps.unknownComponents ? 'unknown' : failedFibers > 0 ? 'lower-bound' : 'exact',
+    }
+    result.coverage = {
+      analysisFailedFibers: failedFibers,
+      ...(failures.length > 0 ? { incompleteBecause: failures } : {}),
+      complete: failedFibers === 0,
+      semantics: failedFibers === 0 ? 'exact' : 'lower-bound',
+    }
+    if (gaps.unknownComponents) {
+      result.sourceClassification = {
+        complete: false,
+        unknown: gaps.unknownComponents.length,
+        unknownComponents: gaps.unknownComponents,
+        unknownComponentsOmitted: gaps.unknownComponentsOmitted ?? 0,
+      }
+    }
+    return artifact
+  }
+
+  const overlay = {
+    bundle: 'mixed',
+    analysisFailures: [{ reason: 'renderer-not-analyzed', fibers: 4 }],
+  }
+  const gate = { unknownComponents: ['PermissionGate (/src/orders-page.tsx)'] }
+  const cohortOf = (prefix: string, renders: number[], gaps: Gaps) =>
+    renders.map((value, index) => gapped(`${prefix}${index}`, value, gaps))
+  const renderMetrics: CaptureMetric[] = ['react.renders', 'react.updates', 'react.commits']
+
+  it('compares counts when only a production renderer outside the counted components committed', () => {
+    const comparison = compare(
+      cohortOf('b', [30, 30, 30], overlay),
+      cohortOf('c', [3, 3, 3], {}),
+      renderMetrics,
+      [{ metric: 'react.renders', maxRegressionPct: 0 }],
+    )
+
+    expect(comparison.overall).toBe('pass')
+    expect(comparison.metrics.every((metric) => metric.comparable)).toBe(true)
+    expect(comparison.warnings).toEqual([expect.stringContaining('b0, b1, b2')])
+  })
+
+  it('keeps refusing when another analysis failure hides among production renderer commits', () => {
+    const comparison = compare(
+      cohortOf('b', [30, 30, 30], {
+        bundle: 'mixed',
+        analysisFailures: [
+          { reason: 'renderer-not-analyzed', fibers: 4 },
+          { reason: 'analysis-failed', fibers: 1 },
+        ],
+      }),
+      cohortOf('c', [3, 3, 3], {}),
+      renderMetrics,
+    )
+
+    for (const metric of comparison.metrics) {
+      expect(metric.notComparableReasons).toEqual(['fiber-analysis-failed'])
+    }
+    expect(comparison.warnings).toEqual([])
+  })
+
+  it('keeps refusing unanalyzed commits when no development renderer hosts the app', () => {
+    for (const bundle of ['production', 'unknown', null]) {
+      const comparison = compare(
+        cohortOf('b', [30, 30, 30], { ...overlay, bundle }),
+        cohortOf('c', [3, 3, 3], { ...overlay, bundle }),
+        ['react.renders'],
+      )
+      expect(comparison.metrics[0]?.notComparableReasons).toEqual(['fiber-analysis-failed'])
+    }
+  })
+
+  it('compares component totals when every capture counts the same unknown-ownership components', () => {
+    const comparison = compare(
+      cohortOf('b', [30, 30, 30], gate),
+      cohortOf('c', [3, 3, 3], gate),
+      renderMetrics,
+      [{ metric: 'react.renders', maxRegressionPct: 0 }],
+    )
+
+    expect(comparison.overall).toBe('pass')
+    expect(comparison.warnings).toEqual([
+      expect.stringContaining('Ownership of PermissionGate (/src/orders-page.tsx) is unknown'),
+    ])
+  })
+
+  it('refuses component totals when one cohort counts an unknown component the other does not', () => {
+    const comparison = compare(
+      cohortOf('b', [30, 30, 30], gate),
+      cohortOf('c', [3, 3, 3], {}),
+      renderMetrics,
+    )
+
+    expect(comparison.metrics).toMatchObject([
+      {
+        metric: 'react.renders',
+        notComparableReasons: ['unknown-ownership-differs-between-captures'],
+      },
+      {
+        metric: 'react.updates',
+        notComparableReasons: ['unknown-ownership-differs-between-captures'],
+      },
+      { metric: 'react.commits', comparable: true },
+    ])
+  })
+
+  it('refuses component totals when a capture could not name every unknown component', () => {
+    for (const gaps of [
+      { ...gate, unknownComponentsOmitted: 3 },
+      { unknownComponents: [] as string[], unknownComponentsOmitted: 1 },
+    ]) {
+      const comparison = compare(
+        cohortOf('b', [30, 30, 30], gaps),
+        cohortOf('c', [3, 3, 3], gaps),
+        renderMetrics,
+      )
+      expect(comparison.metrics).toMatchObject([
+        { metric: 'react.renders', notComparableReasons: ['app-source-classification-incomplete'] },
+        { metric: 'react.updates', notComparableReasons: ['app-source-classification-incomplete'] },
+        { metric: 'react.commits', comparable: true },
+      ])
+    }
+  })
+
+  it('refuses component totals from a runtime that does not name unknown components', () => {
+    const legacy = (id: string, renders: number) => {
+      const artifact = gapped(id, renders, gate)
+      const result = artifact.sections.react?.tools.react_get_renders?.result as Record<
+        string,
+        unknown
+      >
+      result.sourceClassification = { complete: false, unknown: 1 }
+      return artifact
+    }
+
+    const comparison = compare(
+      [legacy('b0', 30), legacy('b1', 30), legacy('b2', 30)],
+      [legacy('c0', 3), legacy('c1', 3), legacy('c2', 3)],
+      ['react.renders'],
+    )
+
+    expect(comparison.metrics[0]?.notComparableReasons).toEqual([
+      'app-source-classification-incomplete',
+    ])
+  })
+
+  it('does not excuse a non-exact summary that only attribution gaps accompany', () => {
+    const artifact = capture('c-lower-bound', { renders: 10 })
+    withRenderEvidence(artifact, ['render-props-not-enumerated'])
+    const result = artifact.sections.react?.tools.react_get_renders?.result as Record<
+      string,
+      unknown
+    >
+    result.summary = { totalRenders: 10, semantics: 'lower-bound' }
+
+    const comparison = compare(
+      [capture('b-exact', { renders: 10 })],
+      [artifact],
+      ['react.renders'],
+      [],
+      1,
+    )
+
+    expect(comparison.metrics[0]?.notComparableReasons).toContain(
+      'render-evidence-semantics-not-exact',
+    )
+  })
+})
+
 describe('compareCaptureCohorts sample hygiene', () => {
   const metrics: CaptureMetric[] = ['react.renders', 'memory.usedHeapBytes']
   const budgets = [{ metric: 'react.renders' as const, maxRegressionPct: 10 }]

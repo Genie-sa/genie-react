@@ -138,12 +138,15 @@ describe('getRendersReport filteredNote count', () => {
       }
       const cold = await getRendersMeasurement({ sort: 'renders', limit: 200, appOnly: true })
       expect(cold.sourceClassification).toEqual({
+        affects: 'result',
         complete: false,
         totalCandidates: 241,
         evaluated: 120,
         app: 120,
         library: 0,
         unknown: 121,
+        unknownComponents: Array.from({ length: 50 }, (_, index) => `App${120 + index}`),
+        unknownComponentsOmitted: 71,
       })
       expect(cold.summary.trackedComponents).toBe(241)
       expect(cold.components).toHaveLength(200)
@@ -152,12 +155,15 @@ describe('getRendersReport filteredNote count', () => {
       await vi.runAllTimersAsync()
       const warm = await getRendersMeasurement({ sort: 'renders', limit: 200, appOnly: true })
       expect(warm.sourceClassification).toEqual({
+        affects: 'result',
         complete: true,
         totalCandidates: 241,
         evaluated: 241,
         app: 241,
         library: 0,
         unknown: 0,
+        unknownComponents: [],
+        unknownComponentsOmitted: 0,
       })
       expect(warm.summary.trackedComponents).toBe(241)
       expect(warm.omittedByLimit).toBe(41)
@@ -176,12 +182,15 @@ describe('getRendersReport filteredNote count', () => {
 
     const missing = await getRendersMeasurement({ sort: 'renders', limit: 50, appOnly: true })
     expect(missing.sourceClassification).toEqual({
+      affects: 'result',
       complete: false,
       totalCandidates: 3,
       evaluated: 3,
       app: 1,
       library: 1,
       unknown: 1,
+      unknownComponents: ['UnknownOwner'],
+      unknownComponentsOmitted: 0,
     })
     const selected = await getRendersMeasurement({
       sort: 'renders',
@@ -190,22 +199,28 @@ describe('getRendersReport filteredNote count', () => {
       component: 'UnknownOwner',
     })
     expect(selected.sourceClassification).toEqual({
+      affects: 'ownership-labels',
       complete: false,
       totalCandidates: 1,
       evaluated: 1,
       app: 0,
       library: 0,
       unknown: 1,
+      unknownComponents: ['UnknownOwner'],
+      unknownComponentsOmitted: 0,
     })
     withOwnSource(unknown, at('/src/Recovered.tsx'))
     const recovered = await getRendersMeasurement({ sort: 'renders', limit: 50, appOnly: true })
     expect(recovered.sourceClassification).toEqual({
+      affects: 'result',
       complete: true,
       totalCandidates: 3,
       evaluated: 3,
       app: 2,
       library: 1,
       unknown: 0,
+      unknownComponents: [],
+      unknownComponentsOmitted: 0,
     })
     expect(recovered.components.map((entry) => entry.name)).toContain('UnknownOwner')
   })

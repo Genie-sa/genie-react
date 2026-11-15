@@ -727,7 +727,7 @@ describe('runInit — agent skill locations', () => {
       runInit({ cwd: dir, logger: silent })
 
       const installed = await readFile(join(dir, '.agents/skills/genie/SKILL.md'), 'utf8')
-      expect(installed).toContain(`\n${invocation} tools --session my-agent\n`)
+      expect(installed).toContain(`\n${invocation} status --session my-agent --wait 15000\n`)
       expect(installed).not.toContain('npx genie-react')
       const doctor = runDoctor({ cwd: dir, logger: silent })
       expect(doctor.skill.current).toBe(true)
@@ -747,7 +747,7 @@ describe('runInit — agent skill locations', () => {
     }
 
     const installed = await readFile(join(dir, '.agents/skills/genie/SKILL.md'), 'utf8')
-    expect(installed).toContain('\npnpm exec genie-react tools --session my-agent\n')
+    expect(installed).toContain('\npnpm exec genie-react status --session my-agent --wait 15000\n')
   })
 
   it.each([

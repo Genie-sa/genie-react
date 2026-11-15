@@ -94,4 +94,19 @@ Results print as compact text that keeps every field, written for a model to rea
 - [Measure CLI latency per command](docs/cli-latency.md).
 - [Report a bug or friction to the maintainers](https://genie-react.com/docs/reference/cli#report-a-problem-to-the-maintainers) with `genie-react feedback`. It shows the issue first and sends nothing until you add `--submit`.
 
+## Develop Genie
+
+`pnpm check` runs lint, type checks, the build, release checks, tests, and the docs checks.
+
+`pnpm typecheck` type-checks the packages and `evals` with [tsrs](https://github.com/oxc-project/tsrs), a Rust port of the TypeScript 7 compiler, at the exact version pinned in the root `package.json`. The docs and the Expo example use it too: `pnpm --filter @genie-react/docs typecheck`, and `pnpm --filter @genie-react/expo-demo typecheck` after `pnpm build`, since Expo reads the built types. TypeScript itself still generates the published `.d.ts` files, and `pnpm check:compatibility` type-checks an installed consumer with TypeScript 6 and 7.
+
+Your editor keeps using the workspace TypeScript. To try the tsrs language server in VS Code, install the TypeScript 7 extension (`TypeScriptTeam.native-preview`) and add this to `.vscode/settings.json`, which git ignores:
+
+```jsonc
+{
+  "js/ts.experimental.useTsgo": true,
+  "js/ts.tsdk.path": "./node_modules/tsrs/tsdk"
+}
+```
+
 MIT © Genie React Agent contributors

@@ -47,7 +47,7 @@ const budgetAdviceSchema = z.object({
 
 const coverageSnapshotSchema = z.object({
   complete: z.boolean(),
-  semantics: z.enum(['exact', 'lower-bound']),
+  semantics: z.enum(['exact', 'lower-bound', 'unknown']),
   skippedCommitFibers: z.number(),
   droppedUnmountFibers: z.number(),
   analysisFailedFibers: z.number(),

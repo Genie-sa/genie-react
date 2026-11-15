@@ -74,7 +74,8 @@ const OPTION_DETAILS: Record<OptionName, OptionDetail> = {
     description: 'Override the bridge WebSocket URL; otherwise use GENIE_BRIDGE_URL or discovery',
   },
   session: {
-    description: 'Target a physical ID, logical ID or unique name; overrides GENIE_SESSION',
+    description:
+      'Target a physical ID, logical ID or unique name, else the tab an agent-browser session of that name shows; overrides GENIE_SESSION',
   },
   port: {
     description: 'Listen on this strict hub port; an omitted port can walk upward when busy',
@@ -313,6 +314,10 @@ export function cliHelp(name?: string): unknown {
             GENIE_BRIDGE_TOKEN:
               'Agent token for --url or GENIE_BRIDGE_URL; wins over the token of a discovered hub at that URL and is ignored for discovered URLs',
             GENIE_SESSION: 'Default app session target',
+            AGENT_BROWSER_SESSION:
+              "agent-browser's session variable; without --session or GENIE_SESSION, commands target the tab that session shows",
+            GENIE_AGENT_BROWSER:
+              'The agent-browser executable Genie asks which tab a session shows; defaults to agent-browser on PATH',
             GENIE_AGENT:
               'Name this agent for the hub (1 to 64 letters, digits, ".", "_" or "-"); defaults to a hash of the Claude Code or Codex session, else of the git worktree. The hub keeps the default tab, render windows, recordings and overrides per agent',
             GENIE_SKILL_DIR:

@@ -8,18 +8,34 @@ Each browser tab is a session. Several apps, tabs, and agents can connect to one
 
 ## Name the tab
 
-Add `_genie` to the app URL:
+With [agent-browser](https://github.com/vercel-labs/agent-browser), the agent-browser session name
+is the Genie session name. Open the app in a session, then pass the same name to every `status`,
+`tools`, `call`, `batch`, `capture`, and `verify` command:
+
+```bash
+agent-browser --session checkout-agent open http://localhost:3000/
+npx @genie-react/cli status --session checkout-agent --wait 15000
+npx @genie-react/cli call react_get_tree '{"depth":2}' --session checkout-agent
+```
+
+Genie asks agent-browser which page that session shows and reads the tab's Genie identity from it
+with `agent-browser eval`, which changes nothing in the page. A name that a tab already carries in
+the hub always wins, so `_genie` names and session IDs behave as they did. When the session runs but
+its page has no Genie, the failure says so in `details.agentBrowser` and gives the `open` command.
+
+In any other browser, add `_genie` to the app URL:
 
 ```text
 http://localhost:3000/?_genie=checkout-agent
 ```
 
-Pass the name to every `status`, `tools`, `call`, `batch`, and `capture` command:
-
-```bash
-npx @genie-react/cli status --session checkout-agent --wait 15000
-npx @genie-react/cli call react_get_tree '{"depth":2}' --session checkout-agent
-```
+Without `--session` or `GENIE_SESSION`, commands follow `AGENT_BROWSER_SESSION`, the variable
+agent-browser itself reads, so a shell that exports it needs no Genie flag. With neither, and
+several tabs that no command has used yet, Genie checks the running agent-browser sessions in this
+shell's namespace: when exactly one shows a tab of this app that no other agent claimed, commands
+use it and say so in a stderr `agent-browser` diagnostic; when several do, the `SESSION_AMBIGUOUS`
+failure lists them in `details.agentBrowser.sessions`. Set `GENIE_AGENT_BROWSER` when the
+executable is not `agent-browser` on `PATH`.
 
 `status --wait` waits up to the given milliseconds for that session to be ready, so a script can run
 it right after opening the page. On timeout it fails with `not_connected`. Without `--wait`, a
@@ -81,7 +97,8 @@ its own, or says why it cannot.
 
 ### What an agent must do
 
-- Open its own tab with its own name (`?_genie=<name>`) and pass `--session <name>` on every command.
+- Open its own tab with its own name (`agent-browser --session <name> open <url>`, or `?_genie=<name>`
+  in another browser) and pass `--session <name>` on every command.
 - Run the CLI from its own checkout or worktree, so discovery finds that worktree's hub.
 - Set `GENIE_AGENT=<name>` when it shares a shell or a worktree with another agent and no harness
   session tells them apart, for example subagents that run their own captures.

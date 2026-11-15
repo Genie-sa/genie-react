@@ -61,8 +61,11 @@ npx @genie-react/cli status --session checkout-agent
 npx @genie-react/cli status --url ws://127.0.0.1:4390/__genie/ws
 ```
 
-Pass `--session` on every command. `GENIE_SESSION` and `GENIE_BRIDGE_URL` also work, but agent
-permission allowlists often reject `export` inside compound commands.
+Pass `--session` on every command. It takes a session ID, a logical ID, a `_genie` name, or the name
+of an agent-browser session, whose tab Genie then targets (see
+[Sessions and tabs](/docs/getting-started/sessions)). `GENIE_SESSION`, `AGENT_BROWSER_SESSION`, and
+`GENIE_BRIDGE_URL` also work, but agent permission allowlists often reject `export` inside compound
+commands.
 
 The hub accepts agent connections only from processes on the same machine that present its per-run
 token. The hub keeps the token out of the project, so no dev server can serve it. It lives in

@@ -7,6 +7,7 @@ import {
   safeOwnPropertyDescriptor,
 } from '../causal/safe-object'
 import { type RenderedOutput, renderedOutputOf } from './boundary-output'
+import { isGenieFrame } from './class-updates'
 import { nameOf } from './fiber'
 import { getActiveObservation, getDocumentCommitId } from './observation'
 import { forcedErrorBoundaries, forcedSuspenseBoundaries } from './overrides'
@@ -502,7 +503,7 @@ export async function getErrorState(query: {
           throwingComponent: log?.throwingComponent ?? null,
           message: log?.message ?? (forced ? FORCED_ERROR_MESSAGE : null),
           stack: log?.stack ? (includeSource ? log.stack : withoutLibraryFrames(log.stack)) : null,
-          stackFrames: log?.stack ? await resolveStackFrames(log.stack) : [],
+          stackFrames: log?.stack ? await resolveStackFrames(log.stack, isGenieFrame) : [],
           isLibraryBoundary: isLibrary,
           forced,
           status,

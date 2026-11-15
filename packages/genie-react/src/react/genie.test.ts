@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 
-import { cleanup, render } from '@testing-library/react'
-import { createContext, createElement, StrictMode } from 'react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { createContext, createElement, type ReactNode, StrictMode } from 'react'
+import { connect, Provider } from 'react-redux'
+import { combineReducers, createStore } from 'redux'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ReduxStoreTap } from '../collectors/redux/store-tap'
 import { GENIE_GLOBAL_KEY } from '../protocol'
 import type { GenieProps } from './genie'
 
@@ -18,6 +21,8 @@ async function loadGenie(router: unknown) {
   vi.doMock('../client', () => ({
     createGenieClient,
     sessionCollector: tag('session'),
+    defineCollector: (collector: unknown) => collector,
+    defineCollectorTool: (tool: unknown) => tool,
   }))
   vi.doMock('../collectors/react', () => ({ reactCollector: tag('react') }))
   vi.doMock('../collectors/memory', () => ({ memoryCollector: tag('memory') }))
@@ -305,5 +310,42 @@ describe('<Genie /> idempotency', () => {
     render(createElement(StrictMode, null, createElement(Genie)))
 
     expect(createGenieClient).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('<Genie reduxStore />', () => {
+  it('wraps the store while rendering, so a connect() sibling after it binds the recorded dispatch', async () => {
+    const { Genie, createGenieClient } = await loadGenie(undefined)
+    const { reduxStoreTaps } = await import('../collectors/causal/redux-store-registry')
+    const store = createStore(
+      combineReducers({
+        count: (state: number = 0, action: { type: string }) =>
+          action.type === 'counter/added' ? state + 1 : state,
+      }),
+    )
+    const Add = connect(null, { add: () => ({ type: 'counter/added' }) })(
+      ({ add }: { add: () => unknown }): ReactNode =>
+        createElement('button', { type: 'button', onClick: add }, 'add'),
+    )
+
+    render(
+      createElement(
+        Provider,
+        { store } as never,
+        createElement<GenieProps>(Genie, { reduxStore: store }),
+        createElement(Add),
+      ),
+    )
+    fireEvent.click(screen.getByText('add'))
+
+    const collectors = createGenieClient.mock.calls[0]?.[0]?.collectors as Array<{
+      meta?: { id: string }
+    }>
+    expect(collectors.some((collector) => collector.meta?.id === 'redux')).toBe(true)
+    const [tap] = reduxStoreTaps() as ReduxStoreTap[]
+    expect(tap?.records().map((record) => [record.kind, record.type])).toEqual([
+      ['action', 'counter/added'],
+    ])
+    tap?.dispose()
   })
 })

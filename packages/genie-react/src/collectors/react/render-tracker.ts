@@ -21,6 +21,11 @@ import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-obje
 import { safeStructuredClone } from '../structured-clone'
 import { getTimings } from './bippy-compat'
 import {
+  instrumentClassFiber,
+  restoreClassInstrumentation,
+  takeClassUpdates,
+} from './class-updates'
+import {
   type CommitWorkBudget,
   commitWorkExhaustions,
   consumeCommitWork,
@@ -532,6 +537,7 @@ export function disposeRenderTracking(): void {
   instrumentation?.()
   instrumentation = null
   instrumentedHook = null
+  restoreClassInstrumentation()
   installed = false
   commitObservedSinceInstall = false
   paused = false
@@ -545,6 +551,7 @@ export function stopRenderTracking(): void {
   paused = true
 }
 
+const recordingClassUpdates = (): boolean => isTracking() && getActiveObservation() !== null
 export const isRenderTrackingInstalled = (): boolean => installed
 export const isRecordingPaused = (): boolean => paused
 export const getCommitCount = (): number => commits
@@ -1103,6 +1110,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
   events: RenderCauseEvent[]
   libraryHidden: number
   omittedByLimit: number
+  sourceClassification: SourceClassificationCoverage
   skippedCommitFibers: number
   droppedUnmountFibers: number
   analysisFailedFibers: number
@@ -1205,7 +1213,7 @@ export async function getRendersLeaderboardsMeasurement(
     tracking,
     documentCommitId: epoch.documentCommitId,
     attribution: reportAttribution(epoch),
-    coverage: withSourceCoverage(coverage, boards.sourceClassification, selection.appOnly === true),
+    coverage: withSourceCoverage(coverage, boards.sourceClassification),
     boards,
   }
 }
@@ -1242,7 +1250,7 @@ export async function takeSnapshot(
     commitsAtStart,
     clearsAtStart,
     measurement.components,
-    withSourceCoverage(coverage, measurement.sourceClassification, appOnly),
+    withSourceCoverage(coverage, measurement.sourceClassification),
     appOnly,
   )
 }
@@ -1268,7 +1276,7 @@ export async function rendersDiff(baseline: string, thresholdMs: number, appOnly
     commitsAtStart,
     clearsAtStart,
     measurement.components,
-    withSourceCoverage(coverage, measurement.sourceClassification, appOnly),
+    withSourceCoverage(coverage, measurement.sourceClassification),
     appOnly,
   )
 }
@@ -1382,6 +1390,7 @@ function recordRenderAtomic(
   if (phase === 'unmount') {
     return
   }
+  instrumentClassFiber(fiber, recordingClassUpdates)
   const id = getFiberId(fiber)
   const existing = records.get(id)
   const recordName = existing?.name ?? nameOf(fiber)
@@ -1454,6 +1463,7 @@ function recordRenderAtomic(
   const pendingQuerySubscribers: PendingQuerySubscriberRegistration[] = []
   const propChanges = diffProps(fiber, evidenceBudget)
   const stateChanges = diffStateChanges(fiber, evidenceBudget)
+  const classUpdates = takeClassUpdates(fiber)
   const changedContexts: unknown[] = []
   const contextChanges = diffContextChanges(fiber, evidenceBudget, (context) =>
     changedContexts.push(context),
@@ -1505,7 +1515,7 @@ function recordRenderAtomic(
         before: change.before,
         after: change.after,
         deepDiff: change.deepDiff,
-        ...('hook' in change ? { hook: change.hook } : {}),
+        ...('hook' in change ? { hook: change.hook } : classUpdates),
       }),
     ),
     ...(bailsOutOnProps ? childrenCauses : []),
@@ -1534,7 +1544,14 @@ function recordRenderAtomic(
       ? observedCauses
       : !causalAnalysisComplete
         ? [{ kind: 'unknown', evidence: 'unknown', reason: 'causal-analysis-incomplete' }]
-        : [{ kind: 'unknown', evidence: 'unknown', reason: 'no-observable-fiber-input-change' }]
+        : [
+            {
+              kind: 'unknown',
+              evidence: 'unknown',
+              reason: 'no-observable-fiber-input-change',
+              ...classUpdates,
+            },
+          ]
   const valueCauses = otherCauses.filter((cause) => !isIdentityOnlyCause(cause))
   // React renders a fiber on its own only for an input it saw change, so a render with no observed trigger is unexplained, not unnecessary.
   const noObservedInputChange =

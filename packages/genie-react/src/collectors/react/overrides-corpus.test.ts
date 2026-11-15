@@ -58,6 +58,15 @@ function Counter() {
   return h('output', { id: 'counter' }, `${count}|${label}`)
 }
 
+function Badge(props: { tone: string }) {
+  const [size] = useState('small')
+  return h('em', { id: 'badge' }, `${props.tone}|${size}`)
+}
+
+function Shelf() {
+  return h('section', null, h(Badge, { tone: 'calm' }))
+}
+
 function Title(props: { label: string; extra?: string }) {
   return h('h1', { id: 'title' }, `${props.label}|${'extra' in props ? 'has-extra' : 'no-extra'}`)
 }
@@ -90,6 +99,7 @@ function Parent() {
     'div',
     null,
     h(Title, { label }),
+    h(Shelf),
     h(Mode.Provider, { value: label }, h(ModeReader)),
     showCounter ? h(Counter) : null,
     h(Form),
@@ -192,6 +202,42 @@ describe('props overrides', () => {
 
     expect((await reset()).map((entry) => entry.outcome)).toEqual(['superseded'])
     expect(text('title')).toBe('L1|no-extra')
+  })
+})
+
+describe('overrides on a component that bailed out of later commits', () => {
+  it('restores a props override after an unrelated commit left its return path on the old buffer', async () => {
+    const id = await idOf('Badge')
+    await apply('react_override_props', { id, props: { tone: 'loud' } })
+    await act(async () => increment())
+    expect(text('badge')).toBe('loud|small')
+    expect((await call<Listed>('react_list_overrides', {})).overrides).toEqual([
+      expect.objectContaining({ kind: 'props', componentName: 'Badge', mounted: true }),
+    ])
+
+    expect((await reset()).map((entry) => entry.outcome)).toEqual(['restored'])
+    expect(text('badge')).toBe('calm|small')
+    expect((await call<Listed>('react_list_overrides', {})).overrides).toEqual([])
+  })
+
+  it('restores a hook override after an unrelated commit left its return path on the old buffer', async () => {
+    const id = await idOf('Badge')
+    await apply('react_override_hook_state', { id, stateIndex: 0, value: 'large' })
+    await act(async () => increment())
+    expect(text('badge')).toBe('calm|large')
+
+    expect((await reset()).map((entry) => entry.outcome)).toEqual(['restored'])
+    expect(text('badge')).toBe('calm|small')
+  })
+
+  it('still reports a props override as skipped once its component is really gone', async () => {
+    const id = await idOf('Counter')
+    await apply('react_override_props', { id, props: { tone: 'gone' } })
+    await act(async () => setShowCounter(false))
+    expect((await call<Listed>('react_list_overrides', {})).overrides).toEqual([
+      expect.objectContaining({ kind: 'props', componentName: 'Counter', mounted: false }),
+    ])
+    expect((await reset()).map((entry) => entry.outcome)).toEqual(['skipped-unmounted'])
   })
 })
 

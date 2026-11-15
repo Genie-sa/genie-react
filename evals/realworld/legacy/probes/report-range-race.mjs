@@ -9,6 +9,7 @@ export default async function probe({ session, page }) {
   await session.call('app_backend_faults', {
     rules: [{ method: 'GET', path: THROUGHPUT, query: { range: '90d' }, latencyMs: 1200 }],
   })
+  const since = await session.reduxLatestSequence()
   const events = await session.recordTimeline(
     'range switch',
     async () => {
@@ -25,6 +26,19 @@ export default async function probe({ session, page }) {
   const stale = requests.find(
     (event) => event.details.finishedAfterNewer && event.details.query?.includes('range=90d'),
   )
+  const { records } = await session.reduxActions({
+    afterSequence: since,
+    typePrefix: 'reports/',
+    view: 'full',
+  })
+  const requestedRange = new Map(
+    records
+      .filter((record) => record.type === 'reports/REQUESTED' && record.parentActionId)
+      .map((record) => [record.parentActionId, record.payload?.range]),
+  )
+  const received = records.filter((record) => record.type === 'reports/RECEIVED')
+  const appliedFor = received.map((record) => requestedRange.get(record.parentActionId) ?? null)
+  const { value: storedRange } = await session.reduxState(['reports', 'range'])
   const [widget] = await session.findComponents('ThroughputWidget')
   const inspected = widget ? await session.inspect(widget.id) : null
   const rendered = inspected?.props?.report?.range ?? null
@@ -38,6 +52,11 @@ export default async function probe({ session, page }) {
             `${event.details.method} ${event.details.query} ${Math.round(event.details.startMs)}→${Math.round(event.details.endMs)}ms${event.details.finishedAfterNewer ? ' (finished after a newer request)' : ''}`,
         )
         .join('; ') || 'no throughput requests recorded',
+    ),
+    check(
+      'redux.lastReceivedMatchesRange',
+      appliedFor.length > 0 && appliedFor.at(-1) === storedRange,
+      `RECEIVED applied for the thunks loading ${JSON.stringify(appliedFor)}, in order; the store's range is ${JSON.stringify(storedRange)}`,
     ),
     check(
       'react.widgetRange',

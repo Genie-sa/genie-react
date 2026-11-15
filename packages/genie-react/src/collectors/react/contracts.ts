@@ -1,5 +1,11 @@
 import { z } from 'zod'
-import { appValueSchema, defineAgentToolContract, requiresOneOf } from '../../protocol'
+import {
+  AGENT_BROWSER_REF,
+  appValueSchema,
+  BOX_HTML_MAX_LENGTH,
+  defineAgentToolContract,
+  requiresOneOf,
+} from '../../protocol'
 import { componentMatchSchema, componentSelectorInputShape } from './component-name'
 import {
   appOnlySchema,
@@ -419,34 +425,72 @@ export const reactDomForComponentContract = defineAgentToolContract({
   annotations: { readOnlyHint: true },
 })
 
+const domBoxSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number().nonnegative(),
+  height: z.number().nonnegative(),
+})
+
 export const reactComponentForDomContract = defineAgentToolContract({
   name: 'react_component_for_dom',
   title: 'Owning component for a DOM element',
   description:
-    'Map a CSS selector (e.g. an element a browser tool found) to the React component(s) rendering it — the reverse of react_dom_for_component, turning "this button is wrong" into "edit this component". Each match reports the owning component id (feed it to react_inspect_component / overrides), name, kind, shallow props, and source file:line, plus `styleSources` — the style definitions applied to the matched element (file:line, application order; later wins conflicts) when the app emits style provenance (e.g. StyleX dev mode), turning "this looks wrong" into "edit this style definition". Elements outside this React tree are skipped; duplicate owners are collapsed.',
+    'Map a DOM element to the React component(s) rendering it — the reverse of react_dom_for_component, turning "this button is wrong" into "edit this component". Name the element with a CSS `selector`, an agent-browser snapshot `ref` such as `@e12`, or its `box`. Each match reports the owning component id (feed it to react_inspect_component / overrides), name, kind, shallow props, and source file:line, plus `styleSources` — the style definitions applied to the matched element (file:line, application order; later wins conflicts) when the app emits style provenance (e.g. StyleX dev mode), turning "this looks wrong" into "edit this style definition". Elements outside this React tree are skipped; duplicate owners are collapsed.',
   group: 'react.inspect',
-  input: z.object({
-    appOnly: appOnlySchema,
-    selector: z
-      .string()
-      .describe('CSS selector; each matched element resolves to its owning component.'),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(20)
-      .default(5)
-      .describe(
-        'Max unique owning components after ownership filtering; scans at most 5000 DOM matches.',
-      ),
-    propsDepth: z.number().int().min(0).max(4).default(1),
-  }),
+  input: z
+    .object({
+      appOnly: appOnlySchema,
+      selector: z
+        .string()
+        .optional()
+        .describe('CSS selector; each matched element resolves to its owning component.'),
+      ref: z
+        .string()
+        .regex(AGENT_BROWSER_REF)
+        .optional()
+        .describe(
+          'agent-browser snapshot ref such as `@e12`. The genie-react CLI turns it into `box` through the agent-browser session showing the targeted tab; other callers pass `box`.',
+        ),
+      box: domBoxSchema
+        .extend({
+          html: z
+            .string()
+            .max(BOX_HTML_MAX_LENGTH)
+            .optional()
+            .describe(
+              'The innerHTML `agent-browser get html @e12` prints, to tell apart elements that share the box, such as a button and a wrapper or overlay of its exact size.',
+            ),
+        })
+        .optional()
+        .describe(
+          'Border box in viewport CSS pixels, as `agent-browser get box @e12` prints it; matches the elements whose getBoundingClientRect() equals it, innermost first. The page must not scroll or reflow in between.',
+        ),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(20)
+        .default(5)
+        .describe(
+          'Max unique owning components after ownership filtering; scans at most 5000 DOM matches.',
+        ),
+      propsDepth: z.number().int().min(0).max(4).default(1),
+    })
+    .refine(
+      (input) =>
+        [input.selector, input.ref, input.box].filter((target) => target !== undefined).length ===
+        1,
+      'Pass exactly one of `selector`, `ref` or `box`.',
+    )
+    .meta(requiresOneOf('selector', 'ref', 'box')),
   output: z.object({
     ownershipCoverage: ownershipCoverageSchema,
     omittedByLimit: z.number().int().nonnegative(),
     scanTruncated: z.boolean(),
-    selector: z.string(),
-    matched: z.number().describe('Total DOM elements the selector matched (before limit).'),
+    selector: z.string().optional().describe('The `selector` input, when one was given.'),
+    box: domBoxSchema.optional().describe('The `box` input, when one was given.'),
+    matched: z.number().describe('Total DOM elements the target matched (before limit).'),
     components: z.array(
       z.object({
         id: z.number(),

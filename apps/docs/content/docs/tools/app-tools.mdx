@@ -221,12 +221,17 @@ schema.
 
 ## Expose a Redux store
 
-Genie has no Redux collector. React tools show whether a connected component rendered, but not
-which action ran, what it carried, or what the reducers made of it. A development-only recorder
-middleware and two query tools close that gap: `app_redux_actions` proves which actions were
-dispatched and with which arguments, and `app_redux_state` shows the state they left.
-[`apps/realworld-legacy`](https://github.com/Genie-sa/genie-react/tree/main/apps/realworld-legacy)
-runs this recipe as written, and its eval probes test it.
+Register the [Redux collector](/docs/setup/redux) first. It records the actions dispatched through
+the store and its thunks, flags reducers that change state in place, and names the action behind
+each store-driven render, through the built-in [`redux_actions`](/docs/tools/redux) and
+`redux_state` tools.
+
+Keep this recipe for a store the collector cannot wrap: a read-only `dispatch`, or actions that
+reach the reducers without passing through the store's `dispatch` or a thunk's, as with sagas,
+epics or middleware that dispatches on its own. A development-only recorder middleware placed last
+sees those, and two query tools expose it: `app_redux_actions` proves which actions were dispatched
+and with which arguments, and `app_redux_state` shows the state they left. The recipe cannot detect
+mutation or join an action to a render.
 
 `redux-recorder.ts` keeps the last 500 plain actions in a ring buffer. Each entry has a sequence
 number, a bounded copy of the action taken at dispatch, and the top-level slices whose reference

@@ -42,13 +42,18 @@ export const ACCEPTED_COLLECTION = (status: string | undefined): boolean =>
 export function environmentProblem(
   snapshot: Pick<Snapshot, 'render' | 'targetBundles'>,
 ): string | null {
-  const page = snapshot.render?.bundle ?? 'unknown'
+  return hostingRendererProblem(snapshot.render?.bundle ?? 'unknown', snapshot.targetBundles)
+}
+
+/** The rule behind environmentProblem, for any evidence that names the page's bundle and the builds hosting what it measures. */
+export function hostingRendererProblem(
+  page: RendererBundle,
+  hostingBundles: (RendererBundle | null)[],
+): string | null {
   if (page === 'development') return null
   if (page !== 'mixed')
     return `The app runs a ${page} React bundle; verify needs the development build.`
-  const hosting = snapshot.targetBundles.find(
-    (bundle) => bundle !== null && bundle !== 'development',
-  )
+  const hosting = hostingBundles.find((bundle) => bundle !== null && bundle !== 'development')
   if (hosting === undefined) return null
   return hosting === 'unknown'
     ? 'The page mixes React builds and the renderer hosting a claim target could not be identified; verify needs the development build.'

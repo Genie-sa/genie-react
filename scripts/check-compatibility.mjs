@@ -7,7 +7,11 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PACKAGE_ROOT = join(ROOT, 'packages/genie-react')
-const TYPESCRIPT_VERSION = '6.0.3'
+// Each compiler installs under its own alias so one consumer is checked by every TypeScript major users run.
+const TYPESCRIPT_COMPILERS = {
+  'typescript-6': '6.0.3',
+  'typescript-7': '7.0.2',
+}
 const REACT_TYPE_PROFILES = {
   minimum: {
     '@types/react': '18.3.31',
@@ -34,8 +38,20 @@ const PROFILES = {
     vite: '8.1.0',
     '@tanstack/react-query': '5.101.2',
     '@tanstack/react-router': '1.170.17',
-    zod: '4.4.3',
+    zod: '4.6.7',
   },
+}
+// npm resolves genie-react's own zod to the newest release its range admits; the minimum profile pins it to the range's floor so CI covers the oldest release a user can install.
+const RUNTIME_ZOD = {
+  minimum: lowestRelease(
+    JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')).dependencies.zod,
+  ),
+}
+
+function lowestRelease(range) {
+  const floor = /^\^(\d+\.\d+\.\d+)$/.exec(range)?.[1]
+  if (!floor) throw new Error(`Expected a caret range for genie-react's zod, found ${range}`)
+  return floor
 }
 
 function selectedProfiles(argv) {
@@ -60,10 +76,12 @@ function packRuntime(directory) {
 
 function writeConsumer(directory, profile, versions, tarball) {
   mkdirSync(join(directory, 'src'), { recursive: true })
+  const runtimeZod = RUNTIME_ZOD[profile]
   writeJson(join(directory, 'package.json'), {
     name: `genie-compatibility-${profile}`,
     private: true,
     type: 'module',
+    ...(runtimeZod ? { overrides: { 'genie-react': { zod: runtimeZod } } } : {}),
   })
   writeFileSync(
     join(directory, 'index.html'),
@@ -285,7 +303,9 @@ process.stdout.write(
   const dependencies = [
     tarball,
     ...Object.entries(versions).map(([name, version]) => `${name}@${version}`),
-    `typescript@${TYPESCRIPT_VERSION}`,
+    ...Object.entries(TYPESCRIPT_COMPILERS).map(
+      ([alias, version]) => `${alias}@npm:typescript@${version}`,
+    ),
     ...Object.entries(REACT_TYPE_PROFILES[profile]).map(([name, version]) => `${name}@${version}`),
   ]
   execFileSync(
@@ -315,10 +335,10 @@ function assertInstalledVersions(directory, expected) {
 function verifyConsumer(directory) {
   execFileSync(process.execPath, ['verify-imports.mjs'], { cwd: directory, stdio: 'inherit' })
   execFileSync(process.execPath, ['verify-vite-zod.mjs'], { cwd: directory, stdio: 'inherit' })
-  execFileSync(process.execPath, [join(directory, 'node_modules/typescript/bin/tsc'), '--noEmit'], {
-    cwd: directory,
-    stdio: 'inherit',
-  })
+  for (const alias of Object.keys(TYPESCRIPT_COMPILERS)) {
+    const tsc = join(directory, 'node_modules', alias, 'bin/tsc')
+    execFileSync(process.execPath, [tsc, '--noEmit'], { cwd: directory, stdio: 'inherit' })
+  }
   execFileSync(process.execPath, [join(directory, 'node_modules/vite/bin/vite.js'), 'build'], {
     cwd: directory,
     stdio: 'inherit',
@@ -339,14 +359,22 @@ try {
     writeConsumer(directory, profile, versions, tarball)
     assertInstalledVersions(directory, {
       ...versions,
-      typescript: TYPESCRIPT_VERSION,
+      ...TYPESCRIPT_COMPILERS,
       ...REACT_TYPE_PROFILES[profile],
     })
+    if (RUNTIME_ZOD[profile]) {
+      assertInstalledVersions(join(directory, 'node_modules/genie-react'), {
+        zod: RUNTIME_ZOD[profile],
+      })
+    }
     verifyConsumer(directory)
     process.stdout.write(
-      `Compatibility ${profile} passed on Node ${process.version}: ${Object.entries(versions)
+      `Compatibility ${profile} passed on Node ${process.version}: ${Object.entries({
+        ...versions,
+        ...TYPESCRIPT_COMPILERS,
+      })
         .map(([name, version]) => `${name}@${version}`)
-        .join(', ')}\n`,
+        .join(', ')}${RUNTIME_ZOD[profile] ? `, genie-react's zod@${RUNTIME_ZOD[profile]}` : ''}\n`,
     )
   }
 } finally {
