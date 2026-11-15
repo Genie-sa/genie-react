@@ -287,7 +287,8 @@ agent-browser snapshot ref names.
 **Input:** pass exactly one of `selector`, `ref`, or `box`. `ref` is an agent-browser snapshot ref
 such as `@e12`. The CLI reads that element's box and innerHTML with `agent-browser get box` and
 `get html` in the session that shows the targeted tab, and sends them as `box`. Other callers pass
-`box` (`x`, `y`, `width`, `height` in viewport CSS pixels, plus an optional `html`) themselves. A box
+`box` themselves, which requires `x`, `y`, `width` and `height` in viewport CSS pixels and takes an
+optional `html`. A box
 matches the elements whose `getBoundingClientRect()` equals it, innermost first; `html` keeps only
 the one with that innerHTML when a wrapper or an overlay shares the box. Read the box again after the
 page scrolls or reflows. `limit` is an integer from 1 to 20 and defaults to 5.
