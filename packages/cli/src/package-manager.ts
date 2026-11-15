@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 
 export type PackageManager = 'npm' | 'pnpm' | 'yarn-berry' | 'yarn-classic' | 'bun'
 
@@ -30,17 +30,19 @@ const COMMANDS: Record<PackageManager, PackageManagerCommands> = {
 
 /** Lockfile walk-up so a monorepo app dir reports the repo's real package manager. */
 export function detectPackageManager(cwd: string): PackageManager {
-  let dir = cwd
-  while (true) {
+  const found = findLockfile(cwd)
+  if (!found) return DEFAULT_PACKAGE_MANAGER
+  if (found.manager !== 'yarn') return found.manager
+  return isYarnClassicLockfile(found.path) ? 'yarn-classic' : 'yarn-berry'
+}
+
+function findLockfile(cwd: string): { manager: PackageManager | 'yarn'; path: string } | null {
+  for (let dir = cwd; ; dir = dirname(dir)) {
     for (const [manager, files] of LOCKFILES) {
       const lockfile = files.find((file) => existsSync(join(dir, file)))
-      if (!lockfile) continue
-      if (manager !== 'yarn') return manager
-      return isYarnClassicLockfile(join(dir, lockfile)) ? 'yarn-classic' : 'yarn-berry'
+      if (lockfile) return { manager, path: join(dir, lockfile) }
     }
-    const parent = dirname(dir)
-    if (parent === dir) return DEFAULT_PACKAGE_MANAGER
-    dir = parent
+    if (dirname(dir) === dir) return null
   }
 }
 
@@ -63,6 +65,22 @@ export function genieCommand(
 ): { command: string; argv: string[] } {
   const argv = [...packageManagerCommands(cwd).exec, 'genie-react', ...args]
   return { command: argv.map(shellQuote).join(' '), argv }
+}
+
+/** The installed CLI binary nearest to `cwd` within the project, as a path from `cwd`; the lockfile's directory bounds the search so a binary from another project is never chosen. */
+function installedGenieBin(cwd: string): string | null {
+  const projectRoot = dirname(findLockfile(cwd)?.path ?? join(cwd, 'package.json'))
+  for (let dir = cwd; ; dir = dirname(dir)) {
+    const bin = join(dir, 'node_modules', '.bin', 'genie-react')
+    if (existsSync(bin)) return relative(cwd, bin)
+    if (dir === projectRoot || dirname(dir) === dir) return null
+  }
+}
+
+/** What the installed skill runs: the project's binary when one is installed, since a package-manager wrapper adds 10–350 ms to every command; Windows shells and Yarn Plug'n'Play installs, which have no runnable `.bin` path, keep the exec command. */
+export function skillInvocation(cwd: string): string {
+  const bin = process.platform === 'win32' ? null : installedGenieBin(cwd)
+  return bin ?? genieCommand([], cwd).command
 }
 
 function shellQuote(value: string): string {

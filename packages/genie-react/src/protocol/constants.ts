@@ -30,6 +30,8 @@ export const DEFAULT_MAX_ENTRIES = 100
 
 export type ConnectionRole = 'app' | 'agent'
 export const ROLE_QUERY_PARAM = 'role'
+/** An agent that connects with `tools=none` gets `bridge/status` frames with an empty `tools` list; one-shot CLI commands skip decoding a catalog they never read. */
+export const AGENT_TOOLS_QUERY_PARAM = 'tools'
 
 export const RENDER_INPUT_SCAN_TRUNCATED = 'render-input-scan-truncated'
 export const RENDER_PROPS_NOT_ENUMERATED = 'render-props-not-enumerated'

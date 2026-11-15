@@ -1,10 +1,11 @@
-import type { Dirent } from 'node:fs'
-import { access, readdir, readFile, unlink } from 'node:fs/promises'
+import { type Dirent, readdirSync } from 'node:fs'
+import { access, readFile, unlink } from 'node:fs/promises'
 import { basename, dirname, join, relative } from 'node:path'
 import { agentTokenFile, readAgentToken, readAgentTokenFile } from 'genie-react/hub/token'
 import { GENIE_DEFAULT_HUB_PORT, GENIE_DISCOVERY_FILE, GENIE_WS_PATH } from 'genie-react/protocol'
 import { writeDiagnostic } from './cli-output'
 import { isRecord } from './guards'
+import { markPhase } from './phase'
 
 /** ESRCH/ERANGE mean the process is gone; EPERM means alive but owned by another user. */
 export function isPidAlive(pid: number): boolean {
@@ -181,12 +182,15 @@ export function isTokenTransportSafe(url: string): boolean {
 
 // `.genie/bridge.json` sits in the app root, whose realpath keys the private token file.
 async function tokenFor(discovery: LocatedDiscovery): Promise<string | undefined> {
+  markPhase('token:start')
   const root = dirname(dirname(discovery.file))
   const recorded =
     discovery.tokenFile !== undefined && (await isTokenFileFor(discovery.tokenFile, root))
       ? await readAgentTokenFile(discovery.tokenFile)
       : undefined
-  return recorded ?? readAgentToken(root)
+  const token = recorded ?? (await readAgentToken(root))
+  markPhase('token:end')
+  return token
 }
 
 /** The hub may run with another TMPDIR, so its recorded path is honored, but only when it names this root's token in a per-user Genie directory; anything else could pair this root with another hub's token. */
@@ -259,32 +263,34 @@ async function readDiscoveryUpward(startDir: string): Promise<LocatedDiscovery |
 async function readWorkspaceDiscoveries(cwd: string): Promise<LocatedDiscovery[]> {
   if (!(await hasAnyFile(cwd, DISCOVERY_ROOT_MARKERS))) return []
   const found: LocatedDiscovery[] = []
+  for (const file of discoveryFilesBelow(cwd)) {
+    const discovery = await readLiveDiscovery(file, cwd)
+    if (discovery) found.push({ file, url: discovery.url, tokenFile: discovery.tokenFile })
+  }
+  const unique = new Map<string, LocatedDiscovery>()
+  for (const discovery of found) unique.set(discovery.url, discovery)
+  return [...unique.values()].sort((a, b) => a.file.localeCompare(b.file))
+}
 
-  const visit = async (dir: string, depth: number): Promise<void> => {
+/** Depth-first in readdir order; synchronous because the CLI has nothing to overlap with, and a thread-pool round trip per directory made a large workspace cost tens of milliseconds. */
+function discoveryFilesBelow(root: string): string[] {
+  const files: string[] = []
+  const visit = (dir: string, depth: number): void => {
     if (depth > MAX_DISCOVERY_DEPTH) return
     let entries: Dirent[]
     try {
-      entries = await readdir(dir, { withFileTypes: true })
+      entries = readdirSync(dir, { withFileTypes: true })
     } catch {
       return
     }
     for (const entry of entries) {
       if (!entry.isDirectory() || entry.isSymbolicLink()) continue
-      if (entry.name === '.genie') {
-        const file = join(dir, entry.name, 'bridge.json')
-        const discovery = await readLiveDiscovery(file, cwd)
-        if (discovery) found.push({ file, url: discovery.url, tokenFile: discovery.tokenFile })
-        continue
-      }
-      if (IGNORED_DISCOVERY_DIRS.has(entry.name)) continue
-      await visit(join(dir, entry.name), depth + 1)
+      if (entry.name === '.genie') files.push(join(dir, entry.name, 'bridge.json'))
+      else if (!IGNORED_DISCOVERY_DIRS.has(entry.name)) visit(join(dir, entry.name), depth + 1)
     }
   }
-
-  await visit(cwd, 0)
-  const unique = new Map<string, LocatedDiscovery>()
-  for (const discovery of found) unique.set(discovery.url, discovery)
-  return [...unique.values()].sort((a, b) => a.file.localeCompare(b.file))
+  visit(root, 0)
+  return files
 }
 
 async function hasAnyFile(cwd: string, names: readonly string[]): Promise<boolean> {

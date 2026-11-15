@@ -12,7 +12,7 @@ Genie reads runtime evidence from a running app. Use agent-browser (web) or agen
 
 Commands print compact text that keeps every field of the result under its JSON name. Quoted strings are app data. `each: {…}` holds fields every item below it shares, `← kind evidence name` is one render cause with its evidence grade, and `$ …` is a command to run. Add `--json` only when a script parses the output.
 
-Run commands from the app folder exactly as written. They use this project's package manager; in another project, replace the prefix before `genie-react` with its exec command (`npx`, `pnpm exec`, `yarn`, `yarn --silent` on Yarn 1, or `bunx`).
+Run commands from the app folder exactly as written. They call the CLI installed in this project. In another project, call its `node_modules/.bin/genie-react`, which starts fastest, or put the package manager's exec command before `genie-react` (`npx`, `pnpm exec`, `yarn`, `yarn --silent` on Yarn 1, or `bunx`). An exec command adds 10–350 ms to every call; Yarn Plug'n'Play installs have no `.bin` and need `yarn`.
 
 ## 1. Open the app, then connect
 
@@ -72,6 +72,12 @@ npx genie-react call react_render_causes '{"component":"CheckoutRow","limit":20}
 ```
 
 Render reports default to a compact `summary` view; pass `"view":"full"` for input values, diffs, behavior assessment, or detailed source provenance. Require `outcome: "idle"` from quiescence; it covers React commits only. The adaptive budget starts sized to the mounted tree. When `coverage.budgetAdvice` is present, a limit skipped work: clear again with its `suggestedBudget` and repeat the action. For request timing, start a timeline before the action, then stop it and read every page. This step is complete when the UI outcome is observed and the capture ended with usable coverage. A timeout or unavailable collector means the measurement is incomplete.
+
+Each command starts a process and opens a connection to the hub. Read results you need from the same moment in one `batch`: its calls run in order over one connection, and a failed call does not stop the rest.
+
+```bash
+npx genie-react batch '[{"tool":"react_render_causes","args":{"component":"CheckoutRow","limit":20}},{"tool":"query_list","args":{"limit":10}}]' --session my-agent
+```
 
 ## 4. Decide what the evidence supports
 

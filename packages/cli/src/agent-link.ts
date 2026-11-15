@@ -1,5 +1,6 @@
 import './ws-env'
 import {
+  AGENT_TOOLS_QUERY_PARAM,
   type AgentBoundMessage,
   type AgentErrorCode,
   type AgentToolContract,
@@ -19,6 +20,7 @@ import {
   type ToolOutput,
 } from 'genie-react/protocol'
 import { WebSocket } from 'ws'
+import { markPhase } from './phase'
 
 export interface GenieAgentLinkOptions {
   /** Bridge URL, or a resolver re-invoked on every (re)connect so the link self-heals when the URL changes. */
@@ -35,6 +37,8 @@ export interface GenieAgentLinkOptions {
   failFastOnRefused?: boolean
   /** This client's release; a hub from another release line, or one that does not report its version, is refused. */
   clientVersion?: string
+  /** Receive the tool catalog in status frames (default true); a caller that never reads `getStatus().tools` passes false and gets an empty list. */
+  toolCatalog?: boolean
 }
 
 /** Grace added on top of a per-call `timeoutMs` so the bridge's typed answer (timeout/busy) wins the race with the link's own guard. */
@@ -194,6 +198,7 @@ export class GenieAgentLink {
   private readonly sessionId: string | undefined
   private readonly failFastOnRefused: boolean
   private readonly clientVersion: string | undefined
+  private readonly toolCatalog: boolean
   private readonly pending = new Map<string, Pending>()
   private readonly openWaiters = new Set<OpenWaiter>()
   private ws: WebSocket | null = null
@@ -218,6 +223,7 @@ export class GenieAgentLink {
     this.sessionId = options.sessionId
     this.failFastOnRefused = options.failFastOnRefused ?? false
     this.clientVersion = options.clientVersion
+    this.toolCatalog = options.toolCatalog ?? true
   }
 
   start(): void {
@@ -226,6 +232,13 @@ export class GenieAgentLink {
   }
 
   getStatus(): BridgeStatusMessage | null {
+    return this.status
+  }
+
+  /** Resolves with the hub's greeting status once the link is open, so a caller can act on it before its first call. */
+  async connected(): Promise<BridgeStatusMessage> {
+    await this.ensureConnection()
+    if (this.status === null) throw new Error('bridge connection closed before it was ready')
     return this.status
   }
 
@@ -283,6 +296,7 @@ export class GenieAgentLink {
           timeoutMs: options.timeoutMs,
         }),
       )
+      markPhase('call:sent')
     })
   }
 
@@ -321,12 +335,15 @@ export class GenieAgentLink {
     }
 
     this.currentUrl = url
-    const ws = new WebSocket(`${url}?role=agent`, {
+    const query = new URLSearchParams({ role: 'agent' })
+    if (!this.toolCatalog) query.set(AGENT_TOOLS_QUERY_PARAM, 'none')
+    const ws = new WebSocket(`${url}?${query}`, {
       headers: this.token ? { authorization: `Bearer ${this.token}` } : {},
     })
     this.ws = ws
     this.connecting = false
     ws.on('open', () => {
+      markPhase('socket:open')
       this.rejection = null
       this.log(`connected to bridge at ${url}`)
     })
@@ -380,6 +397,7 @@ export class GenieAgentLink {
     if (message.kind === 'bridge/result') {
       const pending = this.pending.get(message.id)
       if (!pending) return
+      markPhase('call:answered')
       clearTimeout(pending.timer)
       this.pending.delete(message.id)
       if (message.ok) {
@@ -419,6 +437,7 @@ export class GenieAgentLink {
       this.ws?.terminate()
       return
     }
+    markPhase('hub:ready')
     this.flushOpenWaiters()
   }
 

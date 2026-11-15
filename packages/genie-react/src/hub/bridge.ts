@@ -2,6 +2,7 @@ import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { WebSocket } from 'ws'
 import {
+  AGENT_TOOLS_QUERY_PARAM,
   type AgentErrorCode,
   type AgentMessage,
   type AgentToolContract,
@@ -246,6 +247,10 @@ function legacyQueryMatches(query: Record<string, unknown>, name: string): boole
 }
 
 /** A session's full catalog: its advertised tools plus the bridge-answered meta tools, so listings and toolCount agree. */
+function statusFrame(status: BridgeStatus, withTools: boolean) {
+  return { kind: 'bridge/status' as const, ...status, ...(withTools ? {} : { tools: [] }) }
+}
+
 function catalogOf(session: AppSession | null | undefined): ToolDescriptor[] {
   return [...(session?.tools ?? []), ...metaToolDescriptors]
 }
@@ -272,6 +277,7 @@ function unrefTimer(timer: ReturnType<typeof setInterval>): void {
 export class GenieBridge {
   private readonly wss = new ws.WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES })
   private readonly agents = new Set<WebSocket>()
+  private readonly agentsWithoutTools = new WeakSet<WebSocket>()
   private readonly pending = new Map<string, PendingRequest>()
   private readonly connectionWaiters = new Set<() => void>()
   private readonly requestTimeoutMs: number
@@ -356,14 +362,16 @@ export class GenieBridge {
 
   /** Returns `false` for non-{@link GENIE_WS_PATH} upgrades so another listener (e.g. Vite HMR) can handle them. */
   handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): boolean {
-    if (new URL(request.url ?? '/', 'http://localhost').pathname !== GENIE_WS_PATH) return false
+    const url = new URL(request.url ?? '/', 'http://localhost')
+    if (url.pathname !== GENIE_WS_PATH) return false
     const verdict = this.upgradePolicy.authorize(request)
     if (!verdict.ok) {
       this.log('warn', `rejected connection: ${verdict.reason}`)
       rejectUpgrade(socket, verdict.status, verdict.reason)
       return true
     }
-    this.wss.handleUpgrade(request, socket, head, (ws) => this.onConnection(ws, verdict))
+    const withTools = url.searchParams.get(AGENT_TOOLS_QUERY_PARAM) !== 'none'
+    this.wss.handleUpgrade(request, socket, head, (ws) => this.onConnection(ws, verdict, withTools))
     return true
   }
 
@@ -649,6 +657,7 @@ export class GenieBridge {
   private onConnection(
     socket: WebSocket,
     { role, origin, originUnverified }: Extract<UpgradeVerdict, { ok: true }>,
+    withTools: boolean,
   ): void {
     const connection: Connection = { socket, role }
     if (origin !== undefined) {
@@ -656,7 +665,7 @@ export class GenieBridge {
     }
     this.connections.add(socket)
     this.responsiveSockets.add(socket)
-    if (role === 'agent') this.registerAgent(socket)
+    if (role === 'agent') this.registerAgent(socket, withTools)
     socket.on('message', (data) => this.onMessage(connection, data.toString()))
     socket.on('pong', () => this.responsiveSockets.add(socket))
     socket.on('close', () => this.onClose(connection))
@@ -694,9 +703,10 @@ export class GenieBridge {
     }
   }
 
-  private registerAgent(socket: WebSocket): void {
+  private registerAgent(socket: WebSocket, withTools: boolean): void {
     this.agents.add(socket)
-    this.send(socket, { kind: 'bridge/status', ...this.getStatus() })
+    if (!withTools) this.agentsWithoutTools.add(socket)
+    this.send(socket, statusFrame(this.getStatus(), withTools))
   }
 
   private handleAppMessage(socket: WebSocket, message: AppMessage): void {
@@ -1996,8 +2006,14 @@ export class GenieBridge {
 
   private broadcastStatus(): void {
     if (this.agents.size === 0) return
-    const frame = encodeMessage({ kind: 'bridge/status', ...this.getStatus() })
-    for (const agent of this.agents) if (agent.readyState === ws.WebSocket.OPEN) agent.send(frame)
+    const open = [...this.agents].filter((agent) => agent.readyState === ws.WebSocket.OPEN)
+    const status = this.getStatus()
+    for (const withTools of [true, false]) {
+      const recipients = open.filter((agent) => this.agentsWithoutTools.has(agent) !== withTools)
+      if (recipients.length === 0) continue
+      const frame = encodeMessage(statusFrame(status, withTools))
+      for (const agent of recipients) agent.send(frame)
+    }
   }
 
   private result(
