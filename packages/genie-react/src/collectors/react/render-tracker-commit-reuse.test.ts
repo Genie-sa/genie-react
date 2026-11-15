@@ -50,6 +50,7 @@ import {
   disposeRenderTracking,
   getAnalysisFailedFiberCount,
   getDroppedPendingUnmountFiberCount,
+  getPausedCommitCount,
   getPendingUnmountFiberCount,
   getRenders,
   getRendersMeasurement,
@@ -105,7 +106,7 @@ beforeEach(() => {
 afterEach(() => disposeRenderTracking())
 
 describe('paused commits on a root Bippy has already traversed', () => {
-  it('skip the baseline walk, count as unanalyzed, and leave the next recorded commit intact', async () => {
+  it('skip the baseline walk, count as paused, and leave the next recorded commit intact', async () => {
     const root = rootWithComponent('Counter')
     commit(root)
     stopRenderTracking()
@@ -114,7 +115,8 @@ describe('paused commits on a root Bippy has already traversed', () => {
     commit(root)
 
     expect(harness.traverse).toHaveBeenCalledTimes(1)
-    expect(getAnalysisFailedFiberCount()).toBe(3)
+    expect(getPausedCommitCount()).toBe(3)
+    expect(getAnalysisFailedFiberCount()).toBe(0)
 
     startRenderTracking()
     commit(root)
@@ -122,6 +124,17 @@ describe('paused commits on a root Bippy has already traversed', () => {
     expect(await getRenders({ sort: 'renders', limit: 10 })).toMatchObject([
       { name: 'Counter', renders: 2 },
     ])
+  })
+
+  it('still walk a paused commit whose root reports a caught error, so the catch log keeps it', () => {
+    const root = rootWithComponent('Checkout')
+    commit(root)
+    stopRenderTracking()
+    commit(root)
+    Object.assign(root.current, { subtreeFlags: 0b1000_0000 })
+    commit(root)
+
+    expect(harness.traverse).toHaveBeenCalledTimes(2)
   })
 
   it('still walk a root first committed while paused, so Bippy records its baseline', () => {

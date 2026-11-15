@@ -43,6 +43,8 @@ export interface RenderTrackingCoverage {
   skippedCommitFibers: number
   droppedUnmountFibers: number
   analysisFailedFibers: number
+  /** Commits after profiling paused: outside the measured window, so counts read now miss them. */
+  pausedCommits: number
   truncatedInputFibers: number
   propsNotEnumeratedFibers: number
   budgetExhaustedCommits: number
@@ -86,6 +88,7 @@ export function buildRenderTrackingCoverage(
     input.skippedCommitFibers === 0 &&
     input.droppedUnmountFibers === 0 &&
     input.analysisFailedFibers === 0 &&
+    input.pausedCommits === 0 &&
     input.budgetExhaustedCommits === 0
   const inputAttributionComplete =
     measurementComplete && input.truncatedInputFibers === 0 && input.propsNotEnumeratedFibers === 0
@@ -116,6 +119,7 @@ export function renderEvidenceComparability(
   if (coverage.skippedCommitFibers > 0) reasons.push('skipped-commit-fibers')
   if (coverage.droppedUnmountFibers > 0) reasons.push('dropped-unmount-fibers')
   if (coverage.analysisFailedFibers > 0) reasons.push('fiber-analysis-failed')
+  if (coverage.pausedCommits > 0) reasons.push('commits-after-profile-stop')
   if (coverage.truncatedInputFibers > 0) reasons.push(RENDER_INPUT_SCAN_TRUNCATED)
   if (coverage.propsNotEnumeratedFibers > 0) reasons.push(RENDER_PROPS_NOT_ENUMERATED)
   if (coverage.budgetExhaustedCommits > 0) reasons.push('commit-analysis-budget-exhausted')

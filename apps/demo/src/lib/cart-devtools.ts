@@ -1,4 +1,5 @@
 import { EventClient } from "@tanstack/devtools-event-client"
+import { BUS_RECONNECT_MS } from "./devtools-bus"
 
 export interface CartItem {
   id: string
@@ -12,7 +13,7 @@ interface CartEventMap {
 
 class CartDevtoolsClient extends EventClient<CartEventMap> {
   constructor() {
-    super({ pluginId: "cart-devtools" })
+    super({ pluginId: "cart-devtools", reconnectEveryMs: BUS_RECONNECT_MS })
   }
 }
 

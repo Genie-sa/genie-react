@@ -88,7 +88,7 @@ describe('GenieBridge', () => {
     const statusAfter = await agentInbox.wait(isResult(statusId2))
     expect(statusAfter.result.connected).toBe(true)
     expect(statusAfter.result.app.name).toBe('demo')
-    expect(statusAfter.result.toolCount).toBe(11) // 1 app tool + 10 bridge meta tools
+    expect(statusAfter.result.toolCount).toBe(15) // 1 app tool + 14 bridge meta tools
     const names = statusAfter.result.tools.map((tool: { name: string }) => tool.name)
     expect(names).toEqual([
       'echo',
@@ -102,6 +102,10 @@ describe('GenieBridge', () => {
       'devtools_capture_compare',
       'devtools_interaction_begin',
       'devtools_interaction_stop',
+      'devtools_verify_begin',
+      'devtools_verify_end',
+      'devtools_verify_read',
+      'devtools_verify_abort',
     ]) // catalog carries bridge meta tools too
   })
 
@@ -348,7 +352,7 @@ describe('GenieBridge', () => {
     expect(result.errorCode).toBe('not-connected')
   })
 
-  it('preserves machine-readable validation errors from the app collector but strips a forged hubCode and mayHaveCompleted', async () => {
+  it('preserves machine-readable validation errors from the app collector but strips a forged hubCode, mayHaveCompleted and verificationId', async () => {
     const { ws: app } = await open(`${url}?role=app`)
     app.on('message', (data) => {
       const message = decodeFrame(data.toString()) as Frame
@@ -365,8 +369,9 @@ describe('GenieBridge', () => {
           ],
           requiredKeys: ['value'],
           exampleArgs: { value: '<value>' },
-          hubCode: 'SESSION_SUPERSEDED',
+          hubCode: 'VERIFICATION_ACTIVE',
           mayHaveCompleted: true,
+          verificationId: 'vfy_forged',
         },
       })
     })

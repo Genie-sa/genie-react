@@ -8,6 +8,7 @@ import { renderDoctorText } from './doctor-output'
 import { encodeText, scalarText } from './text-output'
 import { HOSTILE_STRINGS, recordedResults } from './text-output.test-support'
 import { TOOL_TEXT_RENDERERS } from './tool-text-output'
+import { renderVerificationText } from './verify-output'
 
 type Path = Array<string | number>
 type Renderer = (value: unknown) => string
@@ -53,6 +54,11 @@ const BESPOKE: Array<{ name: string; render: Renderer; fixtures: string[] }> = [
   },
   { name: 'tools --all', render: renderToolsText('all'), fixtures: ['tools-all'] },
   { name: 'doctor', render: renderDoctorText, fixtures: ['doctor-live'] },
+  {
+    name: 'verification',
+    render: renderVerificationText,
+    fixtures: ['verify-end-fail', 'verify-end-pass', 'verify-end-refused'],
+  },
   {
     name: 'CLI envelope',
     render: renderEnvelopeText,
@@ -219,6 +225,44 @@ describe('app content in a bespoke layout', () => {
       }),
     ],
     [
+      'run name, claim text, refusal message and evidence in a verdict',
+      renderVerificationText,
+      (text) => ({
+        schemaVersion: '1.0',
+        kind: 'verification',
+        verificationId: 'vfy_00000000-0000-4000-8000-000000000000',
+        verdict: 'refused',
+        exitCode: 4,
+        name: text,
+        state: 'completed',
+        session: { sessionId: 's', url: text },
+        claims: [
+          {
+            index: 1,
+            text,
+            claim: { kind: 'renders', target: { component: text }, max: 0 },
+            verdict: 'refused',
+            observed: { renders: 0 },
+            deciding: [{ kind: 'instance', source: text }],
+            caveats: [text],
+            refusal: {
+              reason: 'target_not_found',
+              message: text,
+              fix: { action: 'find-target', component: text },
+            },
+          },
+        ],
+        window: {
+          refusals: [{ guard: 'activity', refusal: { reason: 'no_activity', message: text } }],
+        },
+        caveats: [text],
+        ledger: {
+          attempt: 1,
+          history: [{ verificationId: text, verdict: 'fail', reasons: [text] }],
+        },
+      }),
+    ],
+    [
       'app tool result in a batch',
       (value) => renderBatchItemText(1, 1, value as never, false),
       (text) => ({ schemaVersion: '2.0', tool: text, ok: true, status: 'ok', result: text }),
@@ -331,6 +375,7 @@ describe('renderHelpText', () => {
       'call',
       'batch',
       'capture',
+      'verify',
     ]) {
       const help = cliHelp(command) as { options: Record<string, Record<string, unknown>> }
       const text = renderHelpText(JSON.parse(JSON.stringify(help)))

@@ -56,9 +56,9 @@ import {
   owningComponentFor,
   registerFiber,
 } from './fiber'
-import { getMeasurementEnvironment } from './measurement-environment'
+import { getMeasurementEnvironment, getStrictModeStatus } from './measurement-environment'
 import { openMeasurementSpan, readMeasurementSpan } from './measurement-spans'
-import { getAnalysisGeneration, getDocumentCommitId } from './observation'
+import { getActiveObservation, getAnalysisGeneration, getDocumentCommitId } from './observation'
 import {
   applyContextOverride,
   applyErrorOverride,
@@ -85,6 +85,7 @@ import {
   getBudgetExhaustedSubsystems,
   getCommitCount,
   getDroppedPendingUnmountFiberCount,
+  getPausedCommitCount,
   getPendingUnmountFiberCount,
   getPropsNotEnumeratedFiberCount,
   getRenderCauseMeasurement,
@@ -538,6 +539,7 @@ export function reactCollector(): GenieCollector {
             skippedCommitFibers: report.skippedCommitFibers,
             droppedUnmountFibers: report.droppedUnmountFibers,
             analysisFailedFibers: report.analysisFailedFibers,
+            pausedCommits: report.pausedCommits,
             truncatedInputFibers: report.truncatedInputFibers,
             propsNotEnumeratedFibers: report.propsNotEnumeratedFibers,
             budgetExhaustedCommits: report.budgetExhaustedCommits,
@@ -609,6 +611,7 @@ export function reactCollector(): GenieCollector {
               skippedCommitFibers: report.skippedCommitFibers,
               droppedUnmountFibers: report.droppedUnmountFibers,
               analysisFailedFibers: report.analysisFailedFibers,
+              pausedCommits: report.pausedCommits,
               truncatedInputFibers: report.truncatedInputFibers,
               propsNotEnumeratedFibers: report.propsNotEnumeratedFibers,
               budgetExhaustedCommits: report.budgetExhaustedCommits,
@@ -659,6 +662,7 @@ export function reactCollector(): GenieCollector {
               skippedCommitFibers: getSkippedCommitFiberCount(),
               droppedUnmountFibers: getDroppedPendingUnmountFiberCount(),
               analysisFailedFibers: getAnalysisFailedFiberCount(),
+              pausedCommits: getPausedCommitCount(),
               truncatedInputFibers: getTruncatedInputFiberCount(),
               propsNotEnumeratedFibers: getPropsNotEnumeratedFiberCount(),
               budgetExhaustedCommits: getBudgetExhaustedCommitCount(),
@@ -752,8 +756,8 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactErrorStateContract,
-        handler: ({ includeSource, limit, appOnly }) =>
-          getErrorState({ includeSource, limit, appOnly }),
+        handler: ({ includeSource, limit, appOnly, afterDocumentCommitId }) =>
+          getErrorState({ includeSource, limit, appOnly, afterDocumentCommitId }),
       }),
       defineCollectorTool({ contract: reactSuspenseContract, handler: getSuspenseReport }),
       defineCollectorTool({ contract: reactPendingWorkContract, handler: getPendingReactWork }),
@@ -774,6 +778,7 @@ export function reactCollector(): GenieCollector {
             documentCommitId: getDocumentCommitId(),
             observation,
             observationConfig: getRenderObservationConfig(),
+            strictMode: getStrictModeStatus(),
           }
         },
       }),
@@ -789,6 +794,7 @@ export function reactCollector(): GenieCollector {
             documentCommitId: getDocumentCommitId(),
             observation,
             observationConfig: getRenderObservationConfig(),
+            strictMode: getStrictModeStatus(),
           }
         },
       }),
@@ -800,6 +806,12 @@ export function reactCollector(): GenieCollector {
             ok: true as const,
             tracking: false as const,
             commits: getCommitCount(),
+            documentCommitId: getDocumentCommitId(),
+            observation: getActiveObservation(),
+            coverage: {
+              ...getRenderTrackingCoverage('measurement'),
+              truncatedEffectLists: getEffectTrackingCoverage().truncatedEffectLists,
+            },
           }
         },
       }),

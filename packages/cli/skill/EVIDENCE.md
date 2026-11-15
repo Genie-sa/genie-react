@@ -11,6 +11,8 @@ Load this reference before interpreting coverage, comparing performance, reporti
 
 ## 2. Decide what the evidence supports
 
+`verify` applies these rules itself: it passes only on exact, complete evidence and refuses with a named fix otherwise. The rules below are for reading evidence by hand.
+
 - `exact` supports only the runtime link it describes. `inferred` is a lead, and `unknown` leaves the question open.
 - `lower-bound` counts can omit work. Check coverage before interpreting an empty result or a smaller count.
 - Require complete input attribution before classifying a render as unnecessary. A timing report can be complete while causes remain partial.
@@ -31,7 +33,7 @@ Pin captures while collecting cohorts. Export important evidence with `capture e
 
 ## 4. Read output and recover
 
-The CLI prints compact text by default, including help and setup receipts; `--json` prints the JSON documents with the same field names. Tool results keep their own fields. Diagnostics are `! reason: message` lines on stderr. Inspect both the exit code and the result; `--fail-on-result-error` makes supported wait failures exit nonzero. Text omits only what its layout states: the CLI's `schemaVersion`, field names given by position (such as `name #id`), and a tree node's `parentId`, given by its indentation. `null`, `false`, `0`, and empty lists are always printed and are evidence.
+The CLI prints compact text by default, including help and setup receipts; `--json` prints the JSON documents with the same field names. Tool results keep their own fields. Diagnostics are `! reason: message` lines on stderr. Inspect both the exit code and the result; `--fail-on-result-error` makes supported wait failures exit nonzero. `verify` exits with its verdict, and every failure carries `exit`, the code its command will use once all commands share the verify exit codes. Text omits only what its layout states: the CLI's `schemaVersion`, field names given by position (such as `name #id`), and a tree node's `parentId`, given by its indentation. `null`, `false`, `0`, and empty lists are always printed and are evidence.
 
 `call --fields` prints one row per record, and empty collections print nothing. `batch` prints each result under a `[n/total] tool ok` or `[n/total] tool error <reason>: …` header; `batch --json` returns one array and `batch --ndjson` JSONL.
 

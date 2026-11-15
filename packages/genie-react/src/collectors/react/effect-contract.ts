@@ -13,6 +13,7 @@ const effectCoverageSchema = z.object({
   skippedCommitFibers: z.number().int().nonnegative(),
   droppedUnmountFibers: z.number().int().nonnegative(),
   analysisFailedFibers: z.number().int().nonnegative(),
+  pausedCommits: z.number().int().nonnegative(),
   truncatedInputFibers: z.number().int().nonnegative(),
   propsNotEnumeratedFibers: z.number().int().nonnegative(),
   truncatedEffectLists: z.number().int().nonnegative(),

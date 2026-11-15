@@ -1,0 +1,191 @@
+{
+  "argv": ["verify", "end", "<id>"],
+  "exitCode": 4,
+  "result": {
+    "schemaVersion": "1.0",
+    "kind": "verification",
+    "verificationId": "vfy_655000b7-3ea5-443a-a247-f1c9b05da391",
+    "verdict": "refused",
+    "exitCode": 4,
+    "name": "nothing happened",
+    "state": "completed",
+    "stage": "end",
+    "session": {
+      "sessionId": "7dab49f8-3785-43a3-a330-82bc289947e1",
+      "logicalSessionId": "6e3df507-6e14-4c51-9708-1d4eccc1e710",
+      "documentGeneration": 3,
+      "sessionName": "verify-e2e",
+      "url": "http://127.0.0.1:53515/?_genie=verify-e2e"
+    },
+    "window": {
+      "observationId": "observation:3",
+      "startDocumentCommitId": 4,
+      "settledDocumentCommitId": 4,
+      "frozenDocumentCommitId": 4,
+      "commits": 0,
+      "settle": {
+        "outcome": "met",
+        "quietMs": 500,
+        "timeoutMs": 10000,
+        "waitedMs": 611,
+        "domains": {
+          "react": "met"
+        }
+      },
+      "tail": {
+        "ms": 500,
+        "commits": 0
+      },
+      "environment": {
+        "bundle": "development",
+        "strictMode": "unknown",
+        "renderCollection": "available",
+        "visibility": "document"
+      },
+      "refusals": [
+        {
+          "guard": "activity",
+          "refusal": {
+            "reason": "no_activity",
+            "message": "No React commit happened in the window; the interaction did not reach this tab or did not change React state.",
+            "evidence": {
+              "startDocumentCommitId": 4,
+              "frozenDocumentCommitId": 4,
+              "commits": 0
+            },
+            "fix": {
+              "action": "drive-observed-tab",
+              "url": "http://127.0.0.1:53515/?_genie=verify-e2e"
+            },
+            "next": {
+              "command": "pnpm exec genie-react verify begin --session verify-e2e --name 'nothing happened' --claim 'render StatusBadge max 0'",
+              "argv": [
+                "pnpm",
+                "exec",
+                "genie-react",
+                "verify",
+                "begin",
+                "--session",
+                "verify-e2e",
+                "--name",
+                "nothing happened",
+                "--claim",
+                "render StatusBadge max 0"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "claims": [
+      {
+        "index": 1,
+        "text": "render StatusBadge max 0",
+        "claim": {
+          "kind": "renders",
+          "target": {
+            "component": "StatusBadge"
+          },
+          "max": 0,
+          "counting": "renders",
+          "allowRemount": false
+        },
+        "verdict": "refused",
+        "observed": {
+          "renders": 0,
+          "mounts": 0,
+          "updates": 0,
+          "remounts": 0,
+          "semantics": "exact",
+          "instances": 1,
+          "activeInstances": 2
+        },
+        "deciding": [],
+        "caveats": [],
+        "refusal": {
+          "reason": "no_activity",
+          "message": "No React commit happened in the window; the interaction did not reach this tab or did not change React state.",
+          "evidence": {
+            "startDocumentCommitId": 4,
+            "frozenDocumentCommitId": 4,
+            "commits": 0
+          },
+          "fix": {
+            "action": "drive-observed-tab",
+            "url": "http://127.0.0.1:53515/?_genie=verify-e2e"
+          },
+          "next": {
+            "command": "pnpm exec genie-react verify begin --session verify-e2e --name 'nothing happened' --claim 'render StatusBadge max 0'",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "verify",
+              "begin",
+              "--session",
+              "verify-e2e",
+              "--name",
+              "nothing happened",
+              "--claim",
+              "render StatusBadge max 0"
+            ]
+          }
+        }
+      }
+    ],
+    "caveats": ["ui-outcome-not-observed"],
+    "ledger": {
+      "fingerprint": "cf_6772e29444e4",
+      "scope": "logical-session",
+      "storage": "memory",
+      "attempt": 1,
+      "history": [],
+      "codeChangedSincePrevious": null,
+      "failsOnSameCode": 0
+    },
+    "evidence": {
+      "retained": true,
+      "tools": [
+        "react_get_renders",
+        "react_list_overrides",
+        "react_refresh_events",
+        "browser_visibility",
+        "react_component_cohort",
+        "react_profile_stop"
+      ]
+    },
+    "startedAt": "2026-11-15T01:38:45.790Z",
+    "endedAt": "2026-11-15T01:38:47.012Z",
+    "request": {
+      "budget": {
+        "fiberLimit": 250,
+        "operationLimit": 20000,
+        "timeLimitMs": 8,
+        "targetOperationReserve": 4000,
+        "targetTimeReserveMs": 4,
+        "adaptive": true
+      },
+      "settle": {
+        "quietMs": 500,
+        "timeoutMs": 10000
+      },
+      "maxDurationMs": 300000,
+      "allowOverrides": false
+    },
+    "next": {
+      "command": "pnpm exec genie-react verify show vfy_655000b7-3ea5-443a-a247-f1c9b05da391 --claim 1 --session verify-e2e",
+      "argv": [
+        "pnpm",
+        "exec",
+        "genie-react",
+        "verify",
+        "show",
+        "vfy_655000b7-3ea5-443a-a247-f1c9b05da391",
+        "--claim",
+        "1",
+        "--session",
+        "verify-e2e"
+      ]
+    }
+  }
+}

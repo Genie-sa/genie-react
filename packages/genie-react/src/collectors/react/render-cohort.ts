@@ -10,6 +10,7 @@ import {
   wasInstanceObserved,
   wasInstanceRenderUnanalyzed,
 } from './instance-identity'
+import { type RendererBundle, rendererBundleOf } from './measurement-environment'
 import { getActiveObservation, type ObservationWindow } from './observation'
 import { captureReportEpoch, reportAttribution, reportStateMatches } from './report-attribution'
 import {
@@ -62,6 +63,7 @@ export interface RenderCohort {
   unmounted: number
   returned: number
   omittedByLimit: number
+  rendererBundle: RendererBundle | null
   instances: CohortInstance[]
   coverage: {
     complete: boolean
@@ -80,6 +82,7 @@ export interface RenderCohort {
     skippedCommitFibers: number
     droppedUnmountFibers: number
     analysisFailedFibers: number
+    pausedCommits: number
     truncatedInputFibers: number
     propsNotEnumeratedFibers: number
     budgetExhaustedCommits: number
@@ -92,6 +95,8 @@ export interface RenderCoverageGaps {
   skippedCommitFibers: number
   droppedUnmountFibers: number
   analysisFailedFibers: number
+  /** Commits after profiling paused: an instance may have updated unseen, so idle cannot be proven. */
+  pausedCommits?: number
   truncatedInputFibers: number
   propsNotEnumeratedFibers?: number
   budgetExhaustedCommits?: number
@@ -228,6 +233,7 @@ export async function getRenderCohort(
       identityCoverage.droppedTombstones +
       identityCoverage.excludedLifecycleFibers,
     generationHistoryEvictions: identityCoverage.generationHistoryEvictions,
+    pausedCommits: coverageGaps.pausedCommits ?? 0,
     propsNotEnumeratedFibers: coverageGaps.propsNotEnumeratedFibers ?? 0,
     budgetExhaustedCommits: coverageGaps.budgetExhaustedCommits ?? 0,
     budgetExhaustedSubsystems: coverageGaps.budgetExhaustedSubsystems ?? [],
@@ -245,6 +251,7 @@ export async function getRenderCohort(
     identityCoverage.unanalyzedRenderIdentityComplete &&
     effectiveCoverageGaps.droppedUnmountFibers === 0 &&
     effectiveCoverageGaps.analysisFailedFibers === 0 &&
+    effectiveCoverageGaps.pausedCommits === 0 &&
     effectiveCoverageGaps.generationHistoryEvictions === 0
   const complete =
     renderCoverageComplete &&
@@ -348,6 +355,7 @@ export async function getRenderCohort(
     unmounted: unmounted.length,
     returned: instances.length,
     omittedByLimit: Math.max(0, matched - instances.length),
+    rendererBundle: rendererBundleOf(mountedCandidates.map((entry) => entry.fiber)),
     instances,
     coverage: {
       complete: complete && current && (!query.appOnly || ownership.complete),
