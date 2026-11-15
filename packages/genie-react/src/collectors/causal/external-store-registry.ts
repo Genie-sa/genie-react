@@ -64,8 +64,9 @@ export interface QueryNotificationEvent {
   renderEventIds: string[]
 }
 
-interface RetainedQueryNotification extends QueryNotificationEvent {
-  observer: object
+/** Delivery identity is held only while its observer is alive, so the log never retains app data. */
+interface RetainedQueryNotification {
+  event: QueryNotificationEvent
   resultReference: unknown
 }
 
@@ -77,8 +78,8 @@ export interface RouterNotificationEvent {
   renderEventIds: string[]
 }
 
-interface RetainedRouterNotification extends RouterNotificationEvent {
-  store: object
+interface RetainedRouterNotification {
+  event: RouterNotificationEvent
   snapshotReference: unknown
 }
 
@@ -97,8 +98,8 @@ let latestRouterNotifications = new WeakMap<object, RetainedRouterNotification>(
 let registeredQueryObservers = new WeakSet<object>()
 let instrumentedQueryObservers = new WeakMap<object, () => void>()
 let observedQueryTracking = new WeakMap<object, { fields: Set<string>; exact: boolean }>()
-const queryNotifications: RetainedQueryNotification[] = []
-const routerNotifications: RetainedRouterNotification[] = []
+const queryNotifications: QueryNotificationEvent[] = []
+const routerNotifications: RouterNotificationEvent[] = []
 const NOTIFICATION_LIMIT = 1_000
 const FIELD_LIMIT = 50
 
@@ -171,7 +172,7 @@ export function recordQueryNotification(
 ): QueryNotificationEvent {
   queryNotificationSequence += 1
   const fields = changedAndReusedFields(before, after)
-  const event: RetainedQueryNotification = {
+  const event: QueryNotificationEvent = {
     notificationId: `query-notification:${queryNotificationSequence}`,
     observerId: queryObserverId(observer),
     observationId: activeObservationId,
@@ -191,23 +192,21 @@ export function recordQueryNotification(
       truncated: fields.truncated,
     },
     renderEventIds: [],
-    observer,
-    resultReference: after,
   }
-  latestQueryNotifications.set(observer, event)
+  latestQueryNotifications.set(observer, { event, resultReference: after })
   queryNotifications.push(event)
   if (queryNotifications.length > NOTIFICATION_LIMIT) queryNotifications.shift()
   publishEffectConsequence('query-notification', event.notificationId)
-  return publicQueryNotification(event)
+  return safeStructuredClone(event)
 }
 
 export function queryNotificationFor(
   observer: object,
   resultReference: unknown,
 ): QueryNotificationEvent | null {
-  const event = latestQueryNotifications.get(observer)
-  return event && Object.is(event.resultReference, resultReference)
-    ? publicQueryNotification(event)
+  const retained = latestQueryNotifications.get(observer)
+  return retained && Object.is(retained.resultReference, resultReference)
+    ? safeStructuredClone(retained.event)
     : null
 }
 
@@ -216,7 +215,14 @@ export function linkQueryNotificationToRender(
   notificationId: string,
   renderEventId: string,
 ): void {
-  const event = latestQueryNotifications.get(observer)
+  linkRenderEvent(latestQueryNotifications.get(observer)?.event, notificationId, renderEventId)
+}
+
+function linkRenderEvent(
+  event: { notificationId: string; renderEventIds: string[] } | undefined,
+  notificationId: string,
+  renderEventId: string,
+): void {
   if (!event || event.notificationId !== notificationId) return
   if (!event.renderEventIds.includes(renderEventId) && event.renderEventIds.length < FIELD_LIMIT) {
     event.renderEventIds.push(renderEventId)
@@ -231,7 +237,10 @@ export function listQueryNotifications(options: { observerId?: string; limit: nu
     (event) => options.observerId === undefined || event.observerId === options.observerId,
   )
   return {
-    events: matching.slice(-options.limit).reverse().map(publicQueryNotification),
+    events: matching
+      .slice(-options.limit)
+      .reverse()
+      .map((event) => safeStructuredClone(event)),
     omittedByLimit: Math.max(0, matching.length - options.limit),
   }
 }
@@ -428,29 +437,27 @@ export function recordRouterNotification(
 ): RouterNotificationEvent {
   const registration = registeredRouterStore(store) ?? registerRouterStore(store)
   routerNotificationSequence += 1
-  const event: RetainedRouterNotification = {
+  const event: RouterNotificationEvent = {
     notificationId: `router-notification:${routerNotificationSequence}`,
     routerId: registration.routerId,
     observationId: activeObservationId,
     timestamp: Date.now(),
     renderEventIds: [],
-    store,
-    snapshotReference: snapshot,
   }
-  latestRouterNotifications.set(store, event)
+  latestRouterNotifications.set(store, { event, snapshotReference: snapshot })
   routerNotifications.push(event)
   if (routerNotifications.length > NOTIFICATION_LIMIT) routerNotifications.shift()
   publishEffectConsequence('router-notification', event.notificationId)
-  return publicRouterNotification(event)
+  return safeStructuredClone(event)
 }
 
 export function routerNotificationFor(
   store: object,
   snapshotReference: unknown,
 ): RouterNotificationEvent | null {
-  const event = latestRouterNotifications.get(store)
-  return event && Object.is(event.snapshotReference, snapshotReference)
-    ? publicRouterNotification(event)
+  const retained = latestRouterNotifications.get(store)
+  return retained && Object.is(retained.snapshotReference, snapshotReference)
+    ? safeStructuredClone(retained.event)
     : null
 }
 
@@ -459,11 +466,7 @@ export function linkRouterNotificationToRender(
   notificationId: string,
   renderEventId: string,
 ): void {
-  const event = latestRouterNotifications.get(store)
-  if (!event || event.notificationId !== notificationId) return
-  if (!event.renderEventIds.includes(renderEventId) && event.renderEventIds.length < FIELD_LIMIT) {
-    event.renderEventIds.push(renderEventId)
-  }
+  linkRenderEvent(latestRouterNotifications.get(store)?.event, notificationId, renderEventId)
 }
 
 export function externalStoreId(store: object): string {
@@ -473,16 +476,6 @@ export function externalStoreId(store: object): string {
   const created = `external-store:${externalStoreSequence}`
   externalStoreIds.set(store, created)
   return created
-}
-
-function publicQueryNotification(event: RetainedQueryNotification): QueryNotificationEvent {
-  const { observer: _observer, resultReference: _resultReference, ...publicEvent } = event
-  return safeStructuredClone(publicEvent)
-}
-
-function publicRouterNotification(event: RetainedRouterNotification): RouterNotificationEvent {
-  const { store: _store, snapshotReference: _snapshotReference, ...publicEvent } = event
-  return safeStructuredClone(publicEvent)
 }
 
 function changedAndReusedFields(

@@ -28,15 +28,19 @@ npx @genie-react/cli call browser_get_memory '{}' \
   "usedJSHeapSize": 24576000,
   "totalJSHeapSize": 36700160,
   "jsHeapSizeLimit": 4294705152,
-  "note": "Browser JavaScript (V8) heap for the whole page, not React-specific memory. Values are coarsened by the browser for security."
+  "precision": "possibly-quantized",
+  "note": "JavaScript heap reported by the browser, not React-specific memory. Chromium rounds these values into coarse buckets and caches them for up to 20 minutes unless it runs with --enable-precise-memory-info, so an unchanged reading does not show an unchanged heap. Use browser_measure_memory to compare."
 }
 ```
 
-**Agent use:** Record `usedJSHeapSize` before and after the same repeated flow; if either sample is
-unsupported or from a different document, do not claim a memory improvement.
+**Agent use:** Prefer `browser_measure_memory` for before/after comparisons. Compare
+`usedJSHeapSize` across runs only when the browser was launched with
+`--enable-precise-memory-info`; by default Chromium reported the same 10,000,000 bytes before and
+after allocating about 40 MB. If either sample is unsupported or from a different document, do not
+claim a memory improvement.
 
-**Limits:** This is an instantaneous, coarsened reading from non-standard Chromium
-`performance.memory`. It covers the whole page, not one React component. Firefox, Safari,
+**Limits:** This is an instantaneous reading from non-standard Chromium `performance.memory`.
+`precision` is `possibly-quantized` in a browser and `runtime-reported` on React Native. It covers the whole page, not one React component. Firefox, Safari,
 React Native, and runtimes without numeric heap fields return `supported:false` with a note; absent
 fields are not zero. The call creates no subscription and needs no cleanup.
 
@@ -74,8 +78,9 @@ npx @genie-react/cli call browser_measure_memory '{}' \
 when `supported:false`, fall back to `browser_get_memory` and label the weaker evidence.
 
 **Limits:** `performance.measureUserAgentSpecificMemory()` requires a Chromium-based browser and a
-cross-origin-isolated page with COOP `same-origin` and COEP `require-corp`. Sampling can be delayed
-and can return a tool error if the browser rejects it. The total includes all page realms, JS heap,
+cross-origin-isolated page with COOP `same-origin` and COEP `require-corp`. Sampling can be delayed.
+Chromium can expose the method yet refuse it, for example in headless Chromium; the result is then
+`supported:false` with the browser's reason in `note`. The total includes all page realms, JS heap,
 and DOM memory, not one component. The call leaves no ongoing sampler.
 
 ## `browser_fps`

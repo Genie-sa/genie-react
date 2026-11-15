@@ -15,7 +15,7 @@ export interface TimelineCollectorOptions {
 const domainSchema = z.enum(['request', 'query', 'react', 'navigation'])
 const COVERAGE_DETAILS = {
   'resource-timing':
-    'Completed fetch/XHR Resource Timing only; observation time includes delivery delay. Requests started before recording may appear. Failed, unfinished, worker and non-fetch/XHR requests may be absent. Cross-origin detailed timing requires Timing-Allow-Origin. URLs omit credentials, queries and fragments; paths remain.',
+    'Finished fetch/XHR Resource Timing only; observation time includes delivery delay. Requests started before recording may appear. Aborted and failed requests can appear with responseReceived false; an abort after the response headers looks like a response. A redirect chain is one entry under the requested URL with the final status. Unfinished, worker and non-fetch/XHR requests are absent. Cross-origin detailed timing and responseReceived require Timing-Allow-Origin. URLs omit credentials, queries and fragments; paths remain.',
   'resource-timing-flush-failed':
     'Completed fetch/XHR Resource Timing, but the final resource queue flush failed; entries may be missing.',
   'no-resource-timing':
@@ -52,7 +52,7 @@ const eventSchema = z.object({
   details: z
     .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
     .describe(
-      'Times are milliseconds rounded to 0.01. Request: URL without query/fragment/credentials, startMs/endMs relative to recording start, durationMs, detailedTimingAvailable and nullable responseStatus. React: rendererId, nullable renderDurationMs (root actualDuration, not commit wall time) and documentCommitId, which joins react_render_causes events of the same commit (null when render tracking is not installed). Query: bounded queryHash, action, status and fetchStatus. Navigation: from/to pathname, pathChanged and hrefChanged. atMs is observation time; resource completion can be delivered later.',
+      'Times are milliseconds rounded to 0.01. Request: URL without query/fragment/credentials, startMs/endMs relative to recording start, durationMs, detailedTimingAvailable, nullable responseStatus and responseReceived (false: no response arrived, so the request was aborted or failed; null: cross-origin timing hides it). React: rendererId, nullable renderDurationMs (root actualDuration, not commit wall time) and documentCommitId, which joins react_render_causes events of the same commit (null when render tracking is not installed). Query: bounded queryHash, action, status and fetchStatus. Navigation: from/to pathname, pathChanged and hrefChanged. atMs is observation time; resource completion can be delivered later.',
     ),
 })
 const reportSchema = z.object({
@@ -120,6 +120,16 @@ function requestLocation(value: string): string {
     return bounded(`${url.origin}${url.pathname}`)
   } catch {
     return '[unavailable URL]'
+  }
+}
+
+/** Same-origin entries always expose responseStart, so zero there means no response arrived. */
+function responseReceived(entry: PerformanceResourceTiming, status: number | null): boolean | null {
+  if (status !== null || entry.responseStart > 0) return true
+  try {
+    return new URL(entry.name).origin === globalThis.location?.origin ? false : null
+  } catch {
+    return null
   }
 }
 
@@ -250,6 +260,12 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
       ) {
         continue
       }
+      const status =
+        typeof entry.responseStatus === 'number' &&
+        Number.isFinite(entry.responseStatus) &&
+        entry.responseStatus > 0
+          ? entry.responseStatus
+          : null
       append(target, 'request', 'completed', {
         url: requestLocation(entry.name),
         initiatorType: entry.initiatorType,
@@ -259,12 +275,8 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
         startedBeforeRecording: startMs < 0,
         // Zero restricted fields cannot distinguish TAO restrictions from absent timing.
         detailedTimingAvailable: entry.requestStart > 0 && entry.responseStart > 0,
-        responseStatus:
-          typeof entry.responseStatus === 'number' &&
-          Number.isFinite(entry.responseStatus) &&
-          entry.responseStatus > 0
-            ? entry.responseStatus
-            : null,
+        responseStatus: status,
+        responseReceived: responseReceived(entry, status),
       })
     }
   }
@@ -356,11 +368,12 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
         ] as const) {
           target.dispose.push(
             options.router.subscribe(eventType, (event) => {
+              const { pathChanged, hrefChanged }: Partial<typeof event> = event
               append(target, 'navigation', eventType, {
                 from: event.fromLocation ? bounded(event.fromLocation.pathname) : null,
                 to: bounded(event.toLocation.pathname),
-                pathChanged: event.pathChanged,
-                hrefChanged: event.hrefChanged,
+                pathChanged: pathChanged ?? null,
+                hrefChanged: hrefChanged ?? null,
               })
             }),
           )

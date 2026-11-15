@@ -315,10 +315,38 @@ describe('resource timing correlation', () => {
       startedBeforeRecording: false,
       detailedTimingAvailable: false,
       responseStatus: null,
+      responseReceived: null,
     })
     expect(observer.connected).toBe(false)
     observer.deliver([resource()])
     expect(read(collector, recording.id)).toEqual(result)
+  })
+
+  it('marks a same-origin request that got no response, and stays unknown across origins', () => {
+    browser()
+    vi.stubGlobal('location', { origin: 'https://app.test' })
+    const collector = create()
+    const recording = start(collector)
+    observerInstance().queued.push(
+      resource({ name: 'https://app.test/api/aborted' }),
+      resource({ name: 'https://app.test/api/ok', responseStatus: 200, responseStart: 112 }),
+      resource({ name: 'https://app.test/api/legacy', responseStart: 112 }),
+      resource({ name: 'https://cdn.test/asset' }),
+    )
+    time = 130
+    stop(collector, recording.id)
+
+    expect(
+      read(collector, recording.id).events.map((event) => [
+        event.details.url,
+        event.details.responseReceived,
+      ]),
+    ).toEqual([
+      ['https://app.test/api/aborted', false],
+      ['https://app.test/api/ok', true],
+      ['https://app.test/api/legacy', true],
+      ['https://cdn.test/asset', null],
+    ])
   })
 
   it('keeps pagination append-only when resource completion is delivered after later Query updates', () => {

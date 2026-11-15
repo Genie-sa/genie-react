@@ -88,6 +88,15 @@ createRoot(document.getElementById('root')).render(h(App))
               `<div id="root"></div><script src="http://127.0.0.1:${scriptHubPort}/__genie/client.js"></script><script type="module" src="/script-main.js"></script>`,
             )
           })
+          vite.middlewares.use('/api/outcome', (request, response) => {
+            const kind = new URL(request.url ?? '', 'http://fixture').searchParams.get('kind')
+            if (kind === 'reset') {
+              setTimeout(() => request.socket.destroy(), 20)
+              return
+            }
+            const timer = setTimeout(() => response.end('ok'), kind === 'abort' ? 5000 : 60)
+            response.on('close', () => clearTimeout(timer))
+          })
           vite.middlewares.use('/api/data', (request, response) => {
             const slow = request.url?.includes('mode=network')
             const timer = setTimeout(
@@ -122,7 +131,7 @@ createRoot(document.getElementById('root')).render(h(App))
     })
     return JSON.parse(result.stdout)
   }
-  const call = (name, args) => cli(['call', name, JSON.stringify(args)])
+  const call = (name, args) => cli(['call', name, JSON.stringify(args), '--json'])
   browser = await chromium.launch({ headless: true })
   const page = await browser.newPage()
   const errors = []
@@ -192,6 +201,56 @@ createRoot(document.getElementById('root')).render(h(App))
   assert.ok(
     longestRender(reports.render) > longestRender(reports.network),
     'the React lane must distinguish the render-heavy flow',
+  )
+  const network = new Map()
+  page.on('requestfinished', (request) => network.set(request.url(), { failed: false, request }))
+  page.on('requestfailed', (request) => network.set(request.url(), { failed: true, request }))
+  const outcomes = await call('timeline_start', { name: 'request-outcomes' })
+  await page.evaluate(async () => {
+    const controller = new AbortController()
+    setTimeout(() => controller.abort(), 40)
+    const xhr = new Promise((resolve) => {
+      const request = new XMLHttpRequest()
+      request.open('GET', '/api/outcome?kind=xhr')
+      request.onloadend = resolve
+      request.send()
+    })
+    await Promise.allSettled([
+      fetch('/api/outcome?kind=ok').then((response) => response.text()),
+      fetch('/api/outcome?kind=abort', { signal: controller.signal }),
+      fetch('/api/outcome?kind=reset'),
+      xhr,
+    ])
+  })
+  await call('timeline_stop', { id: outcomes.id })
+  const outcomeRequests = (await call('timeline_read', { id: outcomes.id, domains: ['request'] }))
+    .events
+  for (const kind of ['ok', 'abort', 'reset', 'xhr']) {
+    const observed = [...network.entries()].find(([requestUrl]) =>
+      requestUrl.endsWith(`/api/outcome?kind=${kind}`),
+    )?.[1]
+    assert.ok(observed, `Playwright must observe the ${kind} request`)
+    const recorded = outcomeRequests.filter((event) => event.details.url.endsWith('/api/outcome'))
+    const event = recorded.find((candidate) =>
+      kind === 'xhr'
+        ? candidate.details.initiatorType === 'xmlhttprequest'
+        : candidate.details.initiatorType === 'fetch' &&
+          candidate.details.responseReceived === !observed.failed &&
+          (observed.failed || candidate.details.responseStatus === 200),
+    )
+    assert.ok(event, `the ${kind} request must be recorded with its real outcome`)
+    if (!observed.failed) {
+      const { responseEnd } = observed.request.timing()
+      assert.ok(
+        Math.abs(event.details.durationMs - responseEnd) < 15,
+        `${kind} duration ${event.details.durationMs} must match the browser's ${responseEnd}`,
+      )
+    }
+  }
+  assert.equal(
+    outcomeRequests.filter((event) => event.details.responseReceived === false).length,
+    2,
+    'only the aborted and reset requests lack a response',
   )
   await page.close()
   hub = createStandaloneBridge({
