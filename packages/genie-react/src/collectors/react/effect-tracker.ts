@@ -97,6 +97,8 @@ export function clearEffects(): void {
 
 export interface EffectScheduleObservation {
   scheduled: number
+  /** Scheduled effects that occupy a hook slot, so the component or a hook it calls declared them; React's own slotless effects, such as useSyncExternalStore's snapshot bookkeeping, are excluded. */
+  declaredScheduled: number
   complete: boolean
 }
 
@@ -124,18 +126,25 @@ export function prepareEffect(
   profileCommitId = 0,
   budget?: CommitWorkBudget,
 ): PreparedEffectObservation {
-  if (!ownsEffectList(fiber)) return preparedEffect({ scheduled: 0, complete: true }, null)
+  if (!ownsEffectList(fiber)) {
+    return preparedEffect({ scheduled: 0, declaredScheduled: 0, complete: true }, null)
+  }
 
   const id = getFiberId(fiber)
   if (phase === 'unmount') {
     // Traversal unmounts can be Suspense visibility changes; the DevTools unmount callback owns exact deletion.
-    return preparedEffect({ scheduled: 0, complete: true }, null)
+    return preparedEffect({ scheduled: 0, declaredScheduled: 0, complete: true }, null)
   }
 
   const currentList = effectHookSlots(fiber, budget)
   let truncations = currentList.truncated ? 1 : 0
   if (currentList.effects.length === 0) {
-    return preparedEffect({ scheduled: 0, complete: !currentList.truncated }, null, [], truncations)
+    return preparedEffect(
+      { scheduled: 0, declaredScheduled: 0, complete: !currentList.truncated },
+      null,
+      [],
+      truncations,
+    )
   }
   const previousList =
     phase === 'update'
@@ -154,12 +163,13 @@ export function prepareEffect(
   record.fiber = fiber
   const schedules: PreparedEffectSchedule[] = []
   const passiveInstrumentation: { effect: Effect; binding: PassiveEffectBinding }[] = []
+  let declaredScheduled = 0
 
   for (let i = 0; i < effects.length; i++) {
     if (!consumeCommitWork(budget, 'effects')) {
       truncations += 1
       return preparedEffect(
-        { scheduled: currentList.scheduled, complete: false },
+        { scheduled: currentList.scheduled, declaredScheduled, complete: false },
         record,
         schedules,
         truncations,
@@ -205,6 +215,7 @@ export function prepareEffect(
       scheduled && phase === 'update'
         ? compareDependencies(effect.deps, previousList.effects.get(hookIndex)?.deps, budget)
         : null
+    if (scheduled) declaredScheduled += 1
     let effectEventId: string | null = null
     if (scheduled) {
       const prepared = prepareEffectSchedule({
@@ -253,6 +264,7 @@ export function prepareEffect(
   return preparedEffect(
     {
       scheduled: currentList.scheduled,
+      declaredScheduled,
       complete: !currentList.truncated && !previousList.truncated,
     },
     record,

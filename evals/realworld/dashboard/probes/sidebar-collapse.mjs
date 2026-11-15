@@ -16,4 +16,11 @@ export default async function probe(ctx) {
     tracking && updates === 0,
     `StatCard updates after collapsing the sidebar: ${updates} (expected 0)`,
   )
+  const { events } = await ctx.genie.call('react_render_causes', { component: 'StatCard' })
+  const graded = events.map((/** @type {{ necessity: string }} */ event) => event.necessity)
+  ctx.check(
+    'statcard-renders-graded-wasted',
+    graded.every((/** @type {string} */ necessity) => necessity === 'unnecessary'),
+    `StatCard render necessity: ${graded.join(', ') || 'no renders'} (a MutationObserver sees no DOM change)`,
+  )
 }

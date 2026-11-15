@@ -76,7 +76,7 @@ For login, fixtures, fault injection, or wizard setup, run `npx genie-react tool
 Replace `CheckoutRow` with the real target:
 
 ```bash
-npx genie-react call react_clear_renders '{"components":["CheckoutRow"],"budget":{"adaptive":true}}' --session my-agent
+npx genie-react call react_clear_renders '{"component":"CheckoutRow","budget":{"adaptive":true}}' --session my-agent
 # Perform the UI action once with the UI driver and check its visible outcome.
 npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session my-agent
 npx genie-react call react_render_causes '{"component":"CheckoutRow","limit":20}' --session my-agent
