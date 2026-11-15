@@ -34,16 +34,22 @@ interface Primitive {
 /** A slot's custom-hook chain, outermost first; null for a slot whose primitive the hook tree omits (useEffectEvent), so its chain is unknown. */
 export type CustomHookChain = string[] | null
 
-/** Each fiber hook slot's custom-hook chain, or null unless the hook tree accounts for every slot with a matching kind. */
-export function customHookChains(
+/** One fiber hook slot as the hook tree accounts for it: the React hook that allocated it (null when the tree omits that primitive) and its custom-hook chain. */
+export interface HookSlot {
+  hook: string | null
+  customHooks: CustomHookChain
+}
+
+/** Each fiber hook slot's allocating hook and custom-hook chain, or null unless the hook tree accounts for every slot with a matching kind. */
+export function hookSlots(
   tree: HooksNode[],
   slotKinds: readonly HookKind[],
   truncated: boolean,
-): CustomHookChain[] | null {
+): HookSlot[] | null {
   const primitives = slotAllocatingPrimitives(tree)
   for (const layout of SLOT_LAYOUTS) {
-    const chains = alignSlots(primitives, slotKinds, truncated, layout)
-    if (chains) return chains
+    const slots = alignSlots(primitives, slotKinds, truncated, layout)
+    if (slots) return slots
   }
   return null
 }
@@ -83,13 +89,13 @@ function alignSlots(
   slotKinds: readonly HookKind[],
   truncated: boolean,
   layout: Readonly<Record<string, number>>,
-): CustomHookChain[] | null {
-  const chains: CustomHookChain[] = []
+): HookSlot[] | null {
+  const slots: HookSlot[] = []
   // The hook tree omits some primitives (useEffectEvent) but still counts their ids; each skipped id is one hidden slot.
   const fillHidden = (count: number): boolean => {
-    for (let hidden = 0; hidden < count && chains.length < slotKinds.length; hidden++) {
-      if (slotKinds[chains.length] !== 'other') return false
-      chains.push(null)
+    for (let hidden = 0; hidden < count && slots.length < slotKinds.length; hidden++) {
+      if (slotKinds[slots.length] !== 'other') return false
+      slots.push({ hook: null, customHooks: null })
     }
     return true
   }
@@ -97,15 +103,15 @@ function alignSlots(
   for (const primitive of primitives) {
     if (!fillHidden(primitive.id - nextId)) return null
     nextId = primitive.id + 1
-    const kind = slotKinds[chains.length]
-    if (!kind) return truncated ? chains : null
+    const kind = slotKinds[slots.length]
+    if (!kind) return truncated ? slots : null
     const expected = EXPECTED_KINDS[primitive.name]
     if (expected && !expected.includes(kind)) return null
     const width = layout[primitive.name] ?? 1
-    if (!truncated && chains.length + width > slotKinds.length) return null
-    for (let offset = 0; offset < width && chains.length < slotKinds.length; offset++) {
-      chains.push(primitive.customHooks)
+    if (!truncated && slots.length + width > slotKinds.length) return null
+    for (let offset = 0; offset < width && slots.length < slotKinds.length; offset++) {
+      slots.push({ hook: `use${primitive.name}`, customHooks: primitive.customHooks })
     }
   }
-  return fillHidden(slotKinds.length - chains.length) ? chains : null
+  return fillHidden(slotKinds.length - slots.length) ? slots : null
 }

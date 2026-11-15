@@ -23,7 +23,7 @@ import {
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { MAX_HOOKS } from './contracts'
 import { inspectFiber } from './fiber'
-import { customHookChains } from './hook-groups'
+import { hookSlots } from './hook-groups'
 
 let unmount: (() => void) | undefined
 
@@ -211,7 +211,10 @@ const custom = (name: string, subHooks: HooksNode[]): HooksNode => ({
   subHooks,
 })
 
-describe('customHookChains', () => {
+const customHookChains = (...args: Parameters<typeof hookSlots>) =>
+  hookSlots(...args)?.map((slot) => slot.customHooks) ?? null
+
+describe('hookSlots custom-hook chains', () => {
   it('aligns the two-slot useDeferredValue of early React 18 releases', () => {
     const tree = [custom('Search', [primitive('DeferredValue', 0)]), primitive('State', 1)]
 

@@ -14,6 +14,7 @@ Load this reference before interpreting coverage, comparing performance, reporti
 - `exact` supports only the runtime link it describes. `inferred` is a lead, and `unknown` leaves the question open.
 - `lower-bound` counts can omit work. Check coverage before interpreting an empty result or a smaller count.
 - Require complete input attribution before classifying a render as unnecessary. A timing report can be complete while causes remain partial.
+- A component `source` with `role: "element-callsite"` is where its element was created, inside the parent that `functionName` names; `"component-body"` is a line inside the component itself. `line: null` means the file on disk did not show the element at the mapped line, typically a transform that dropped its source map: open the file and search for the component.
 - `appOnly:true` excludes unresolved ownership. Inspect `react_provenance` or use `appOnly:false` where supported to investigate that gap.
 - Exact Query and Router causes need the matching notification evidence. Nearby timestamps alone do not establish a cause.
 - Effect scheduling does not prove execution or cleanup. Inspect the execution evidence before changing effect behavior.
