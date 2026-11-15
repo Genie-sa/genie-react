@@ -79,9 +79,17 @@ describe('CLI startup imports', () => {
   }
 
   it('keeps the protocol schemas, hub server and bridge client out of --help and --version', () => {
-    const graph = [...startupGraph('cli')]
+    const graph = [...startupGraph('cli-main')]
     expect(graph.filter((module) => module.startsWith('genie-react'))).toEqual([])
     expect(graph).not.toContain('ws')
     expect(graph).not.toContain('agent')
+  })
+
+  it('enables the compile cache before anything it should cache is imported', () => {
+    expect([...startupGraph('cli')].filter((module) => !module.startsWith('node:'))).toEqual([
+      'cli',
+      'genie-react/hub/token',
+    ])
+    expect(source('cli')).toMatch(/enableCliCompileCache\(\)\nawait import\('\.\/cli-main'\)\n$/)
   })
 })

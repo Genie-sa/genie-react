@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
-import { genieCommand } from './package-manager'
+import { skillInvocation } from './package-manager'
 
 const SKILL_FILE_NAMES = ['SKILL.md', 'APP_TOOLS.md', 'EVIDENCE.md'] as const
 /** Read by Codex, Cursor, and other Agent Skills clients; the copy every other location mirrors. */
@@ -56,9 +56,9 @@ export function readSkillFiles(directory: string): SkillFiles | null {
   return files.every(([, contents]) => contents !== '') ? files : null
 }
 
-/** The source skill is written for npm; installs use the project's own exec so commands run verbatim. */
+/** The source skill is written for npm; installs use the project's own binary or exec command so commands run verbatim. */
 export function renderSkillFiles(files: SkillFiles, cwd: string): SkillFiles {
-  const invocation = genieCommand([], cwd).command
+  const invocation = skillInvocation(cwd)
   return files.map(([name, contents]) => [name, contents.replaceAll(SOURCE_INVOCATION, invocation)])
 }
 

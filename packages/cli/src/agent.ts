@@ -61,6 +61,7 @@ import { isRecord, isRecordArray } from './guards'
 import { type CallInvocation, recoverOverflow } from './output-recovery'
 import { setOutputContext } from './output-safety'
 import { genieCommand } from './package-manager'
+import { markPhase } from './phase'
 import {
   FieldSelectionError,
   type Overflow,
@@ -213,16 +214,21 @@ interface Connection {
 }
 
 /** Bridge selection errors (bad --url, ambiguous discovery, invalid GENIE_BRIDGE_PORT) are reported here, so callers only handle a live link. */
-async function openConnection(opts: AgentOptions, operation: string): Promise<Connection | null> {
+async function openConnection(
+  opts: AgentOptions,
+  operation: string,
+  { toolCatalog = false } = {},
+): Promise<Connection | null> {
   try {
-    return await connect(opts)
+    return await connect(opts, toolCatalog)
   } catch (error) {
     await emitCaughtFailure(opts, operation, error, {})
     return null
   }
 }
 
-async function connect(opts: AgentOptions): Promise<Connection> {
+async function connect(opts: AgentOptions, toolCatalog: boolean): Promise<Connection> {
+  markPhase('connect:start')
   const cwd = opts.cwd ?? process.cwd()
   let url: string
   let token: string | undefined
@@ -266,6 +272,7 @@ async function connect(opts: AgentOptions): Promise<Connection> {
       sessionSelection: resolveSession(opts.session) === undefined ? 'current' : 'explicit',
     })
   }
+  markPhase('connect:resolved')
   const link = new GenieAgentLink({
     url,
     token,
@@ -276,6 +283,7 @@ async function connect(opts: AgentOptions): Promise<Connection> {
     caller: resolveCallerIdentity(cwd).id,
     failFastOnRefused: source === 'fallback',
     clientVersion: opts.cliVersion,
+    toolCatalog,
     logger: opts.verbose
       ? (message) =>
           writeDiagnostic(
@@ -1064,7 +1072,7 @@ export async function runTools(
   opts: AgentOptions = {},
 ): Promise<number> {
   setOutputContext({ operation: 'tools' })
-  const connection = await openConnection(opts, 'Tool discovery failed.')
+  const connection = await openConnection(opts, 'Tool discovery failed.', { toolCatalog: true })
   if (!connection) return 1
   const { link } = connection
   try {
@@ -1259,23 +1267,36 @@ function waitForTools(
     link.onStatus = (status) => {
       if (settled(status)) finish(status)
     }
-    // Nudge the bridge to surface a connected app (and rebroadcast its catalog).
-    void link.invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs }).catch((error) => {
-      if (!(error instanceof BridgeRejectedError || error instanceof BridgeUnreachableError)) return
-      for (const timer of timers) clearTimeout(timer)
-      link.onStatus = null
-      reject(error)
-    })
+    // A greeting that already carries the catalog settles the wait; otherwise nudge the bridge to surface a connected app and rebroadcast it.
+    void link
+      .connected()
+      .then((greeting) =>
+        settled(greeting)
+          ? undefined
+          : link.invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs }),
+      )
+      .catch((error) => {
+        if (!(error instanceof BridgeRejectedError || error instanceof BridgeUnreachableError))
+          return
+        for (const timer of timers) clearTimeout(timer)
+        link.onStatus = null
+        reject(error)
+      })
   })
 }
 
-/** Bridge-global wait (sessionId: null) so a stale --session fails fast on the real call instead of stalling here; its own timeout tracks --wait so a small --timeout can't truncate the connect window. */
+/** Bridge-global wait (sessionId: null) so a stale --session fails fast on the real call instead of stalling here; its own timeout tracks --wait so a small --timeout can't truncate the connect window. A greeting that already reports the default tab ready answers the wait without a round trip. */
 async function waitForApp(link: GenieAgentLink, opts: AgentOptions): Promise<boolean> {
   const waitMs = opts.waitMs ?? 15_000
   const ready = await link
-    .invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs: waitMs }, null, {
-      timeoutMs: waitMs,
-    })
+    .connected()
+    .then((greeting) =>
+      greeting.connected && greeting.ready
+        ? { ok: true }
+        : link.invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs: waitMs }, null, {
+            timeoutMs: waitMs,
+          }),
+    )
     .catch(nullUnlessTerminal)
   if (ready?.ok) return true
   emitFailure(
