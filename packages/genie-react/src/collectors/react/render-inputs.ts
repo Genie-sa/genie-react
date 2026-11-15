@@ -65,6 +65,8 @@ export interface HookStateRenderChange extends StateRenderChangeBase {
 
 export interface ClassStateRenderChange extends StateRenderChangeBase {
   name: 'class state'
+  /** Top-level fields of this.state whose value or reference changed; empty when state was replaced by something other than a plain object. */
+  changedFields: string[]
 }
 
 export type StateRenderChange = HookStateRenderChange | ClassStateRenderChange
@@ -230,18 +232,19 @@ export function diffStateChanges(
   if (isClassComponentFiber(fiber)) {
     const before = fiber.alternate?.memoizedState ?? null
     const after = fiber.memoizedState
-    return Object.is(before, after) || !retainInputEvidence(evidence)
-      ? []
-      : [
-          {
-            name: 'class state',
-            kind: 'state',
-            unstable: false,
-            before: stateValue(before, evidence, STATE_PLAIN_OBJECT_DEPTH),
-            after: stateValue(after, evidence, STATE_PLAIN_OBJECT_DEPTH),
-            deepDiff: diffStateWithBudget(before, after, evidence),
-          },
-        ]
+    if (Object.is(before, after) || !retainInputEvidence(evidence)) return []
+    const deepDiff = diffStateWithBudget(before, after, evidence)
+    return [
+      {
+        name: 'class state',
+        kind: 'state',
+        unstable: false,
+        changedFields: topLevelPaths(deepDiff),
+        before: stateValue(before, evidence, STATE_PLAIN_OBJECT_DEPTH),
+        after: stateValue(after, evidence, STATE_PLAIN_OBJECT_DEPTH),
+        deepDiff,
+      },
+    ]
   }
 
   const changes: StateRenderChange[] = []
@@ -282,6 +285,22 @@ export function diffStateChanges(
   }
   if (cur || alt) truncateInputScan(evidence)
   return changes
+}
+
+function topLevelPaths(diff: DeepDiffResult): string[] {
+  const fields = new Set<string>()
+  for (const change of diff.changes) {
+    const segment = change.path.split('/')[1]
+    if (segment !== undefined) fields.add(segment.replaceAll('~1', '/').replaceAll('~0', '~'))
+  }
+  return [...fields]
+}
+
+/** How a class state change reads in a cause: the fields that changed, or the whole of this.state. */
+export function classStateCauseName(change: ClassStateRenderChange): string {
+  const [only, ...more] = change.changedFields
+  if (only === undefined) return 'this.state'
+  return more.length === 0 ? `this.state.${only}` : `this.state.{${change.changedFields.join(',')}}`
 }
 
 /** Backward-compatible predicate; detailed reports intentionally narrow to stateful hooks. */

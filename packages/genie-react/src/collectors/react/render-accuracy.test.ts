@@ -402,7 +402,12 @@ describe('render causes match the update that triggered them', () => {
     expect(child?.causes).toEqual([
       expect.objectContaining({ kind: 'parent', parentName: 'Parent' }),
     ])
-    expect(child).toMatchObject({ necessity: 'unknown', noObservedInputChange: 1 })
+    // React scheduled no update on Child itself, so its equal inputs rendered equal output.
+    expect(child).toMatchObject({
+      necessity: 'unnecessary',
+      necessityReason: 'inputs-unchanged',
+      noObservedInputChange: 1,
+    })
   })
 
   it('attributes a memo consumer to the Context that crossed its memo boundary', async () => {
@@ -542,7 +547,8 @@ describe('render causes match the update that triggered them', () => {
     const [urgent, deferred] = await eventsFor('Results')
     expect(kinds(urgent?.causes ?? [])).toEqual(['props'])
     expect(deferred).toMatchObject({
-      necessity: 'unknown',
+      necessity: 'necessary',
+      necessityReason: 'dom-changed',
       causes: [{ kind: 'unknown', reason: 'unclassified-hook-changed', hookIndex: 0 }],
       assessment: { inputEvidence: 'changed' },
     })
@@ -616,12 +622,14 @@ describe('render causes match the update that triggered them', () => {
 
   it('does not grade a class forceUpdate as unnecessary', async () => {
     let instance: Ticker | null = null
+    let reads = 0
     class Ticker extends Component {
       override componentDidMount(): void {
         instance = this
       }
       override render(): ReactNode {
-        return createElement('time', null, Date.now())
+        reads += 1
+        return createElement('time', null, reads)
       }
     }
     mount(createElement(Ticker))
@@ -631,7 +639,8 @@ describe('render causes match the update that triggered them', () => {
 
     expect(await reportFor('Ticker')).toMatchObject({
       renders: 1,
-      necessity: 'unknown',
+      necessity: 'necessary',
+      necessityReason: 'dom-changed',
       noObservedInputChange: 0,
       causes: [{ kind: 'unknown', reason: 'no-observable-fiber-input-change' }],
     })
@@ -663,9 +672,11 @@ describe('render causes match the update that triggered them', () => {
         instance?.forceUpdate()
       })
 
+      // The forced render re-read an unchanged label: no host write, callback or effect.
       expect(await reportFor('PureRow')).toMatchObject({
         renders: 1,
-        necessity: 'unknown',
+        necessity: 'unnecessary',
+        necessityReason: 'output-unchanged',
         causes: [{ kind: 'unknown', reason: 'no-observable-fiber-input-change' }],
       })
     })
@@ -768,7 +779,7 @@ describe('render causes match the update that triggered them', () => {
 
     const reader = await reportFor('Reader')
     expect(reader?.inputCoverage).toMatchObject({ complete: false, scanTruncated: true })
-    expect(reader?.necessity).toBe('unknown')
+    expect(reader).toMatchObject({ necessity: 'necessary', necessityReason: 'dom-changed' })
     expect(reader?.noObservedInputChange).toBe(0)
   })
 
@@ -809,7 +820,8 @@ describe('render causes match the update that triggered them', () => {
     expect(getRenderTrackingCoverage('measurement').skippedCommitFibers).toBeGreaterThan(0)
     expect(await reportFor('Middle')).toBeUndefined()
     expect(await reportFor('Target')).toMatchObject({
-      necessity: 'unknown',
+      necessity: 'unnecessary',
+      necessityReason: 'inputs-unchanged',
       causes: [{ kind: 'parent', parentName: 'Middle' }],
     })
   })

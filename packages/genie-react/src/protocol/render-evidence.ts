@@ -35,6 +35,7 @@ export interface CompactRenderCause<
   referenceOnly?: true
   reason?: string
   changedResultFields?: string[]
+  origin?: string
 }
 
 /** The memo-relevant counters that are non-zero, plus `keep` even at zero. */
@@ -50,7 +51,7 @@ export function memoCounters(
   )
 }
 
-/** A render cause reduced to its kind, evidence, the input's name (plus the read index that tells repeated context reads apart) and how it was matched; values and diffs are dropped. */
+/** A render cause reduced to its kind, evidence, the input's name (plus the read index that tells repeated context reads apart), how it was matched and the component whose update started a parent cascade; values and diffs are dropped. */
 export function compactRenderCause<Kind extends string, Evidence extends string>(
   cause: RenderCauseFields<Kind, Evidence>,
 ): CompactRenderCause<Kind, Evidence> {
@@ -62,6 +63,10 @@ export function compactRenderCause<Kind extends string, Evidence extends string>
   const changed =
     typeof notification === 'object' && notification !== null
       ? Reflect.get(notification, 'changedResultFields')
+      : undefined
+  const origin =
+    cause.kind === 'parent' && typeof fields.origin === 'object' && fields.origin !== null
+      ? Reflect.get(fields.origin, 'componentName')
       : undefined
   return {
     kind: cause.kind,
@@ -81,6 +86,7 @@ export function compactRenderCause<Kind extends string, Evidence extends string>
             .slice(0, MAX_CHANGED_RESULT_FIELDS),
         }
       : {}),
+    ...(typeof origin === 'string' && origin !== name ? { origin } : {}),
   }
 }
 

@@ -18,7 +18,7 @@ TMPDIR=$(mktemp -d) node evals/realworld/run-probes.mjs legacy
 
 | Id | Category | Symptom | Cause | Genie evidence |
 | --- | --- | --- | --- | --- |
-| `project-nav-store-updates` | optimise | Sidebar project list re-renders on every action | `mapStateToProps` returns `Object.values(...)` | partial |
+| `project-nav-store-updates` | optimise | Sidebar project list re-renders on every action | `mapStateToProps` returns `Object.values(...)` | full |
 | `board-column-selector-cache` | optimise | All board columns redraw on any UI change | One `createSelector` shared by five columns with a per-column argument | partial |
 | `account-menu-selector` | optimise | Avatar menu re-renders on every action | `useSelector` returns a new object | partial |
 | `issue-row-inline-handler` | optimise | Selecting one row redraws all 100 rows | `PureComponent` row gets an inline arrow prop | full |
@@ -47,4 +47,4 @@ TMPDIR=$(mktemp -d) node evals/realworld/run-probes.mjs legacy
 
 ## What Genie could not show
 
-Genie has no Redux awareness. A store-driven render is reported as `external-store` with `inferred` evidence and no link to the dispatched action, the selector, or the field that changed. The mutating reducer (`report-notes-mutation`) is observable only through the app's `app_redux_state` and `app_redux_actions` tools. The stale search and the out-of-order report response are now proven through the timeline request lane, which reports each request's method and query (values hashed by default, plain on request) and marks an older request that finished after a newer one; which result the app applied still comes from React props. Class lifecycle timers are invisible to the effect tools, so the leaked poller shows up only as network traffic.
+Genie has no Redux awareness. A store-driven render is reported as `external-store` with `inferred` evidence and no link to the dispatched action. It does say whether the subscription fired, which snapshot fields changed and how (a `connect()` snapshot is the child props, so `projects` changed by reference only), and a wrapper carries the causes of the component it wraps. The mutating reducer (`report-notes-mutation`) is observable only through the app's `app_redux_state` and `app_redux_actions` tools. The stale search and the out-of-order report response are now proven through the timeline request lane, which reports each request's method and query (values hashed by default, plain on request) and marks an older request that finished after a newer one; which result the app applied still comes from React props. Class lifecycle timers are invisible to the effect tools, so the leaked poller shows up only as network traffic.
