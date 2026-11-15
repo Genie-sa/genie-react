@@ -1,5 +1,6 @@
 import { useEffect } from "react"
 import { EventClient } from "@tanstack/devtools-event-client"
+import { BUS_RECONNECT_MS } from "./devtools-bus"
 
 interface MetricsEventMap {
   mounted: { accepts: Array<string> }
@@ -10,7 +11,7 @@ interface MetricsEventMap {
 
 class MetricsDevtoolsClient extends EventClient<MetricsEventMap> {
   constructor() {
-    super({ pluginId: "metrics-devtools" })
+    super({ pluginId: "metrics-devtools", reconnectEveryMs: BUS_RECONNECT_MS })
   }
 }
 

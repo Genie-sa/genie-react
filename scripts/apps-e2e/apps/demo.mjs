@@ -185,16 +185,25 @@ export default {
         await ctx.page.getByRole('button', { name: 'add tea' }).click()
         await ctx.page.getByRole('button', { name: 'add coffee' }).click()
         await waitForText(ctx.page, '[data-testid=lab-cart]', 'cart:2')
-        const cart = await ctx.call('plugin_get_events', { pluginId: 'cart-devtools', limit: 200 })
-        const latest = cart.events
-          .filter((event) => JSON.stringify(event).includes('cart-updated'))
-          .at(-1)
-        check(
-          JSON.stringify(latest).includes('"total":10') &&
-            JSON.stringify(latest).includes('Coffee'),
-          'the latest cart event must carry both items and total 10',
-          latest,
-        )
+        await waitFor('a cart-updated event carrying both items and total 10', async () => {
+          const cart = await ctx.call('plugin_get_events', {
+            pluginId: 'cart-devtools',
+            limit: 200,
+          })
+          const latest = cart.events.filter((event) => event.type.endsWith(':cart-updated')).at(-1)
+          check(
+            latest !== undefined,
+            'cart-devtools buffered no cart-updated event; the plugin never reached the TanStack Devtools bus',
+            cart.events,
+          )
+          const serialized = JSON.stringify(latest)
+          check(
+            serialized.includes('"total":10') && serialized.includes('Coffee'),
+            'the latest cart event must carry both items and total 10',
+            latest,
+          )
+          return latest
+        })
         const emitted = await ctx.call('plugin_emit', {
           pluginId: 'metrics-devtools',
           type: 'request-reset',
