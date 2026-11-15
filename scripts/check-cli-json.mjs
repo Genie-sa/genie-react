@@ -90,7 +90,7 @@ try {
   const { value: help } = await run(['--help'])
   assert.equal(help.status, 'ok')
   assert.deepEqual((await run([])).value, help)
-  assert.equal(help.commands.length, 10)
+  assert.equal(help.commands.length, 11)
   for (const { name } of help.commands) {
     const { value } = await run([name, '--help'])
     assert.equal(value.command, name)
@@ -280,6 +280,39 @@ try {
     2,
     'GENIE_OUTPUT=json keeps the JSONL batch default',
   )
+
+  const verifyHelp = (await run(['verify', '--help'])).value
+  assert.deepEqual(Object.keys(verifyHelp.output.exits), ['0', '1', '2', '3', '4', '5', '69', '124', '130'])
+  assert.equal(verifyHelp.options.claim.conflictsWith[0], 'claims')
+  const typo = (
+    await run(['verify', 'begin', '--name', 'n', '--claim', 'rendr Badge max 0', '--url', url], {
+      code: 2,
+    })
+  ).value
+  assert.equal(typo.reason, 'invalid_input')
+  assert.deepEqual(typo.exit, { code: 2, class: 'usage' })
+  assert(typo.message.includes('did you mean render'), 'a DSL typo names the nearest keyword')
+  assert(!JSON.stringify(typo).includes('rendr'), 'the typed word is never echoed back')
+  assert.equal((await run(['verify', 'end', 'not-an-id', '--url', url], { code: 2 })).value.reason, 'invalid_input')
+  assert.equal((await run(['verify', 'begin', '--clam', 'x'], { code: 2 })).value.reason, 'invalid_input')
+  const missingTools = (
+    await run(['verify', 'begin', '--name', 'n', '--claim', 'render Badge max 0', '--url', url], {
+      code: 4,
+    })
+  ).value
+  assert.equal(missingTools.verdict, 'refused')
+  assert.equal(missingTools.exitCode, 4)
+  assert.equal(missingTools.claims[0].refusal.reason, 'capability_unavailable')
+  assert.deepEqual(missingTools.claims[0].refusal.next.argv.slice(-2), ['doctor', '--live'])
+  const lostId = 'vfy_00000000-0000-4000-8000-000000000000'
+  const lost = (await run(['verify', 'end', lostId, '--url', url], { code: 4 })).value
+  assert.equal(lost.verdict, 'refused')
+  assert.equal(lost.window.refusals[0].refusal.reason, 'window_lost')
+  const lostText = await exec(['verify', 'end', lostId, '--url', url], { code: 4 })
+  assert.match(lostText.stdout, new RegExp(`^refused ${lostId} ""\n`))
+  assert(lostText.stdout.includes('window window_lost: '), 'text names the window refusal')
+  const missingTool = (await run(['call', '--url', url], { code: 1 })).value
+  assert.deepEqual(missingTool.exit, { code: 2, class: 'usage' }, 'failures report the code the command will use')
 
   const hubDir = join(fixture, 'hub')
   await mkdir(hubDir)

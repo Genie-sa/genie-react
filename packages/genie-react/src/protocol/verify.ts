@@ -441,7 +441,6 @@ export const verifyClaimResultSchema = z.object({
   verdict: z.enum(VERDICTS),
   observed: z.record(z.string(), z.unknown()),
   deciding: z.array(z.record(z.string(), z.unknown())),
-  decidingOmitted: z.number().int().nonnegative(),
   caveats: z.array(z.string()),
   refusal: verifyRefusalSchema.optional(),
   inconclusive: verifyInconclusiveSchema.optional(),

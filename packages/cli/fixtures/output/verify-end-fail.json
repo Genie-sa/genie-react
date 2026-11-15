@@ -1,21 +1,25 @@
 {
-  "argv": ["verify", "end", "<id>"],
+  "argv": [
+    "verify",
+    "end",
+    "<id>"
+  ],
   "exitCode": 1,
   "result": {
     "schemaVersion": "1.0",
     "kind": "verification",
-    "verificationId": "vfy_fdef96ba-5a60-4da3-85ec-1941c8b167b9",
+    "verificationId": "vfy_6d5cba4e-c3f7-42e3-8f7d-332711919f77",
     "verdict": "fail",
     "exitCode": 1,
     "name": "type in filter",
     "state": "completed",
     "stage": "end",
     "session": {
-      "sessionId": "4e6df3b7-4743-48bc-9723-67f959c22f61",
-      "logicalSessionId": "a6de639b-24da-4b2e-a4b5-019f62426ba4",
-      "documentGeneration": 1,
+      "sessionId": "c260aee9-beef-4c39-ad2c-d3ab469aedef",
+      "logicalSessionId": "6e3df507-6e14-4c51-9708-1d4eccc1e710",
+      "documentGeneration": 2,
       "sessionName": "verify-e2e",
-      "url": "http://127.0.0.1:65061/?_genie=verify-e2e"
+      "url": "http://127.0.0.1:53515/?_genie=verify-e2e"
     },
     "window": {
       "observationId": "observation:1",
@@ -27,7 +31,7 @@
         "outcome": "met",
         "quietMs": 500,
         "timeoutMs": 10000,
-        "waitedMs": 617,
+        "waitedMs": 614,
         "domains": {
           "react": "met"
         }
@@ -79,7 +83,6 @@
             "source": "/Search.jsx:13:7"
           }
         ],
-        "decidingOmitted": 0,
         "caveats": []
       },
       {
@@ -116,7 +119,6 @@
             "source": "/Search.jsx:12:7"
           }
         ],
-        "decidingOmitted": 0,
         "caveats": []
       },
       {
@@ -139,13 +141,16 @@
             "afterDocumentCommitId": 1
           }
         ],
-        "decidingOmitted": 0,
-        "caveats": ["uncaught-errors-outside-boundaries-unobserved"]
+        "caveats": [
+          "uncaught-errors-outside-boundaries-unobserved"
+        ]
       }
     ],
-    "caveats": ["ui-outcome-not-observed"],
+    "caveats": [
+      "ui-outcome-not-observed"
+    ],
     "ledger": {
-      "fingerprint": "cf_02d7eb3a7599",
+      "fingerprint": "cf_f1128ea83fc4",
       "scope": "logical-session",
       "storage": "memory",
       "attempt": 1,
@@ -165,33 +170,9 @@
         "react_error_state"
       ]
     },
-    "startedAt": "2026-11-15T01:35:05.155Z",
-    "endedAt": "2026-11-15T01:35:06.646Z",
+    "startedAt": "2026-11-15T01:38:40.084Z",
+    "endedAt": "2026-11-15T01:38:41.418Z",
     "request": {
-      "claims": [
-        {
-          "kind": "renders",
-          "target": {
-            "component": "StatusBadge"
-          },
-          "max": 0,
-          "counting": "renders",
-          "allowRemount": false
-        },
-        {
-          "kind": "renders",
-          "target": {
-            "component": "ResultCount"
-          },
-          "min": 1,
-          "counting": "renders",
-          "allowRemount": false
-        },
-        {
-          "kind": "boundaries-clean",
-          "scope": "window"
-        }
-      ],
       "budget": {
         "fiberLimit": 250,
         "operationLimit": 20000,
@@ -208,14 +189,14 @@
       "allowOverrides": false
     },
     "next": {
-      "command": "pnpm exec genie-react verify show vfy_fdef96ba-5a60-4da3-85ec-1941c8b167b9 --claim 1 --session verify-e2e",
+      "command": "pnpm exec genie-react verify show vfy_6d5cba4e-c3f7-42e3-8f7d-332711919f77 --claim 1 --session verify-e2e",
       "argv": [
         "pnpm",
         "exec",
         "genie-react",
         "verify",
         "show",
-        "vfy_fdef96ba-5a60-4da3-85ec-1941c8b167b9",
+        "vfy_6d5cba4e-c3f7-42e3-8f7d-332711919f77",
         "--claim",
         "1",
         "--session",

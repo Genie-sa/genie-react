@@ -109,7 +109,6 @@ export function decide(
       verdict: outcome.verdict,
       observed: outcome.observed,
       deciding: outcome.deciding,
-      decidingOmitted: 0,
       caveats: outcome.caveats,
       ...(outcome.refusal ? { refusal: outcome.refusal } : {}),
       ...(outcome.inconclusive ? { inconclusive: outcome.inconclusive } : {}),

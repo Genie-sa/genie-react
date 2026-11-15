@@ -28,8 +28,7 @@ const COMPONENT = /^[^\s@[\]#,'"`$\\]{1,160}$/
 
 /** Fixed sentences for the caveats every verdict can carry; codes the CLI does not know print as bare words. */
 const CAVEAT_TEXT: Record<string, string> = {
-  'ui-outcome-not-observed':
-    'Genie does not check what the user sees; confirm the visible result with the UI driver',
+  'ui-outcome-not-observed': 'Genie does not check the screen; confirm it with the UI driver',
   'passed-after-failures-on-same-code':
     'this claim failed earlier on the same code; a pass after retries may be flaky',
   'overrides-active': 'overrides or simulated Query state were active during the window',
@@ -66,7 +65,6 @@ export function endCommand(
 }
 
 interface StoredRequest {
-  claims: VerifyClaim[]
   budget?: Record<string, unknown>
   settle?: { quietMs?: number; timeoutMs?: number; domains?: string[] }
   tailMs?: number
@@ -75,9 +73,16 @@ interface StoredRequest {
 }
 
 function storedRequest(document: Record<string, unknown>): StoredRequest | null {
-  const request = document.request
-  if (!isRecord(request) || !Array.isArray(request.claims)) return null
-  return request as unknown as StoredRequest
+  return isRecord(document.request) ? (document.request as StoredRequest) : null
+}
+
+/** The claims a run declared, in order; the begin command repeats them exactly. */
+function declaredClaims(document: Record<string, unknown>): VerifyClaim[] | null {
+  if (!Array.isArray(document.claims) || document.claims.length === 0) return null
+  const claims = document.claims.map((entry) =>
+    isRecord(entry) && isRecord(entry.claim) ? entry.claim : null,
+  )
+  return claims.every((claim) => claim !== null) ? (claims as unknown as VerifyClaim[]) : null
 }
 
 function budgetFlag(
@@ -103,8 +108,9 @@ export function beginAgainCommand(
   fix?: Pick<VerifyFix, 'budget' | 'settle'>,
 ): Command | undefined {
   const request = storedRequest(document)
+  const claims = declaredClaims(document)
   const name = typeof document.name === 'string' ? document.name : undefined
-  if (!request || name === undefined) return undefined
+  if (!request || !claims || name === undefined) return undefined
   const quietMs = fix?.settle?.quietMs ?? request.settle?.quietMs
   const timeoutMs = fix?.settle?.timeoutMs ?? request.settle?.timeoutMs
   return genieCommand([
@@ -113,7 +119,7 @@ export function beginAgainCommand(
     ...sessionFlags(session),
     '--name',
     name,
-    ...request.claims.flatMap((claim) => ['--claim', formatVerifyClaim(claim)]),
+    ...claims.flatMap((claim) => ['--claim', formatVerifyClaim(claim)]),
     ...budgetFlag(request.budget, fix?.budget),
     ...(quietMs !== undefined && quietMs !== 500 ? ['--quiet-ms', String(quietMs)] : []),
     ...(timeoutMs !== undefined && timeoutMs !== 10_000 ? ['--timeout-ms', String(timeoutMs)] : []),
@@ -242,74 +248,72 @@ function headline(document: FieldReader): string {
     .join('  ')
 }
 
-function claimLines(claims: unknown, width: number): string[] {
+/** A refusal or inconclusive as `reason: message`, then its remaining fields and its fix command. */
+function reasonLines(reason: Record<string, unknown>, indent: string): string[] {
+  const fields = new FieldReader(reason)
+  fields.take('reason')
+  fields.take('message')
+  const next = fields.take('next')
+  return [
+    ...(Object.keys(fields.rest()).length > 0
+      ? [`${indent}${flowText(fields.rest()).slice(1, -1)}`]
+      : []),
+    ...(next === undefined ? [] : fieldLines('fix', next, 2, indent)),
+  ]
+}
+
+function claimLines(claims: unknown): string[] {
   if (!Array.isArray(claims)) return []
-  return claims.filter(isRecord).flatMap((entry) => {
+  return claims.flatMap((entry) => {
+    if (!isRecord(entry)) return [`  - ${flowText(entry)}`]
     const claim = new FieldReader(entry)
     const index = scalarText(claim.take('index'))
-    const verdict = String(claim.take('verdict') ?? '')
+    const verdict = scalarText(claim.take('verdict'))
     const text = proseText(String(claim.take('text') ?? ''))
-    claim.take('claim')
-    claim.take('observed')
-    const refusal = claim.take('refusal')
-    const inconclusive = claim.take('inconclusive')
-    const deciding = claim.take('deciding')
-    const omitted = claim.take('decidingOmitted')
-    const caveats = claim.take('caveats')
-    const reason = isRecord(refusal) ? refusal : isRecord(inconclusive) ? inconclusive : null
-    const observed = isRecord(entry.observed) ? entry.observed : {}
+    const observed = claim.take('observed')
+    const reason = [claim.take('refusal'), claim.take('inconclusive')].find(isRecord)
     const detail = reason
       ? `${scalarText(reason.reason)}: ${proseText(String(reason.message ?? ''))}`
-      : flowText(observed)
-    const lines = [`  ${index} ${verdict.padEnd(12)} ${text.padEnd(width)}  ${detail}`]
-    if (reason && Object.keys(observed).length > 0)
-      lines.push(`      observed: ${flowText(observed)}`)
-    if (Array.isArray(deciding) && deciding.length > 0)
-      lines.push(`      deciding: ${flowText(deciding)}`)
-    if (typeof omitted === 'number' && omitted > 0) lines.push(`      decidingOmitted: ${omitted}`)
-    if (Array.isArray(caveats) && caveats.length > 0)
-      lines.push(`      caveats: ${flowText(caveats)}`)
-    if (isRecord(refusal)) {
-      const { reason: _reason, message: _message, next, ...rest } = refusal
-      if (Object.keys(rest).length > 0) lines.push(`      ${flowText(rest).slice(1, -1)}`)
-      if (isRecord(next) && typeof next.command === 'string')
-        lines.push(`      fix: $ ${next.command}`)
+      : flowText(observed ?? {})
+    const lines = [`  ${index} ${verdict} ${text}  ${detail}`]
+    if (reason) {
+      if (observed !== undefined) lines.push(`      observed: ${flowText(observed)}`)
+      lines.push(...reasonLines(reason, '      '))
     }
-    if (isRecord(inconclusive) && isRecord(inconclusive.evidence))
-      lines.push(`      evidence: ${flowText(inconclusive.evidence)}`)
-    lines.push(...blockLines(claim.rest(), 0, '      '))
+    const { caveats, ...rest } = claim.rest()
+    if (caveats !== undefined && (!Array.isArray(caveats) || caveats.length > 0))
+      rest.caveats = caveats
+    lines.push(...blockLines(rest, 2, '      '))
     return lines
   })
 }
 
 function windowLines(window: unknown): string[] {
-  if (!isRecord(window)) return []
-  const reader = new FieldReader(window)
-  const refusals = reader.take('refusals')
+  if (!isRecord(window)) return window === undefined ? [] : fieldLines('window', window, 0, '')
+  const { refusals, ...rest } = window
   const lines = Array.isArray(refusals)
-    ? refusals.filter(isRecord).flatMap((entry) => {
-        const refusal = isRecord(entry.refusal) ? entry.refusal : {}
-        const next =
-          isRecord(refusal.next) && typeof refusal.next.command === 'string'
-            ? refusal.next.command
-            : null
+    ? refusals.flatMap((entry) => {
+        const refusal = isRecord(entry) && isRecord(entry.refusal) ? entry.refusal : null
+        if (!isRecord(entry) || !refusal) return [`  window ${flowText(entry)}`]
+        const { refusal: _refusal, ...guard } = entry
         return [
           `  window ${scalarText(refusal.reason)}: ${proseText(String(refusal.message ?? ''))}`,
-          ...(next ? [`    fix: $ ${next}`] : []),
+          ...(Object.keys(guard).length > 0 ? [`    ${flowText(guard).slice(1, -1)}`] : []),
+          ...reasonLines(refusal, '    '),
         ]
       })
-    : []
-  return [...lines, ...fieldLines('window', reader.rest(), 1, '')]
+    : refusals === undefined
+      ? []
+      : fieldLines('refusals', refusals, 1, '  ')
+  return [...lines, ...fieldLines('window', rest, 2, '')]
 }
 
 function ledgerLine(ledger: unknown): string[] {
   if (!isRecord(ledger)) return []
-  const reader = new FieldReader(ledger)
-  const attempt = reader.take('attempt')
-  const history = reader.take('history')
-  const changed = reader.take('codeChangedSincePrevious')
-  const previous = Array.isArray(history) ? history.filter(isRecord).at(-1) : undefined
-  const parts = [`attempt ${scalarText(attempt)} for these claims on this tab`]
+  const previous = Array.isArray(ledger.history)
+    ? ledger.history.filter(isRecord).at(-1)
+    : undefined
+  const parts = [`attempt ${scalarText(ledger.attempt)} for these claims on this tab`]
   if (previous) {
     const reasons =
       Array.isArray(previous.reasons) && previous.reasons.length > 0
@@ -319,32 +323,24 @@ function ledgerLine(ledger: unknown): string[] {
       `previous ${scalarText(previous.verdict)} ${scalarText(previous.verificationId)}${reasons}`,
     )
   }
-  if (changed === 'fast-refresh') parts.push('code changed since (Fast Refresh)')
-  else if (changed === 'document-reloaded') parts.push('document reloaded since')
-  else if (changed === 'none-observed') parts.push('no code change observed')
-  return [parts.join('; '), ...fieldLines('ledger', reader.rest(), 1, '')]
+  const change = ledger.codeChangedSincePrevious
+  if (change === 'fast-refresh') parts.push('code changed since (Fast Refresh)')
+  else if (change === 'document-reloaded') parts.push('document reloaded since')
+  else if (change === 'none-observed') parts.push('no code change observed')
+  return [parts.join('; ')]
 }
 
-/** Text form of a verification: the verdict line, one line per claim with its evidence, window refusals, caveats, the rerun history and the evidence command. */
+/** Text form of a verification: the verdict line, one line per claim with its evidence, window refusals, caveats, the rerun history and the evidence command; every other field follows as generic text. */
 export function renderVerificationText(value: unknown): string {
   if (!isRecord(value) || value.kind !== 'verification') return encodeText(value)
   const document = new FieldReader(value)
-  document.take('schemaVersion')
   document.take('kind')
-  document.take('request')
   const lines = [headline(document)]
   const session = document.take('session')
   if (isRecord(session) && typeof session.url === 'string')
     lines.push(`  url ${quoteString(session.url)}`)
   const claims = document.take('claims')
-  const width = Array.isArray(claims)
-    ? Math.min(
-        48,
-        Math.max(0, ...claims.filter(isRecord).map((claim) => String(claim.text ?? '').length)),
-      )
-    : 0
-  lines.push(...claimLines(claims, width))
-  if (document.has('targets')) lines.push(...fieldLines('targets', document.take('targets'), 0, ''))
+  lines.push(...claimLines(claims))
   lines.push(...windowLines(document.take('window')))
   const caveats = document.take('caveats')
   if (Array.isArray(caveats)) {
@@ -352,16 +348,22 @@ export function renderVerificationText(value: unknown): string {
       const known = typeof caveat === 'string' ? CAVEAT_TEXT[caveat] : undefined
       lines.push(known ? `! ${caveat}: ${known}` : `! caveat: ${scalarText(caveat)}`)
     }
+  } else if (caveats !== undefined) {
+    lines.push(...fieldLines('caveats', caveats, 0, ''))
   }
-  lines.push(...ledgerLine(document.take('ledger')))
+  lines.push(...ledgerLine(document.record.ledger))
   const next = document.take('next')
-  if (isRecord(next) && typeof next.command === 'string') {
-    lines.push(`${document.record.state === 'recording' ? 'next' : 'evidence'}: $ ${next.command}`)
+  if (next !== undefined) {
+    lines.push(
+      ...fieldLines(document.record.state === 'recording' ? 'next' : 'evidence', next, 0, ''),
+    )
   }
   if (isRecord(session)) {
     const { url: _url, ...rest } = session
-    lines.push(...fieldLines('session', rest, 1, ''))
+    lines.push(...fieldLines('session', typeof session.url === 'string' ? rest : session, 2, ''))
+  } else if (session !== undefined) {
+    lines.push(...fieldLines('session', session, 0, ''))
   }
-  lines.push(...blockLines(document.rest(), 0, ''))
+  lines.push(...blockLines(document.rest(), 2, ''))
   return lines.join('\n')
 }

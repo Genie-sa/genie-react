@@ -441,7 +441,6 @@ export class VerificationManager<TSession extends VerificationSession> {
         verdict: 'refused',
         observed: {},
         deciding: [],
-        decidingOmitted: 0,
         caveats: [],
         refusal,
       }
@@ -771,7 +770,6 @@ export class VerificationManager<TSession extends VerificationSession> {
         verdict: 'refused',
         observed: {},
         deciding: [],
-        decidingOmitted: 0,
         caveats: [],
         refusal,
       })),
@@ -1200,7 +1198,6 @@ function sessionView(session: VerificationSession) {
 
 function requestView(input: BeginInput) {
   return {
-    claims: input.claims,
     budget: input.budget,
     settle: input.settle,
     ...(input.tailMs === undefined ? {} : { tailMs: input.tailMs }),

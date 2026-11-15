@@ -103,6 +103,13 @@ describe('verify on a real React tree', () => {
     expect(verdict.claims.map((claim) => claim.verdict)).toEqual(['fail', 'pass', 'pass'])
     expect(verdict.claims[0]?.observed).toMatchObject({ renders: 2, semantics: 'exact' })
     expect(verdict.caveats).toContain('ui-outcome-not-observed')
+    expect(Object.keys(verdict).slice(0, 5)).toEqual([
+      'schemaVersion',
+      'kind',
+      'verificationId',
+      'verdict',
+      'exitCode',
+    ])
   })
 
   it('passes once the fix keeps the prop stable, with exact zero counts over real commits', async () => {
@@ -245,6 +252,15 @@ describe('verify on a real React tree', () => {
     })
 
     expect(second).toEqual(first)
+    expect(
+      await verify.invoke('devtools_verify_read', { verificationId: began.verificationId }),
+    ).toEqual(first)
+    expect(
+      await verify.invoke('devtools_verify_read', {
+        verificationId: began.verificationId,
+        claim: 1,
+      }),
+    ).toMatchObject({ verdict: first.verdict, claim: first.claims[0] })
     expect(unknown).toMatchObject({
       ok: false,
       errorDetails: { hubCode: 'VERIFICATION_UNKNOWN' },

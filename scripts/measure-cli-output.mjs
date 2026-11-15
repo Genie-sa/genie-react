@@ -73,12 +73,13 @@ async function loadRenderers() {
   })
   try {
     const load = (path) => server.ssrLoadModule(join(root, 'packages/cli/src', path))
-    const [text, cliOutput, contract, doctor, tools] = await Promise.all([
+    const [text, cliOutput, contract, doctor, tools, verify] = await Promise.all([
       load('text-output.ts'),
       load('cli-output.ts'),
       load('contract-output.ts'),
       load('doctor-output.ts'),
       load('tool-text-output.ts'),
+      load('verify-output.ts'),
     ])
     cliOutput.setOutputFormat('text')
     return {
@@ -86,6 +87,7 @@ async function loadRenderers() {
       envelope: cliOutput.renderEnvelopeText,
       tools: contract.renderToolsText,
       doctor: doctor.renderDoctorText,
+      verify: verify.renderVerificationText,
       tool: tools.renderToolText,
       bespokeTools: new Set(Object.keys(tools.TOOL_TEXT_RENDERERS)),
     }
@@ -100,6 +102,7 @@ function rendererFor(renderers, argv, name) {
   const failed = name.startsWith('failure-') || name.startsWith('truncated-')
   if (failed) return { label: 'CLI envelope', render: renderers.envelope, bespoke: true }
   if (command === 'doctor') return { label: 'doctor', render: renderers.doctor, bespoke: true }
+  if (command === 'verify') return { label: 'verification', render: renderers.verify, bespoke: true }
   if (command === 'status') {
     return {
       label: 'status',

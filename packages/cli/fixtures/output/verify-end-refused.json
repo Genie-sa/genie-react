@@ -1,21 +1,25 @@
 {
-  "argv": ["verify", "end", "<id>"],
+  "argv": [
+    "verify",
+    "end",
+    "<id>"
+  ],
   "exitCode": 4,
   "result": {
     "schemaVersion": "1.0",
     "kind": "verification",
-    "verificationId": "vfy_4d8fc4a1-f184-4115-8556-1672dad453f4",
+    "verificationId": "vfy_655000b7-3ea5-443a-a247-f1c9b05da391",
     "verdict": "refused",
     "exitCode": 4,
     "name": "nothing happened",
     "state": "completed",
     "stage": "end",
     "session": {
-      "sessionId": "25b60156-8852-46ee-9aa9-a8b2eedab619",
-      "logicalSessionId": "a6de639b-24da-4b2e-a4b5-019f62426ba4",
-      "documentGeneration": 2,
+      "sessionId": "7dab49f8-3785-43a3-a330-82bc289947e1",
+      "logicalSessionId": "6e3df507-6e14-4c51-9708-1d4eccc1e710",
+      "documentGeneration": 3,
       "sessionName": "verify-e2e",
-      "url": "http://127.0.0.1:65061/?_genie=verify-e2e"
+      "url": "http://127.0.0.1:53515/?_genie=verify-e2e"
     },
     "window": {
       "observationId": "observation:3",
@@ -27,7 +31,7 @@
         "outcome": "met",
         "quietMs": 500,
         "timeoutMs": 10000,
-        "waitedMs": 615,
+        "waitedMs": 611,
         "domains": {
           "react": "met"
         }
@@ -55,7 +59,7 @@
             },
             "fix": {
               "action": "drive-observed-tab",
-              "url": "http://127.0.0.1:65061/?_genie=verify-e2e"
+              "url": "http://127.0.0.1:53515/?_genie=verify-e2e"
             },
             "next": {
               "command": "pnpm exec genie-react verify begin --session verify-e2e --name 'nothing happened' --claim 'render StatusBadge max 0'",
@@ -101,7 +105,6 @@
           "activeInstances": 2
         },
         "deciding": [],
-        "decidingOmitted": 0,
         "caveats": [],
         "refusal": {
           "reason": "no_activity",
@@ -113,7 +116,7 @@
           },
           "fix": {
             "action": "drive-observed-tab",
-            "url": "http://127.0.0.1:65061/?_genie=verify-e2e"
+            "url": "http://127.0.0.1:53515/?_genie=verify-e2e"
           },
           "next": {
             "command": "pnpm exec genie-react verify begin --session verify-e2e --name 'nothing happened' --claim 'render StatusBadge max 0'",
@@ -134,9 +137,11 @@
         }
       }
     ],
-    "caveats": ["ui-outcome-not-observed"],
+    "caveats": [
+      "ui-outcome-not-observed"
+    ],
     "ledger": {
-      "fingerprint": "cf_be64a00bb2c8",
+      "fingerprint": "cf_6772e29444e4",
       "scope": "logical-session",
       "storage": "memory",
       "attempt": 1,
@@ -155,20 +160,9 @@
         "react_profile_stop"
       ]
     },
-    "startedAt": "2026-11-15T01:35:12.653Z",
-    "endedAt": "2026-11-15T01:35:14.011Z",
+    "startedAt": "2026-11-15T01:38:45.790Z",
+    "endedAt": "2026-11-15T01:38:47.012Z",
     "request": {
-      "claims": [
-        {
-          "kind": "renders",
-          "target": {
-            "component": "StatusBadge"
-          },
-          "max": 0,
-          "counting": "renders",
-          "allowRemount": false
-        }
-      ],
       "budget": {
         "fiberLimit": 250,
         "operationLimit": 20000,
@@ -185,14 +179,14 @@
       "allowOverrides": false
     },
     "next": {
-      "command": "pnpm exec genie-react verify show vfy_4d8fc4a1-f184-4115-8556-1672dad453f4 --claim 1 --session verify-e2e",
+      "command": "pnpm exec genie-react verify show vfy_655000b7-3ea5-443a-a247-f1c9b05da391 --claim 1 --session verify-e2e",
       "argv": [
         "pnpm",
         "exec",
         "genie-react",
         "verify",
         "show",
-        "vfy_4d8fc4a1-f184-4115-8556-1672dad453f4",
+        "vfy_655000b7-3ea5-443a-a247-f1c9b05da391",
         "--claim",
         "1",
         "--session",
