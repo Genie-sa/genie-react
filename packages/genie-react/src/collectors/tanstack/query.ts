@@ -15,6 +15,18 @@ import {
 
 type CachedQuery = ReturnType<ReturnType<QueryClient['getQueryCache']>['getAll']>[number]
 type CachedMutation = ReturnType<ReturnType<QueryClient['getMutationCache']>['getAll']>[number]
+type CachedObserver = CachedQuery['observers'][number]
+
+/** Query exposes `observers` publicly only from 5.4x; earlier releases keep them private. */
+function publicObservers(query: CachedQuery): readonly CachedObserver[] | undefined {
+  const observers: unknown = (query as { observers?: unknown }).observers
+  return Array.isArray(observers) ? observers : undefined
+}
+
+/** `Query.isFetched()` is a late 5.x addition; this is its definition. */
+function hasFetched(query: CachedQuery): boolean {
+  return query.state.dataUpdateCount + query.state.errorUpdateCount > 0
+}
 
 function formatError(error: unknown): string | undefined {
   if (error == null) return undefined
@@ -177,6 +189,20 @@ const queryNotificationsContract = defineAgentToolContract({
   annotations: { readOnlyHint: true },
 })
 
+const queryTimeSchema = z
+  .union([z.number(), z.enum(['Infinity', 'static', 'dynamic'])])
+  .describe(
+    'Milliseconds; "Infinity" never expires, "dynamic" is computed per query by a function.',
+  )
+
+type QueryTime = z.infer<typeof queryTimeSchema>
+
+function queryTime(value: unknown): QueryTime | undefined {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 'Infinity'
+  if (value === 'static') return 'static'
+  return typeof value === 'function' ? 'dynamic' : undefined
+}
+
 const queryGetContract = defineAgentToolContract({
   name: 'query_get',
   title: 'Get a TanStack query',
@@ -202,10 +228,18 @@ const queryGetContract = defineAgentToolContract({
     isActive: z.boolean(),
     isInvalidated: z.boolean(),
     observerCount: z.number(),
-    observersOmitted: z.number().int().nonnegative(),
+    observersOmitted: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe(
+        'Observers counted in observerCount but not listed: past the listing limit or, on TanStack Query releases that keep observers private, attached before Genie started.',
+      ),
     hasQueryFn: z.boolean(),
-    gcTime: z.number().optional(),
-    staleTime: z.number().optional(),
+    gcTime: queryTimeSchema.optional(),
+    staleTime: queryTimeSchema
+      .optional()
+      .describe("The first observer's staleTime; observers can disagree."),
     dataUpdatedAt: z.number(),
     errorUpdatedAt: z.number(),
     dataUpdateCount: z.number(),
@@ -267,7 +301,7 @@ const queryListMutationsContract = defineAgentToolContract({
   name: 'query_list_mutations',
   title: 'List TanStack mutations',
   description:
-    'List the TanStack Query mutation cache entries with status and variables. Use a mutationId with mutation_get for full state or mutation_rerun to re-execute one.',
+    'List the TanStack Query mutation cache entries with status and variables. A pending mutation with isPaused=true is queued (offline, or behind another mutation in the same scope) and its mutationFn has not run yet. Use a mutationId with mutation_get for full state or mutation_rerun to re-execute one.',
   group: 'query',
   input: z.object({}),
   output: z.object({
@@ -275,6 +309,11 @@ const queryListMutationsContract = defineAgentToolContract({
       z.object({
         mutationId: z.number(),
         status: z.string(),
+        isPaused: z.boolean(),
+        scopeId: z
+          .string()
+          .nullable()
+          .describe('Mutations sharing a scope id run one at a time, in submission order.'),
         variables: z.unknown(),
         error: z.string().optional(),
         submittedAt: z.number().optional(),
@@ -304,7 +343,7 @@ const mutationGetContract = defineAgentToolContract({
     failureCount: z.number(),
     failureReason: z.string().optional(),
     submittedAt: z.number(),
-    gcTime: z.number().optional(),
+    gcTime: queryTimeSchema.optional(),
     hasMutationFn: z.boolean(),
     error: z.string().optional(),
   }),
@@ -381,10 +420,15 @@ const queryClearContract = defineAgentToolContract({
 const querySetDataContract = defineAgentToolContract({
   name: 'query_set_data',
   title: 'Set query data',
-  description: 'Imperatively set the cached data for a query key (optimistic-style write).',
+  description:
+    'Imperatively set the cached data for a query key (optimistic-style write). Writes the existing cache entry that matches the key exactly, including one with a custom queryKeyHashFn; otherwise creates an entry.',
   group: 'action',
   input: z.object({ queryKey: z.array(z.unknown()), data: z.unknown() }),
-  output: z.object({ ok: z.boolean() }),
+  output: z.object({
+    ok: z.boolean(),
+    queryHash: z.string().nullable().describe('The cache entry written, or null when nothing was.'),
+    created: z.boolean().describe('True when no cache entry matched and a new one was created.'),
+  }),
   annotations: { destructiveHint: true },
 })
 
@@ -392,7 +436,7 @@ const querySimulateStateContract = defineAgentToolContract({
   name: 'query_simulate_state',
   title: 'Simulate query pending or error state',
   description:
-    'Hold one existing query in a synthetic pending/loading or error state so its mounted UI can be inspected without changing app code or the server. Cancels a real in-flight fetch first, captures the stable state once, and notifies normal TanStack observers. A later query action can supersede the visible simulation; query_restore_state still restores the captured state. Always restore when finished.',
+    'Hold one existing query in a synthetic pending/loading or error state so its mounted UI can be inspected without changing app code or the server. Cancels a real in-flight fetch first, captures the stable state once, and notifies normal TanStack observers. While pending is simulated, TanStack treats the query as fetching and skips new fetches. Real Query activity can supersede the visible simulation; query_restore_state reports how it reconciled that activity. Always restore when finished.',
   group: 'action',
   input: z
     .object({
@@ -418,7 +462,7 @@ const queryRestoreStateContract = defineAgentToolContract({
   name: 'query_restore_state',
   title: 'Restore simulated query state',
   description:
-    'Restore the exact stable state captured by query_simulate_state. Target one query by queryHash/queryKey, or pass all=true to clean up every query simulation. Returns the number actually restored.',
+    'End query_simulate_state. Untouched simulations get back the exact captured state. If real data arrived meanwhile, it is kept (superseded); a real error, invalidation or in-flight fetch is merged into the captured data (merged). A fetch the simulation cancelled or suppressed is re-run for active queries (refetched). Target one query by queryHash/queryKey, or pass all=true to clean up every query simulation.',
   group: 'action',
   input: z
     .object({
@@ -429,7 +473,21 @@ const queryRestoreStateContract = defineAgentToolContract({
       (value) => (value.all ? !hasQueryIdentifier(value) : hasQueryIdentifier(value)),
       'Provide exactly one query identifier, or all=true without an identifier.',
     ),
-  output: z.object({ ok: z.boolean(), restored: z.number().int().nonnegative() }),
+  output: z.object({
+    ok: z.boolean(),
+    restored: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe('Simulations ended on a query that is still cached.'),
+    outcomes: z.array(
+      z.object({
+        queryHash: z.string(),
+        outcome: z.enum(['restored', 'merged', 'superseded', 'removed']),
+        refetched: z.boolean(),
+      }),
+    ),
+  }),
   annotations: { idempotentHint: true },
 })
 
@@ -483,7 +541,7 @@ const mutationRerunContract = defineAgentToolContract({
   name: 'mutation_rerun',
   title: 'Re-run a mutation',
   description:
-    "Re-execute a mutation by its mutationId (from query_list_mutations), running its mutationFn and onSuccess/onError side effects again and updating any bound UI. Re-uses the mutation's own last variables unless you supply new ones. Requires the mutation to still hold its mutationFn (hasMutationFn on mutation_get).",
+    "Re-execute a settled mutation by its mutationId (from query_list_mutations), running its mutationFn and onSuccess/onError side effects again and updating any bound UI. Re-uses the mutation's own last variables unless you supply new ones. Requires the mutation to still hold its mutationFn (hasMutationFn on mutation_get). A pending mutation is rejected: re-executing it would run it twice and strand the app's own mutate promise.",
   group: 'action',
   input: z.object({
     mutationId: z.number().int(),
@@ -528,11 +586,70 @@ interface FamilyActivity {
 type FamilyActivityKind = 'additions' | 'removals' | 'unobservedFetches'
 
 type SimulatedState = 'pending' | 'error'
+type QueryState = CachedQuery['state']
+type RestoreOutcome = 'restored' | 'merged' | 'superseded' | 'removed'
+
+/** Real Query actions dispatched while a simulation held the cache entry. */
+interface SimulationActivity {
+  fetching: boolean
+  errored: boolean
+  invalidated: boolean
+}
 
 interface QuerySimulation {
   query: CachedQuery
-  originalState: CachedQuery['state']
+  originalState: QueryState
+  appliedState: QueryState
   simulatedState: SimulatedState
+  cancelledFetch: boolean
+  activity: SimulationActivity
+}
+
+function recordSimulationActivity(activity: SimulationActivity, actionType: string): void {
+  if (actionType === 'fetch') activity.fetching = true
+  if (actionType === 'success' || actionType === 'error') activity.fetching = false
+  if (actionType === 'error') activity.errored = true
+  if (actionType === 'invalidate') activity.invalidated = true
+}
+
+/** The state the query would hold had the simulation never run, keeping the real activity it overlapped. */
+function stateAfterSimulation(simulation: QuerySimulation): {
+  outcome: Exclude<RestoreOutcome, 'removed'>
+  state: Partial<QueryState> | null
+} {
+  const { originalState: original, appliedState: applied, activity, query } = simulation
+  const current = query.state
+  if (current === applied) return { outcome: 'restored', state: { ...original } }
+  const fetch = activity.fetching ? current : original
+  const fetchFields = { fetchStatus: fetch.fetchStatus, fetchMeta: fetch.fetchMeta }
+  if (current.dataUpdatedAt > original.dataUpdatedAt) {
+    const fetchStatusIsSimulated =
+      !activity.fetching && current.fetchStatus !== original.fetchStatus
+    return { outcome: 'superseded', state: fetchStatusIsSimulated ? fetchFields : null }
+  }
+  return {
+    outcome: 'merged',
+    state: {
+      ...original,
+      ...fetchFields,
+      isInvalidated: original.isInvalidated || current.isInvalidated,
+      ...(activity.errored
+        ? {
+            status: 'error' as const,
+            error: current.error,
+            errorUpdatedAt: current.errorUpdatedAt,
+            errorUpdateCount: current.errorUpdateCount,
+            fetchFailureCount: current.fetchFailureCount,
+            fetchFailureReason: current.fetchFailureReason,
+          }
+        : {}),
+    },
+  }
+}
+
+function mutationScopeId(mutation: CachedMutation): string | null {
+  const id: unknown = mutation.options.scope?.id
+  return typeof id === 'string' ? id : null
 }
 
 /** Drops a normalized family key for a queryKey: JSON of the key minus its last element. */
@@ -583,21 +700,40 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
     return simulation?.query === query ? simulation : undefined
   }
 
-  const restoreSimulation = (simulation: QuerySimulation): boolean => {
-    if (queryCache().get(simulation.query.queryHash) !== simulation.query) return false
-    simulation.query.setState({ ...simulation.originalState })
-    querySimulations.delete(simulation.query.queryHash)
-    return true
+  const endSimulation = (
+    simulation: QuerySimulation,
+  ): { queryHash: string; outcome: RestoreOutcome; refetched: boolean } => {
+    const { query, originalState, activity, cancelledFetch } = simulation
+    querySimulations.delete(query.queryHash)
+    if (queryCache().get(query.queryHash) !== query) {
+      return { queryHash: query.queryHash, outcome: 'removed', refetched: false }
+    }
+    const { outcome, state } = stateAfterSimulation(simulation)
+    if (state) query.setState(state)
+    const suppressedInvalidation = activity.invalidated && !originalState.isInvalidated
+    const refetched =
+      outcome !== 'superseded' &&
+      !activity.fetching &&
+      (cancelledFetch || suppressedInvalidation) &&
+      query.isActive()
+    if (refetched) {
+      void queryClient.refetchQueries({ queryKey: query.queryKey, exact: true, type: 'active' })
+    }
+    return { queryHash: query.queryHash, outcome, refetched }
   }
 
-  const restoreAllSimulations = (): number => {
-    let restored = 0
-    for (const simulation of [...querySimulations.values()]) {
-      if (restoreSimulation(simulation)) restored += 1
-      else querySimulations.delete(simulation.query.queryHash)
-    }
-    return restored
-  }
+  const endAllSimulations = () => [...querySimulations.values()].map(endSimulation)
+
+  const restoreResult = (outcomes: ReturnType<typeof endSimulation>[]) => ({
+    ok: true,
+    restored: outcomes.filter((result) => result.outcome !== 'removed').length,
+    outcomes,
+  })
+
+  const observedObservers = new WeakMap<CachedQuery, Set<CachedObserver>>()
+
+  const observersOf = (query: CachedQuery): readonly CachedObserver[] =>
+    publicObservers(query) ?? [...(observedObservers.get(query) ?? [])]
 
   const recordFetchActivity = (query: CachedQuery): void => {
     const now = Date.now()
@@ -706,8 +842,8 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
     fetchStatus: query.state.fetchStatus,
     isStale: query.isStale(),
     isActive: query.isActive(),
-    isDisabled: query.isDisabled(),
-    hasFetched: query.isFetched(),
+    isDisabled: query.isDisabled() || (query.getObserversCount() === 0 && !hasFetched(query)),
+    hasFetched: hasFetched(query),
     isCached: true as const,
     observerCount: query.getObserversCount(),
     dataUpdatedAt: query.state.dataUpdatedAt,
@@ -719,6 +855,8 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
   const summarizeMutation = (mutation: CachedMutation) => ({
     mutationId: mutation.mutationId,
     status: mutation.state.status,
+    isPaused: mutation.state.isPaused,
+    scopeId: mutationScopeId(mutation),
     variables: dehydrate(mutation.state.variables, { depth: 2 }),
     error: formatError(mutation.state.error),
     submittedAt: mutation.state.submittedAt,
@@ -760,7 +898,7 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
   const resolveQueryFn = (queryKey: readonly unknown[]): QueryFunction | undefined => {
     const query = queryCache().find({ queryKey, exact: true })
     if (typeof query?.options.queryFn === 'function') return query.options.queryFn
-    const observed = query?.observers.find(
+    const observed = (query ? observersOf(query) : []).find(
       (observer) => typeof observer.options.queryFn === 'function',
     )
     // The typeof check above proves a QueryFunction; the cast just drops the observer's own generic type.
@@ -769,10 +907,29 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
     return typeof fallback === 'function' ? fallback : undefined
   }
 
-  const observerStaleTime = (query: CachedQuery): number | undefined => {
-    for (const observer of query.observers) {
-      const { staleTime } = observer.options
-      if (typeof staleTime === 'number') return staleTime
+  const listedObservers = (query: CachedQuery) => {
+    const observers = observersOf(query).slice(0, QUERY_OBSERVER_LIMIT)
+    return {
+      observersOmitted: Math.max(0, query.getObserversCount() - observers.length),
+      observers: observers.map((observer) => summarizeQueryObserver(observer)),
+    }
+  }
+
+  /** Fetch through the cached entry's own options so its hasher and infinite behavior stay intact. */
+  const cachedQueryOptions = (queryKey: unknown[]) => {
+    const query = queryCache().find({ queryKey, exact: true })
+    return query ? { ...query.options, queryKey: query.queryKey } : { queryKey }
+  }
+
+  const settledState = (queryKey: unknown[]) => {
+    const state = queryCache().find({ queryKey, exact: true })?.state
+    return { status: state?.status ?? 'success', dataUpdatedAt: state?.dataUpdatedAt ?? 0 }
+  }
+
+  const observerStaleTime = (query: CachedQuery): QueryTime | undefined => {
+    for (const observer of observersOf(query)) {
+      const staleTime = queryTime(observer.options.staleTime)
+      if (staleTime !== undefined) return staleTime
     }
     return undefined
   }
@@ -782,14 +939,17 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
     capabilities: ['query'],
     start: (ctx) => {
       const observerCleanups = new Map<object, () => void>()
-      const observe = (observer: object): void => {
+      const observe = (query: CachedQuery, observer: CachedObserver): void => {
+        const known = observedObservers.get(query) ?? new Set()
+        known.add(observer)
+        observedObservers.set(query, known)
         registerQueryObserver(observer)
         if (!observerCleanups.has(observer)) {
           observerCleanups.set(observer, instrumentQueryObserver(observer))
         }
       }
       for (const query of queryCache().getAll()) {
-        for (const observer of query.observers) observe(observer)
+        for (const observer of publicObservers(query) ?? []) observe(query, observer)
       }
       let scheduled = false
       const push = () => {
@@ -802,11 +962,16 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
       }
       const offQuery = queryCache().subscribe((event) => {
         if (event.type === 'observerAdded' || event.type === 'observerOptionsUpdated') {
-          observe(event.observer)
+          observe(event.query, event.observer)
         }
         if (event.type === 'observerRemoved') {
+          observedObservers.get(event.query)?.delete(event.observer)
           observerCleanups.get(event.observer)?.()
           observerCleanups.delete(event.observer)
+        }
+        if (event.type === 'updated') {
+          const simulation = simulationFor(event.query)
+          if (simulation) recordSimulationActivity(simulation.activity, event.action.type)
         }
         if (event.type === 'added') {
           recordFamilyActivity(event.query, 'additions')
@@ -827,7 +992,7 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
         offMutation()
         for (const cleanup of observerCleanups.values()) cleanup()
         observerCleanups.clear()
-        restoreAllSimulations()
+        endAllSimulations()
       }
     },
     tools: [
@@ -866,7 +1031,7 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
             isInvalidated: query.state.isInvalidated,
             observerCount: query.getObserversCount(),
             hasQueryFn: resolveQueryFn(query.queryKey) !== undefined,
-            gcTime: query.gcTime,
+            gcTime: queryTime(query.gcTime),
             staleTime: observerStaleTime(query),
             dataUpdatedAt: query.state.dataUpdatedAt,
             errorUpdatedAt: query.state.errorUpdatedAt,
@@ -879,26 +1044,25 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
             fetchMeta: dehydrate(query.state.fetchMeta, { depth: 2 }),
             error: formatError(query.state.error),
             data: dehydrate(query.state.data, { depth, path }),
-            observersOmitted: Math.max(0, query.observers.length - QUERY_OBSERVER_LIMIT),
-            observers: query.observers
-              .slice(0, QUERY_OBSERVER_LIMIT)
-              .map((observer) => summarizeQueryObserver(observer as unknown as object)),
+            ...listedObservers(query),
           }
         },
       }),
       defineCollectorTool({
         contract: queryGetDataContract,
         handler: ({ queryHash, queryKey, path, depth }) => {
-          const key = queryKey ?? findQueryByIdentifier(queryCache(), { queryHash })?.queryKey
-          if (key === undefined) {
+          const query = findQueryByIdentifier(
+            queryCache(),
+            queryKey === undefined ? { queryHash } : { queryKey },
+          )
+          if (!query) {
             return { found: false, status: undefined, dataUpdatedAt: undefined, data: undefined }
           }
-          const state = queryClient.getQueryState(key)
           return {
-            found: state !== undefined,
-            status: state?.status,
-            dataUpdatedAt: state?.dataUpdatedAt,
-            data: dehydrate(queryClient.getQueryData(key), { depth, path }),
+            found: true,
+            status: query.state.status,
+            dataUpdatedAt: query.state.dataUpdatedAt,
+            data: dehydrate(query.state.data, { depth, path }),
           }
         },
       }),
@@ -929,7 +1093,7 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
             failureCount: state.failureCount,
             failureReason: formatError(state.failureReason),
             submittedAt: state.submittedAt,
-            gcTime: mutation.gcTime,
+            gcTime: queryTime(mutation.gcTime),
             hasMutationFn: typeof mutation.options.mutationFn === 'function',
             error: formatError(state.error),
           }
@@ -989,33 +1153,36 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
       defineCollectorTool({
         contract: querySetDataContract,
         handler: ({ queryKey, data }) => {
+          const existing = queryCache().find({ queryKey, exact: true })
+          if (existing) {
+            existing.setData(data, { manual: true })
+            return { ok: true, queryHash: existing.queryHash, created: false }
+          }
           queryClient.setQueryData(queryKey, () => data)
-          return { ok: true }
+          const created = queryCache().find({ queryKey, exact: true })
+          return { ok: created !== undefined, queryHash: created?.queryHash ?? null, created: true }
         },
       }),
       defineCollectorTool({
         contract: querySimulateStateContract,
         handler: async ({ queryHash, queryKey, state, errorMessage }) => {
-          let query = findQueryByIdentifier(queryCache(), { queryHash, queryKey })
-          if (!query) {
-            throw new Error(
-              `Query not found for ${describeQueryIdentifier({ queryHash, queryKey })}.`,
-            )
-          }
+          const target = { queryHash, queryKey }
+          let query = findQueryByIdentifier(queryCache(), target)
+          if (!query) throw new Error(`Query not found for ${describeQueryIdentifier(target)}.`)
 
+          let existing = simulationFor(query)
+          if (existing && query.state !== existing.appliedState) {
+            endSimulation(existing)
+            existing = undefined
+          }
+          const cancelledFetch = existing
+            ? existing.cancelledFetch
+            : query.state.fetchStatus === 'fetching'
           await queryClient.cancelQueries({ queryKey: query.queryKey, exact: true })
-          query = findQueryByIdentifier(queryCache(), { queryHash, queryKey })
+          query = findQueryByIdentifier(queryCache(), target)
           if (!query) throw new Error('Query was removed while its in-flight fetch was cancelled.')
 
-          const existing = simulationFor(query)
-          const simulation: QuerySimulation = existing ?? {
-            query,
-            originalState: { ...query.state },
-            simulatedState: state,
-          }
-          simulation.simulatedState = state
-          querySimulations.set(query.queryHash, simulation)
-
+          const originalState = existing?.originalState ?? { ...query.state }
           if (state === 'pending') {
             query.setState({
               data: undefined,
@@ -1037,19 +1204,27 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
               status: 'error',
             })
           }
+          querySimulations.set(query.queryHash, {
+            query,
+            originalState,
+            appliedState: query.state,
+            simulatedState: state,
+            cancelledFetch,
+            activity: { fetching: false, errored: false, invalidated: false },
+          })
 
           return {
             ok: true,
             queryHash: query.queryHash,
             simulatedState: state,
-            originalStatus: simulation.originalState.status,
+            originalStatus: originalState.status,
           }
         },
       }),
       defineCollectorTool({
         contract: queryRestoreStateContract,
         handler: ({ queryHash, queryKey, all }) => {
-          if (all) return { ok: true, restored: restoreAllSimulations() }
+          if (all) return restoreResult(endAllSimulations())
 
           const query = findQueryByIdentifier(queryCache(), { queryHash, queryKey })
           const simulation = query && simulationFor(query)
@@ -1058,7 +1233,7 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
               `No simulated state exists for ${describeQueryIdentifier({ queryHash, queryKey })}.`,
             )
           }
-          return { ok: true, restored: restoreSimulation(simulation) ? 1 : 0 }
+          return restoreResult([endSimulation(simulation)])
         },
       }),
       defineCollectorTool({
@@ -1071,39 +1246,29 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
             )
           }
           const data = await queryClient.fetchQuery({
-            queryKey,
+            ...cachedQueryOptions(queryKey),
             queryFn,
             staleTime,
           })
-          const state = queryClient.getQueryState(queryKey)
-          return {
-            data: dehydrate(data, { depth }),
-            status: state?.status ?? 'success',
-            dataUpdatedAt: state?.dataUpdatedAt ?? 0,
-          }
+          return { data: dehydrate(data, { depth }), ...settledState(queryKey) }
         },
       }),
       defineCollectorTool({
         contract: queryEnsureContract,
         handler: async ({ queryKey, revalidateIfStale, depth }) => {
           const queryFn = resolveQueryFn(queryKey)
-          const hasData = queryClient.getQueryData(queryKey) !== undefined
+          const hasData = queryCache().find({ queryKey, exact: true })?.state.data !== undefined
           if (!hasData && !queryFn) {
             throw new Error(
               `Query ${JSON.stringify(queryKey)} has no cached data and no queryFn (no mounted observer or registered default) to fetch it.`,
             )
           }
           const data = await queryClient.ensureQueryData({
-            queryKey,
+            ...cachedQueryOptions(queryKey),
             queryFn,
             revalidateIfStale,
           })
-          const state = queryClient.getQueryState(queryKey)
-          return {
-            data: dehydrate(data, { depth }),
-            status: state?.status ?? 'success',
-            dataUpdatedAt: state?.dataUpdatedAt ?? 0,
-          }
+          return { data: dehydrate(data, { depth }), ...settledState(queryKey) }
         },
       }),
       defineCollectorTool({
@@ -1111,6 +1276,11 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
         handler: async ({ mutationId, variables }) => {
           const mutation = findMutation(mutationId)
           if (!mutation) throw new Error(`Mutation ${mutationId} not found.`)
+          if (mutation.state.status === 'pending') {
+            throw new Error(
+              `Mutation ${mutationId} is still pending${mutation.state.isPaused ? ' (queued)' : ''}. Wait for it to settle (query_is_fetching reports mutating=0) before re-running it.`,
+            )
+          }
           if (typeof mutation.options.mutationFn !== 'function') {
             throw new Error(
               `Mutation ${mutationId} has no mutationFn registered (likely dehydrated/restored without its function); it cannot be re-run.`,

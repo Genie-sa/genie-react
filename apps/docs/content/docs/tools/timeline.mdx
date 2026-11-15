@@ -91,6 +91,13 @@ render work when known, not commit wall time or native UI time. An active report
 `nextOffset: null` means caught up now. A replaced recording or a previous document's ID errors.
 Each report includes coverage and truncation; absent events do not prove absent work.
 
+A request event's `responseReceived` is `false` when a same-origin request got no response, so it
+was aborted or failed; its `durationMs` runs until the failure, not a completed response. `null`
+means cross-origin timing without `Timing-Allow-Origin` hides it. An abort after the response
+headers still looks like a response. A redirect chain is one event under the requested URL, timed
+across every hop, with the final `responseStatus`. Navigation `pathChanged` and `hrefChanged` are
+`null` when the Router release does not report them.
+
 ## `timeline_stop`
 
 Freezes metadata, flushes pending resource timings within the recording boundary, and releases
@@ -130,7 +137,7 @@ text is fixed for each code, so read and stop responses lose nothing by omitting
 
 | Code | Lane | Meaning |
 | --- | --- | --- |
-| `resource-timing` | request | Completed fetch/XHR Resource Timing only; delivery can lag; failed, unfinished, worker, and non-fetch/XHR requests can be absent; cross-origin detail needs `Timing-Allow-Origin`; URLs keep paths only. |
+| `resource-timing` | request | Finished fetch/XHR Resource Timing only; delivery can lag; aborted and failed requests can appear with `responseReceived:false`; unfinished, worker, and non-fetch/XHR requests are absent; cross-origin detail needs `Timing-Allow-Origin`; URLs keep paths only. |
 | `resource-timing-flush-failed` | request | As above, but the final resource queue flush failed, so entries can be missing. |
 | `no-resource-timing` | request | Browser Resource Timing is unavailable; native requests are not observed. |
 | `query-cache` | query | QueryCache add, remove, and update notifications; no prior snapshot, mutation cache, payloads, or request links. |
