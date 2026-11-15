@@ -140,7 +140,7 @@
     "bippy": "0.7.3-dev.2c148fc",
     "superjson": "^2.2.6",
     "ws": "^8.21.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "peerDependencies": {
     "@babel/core": "^7.0.0",

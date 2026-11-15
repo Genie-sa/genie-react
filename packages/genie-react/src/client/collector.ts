@@ -1,5 +1,6 @@
 import type { z } from 'zod'
-import type { AgentToolContract, AppInfo, CollectorMeta } from '../protocol'
+import type { AgentToolContract, AppInfo, CollectorMeta, GenieToolSchema } from '../protocol'
+import { isZodSchema, notZodSchemaError } from '../protocol/zod-schema'
 
 /** Handed to each collector so it can stream live state and refresh the advertised tool list. */
 export interface CollectorContext {
@@ -10,7 +11,10 @@ export interface CollectorContext {
   markActivity: () => void
 }
 
-export interface CollectorTool<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodType> {
+export interface CollectorTool<
+  I extends GenieToolSchema = z.ZodType,
+  O extends GenieToolSchema = z.ZodType,
+> {
   contract: AgentToolContract<I, O>
   handler: (args: z.infer<I>, ctx: CollectorContext) => z.infer<O> | Promise<z.infer<O>>
 }
@@ -39,8 +43,21 @@ export function defineCollector(collector: GenieCollector): GenieCollector {
   return collector
 }
 
-export function defineCollectorTool<I extends z.ZodType, O extends z.ZodType>(
+/** Types the handler from the contract's schemas, which may come from any zod 4 copy, then erases the tool for a collector's `tools`. */
+export function defineCollectorTool<I extends GenieToolSchema, O extends GenieToolSchema>(
   tool: CollectorTool<I, O>,
-): CollectorTool<I, O> {
-  return tool
+): ErasedCollectorTool {
+  const { contract, handler } = tool
+  if (hasZodSchemas(contract)) return { contract, handler }
+  throw notZodSchemaError(
+    'defineCollectorTool',
+    contract.name,
+    isZodSchema(contract.input) ? 'output' : 'input',
+  )
+}
+
+function hasZodSchemas(
+  contract: AgentToolContract<GenieToolSchema, GenieToolSchema>,
+): contract is AgentToolContract {
+  return isZodSchema(contract.input) && isZodSchema(contract.output)
 }
