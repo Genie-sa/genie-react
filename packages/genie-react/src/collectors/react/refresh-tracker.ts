@@ -7,6 +7,7 @@ import {
   type RefreshCapableRenderer,
   type ScheduleRefresh,
 } from './react-refresh'
+import { countExcludedRefreshCommit } from './refresh-commit-count'
 import {
   classifyFibersWithinBudget,
   clearSourceCache,
@@ -262,6 +263,7 @@ export function isRefreshCommit(): boolean {
 
 export function noteExcludedRefreshCommit(): void {
   if (!isRefreshCommit()) return
+  countExcludedRefreshCommit()
   excludedCommitsInCurrentRefresh += 1
   if (refreshDepth === 0 && latestRefreshEvent) {
     latestRefreshEvent.profileCommitsExcluded += 1

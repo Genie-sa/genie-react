@@ -513,6 +513,10 @@ npx @genie-react/cli call react_effect_audit \
 }
 ```
 
+`index` counts the component's effect hooks in call order and stays stable across renders.
+React-internal effects pushed without a hook, such as `useSyncExternalStore`'s snapshot check, are
+not reported.
+
 **Agent use:** Inspect the exact hook callsite and changed dependency before editing the effect. A
 schedule does not prove execution or cleanup timing, and unknown ownership must not be assigned to
 the app.
@@ -567,7 +571,8 @@ npx @genie-react/cli call react_effect_timeline \
         "startedAt": 1042.1,
         "completedAt": 1043.34,
         "durationMs": 1.24,
-        "outcome": "completed"
+        "outcome": "completed",
+        "trigger": "commit"
       },
       "cleanupExecution": {
         "status": "unobserved",
@@ -578,10 +583,11 @@ npx @genie-react/cli call react_effect_timeline \
         "observedDomains": [
           "query-notification",
           "router-notification",
+          "react-update",
           "react-commit"
         ],
         "unobservedDomains": [
-          "state-update",
+          "asynchronous-react-update",
           "external-store-write",
           "network",
           "event-listener",
@@ -596,11 +602,18 @@ npx @genie-react/cli call react_effect_timeline \
             "evidence": "exact"
           },
           {
+            "kind": "react-update",
+            "stage": "execution",
+            "status": "scheduled",
+            "timestamp": 1043.6,
+            "evidence": "exact"
+          },
+          {
             "kind": "resulting-commit",
             "documentCommitId": 21,
             "timestamp": 1044.2,
             "evidence": "inferred",
-            "reason": "next-commit-after-effect-execution"
+            "reason": "commit-retired-update-lanes"
           }
         ]
       },
@@ -615,6 +628,7 @@ npx @genie-react/cli call react_effect_timeline \
           "stage": "execution",
           "timestamp": 1042.1,
           "evidence": "exact",
+          "trigger": "commit",
           "outcome": "completed"
         },
         {
@@ -634,13 +648,29 @@ npx @genie-react/cli call react_effect_timeline \
   "omittedByLimit": 0,
   "evictedEvents": 0,
   "droppedEvents": 0,
+  "refreshCommitsExcluded": 0,
   "coverage": { "complete": true }
 }
 ```
 
-**Agent use:** Follow the exact notification ID to its consumer, but treat the next React commit as
-inferred and the listed unobserved domains as unknown. Repeat a clean observation when events were
-evicted or coverage is incomplete.
+Each passive run carries a `trigger`: `commit` for the run React scheduled, `strict-mode-replay`
+for StrictMode's development re-run of a fresh mount, and `reconnect` when a hidden `Activity` or
+offscreen subtree is shown again. A reconnect that React starts without a new schedule is its own
+event with `event:"reconnected"`. `cleanupExecution` always describes the cleanup of the latest
+execution, so a new run resets it to `not-yet-observed`. Layout and insertion effects run before
+Genie sees the commit; their execution and cleanup stay `unsupported-effect-kind`. React-internal
+effects that `useSyncExternalStore` and `useActionState` push without a hook are not reported.
+
+A `react-update` consequence means React work was scheduled synchronously while the run executed.
+It is `undetermined` when work on the same lanes was already pending, because a second update on a
+pending lane cannot be detected. `resulting-commit` appears only after a scheduled `react-update`
+and names the commit that retired its lanes; other updates can share that commit.
+
+**Agent use:** Follow the exact notification ID to its consumer. Treat `strict-mode-replay` runs as
+development behavior, not an app bug. Credit an effect with a commit only through `resulting-commit`,
+and treat `undetermined` updates and the listed unobserved domains as unknown. Repeat a clean
+observation when events were evicted, a refresh was excluded, or coverage is incomplete. Cleanups of
+runs that started before the observation are not reported.
 
 ## `react_effect_events`
 
@@ -689,10 +719,11 @@ npx @genie-react/cli call react_effect_events \
         "observedDomains": [
           "query-notification",
           "router-notification",
+          "react-update",
           "react-commit"
         ],
         "unobservedDomains": [
-          "state-update",
+          "asynchronous-react-update",
           "external-store-write",
           "network",
           "event-listener",
@@ -747,19 +778,29 @@ npx @genie-react/cli call react_error_state \
         "column": 1,
         "functionName": "CheckoutErrorBoundary"
       },
+      "boundaryKind": "error-boundary",
       "throwingComponent": "PaymentForm",
       "message": "Payment failed",
       "isLibraryBoundary": false,
-      "forced": false
+      "forced": false,
+      "status": "active",
+      "statusReason": "state-unchanged-since-catch"
     }
   ],
   "suspended": [],
-  "blankTreeHint": null
+  "blankTreeHint": "error boundary <CheckoutErrorBoundary> at /src/CheckoutErrorBoundary.tsx:7 caught \"Payment failed\" thrown by <PaymentForm> — the subtree below it did not render"
 }
 ```
 
+Each call re-checks recorded catches against the live tree: a boundary that recovered drops out, and
+`react_clear_renders` does not hide one that is still showing its fallback. `status:"unknown"` means
+the boundary re-rendered with different state since it caught and may have recovered.
+`boundaryKind:"root"` means no boundary caught the error and React unmounted the whole root.
+Suspense fallbacks are read from the live tree.
+
 **Agent use:** Inspect the error, stack, throwing component, and boundary, then fix only the proven
-producer. If `forced:true`, reset overrides before diagnosing production behavior.
+producer. Check the screen before acting on an `unknown` status. If `forced:true`, reset overrides
+before diagnosing production behavior.
 
 ## `react_refresh_events`
 
@@ -814,6 +855,10 @@ npx @genie-react/cli call react_refresh_events \
   "partialSources": false
 }
 ```
+
+A component counts as preserved only when its instance survived the refresh. An edit that keeps a
+component's state compatible still remounts it when an ancestor remounted, so it is listed under
+`remounted`.
 
 **Agent use:** Rerun the measured interaction when a refresh overlaps it, and investigate component
 identity when the edit remounted state that should have been preserved.

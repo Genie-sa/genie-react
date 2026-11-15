@@ -181,6 +181,7 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-freeze": "1.0.4",
+    "react-refresh": "0.14.2",
     "vite": "^8.3.3"
   }
 }

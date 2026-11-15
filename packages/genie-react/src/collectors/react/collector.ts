@@ -128,16 +128,21 @@ async function effectTimeline({
   const tracking = isTracking()
   const documentCommitId = getDocumentCommitId()
   const coverage = currentEffectCoverage()
+  const report = await getEffectScheduleEventsWithOwnership({
+    appOnly,
+    component,
+    afterDocumentCommitId,
+    limit,
+  })
   return {
     tracking,
     documentCommitId,
-    ...(await getEffectScheduleEventsWithOwnership({
-      appOnly,
-      component,
-      afterDocumentCommitId,
-      limit,
-    })),
-    coverage,
+    ...report,
+    coverage: {
+      ...coverage,
+      complete:
+        coverage.complete && report.evictedEvents === 0 && report.refreshCommitsExcluded === 0,
+    },
   }
 }
 
