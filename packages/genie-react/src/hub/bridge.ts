@@ -616,7 +616,7 @@ export class GenieBridge {
         hubCode: 'SESSION_CLAIMED',
         ownership: { resource: 'tab', cause: 'claimed', otherCallers },
       },
-      error: `Every connected app tab is in use by another agent: ${labels.join('; ')}. Open your own tab with ?_genie=<your-name> in the URL and pass --session <your-name>, or pass --session <target> to share one of these tabs deliberately.`,
+      error: `Every connected app tab is in use by another agent: ${labels.join('; ')}. Open your own tab (agent-browser --session <your-name> open <app-url>, or ?_genie=<your-name> in the URL) and pass --session <your-name>, or pass --session <target> to share one of these tabs deliberately.`,
     }
   }
 
@@ -668,6 +668,7 @@ export class GenieBridge {
 
   private sessionSummaries(): SessionSummary[] {
     const current = this.peekTarget()
+    const caller = this.currentCaller()
     return [...this.apps.values()].sort(compareSessionRecency).map((session) => {
       const staleMs = this.staleMsOf(session)
       const collisionWithSessionIds = this.logicalPeers(session).map((peer) => peer.sessionId)
@@ -698,6 +699,9 @@ export class GenieBridge {
         ready: session.readyAt !== undefined,
         ...(session.readyAt === undefined ? {} : { readyAt: session.readyAt }),
         current: session.sessionId === current?.sessionId,
+        ...(this.ownership.isClaimedByOthers(tabKeyOf(session), caller)
+          ? { claimedByOthers: true as const }
+          : {}),
         ...this.appOrigins.get(session.socket),
         ...(staleMs === null ? {} : { staleMs }),
         ...(session.runtimeVersion === undefined ? {} : { runtimeVersion: session.runtimeVersion }),

@@ -97,6 +97,8 @@ export const sessionSummarySchema = z.object({
   ready: z.boolean().default(true),
   readyAt: z.number().optional(),
   current: z.boolean(),
+  /** Present when another agent used this tab and the caller has not, so the caller's untargeted calls skip it. */
+  claimedByOthers: z.literal(true).optional(),
   /** Browser Origin the app connected from; absent for native and Node clients. */
   origin: z.string().optional(),
   /** True when only the loopback-page rule admitted this session, so any local page on any port could be it. */

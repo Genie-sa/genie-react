@@ -9,6 +9,15 @@ export const GENIE_GLOBAL_KEY = '__GENIE_REACT_AGENT__'
 /** Discovery file the Vite plugin writes so the genie CLI can find the hub URL. */
 export const GENIE_DISCOVERY_FILE = '.genie/bridge.json'
 
+/** `Symbol.for` key each document publishes its tab identity under, so a browser driver that evaluates page script (agent-browser `eval`) can tell which Genie session the tab is. */
+export const GENIE_TAB_IDENTITY_GLOBAL = 'genie-react:runtime-session-identity'
+
+/** An agent-browser snapshot ref such as `@e12`, with or without its `@`. */
+export const AGENT_BROWSER_REF = /^@?e[1-9]\d{0,8}$/
+
+/** Longest innerHTML a `react_component_for_dom` box lookup compares; a larger element is told apart by its box alone. */
+export const BOX_HTML_MAX_LENGTH = 8_192
+
 /** Upgrade header an agent connection names its caller with, so the hub's status frames show that caller's default tab. */
 export const GENIE_CALLER_HEADER = 'x-genie-caller'
 

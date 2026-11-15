@@ -30,7 +30,11 @@ export default defineConfig({
   },
   test: {
     // Hubs started by tests publish agent tokens here instead of beside the developer's real ones.
-    env: { XDG_RUNTIME_DIR: testRuntimeDir },
+    // CLI tests run in-process, so they must never reach the developer's agent-browser sessions.
+    env: {
+      XDG_RUNTIME_DIR: testRuntimeDir,
+      GENIE_AGENT_BROWSER: join(testRuntimeDir, 'no-agent-browser'),
+    },
     include: [
       'packages/*/src/**/*.test.ts',
       'apps/docs/src/**/*.test.ts',

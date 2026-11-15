@@ -301,7 +301,7 @@ async function open(
   operation: string,
 ): Promise<{ connection: Connection } | { exit: number }> {
   try {
-    return { connection: await connect(opts, false) }
+    return { connection: await connect(opts) }
   } catch (error) {
     const { reason, message, ...options } = await describeFailure(error, {})
     return { exit: fail(opts, reason, `${operation} ${message}`, options) }

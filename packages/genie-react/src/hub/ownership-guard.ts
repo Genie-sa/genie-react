@@ -255,7 +255,7 @@ function heldFailure(
   const verb = resource === 'timeline' ? 'is recording' : 'applied'
   return failure(
     'STATE_HELD',
-    `${others} ${verb} ${RESOURCE_LABELS[resource]} on this tab (last active ${holders.ageMs}ms ago), so "${tool}" was not run: it would end what they set up. Use your own tab (open the app with ?_genie=<your-name> and pass --session), or wait until they finish; their hold lapses after 5 minutes without a call.`,
+    `${others} ${verb} ${RESOURCE_LABELS[resource]} on this tab (last active ${holders.ageMs}ms ago), so "${tool}" was not run: it would end what they set up. Use your own tab (open the app with agent-browser --session <your-name>, or ?_genie=<your-name>, and pass --session <your-name>), or wait until they finish; their hold lapses after 5 minutes without a call.`,
     { resource, cause: 'held', tool, ageMs: holders.ageMs, otherCallers: holders.otherCallers },
   )
 }
@@ -275,7 +275,7 @@ function supersededFailure(conflict: OwnershipConflict): OwnershipFailure {
             : `Another agent started a new ${label} on this tab ${ago}`
   return failure(
     'OBSERVATION_SUPERSEDED',
-    `${who}, so this evidence would not be yours. Start a new ${label} and repeat the interaction; use your own tab (?_genie=<your-name> with --session) so other agents cannot disturb it.`,
+    `${who}, so this evidence would not be yours. Start a new ${label} and repeat the interaction; use your own tab (agent-browser --session <your-name>, or ?_genie=<your-name>, with --session <your-name>) so other agents cannot disturb it.`,
     conflict,
   )
 }

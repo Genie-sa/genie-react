@@ -248,6 +248,79 @@ it('filters library DOM owners before limit and discloses unknown ownership', as
     ownershipCoverage: { app: 1, library: 1, unknown: 1, complete: false },
   })
 })
+function domOwnerTool() {
+  const tool = reactCollector().tools?.find(
+    (tool) => tool.contract.name === 'react_component_for_dom',
+  )
+  if (!tool) throw new Error('Missing DOM owner tool')
+  return tool
+}
+
+it('takes exactly one element target: a selector, an agent-browser ref or a box', () => {
+  const { input } = domOwnerTool().contract
+  const box = { x: 8, y: 66, width: 46, height: 21 }
+  expect(input.safeParse({ selector: 'button' }).success).toBe(true)
+  expect(input.safeParse({ ref: '@e12' }).success).toBe(true)
+  expect(input.safeParse({ ref: 'e12' }).success).toBe(true)
+  expect(input.safeParse({ box }).success).toBe(true)
+  for (const invalid of [
+    {},
+    { selector: 'button', box },
+    { ref: '@e1', box },
+    { ref: '@e0' },
+    { ref: '#save' },
+    { box: { ...box, width: -1 } },
+  ]) {
+    expect(input.safeParse(invalid).success, JSON.stringify(invalid)).toBe(false)
+  }
+})
+
+it('resolves a box to the owner of the element with that box and echoes the box, not a selector', async () => {
+  const save = row('SaveButton', '/src/SaveButton.tsx')
+  const box = { x: 8, y: 66.4375, width: 46.390625, height: 21 }
+  const element = { tagName: 'BUTTON', getBoundingClientRect: () => box, getAttribute: () => null }
+  const elsewhere = {
+    tagName: 'DIV',
+    getBoundingClientRect: () => ({ ...box, y: 300 }),
+    getAttribute: () => null,
+  }
+  vi.stubGlobal('document', {
+    body: {},
+    querySelectorAll: () => {
+      throw new Error('a box lookup must not run a selector')
+    },
+    elementsFromPoint: () => [elsewhere, element],
+    getElementsByTagName: () => [elsewhere, element],
+  })
+  vi.stubGlobal('Element', class {})
+  vi.stubGlobal('navigator', { product: 'Browser' })
+  vi.spyOn(fiberTools, 'owningComponentFor').mockImplementation((candidate) =>
+    candidate === (element as never)
+      ? {
+          id: fiberTools.registerFiber(save),
+          name: 'SaveButton',
+          kind: 'function',
+          props: {},
+          fiber: save,
+        }
+      : null,
+  )
+  const tool = domOwnerTool()
+  const report = await tool.handler(tool.contract.input.parse({ box }) as never, {} as never)
+  expect(report).toMatchObject({ box, matched: 1, components: [{ name: 'SaveButton' }] })
+  expect(report).not.toHaveProperty('selector')
+})
+
+it('refuses an unresolved agent-browser ref and says how to pass its box', async () => {
+  vi.stubGlobal('document', { body: {}, querySelectorAll: () => [] })
+  vi.stubGlobal('Element', class {})
+  vi.stubGlobal('navigator', { product: 'Browser' })
+  const tool = domOwnerTool()
+  await expect(
+    tool.handler(tool.contract.input.parse({ ref: 'e7' }) as never, {} as never),
+  ).rejects.toThrow('agent-browser get box @e7')
+})
+
 it('keeps app descendants recoverable when hidden tree candidates precede the requested limit', async () => {
   const root = row('Root', null),
     library = row('Library', '/node_modules/ui.tsx'),

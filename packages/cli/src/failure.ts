@@ -29,6 +29,7 @@ import { isRecord } from './guards'
 import { genieCommand } from './package-manager'
 import { FieldSelectionError, ResultSelectionError } from './result-selection'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
+import type { AgentBrowserMiss, TabTarget } from './tab-target'
 import { resolveToolsSelector, suggestToolNames } from './tool-output'
 
 export { formatAgentFailure } from './failure-format'
@@ -99,6 +100,13 @@ export interface FailureDetails {
   versions?: { cli: string; hub: string | null }
   /** What another agent did to the per-tab state the call depended on. */
   ownership?: OwnershipConflict
+  /** The agent-browser session or ref the CLI read, or the running sessions it could not choose between. */
+  agentBrowser?: {
+    session?: string
+    ref?: string
+    cause?: AgentBrowserMiss['cause']
+    sessions?: string[]
+  }
 }
 
 export interface FailureOptions {
@@ -116,6 +124,13 @@ export interface FailureOptions {
 export interface Failure extends FailureOptions {
   reason: FailureReason
   message: string
+}
+
+/** A failure the CLI detected and described itself, before the hub was asked. */
+export class CliFailure extends Error {
+  constructor(readonly failure: Failure) {
+    super(failure.message)
+  }
 }
 
 export function nextCommand(...args: string[]): NextCommand {
@@ -255,16 +270,16 @@ const HUB_GUIDANCE: Record<HubErrorCode, { message: string; next?: NextCommand }
   },
   SESSION_CLAIMED: {
     message:
-      'Every connected app tab is in use by another agent, so an untargeted call does not take one. Open your own tab with ?_genie=<your-name> in the app URL and pass --session <your-name>; to share a listed tab deliberately, pass its sessionName or logicalSessionId with --session.',
+      'Every connected app tab is in use by another agent, so an untargeted call does not take one. Open your own tab with agent-browser --session <your-name> open <app-url> (or ?_genie=<your-name> in the URL) and pass --session <your-name>; to share a listed tab deliberately, pass its sessionName or logicalSessionId with --session.',
     next: nextCommand('status', '--sessions-only'),
   },
   OBSERVATION_SUPERSEDED: {
     message:
-      'Another agent restarted, paused or changed the state of the render window or recording this read depends on (details.ownership says which), so its evidence would not be yours. Start a new window (react_clear_renders, devtools_interaction_begin or timeline_start) and repeat the interaction, on your own tab (?_genie=<your-name> with --session) so no other agent can disturb it.',
+      'Another agent restarted, paused or changed the state of the render window or recording this read depends on (details.ownership says which), so its evidence would not be yours. Start a new window (react_clear_renders, devtools_interaction_begin or timeline_start) and repeat the interaction, on your own tab (agent-browser --session <your-name>, or ?_genie=<your-name>, with --session <your-name>) so no other agent can disturb it.',
   },
   STATE_HELD: {
     message:
-      'Another agent holds the overrides, Query simulation or timeline recording this call would reset or replace (details.ownership says which), so it was not run. Use your own tab (?_genie=<your-name> with --session), or retry after that agent finishes; its hold lapses after 5 minutes without a call.',
+      'Another agent holds the overrides, Query simulation or timeline recording this call would reset or replace (details.ownership says which), so it was not run. Use your own tab (agent-browser --session <your-name>, or ?_genie=<your-name>, with --session <your-name>), or retry after that agent finishes; its hold lapses after 5 minutes without a call.',
   },
   VERIFICATION_ACTIVE: {
     message:
@@ -290,6 +305,8 @@ export interface FailureContext {
   /** Read-only bridge lookups that enrich a failure; each resolves null when the bridge cannot answer. */
   catalog?: () => Promise<ToolDescriptor[] | null>
   sessions?: () => Promise<SessionSummary[] | null>
+  /** How the CLI picked the tab, so a routing failure can say why agent-browser did not name it. */
+  target?: () => Promise<TabTarget>
 }
 
 /** Turns any thrown value into an actionable failure; `message` holds only caller-typed values and fixed CLI text, while app-reported data stays in `details`. */
@@ -305,6 +322,7 @@ export async function describeFailure(error: unknown, context: FailureContext): 
 async function classify(error: unknown, context: FailureContext): Promise<Failure> {
   const subject =
     context.tool !== undefined && SAFE_TOOL_NAME.test(context.tool) ? context.tool : undefined
+  if (error instanceof CliFailure) return error.failure
   if (error instanceof FieldSelectionError) return fieldSelectionFailure(error, context)
   if (error instanceof ResultSelectionError) return selectionFailure(error, context)
   if (error instanceof BridgeConfigError) {
@@ -799,7 +817,7 @@ function conflictMessage(
   }
   return hubCode
     ? HUB_GUIDANCE[hubCode].message
-    : 'Another agent owns or changed per-tab state this call depends on. Use your own tab with ?_genie=<your-name> and --session.'
+    : 'Another agent owns or changed per-tab state this call depends on. Use your own tab: agent-browser --session <your-name> (or ?_genie=<your-name>) with --session <your-name>.'
 }
 
 function safeOwnership(ownership: ToolErrorDetails['ownership']): OwnershipConflict | undefined {
@@ -836,13 +854,17 @@ async function listedSessionFailure(
   )
   const guidance = HUB_GUIDANCE[hubCode]
   const ownership = hubCode === 'SESSION_CLAIMED' ? safeOwnership(details.ownership) : undefined
+  const candidates = (await context.target?.().catch(() => null))?.agentBrowserCandidates
   return {
     reason: 'unknown_session',
-    message: guidance.message,
+    message: candidates
+      ? `${guidance.message} agent-browser sessions ${listed(candidates)} each show one of these tabs; pass yours with --session.`
+      : guidance.message,
     next: guidance.next,
     details: {
       hubCode,
       ...(ownership ? { ownership } : {}),
+      ...(candidates ? { agentBrowser: { sessions: candidates } } : {}),
       session: {
         ...(requested ? { requested } : {}),
         connected: (matching.length > 0 ? matching : sessions)
@@ -855,15 +877,31 @@ async function listedSessionFailure(
 
 async function unknownSessionFailure(context: FailureContext): Promise<Failure> {
   const { requested, availability, session } = await sessionAvailability(context)
+  const miss = await agentBrowserMiss(context)
   const noTab = session.registeredTabs === 0
   return {
     reason: 'unknown_session',
-    message: `${requested ? `Session ${requested}` : 'The requested session'} is not connected. ${availability} ${noTab ? 'If the browser is still opening the app, wait for it with next.' : 'Choose one with --session or GENIE_SESSION, or unset both to use the current session.'}`,
+    message: `${requested ? `Session ${requested}` : 'The requested session'} is not connected. ${miss ? `${MISS_EXPLANATIONS[miss.cause](miss.session)} ` : ''}${availability} ${noTab ? 'If the browser is still opening the app, wait for it with next.' : 'Choose one with --session or GENIE_SESSION, or unset both to use the current session.'}`,
     next: noTab
       ? withSession(nextCommand('status', '--wait', String(STATUS_WAIT_MS)), context.session)
       : nextCommand('status', '--sessions-only'),
-    details: { session },
+    details: { session, ...(miss ? { agentBrowser: miss } : {}) },
   }
+}
+
+/** Why the agent-browser session a selector or AGENT_BROWSER_SESSION named gave no tab; `session` always matches the CLI's session-name pattern. */
+export const MISS_EXPLANATIONS: Record<AgentBrowserMiss['cause'], (session: string) => string> = {
+  'not-running': (session) => `agent-browser has no running session ${session}.`,
+  'no-genie': (session) =>
+    `agent-browser session ${session} is open, but its page does not run Genie; open the app there with agent-browser --session ${session} open <app-url>.`,
+  unreachable: (session) => `agent-browser session ${session} did not answer.`,
+}
+
+async function agentBrowserMiss(
+  context: FailureContext,
+): Promise<{ session: string; cause: AgentBrowserMiss['cause'] } | undefined> {
+  const miss = (await context.target?.().catch(() => null))?.agentBrowserMiss
+  return miss?.via === 'selector' ? { session: miss.session, cause: miss.cause } : undefined
 }
 
 const STATUS_WAIT_MS = 15_000
@@ -871,12 +909,13 @@ const STATUS_WAIT_MS = 15_000
 /** `status --wait` ran out before the targeted session, or any app when none was targeted, was ready. */
 export async function notReadyFailure(context: FailureContext, waitMs: number): Promise<Failure> {
   const { requested, availability, session } = await sessionAvailability(context)
+  const miss = await agentBrowserMiss(context)
   return {
     reason: 'not_connected',
-    message: `${requested ? `Session ${requested} was not` : 'No app session was'} ready within ${waitMs} ms. ${availability}`,
+    message: `${requested ? `Session ${requested} was not` : 'No app session was'} ready within ${waitMs} ms. ${miss ? `${MISS_EXPLANATIONS[miss.cause](miss.session)} ` : ''}${availability}`,
     userActionRequired: true,
     next: nextCommand('status', '--sessions-only'),
-    details: { session },
+    details: { session, ...(miss ? { agentBrowser: miss } : {}) },
   }
 }
 

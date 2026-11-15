@@ -38,6 +38,7 @@ import {
   reactToggleSuspenseFallbackContract,
   stylexInspectContract,
 } from './contracts'
+import { DOM_SCAN_LIMIT, type DomMatch, elementsWithBox } from './dom-box'
 import type { EffectEventsInput } from './effect-contract'
 import { getEffectScheduleEventsWithOwnership } from './effect-events'
 import { getEffectAuditReport, getEffectTrackingCoverage } from './effect-tracker'
@@ -223,6 +224,15 @@ function styleTargets(
     (element) => element.classList.length > 0 || element.hasAttribute('data-style-src'),
   )
   return { target: `#${id} ${nameOf(fiber)}`, candidates: styled }
+}
+
+function elementsForSelector(selector: string): DomMatch {
+  try {
+    const elements = Array.from(document.querySelectorAll(selector))
+    return { elements, scanTruncated: elements.length > DOM_SCAN_LIMIT }
+  } catch {
+    throw new Error(`Invalid CSS selector: ${JSON.stringify(selector)}`)
+  }
 }
 
 export function hasDomLookupRuntime(): boolean {
@@ -445,17 +455,19 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactComponentForDomContract,
-        handler: async ({ selector, limit, propsDepth, appOnly }) => {
+        handler: async ({ selector, ref, box, limit, propsDepth, appOnly }) => {
           if (!hasDomLookupRuntime()) throw new Error('No DOM in this environment.')
-          let elements: Element[]
-          try {
-            elements = Array.from(document.querySelectorAll(selector))
-          } catch {
-            throw new Error(`Invalid CSS selector: ${JSON.stringify(selector)}`)
+          if (ref !== undefined) {
+            throw new Error(
+              `A ref names an element only inside its agent-browser session. Pass the element's box instead: {"box": <x, y, width and height from \`agent-browser get box ${ref.startsWith('@') ? ref : `@${ref}`}\`>}, or call through the genie-react CLI, which converts the ref.`,
+            )
           }
+          const { elements, scanTruncated } = box
+            ? elementsWithBox(document, box)
+            : elementsForSelector(selector ?? '')
           const seen = new Set<number>()
           const owners = []
-          for (const element of elements.slice(0, 5000)) {
+          for (const element of elements.slice(0, DOM_SCAN_LIMIT)) {
             const owner = owningComponentFor(element, propsDepth)
             if (!owner || seen.has(owner.id)) continue
             seen.add(owner.id)
@@ -485,11 +497,14 @@ export function reactCollector(): GenieCollector {
             ]
           })
           return {
-            selector,
+            ...(selector === undefined ? {} : { selector }),
+            ...(box === undefined
+              ? {}
+              : { box: { x: box.x, y: box.y, width: box.width, height: box.height } }),
             matched: elements.length,
             components: selected.slice(0, limit),
             omittedByLimit: Math.max(0, selected.length - limit),
-            scanTruncated: elements.length > 5000,
+            scanTruncated,
             ownershipCoverage: ownershipCoverage(classes.map((entry) => entry.ownership)),
           }
         },

@@ -19,11 +19,11 @@ Connect, reproduce and explain, fix the code, then verify. The loop is done when
 ### 1. Connect
 
 ```bash
-agent-browser --session my-agent open "http://localhost:5173/?_genie=my-agent"
+agent-browser --session my-agent open http://localhost:5173/
 npx genie-react status --session my-agent --wait 15000
 ```
 
-Use the app's real URL, with `&_genie=my-agent` when it already has a query. On native, open the app with agent-device and take the ready session's `sessionId` from `status`. Pass `--session` to every Genie command. Connected means `ready: true` on the intended URL. Anything else: run `npx genie-react doctor --live` and follow its remediation. The hub runs inside the app's dev server (the Vite plugin, or `registerGenie()` in Next.js, which logs `[genie] hub ready`; a compile error in `instrumentation.ts`'s imports stops it); other setups start it with `npx genie-react hub`. When saving browser state, leave out the `genie-react:*` sessionStorage keys, which bind a tab to its session.
+Genie targets the tab that agent-browser session shows, so pass the same `--session` to every Genie command. In another browser, add `?_genie=my-agent` to the URL instead. On native, open the app with agent-device and take the ready session's `sessionId` from `status`. Connected means `ready: true` on the intended URL. Anything else: run `npx genie-react doctor --live` and follow its remediation. The hub runs inside the app's dev server (the Vite plugin, or `registerGenie()` in Next.js, which logs `[genie] hub ready`; a compile error in `instrumentation.ts`'s imports stops it); other setups start it with `npx genie-react hub`. When saving browser state, leave out the `genie-react:*` sessionStorage keys, which bind a tab to its session.
 
 ### 2. Reproduce and explain
 
@@ -35,6 +35,7 @@ Start with the tool for the question:
 | Which rows of a list updated? | `react_component_cohort` |
 | Does this effect loop or run too often? | `react_effect_audit`, then `react_effect_timeline` |
 | What state does this component hold? | `react_find_components`, then `react_inspect_component` |
+| Which component renders this element? | `react_component_for_dom` with the snapshot ref: `'{"ref":"@e12"}'` |
 | Did Query data reach the UI? | `query_get`, then `query_notifications` |
 | Did my invalidation reach the query? | `query_invalidations` |
 | Did navigation settle? (TanStack Router) | `router_get_state` |
@@ -72,7 +73,7 @@ The exit code is the verdict: `0` pass, `1` fail, `4` refused, `5` inconclusive.
 
 ## Beside other agents
 
-Use your own tab and session name. Genie keeps render windows, recordings and overrides per agent, keyed by `GENIE_AGENT`, else your harness session, else your git worktree; subagents that share one shell each set their own `GENIE_AGENT=<name>`. A `conflict` failure means another agent changed the state your read depends on: start your own window again on your own tab.
+Use your own agent-browser session and pass its name as `--session`. Genie keeps render windows, recordings and overrides per agent, keyed by `GENIE_AGENT`, else your harness session, else your git worktree; subagents that share one shell each set their own `GENIE_AGENT=<name>`. A `conflict` failure means another agent changed the state your read depends on: start your own window again on your own tab.
 
 ## Reading results by hand
 

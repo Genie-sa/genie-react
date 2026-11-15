@@ -13,6 +13,7 @@ import {
   devtoolsWaitContract,
   reactQuiesceContract,
 } from 'genie-react/protocol'
+import { AGENT_BROWSER_SESSION_ENV, AgentBrowser, isAgentBrowserSessionName } from './agent-browser'
 import {
   type AnsweredResult,
   BridgeCallError,
@@ -41,6 +42,7 @@ import {
   resolveBridge,
   resolveExplicitBridge,
 } from './discovery'
+import { withElementBox } from './element-ref'
 import {
   CLI_OUTPUT_SCHEMA_VERSION,
   describeFailure,
@@ -48,6 +50,7 @@ import {
   type FailureContext,
   type FailureOptions,
   type FailureReason,
+  MISS_EXPLANATIONS,
   nextCommand,
   notReadyFailure,
   safeAnsweringSession,
@@ -68,6 +71,12 @@ import {
   type OverflowRecovery,
   selectResult,
 } from './result-selection'
+import {
+  hasAmbiguousDefault,
+  resolveTabTarget,
+  type TabTarget,
+  type TargetRequest,
+} from './tab-target'
 import { jsonText } from './text-output'
 import {
   groupIndex,
@@ -190,13 +199,13 @@ function failureLookups(link: GenieAgentLink): FailureLookups {
 }
 
 export function failureContext(
-  { link, connection }: Connection,
+  { link, connection, target }: Connection,
   opts: AgentOptions,
   tool?: string,
   args?: unknown,
   lookups: FailureLookups = failureLookups(link),
 ): FailureContext {
-  return { ...lookups, connection, tool, args, session: resolveSession(opts.session) }
+  return { ...lookups, connection, target, tool, args, session: resolveSession(opts.session) }
 }
 
 function once<T>(load: () => Promise<T>): () => Promise<T> {
@@ -211,23 +220,35 @@ export interface Connection {
   link: GenieAgentLink
   url: string
   connection: NonNullable<FailureContext['connection']>
+  /** The tab this command's tab-scoped calls target, settled once after the hub greets. */
+  target: () => Promise<TabTarget>
+  agentBrowser: AgentBrowser
+}
+
+export interface ConnectOptions {
+  toolCatalog?: boolean
+  /** `status --wait`: keep probing an agent-browser page until it runs Genie, not only while it loads. */
+  awaitTab?: boolean
 }
 
 /** Bridge selection errors (bad --url, ambiguous discovery, invalid GENIE_BRIDGE_PORT) are reported here, so callers only handle a live link. */
 async function openConnection(
   opts: AgentOptions,
   operation: string,
-  { toolCatalog = false } = {},
+  options: ConnectOptions = {},
 ): Promise<Connection | null> {
   try {
-    return await connect(opts, toolCatalog)
+    return await connect(opts, options)
   } catch (error) {
     await emitCaughtFailure(opts, operation, error, {})
     return null
   }
 }
 
-export async function connect(opts: AgentOptions, toolCatalog: boolean): Promise<Connection> {
+export async function connect(
+  opts: AgentOptions,
+  { toolCatalog = false, awaitTab = false }: ConnectOptions = {},
+): Promise<Connection> {
   markPhase('connect:start')
   const cwd = opts.cwd ?? process.cwd()
   let url: string
@@ -273,13 +294,24 @@ export async function connect(opts: AgentOptions, toolCatalog: boolean): Promise
     })
   }
   markPhase('connect:resolved')
+  const agentBrowser = new AgentBrowser()
+  const target = once(async () => {
+    await link.connected()
+    const resolved = await resolveTabTarget(
+      targetRequest(opts, awaitTab),
+      () => hubView(link),
+      agentBrowser,
+    )
+    reportTarget(resolved)
+    return resolved
+  })
   const link = new GenieAgentLink({
     url,
     token,
     connectTimeoutMs,
     // A per-call --timeout still wins per-invoke (timeoutMs + grace); this is the default when none is given.
     invokeTimeoutMs: opts.timeoutMs ? opts.timeoutMs + INVOKE_GRACE_MS : 20_000,
-    sessionId: resolveSession(opts.session),
+    target: async () => (await target()).sessionId,
     caller: resolveCallerIdentity(cwd).id,
     failFastOnRefused: source === 'fallback',
     clientVersion: opts.cliVersion,
@@ -295,7 +327,53 @@ export async function connect(opts: AgentOptions, toolCatalog: boolean): Promise
       : undefined,
   })
   link.start()
-  return { link, url, connection: { url, source, authenticated: token !== undefined } }
+  return {
+    link,
+    url,
+    connection: { url, source, authenticated: token !== undefined },
+    target,
+    agentBrowser,
+  }
+}
+
+/** The hub's last status, or an empty hub before it greeted. */
+function hubView(link: GenieAgentLink): Pick<BridgeStatusMessage, 'sessionId' | 'sessions'> {
+  return link.getStatus() ?? { sessionId: null, sessions: [] }
+}
+
+/** Calls without `--wait` still give a page that is mid-load (a dev-server reload) this long to publish its Genie identity. */
+const TAB_LOADING_GRACE_MS = 5_000
+
+function targetRequest(opts: AgentOptions, awaitTab: boolean): TargetRequest {
+  const value = resolveSession(opts.session)
+  const agentBrowserSession = process.env[AGENT_BROWSER_SESSION_ENV]
+  const waitMs = opts.waitMs ?? 15_000
+  return {
+    ...(value
+      ? { selector: { value, source: opts.session === undefined ? 'environment' : 'flag' } }
+      : {}),
+    ...(isAgentBrowserSessionName(agentBrowserSession) ? { agentBrowserSession } : {}),
+    settle: awaitTab
+      ? { loadingMs: waitMs, loadedMs: waitMs }
+      : { loadingMs: Math.min(waitMs, TAB_LOADING_GRACE_MS), loadedMs: 0 },
+  }
+}
+
+/** Says when agent-browser chose the tab, or when AGENT_BROWSER_SESSION could not, so the agent knows which tab answered. */
+function reportTarget({ agentBrowser, agentBrowserMiss }: TabTarget): void {
+  if (agentBrowser?.via === 'discovery') {
+    writeDiagnostic(
+      'agent-browser',
+      `Using the tab of agent-browser session ${agentBrowser.session}, the only running session that shows this app. Pass --session to choose another tab.`,
+      { session: agentBrowser.session, logicalSessionId: agentBrowser.logicalSessionId },
+    )
+  } else if (agentBrowserMiss?.via === 'environment') {
+    writeDiagnostic(
+      'agent-browser',
+      `${AGENT_BROWSER_SESSION_ENV} names no app tab: ${MISS_EXPLANATIONS[agentBrowserMiss.cause](agentBrowserMiss.session)} Using the default tab instead.`,
+      { session: agentBrowserMiss.session, cause: agentBrowserMiss.cause },
+    )
+  }
 }
 
 /** The tool result in the active format with its own schema, bounded; field projections emit one row each. */
@@ -635,9 +713,14 @@ export async function runCall(
   const { link } = connection
   try {
     if (requiresReadySession(tool) && !(await waitForApp(link, opts))) return 1
-    const answered = await link.invokeAnswered(tool, args, undefined, {
-      timeoutMs: opts.timeoutMs,
-    })
+    const answered = await link.invokeAnswered(
+      tool,
+      await elementArgs(connection, tool, args),
+      undefined,
+      {
+        timeoutMs: opts.timeoutMs,
+      },
+    )
     const { result } = answered
     reportAnsweringTab(link, answered)
     reportOtherAgents(answered)
@@ -672,6 +755,19 @@ export async function runCall(
   } finally {
     link.close()
   }
+}
+
+/** Tool arguments with any agent-browser `ref` turned into the box the app matches. */
+function elementArgs(connection: Connection, tool: string, args: unknown): Promise<unknown> {
+  return withElementBox(
+    tool,
+    args,
+    async () => {
+      const target = await connection.target()
+      return { target, status: hubView(connection.link) }
+    },
+    connection.agentBrowser,
+  )
 }
 
 function waitResultFailed(result: unknown): boolean {
@@ -902,9 +998,12 @@ export async function runBatch(
     for (const item of parsed.items) {
       setOutputContext({ operation: `batch ${item.tool}` })
       try {
-        const answered = await link.invokeAnswered(item.tool, item.args, undefined, {
-          timeoutMs: opts.timeoutMs,
-        })
+        const answered = await link.invokeAnswered(
+          item.tool,
+          await elementArgs(connection, item.tool, item.args),
+          undefined,
+          { timeoutMs: opts.timeoutMs },
+        )
         const { result, session } = answered
         if (answered.retargeted) reportAnsweringTab(link, answered)
         reportOtherAgents(answered)
@@ -983,28 +1082,31 @@ export function readStdin(
 
 export async function runStatus(opts: AgentOptions = {}): Promise<number> {
   setOutputContext({ operation: 'status' })
-  const connection = await openConnection(opts, 'Status check failed.')
+  const started = Date.now()
+  const connection = await openConnection(opts, 'Status check failed.', {
+    awaitTab: opts.waitMs !== undefined,
+  })
   if (!connection) return 1
   const { link, url } = connection
   try {
-    if (opts.waitMs !== undefined && !(await waitForStatusTarget(connection, opts, opts.waitMs))) {
+    if (
+      opts.waitMs !== undefined &&
+      !(await waitForStatusTarget(connection, opts, opts.waitMs, started))
+    ) {
       return 1
     }
     const status = await link.invoke(devtoolsStatusContract, { includeTools: false })
+    const target = await connection.target()
     // A 0.1.0 bridge predates the `sessions` field; the typed contract can't see that skew.
     const sessions = Array.isArray(status.sessions) ? status.sessions : []
-    const selectorSource = opts.session
-      ? 'flag'
-      : process.env.GENIE_SESSION
-        ? 'environment'
-        : 'implicit-current'
     const statusMetadata = {
       selectedBridgeUrl: url,
       sessionSelector: {
-        requested: resolveSession(opts.session) ?? null,
-        source: selectorSource,
+        requested: target.requested ?? null,
+        source: target.source,
         resolvedSessionId: status.sessionId,
-        implicit: resolveSession(opts.session) === undefined,
+        implicit: target.sessionId === undefined,
+        ...(target.agentBrowser ? { agentBrowser: target.agentBrowser } : {}),
       },
       ...(opts.marker === undefined ? {} : { marker: opts.marker }),
       ...(sessions.length === 0
@@ -1045,6 +1147,7 @@ export async function runStatus(opts: AgentOptions = {}): Promise<number> {
             ready: session.ready,
             ...(session.readyAt === undefined ? {} : { readyAt: session.readyAt }),
             current: session.current,
+            ...(session.claimedByOthers ? { claimedByOthers: true } : {}),
             ...(session.origin === undefined ? {} : { origin: session.origin }),
             ...(session.originUnverified ? { originUnverified: true } : {}),
             ...(session.staleMs === undefined ? {} : { staleMs: session.staleMs }),
@@ -1076,15 +1179,12 @@ export async function runTools(
   if (!connection) return 1
   const { link } = connection
   try {
-    const pinned = resolveSession(opts.session)
+    const toolsWaitMs = opts.waitMs ?? 12_000
+    const pinned = await targetWithin(connection, toolsWaitMs)
     // The broadcast status only carries the current session's catalog; a pinned session must ask the bridge for its own.
     const status = pinned
       ? await link.invoke(devtoolsStatusContract, { includeTools: true })
-      : await waitForTools(
-          link,
-          opts.waitMs ?? 12_000,
-          opts.waitMs === undefined ? NO_APP_GRACE_MS : null,
-        )
+      : await waitForTools(link, toolsWaitMs, opts.waitMs === undefined ? NO_APP_GRACE_MS : null)
     if (!pinned && status && hasAmbiguousDefault(status)) {
       await emitCaughtFailure(
         opts,
@@ -1200,7 +1300,7 @@ function reportOtherAgents({ sharedWith, displaced }: AnsweredResult): void {
   if (displaced) {
     writeDiagnostic(
       'window-displaced',
-      `This call replaced or disturbed the ${displaced.resource} of ${displaced.otherCallers} other agent${displaced.otherCallers === 1 ? '' : 's'} on this tab; their dependent reads now fail with OBSERVATION_SUPERSEDED. Use your own tab: open the app with ?_genie=<your-name> and pass --session <your-name>.`,
+      `This call replaced or disturbed the ${displaced.resource} of ${displaced.otherCallers} other agent${displaced.otherCallers === 1 ? '' : 's'} on this tab; their dependent reads now fail with OBSERVATION_SUPERSEDED. Use your own tab: open the app with agent-browser --session <your-name> (or ?_genie=<your-name>) and pass --session <your-name>.`,
       displaced,
     )
   } else if (sharedWith) {
@@ -1226,13 +1326,23 @@ function reportAnsweringTab(link: GenieAgentLink, { session, retargeted }: Answe
   }
 }
 
-/** The broadcast catalog is the default tab's; with several tabs and no default there is none to wait for. */
-function hasAmbiguousDefault(status: Pick<BridgeStatusMessage, 'sessionId' | 'sessions'>): boolean {
-  return (
-    status.sessionId === null &&
-    status.sessions.length > 1 &&
-    status.sessions.some((session) => session.ready)
-  )
+/** The pinned target, or undefined when the hub has not greeted within `waitMs`; the tools wait that follows reports why. */
+async function targetWithin(connection: Connection, waitMs: number): Promise<string | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), waitMs)
+  })
+  try {
+    return await Promise.race([
+      connection.target().then(
+        (target) => target.sessionId,
+        () => undefined,
+      ),
+      expired,
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /** `tools` with no app session at all gives up after this, unless `--wait` asks for longer. */
@@ -1311,15 +1421,18 @@ export async function waitForApp(link: GenieAgentLink, opts: AgentOptions): Prom
   return false
 }
 
-/** `status --wait`: unlike `call`, waits for the targeted session itself, so a tab that has not registered yet is not reported as unknown. */
+/** `status --wait`: unlike `call`, waits for the targeted session itself, so a tab that has not registered yet is not reported as unknown. Time spent finding the tab through agent-browser counts against the same `--wait`. */
 async function waitForStatusTarget(
   connection: Connection,
   opts: AgentOptions,
   waitMs: number,
+  started: number,
 ): Promise<boolean> {
+  await connection.target()
+  const remainingMs = Math.max(1, waitMs - (Date.now() - started))
   const ready = await connection.link
-    .invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs: waitMs }, undefined, {
-      timeoutMs: waitMs,
+    .invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs: remainingMs }, undefined, {
+      timeoutMs: remainingMs,
     })
     .catch(nullUnlessTerminal)
   if (ready?.ok) return true

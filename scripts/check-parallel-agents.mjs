@@ -198,12 +198,19 @@ async function viteProcess(path) {
   return { url: `http://127.0.0.1:${port}`, log: () => output, stop: () => child.kill('SIGTERM') }
 }
 
-const CHILD_ENV = Object.fromEntries(
-  Object.entries(process.env).filter(
-    ([key]) =>
-      !key.startsWith('GENIE_') && key !== 'CLAUDE_CODE_SESSION_ID' && key !== 'CODEX_THREAD_ID',
+const CHILD_ENV = {
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) =>
+        !key.startsWith('GENIE_') &&
+        !key.startsWith('AGENT_BROWSER_') &&
+        key !== 'CLAUDE_CODE_SESSION_ID' &&
+        key !== 'CODEX_THREAD_ID',
+    ),
   ),
-)
+  // These tabs run in Playwright, so the CLI must not scan the developer's agent-browser sessions for them.
+  GENIE_AGENT_BROWSER: join(runtimeDir, 'no-agent-browser'),
+}
 
 /** One CLI process, as an agent's shell runs it; `--json` keeps stdout parseable and stderr JSON Lines. */
 function cli(args, { cwd, agent, env = {} }) {
