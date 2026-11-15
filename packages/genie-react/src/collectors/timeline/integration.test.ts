@@ -90,6 +90,29 @@ it.each([
   },
 )
 
+it('says why a commit has no render duration', async () => {
+  const collector = timelineCollector()
+  cleanup = collector.start?.(context) || undefined
+  const recording = call<TimelineReport>(collector, 'timeline_start', { name: 'duration' })
+  await act(async () => root.rerender(createElement('span', null, 'measured')))
+  const coarseClock = vi.spyOn(performance, 'now').mockReturnValue(performance.now())
+  await act(async () => root.rerender(createElement('span', null, 'below resolution')))
+  coarseClock.mockRestore()
+  const report = call<TimelineReadReport>(collector, 'timeline_read', { id: recording.id })
+
+  expect(
+    report.events
+      .filter((event) => event.domain === 'react')
+      .map((event) => [
+        typeof event.details.renderDurationMs,
+        event.details.renderDurationUnavailable,
+      ]),
+  ).toEqual([
+    ['number', null],
+    ['object', 'below-clock-resolution'],
+  ])
+})
+
 it('joins React commits to the document commit sequence', async () => {
   const collector = timelineCollector()
   cleanup = collector.start?.(context) || undefined

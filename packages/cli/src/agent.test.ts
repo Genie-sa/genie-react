@@ -898,6 +898,50 @@ describe('agent failure output', () => {
     expect(failure.message).not.toContain('raw')
   })
 
+  it('maps a call the verification lock refused to a conflict that ends the verification', async () => {
+    const verificationId = 'vfy_3b74e2c8-91a6-4f5d-b207-6c83a1d94e50'
+    const failure = await describeFailure(
+      new BridgeCallError('raw', {
+        errorCode: 'conflict',
+        details: { hubCode: 'VERIFICATION_ACTIVE', verificationId },
+      }),
+      { tool: 'react_clear_renders', session: 'tab-a' },
+    )
+
+    expect(failure).toMatchObject({
+      reason: 'conflict',
+      errorCode: 'conflict',
+      userActionRequired: true,
+      details: { hubCode: 'VERIFICATION_ACTIVE', verificationId },
+    })
+    expect(failure.message).toContain('A verification is recording on this document')
+    expect(failure.message).not.toContain('raw')
+    expect(failure.next?.argv).toEqual([
+      'pnpm',
+      'exec',
+      'genie-react',
+      'verify',
+      'end',
+      verificationId,
+      '--session',
+      'tab-a',
+    ])
+  })
+
+  it('still reads the verification lock from a hub that sent it as invalid-args', async () => {
+    const verificationId = 'vfy_3b74e2c8-91a6-4f5d-b207-6c83a1d94e50'
+    const failure = await describeFailure(
+      new BridgeCallError('raw', {
+        errorCode: 'invalid-args',
+        details: { hubCode: 'VERIFICATION_ACTIVE', verificationId },
+      }),
+      { tool: 'react_clear_renders' },
+    )
+
+    expect(failure.details).toMatchObject({ hubCode: 'VERIFICATION_ACTIVE', verificationId })
+    expect(failure.next?.argv.slice(-3)).toEqual(['verify', 'end', verificationId])
+  })
+
   it('says the tab reloaded, not that another agent interfered, when a reload ended the window', async () => {
     const failure = await describeFailure(
       new BridgeCallError('raw', {

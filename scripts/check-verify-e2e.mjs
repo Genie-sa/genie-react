@@ -262,6 +262,7 @@ try {
   ])
   const resetAttempt = await json(['call', 'react_clear_renders', '{}'])
   assert.equal(resetAttempt.code, 1, 'a window reset during a verification must fail')
+  assert.equal(resetAttempt.json.reason, 'conflict')
   assert.equal(resetAttempt.json.details.hubCode, 'VERIFICATION_ACTIVE')
   assert.deepEqual(command(resetAttempt.json.next), [
     'verify',
@@ -272,7 +273,7 @@ try {
   ])
   assert.deepEqual(
     resetAttempt.json.exit,
-    { code: 2, class: 'usage' },
+    { code: 1, class: 'failure' },
     'the failure reports the exit code call will use',
   )
   const aborted = await json(['verify', 'abort', lock.json.verificationId])

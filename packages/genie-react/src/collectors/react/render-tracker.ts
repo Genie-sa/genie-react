@@ -358,6 +358,8 @@ export function startRenderTracking(): boolean {
           if (getActiveObservation()) noteAnalysisFailure('renderer-not-analyzed')
           return
         }
+        // A refresh commit is still a commit: it takes an ID so timelines and settle checks see it, though nothing joins its analysis.
+        noteDocumentCommit()
         if (isRefreshCommit()) {
           clearMeasurementSpans()
           advanceExcludedCommitBaseline(root)
@@ -367,7 +369,6 @@ export function startRenderTracking(): boolean {
           noteExcludedRefreshCommit()
           return
         }
-        noteDocumentCommit()
         commitObservedSinceInstall = true
         const analyzed = isTracking()
         beginMeasurementCommit(

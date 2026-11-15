@@ -328,6 +328,7 @@ describe('verify on a real React tree', () => {
       await verify.raw('devtools_verify_begin', { name: 'second', claims: badgeClaims }),
     ).toMatchObject({
       ok: false,
+      errorCode: 'conflict',
       errorDetails: { hubCode: 'VERIFICATION_ACTIVE', verificationId: began.verificationId },
     })
     const aborted = await verify.invoke('devtools_verify_abort', {

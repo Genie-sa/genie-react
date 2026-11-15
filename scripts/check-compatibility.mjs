@@ -30,6 +30,7 @@ const PROFILES = {
     '@tanstack/react-query': '5.0.0',
     '@tanstack/react-router': '1.0.0',
     zod: '3.25.76',
+    '@babel/core': '7.0.0',
   },
   // Keep these exact pins aligned with the workspace's resolved development stack.
   current: {
@@ -39,7 +40,13 @@ const PROFILES = {
     '@tanstack/react-query': '5.101.2',
     '@tanstack/react-router': '1.170.17',
     zod: '4.6.7',
+    '@babel/core': '8.1.2',
   },
+}
+// Babel 7 ships its types separately. Babel 8 bundles them, but they import convert-source-map without depending on its types.
+const BABEL_TYPE_PROFILES = {
+  minimum: { '@types/babel__core': '7.20.5' },
+  current: { '@types/convert-source-map': '2.0.3' },
 }
 // npm resolves genie-react's own zod to the newest release its range admits; the minimum profile pins it to the range's floor so CI covers the oldest release a user can install.
 const RUNTIME_ZOD = {
@@ -214,6 +221,43 @@ try {
 `,
   )
   writeFileSync(
+    join(directory, 'src/babel-config.ts'),
+    `import type { PluginItem } from '@babel/core'
+import genieComponentNames from 'genie-react/babel'
+
+export const plugins: PluginItem[] = [genieComponentNames]
+`,
+  )
+  writeFileSync(
+    join(directory, 'verify-babel.mjs'),
+    `import { createRequire } from 'node:module'
+import { transformSync, version } from '@babel/core'
+
+const require = createRequire(import.meta.url)
+const source = "import { memo } from 'react'\\nexport const FriendListRow = memo(() => null)\\n"
+const [major, minor] = version.split('.').map(Number)
+// Babel before 7.13 resolves plugin names without package exports, so only a module reference reaches genie-react/babel there.
+const resolvesExports = major > 7 || minor >= 13
+const plugins = {
+  'ES module': (await import('genie-react/babel')).default,
+  'CommonJS module': require('genie-react/babel'),
+  ...(resolvesExports ? { 'package specifier': 'genie-react/babel' } : {}),
+}
+for (const [label, plugin] of Object.entries(plugins)) {
+  const code = transformSync(source, {
+    configFile: false,
+    babelrc: false,
+    envName: 'development',
+    plugins: [plugin],
+  })?.code
+  if (!code?.includes('FriendListRow.displayName ??= "FriendListRow"')) {
+    throw new Error(\`Babel \${version} with the \${label} plugin did not name the memo:\\n\${code}\`)
+  }
+}
+process.stdout.write(\`Babel plugin passed on @babel/core \${version}: \${Object.keys(plugins).join(', ')}\\n\`)
+`,
+  )
+  writeFileSync(
     join(directory, 'production.html'),
     '<!doctype html><html><body><div id="root"></div><script type="module" src="/src/production.tsx"></script></body></html>\n',
   )
@@ -307,6 +351,7 @@ process.stdout.write(
       ([alias, version]) => `${alias}@npm:typescript@${version}`,
     ),
     ...Object.entries(REACT_TYPE_PROFILES[profile]).map(([name, version]) => `${name}@${version}`),
+    ...Object.entries(BABEL_TYPE_PROFILES[profile]).map(([name, version]) => `${name}@${version}`),
   ]
   execFileSync(
     'npm',
@@ -335,6 +380,7 @@ function assertInstalledVersions(directory, expected) {
 function verifyConsumer(directory) {
   execFileSync(process.execPath, ['verify-imports.mjs'], { cwd: directory, stdio: 'inherit' })
   execFileSync(process.execPath, ['verify-vite-zod.mjs'], { cwd: directory, stdio: 'inherit' })
+  execFileSync(process.execPath, ['verify-babel.mjs'], { cwd: directory, stdio: 'inherit' })
   for (const alias of Object.keys(TYPESCRIPT_COMPILERS)) {
     const tsc = join(directory, 'node_modules', alias, 'bin/tsc')
     execFileSync(process.execPath, [tsc, '--noEmit'], { cwd: directory, stdio: 'inherit' })
@@ -361,6 +407,7 @@ try {
       ...versions,
       ...TYPESCRIPT_COMPILERS,
       ...REACT_TYPE_PROFILES[profile],
+      ...BABEL_TYPE_PROFILES[profile],
     })
     if (RUNTIME_ZOD[profile]) {
       assertInstalledVersions(join(directory, 'node_modules/genie-react'), {

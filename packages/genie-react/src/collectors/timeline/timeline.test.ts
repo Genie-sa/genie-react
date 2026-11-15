@@ -1,6 +1,7 @@
 import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CollectorContext, GenieCollector } from '../../client'
+import { genieFetch } from '../genie-fetch'
 import { type TimelineReadReport, type TimelineReport, timelineCollector } from './index'
 
 const context: CollectorContext = {
@@ -328,6 +329,41 @@ describe('resource timing correlation', () => {
     expect(observer.connected).toBe(false)
     observer.deliver([resource()])
     expect(read(collector, recording.id)).toEqual(result)
+  })
+
+  it("leaves Genie's own requests out of the lane and counts them, keeping the app's request to the same URL", () => {
+    browser()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>(() => {})),
+    )
+    const raw = 'https://app.test/src/App.tsx?raw'
+    const panel = 'https://app.test/src/TaskPanel.tsx'
+    const pending = 'https://app.test/src/PricingCard.tsx'
+    time = 95
+    void genieFetch(panel)
+    time = 100
+    const collector = create()
+    const recording = start(collector)
+    time = 110
+    void fetch(raw)
+    time = 170
+    void genieFetch(raw)
+    void genieFetch(pending)
+    observerInstance().queued.push(
+      resource({ name: panel, startTime: 95, duration: 20 }),
+      resource({ name: raw, startTime: 110, duration: 5 }),
+      resource({ name: raw, startTime: 170, duration: 5 }),
+    )
+    time = 200
+    stop(collector, recording.id)
+    const report = read(collector, recording.id)
+
+    expect(report.events.map((event) => [event.details.url, event.details.method])).toEqual([
+      ['https://app.test/src/App.tsx', 'GET'],
+    ])
+    expect(report.events[0]?.details.startMs).toBe(10)
+    expect(report.genieRequestsExcluded).toBe(3)
   })
 
   it('marks a same-origin request that got no response, and stays unknown across origins', () => {

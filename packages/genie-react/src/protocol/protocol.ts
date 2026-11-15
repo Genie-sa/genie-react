@@ -373,7 +373,7 @@ export type AgentMessage = z.infer<typeof agentMessageSchema>
 export const agentErrorCodeSchema = z.enum([
   'not-connected',
   'unknown-session',
-  /** Hub-only: another caller owns or changed per-tab state this call depends on; `errorDetails.ownership` says what. */
+  /** Hub-only: another caller owns or changed per-tab state this call depends on (`errorDetails.ownership` says what), or a verification holds the document (`VERIFICATION_ACTIVE`). */
   'conflict',
   'busy',
   'timeout',

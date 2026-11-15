@@ -241,18 +241,27 @@ describe('verify through the hub against a real React tree', () => {
     await mounted(createElement(DebouncedSearch), 'idle')
     const { verificationId } = await begin([badgeMax0])
 
-    for (const tool of ['react_clear_renders', 'react_profile_stop', 'react_override_props']) {
+    for (const tool of [
+      'react_clear_renders',
+      'react_profile_start',
+      'react_profile_stop',
+      'react_override_props',
+    ]) {
       const rejected = await invoke(
         tool,
         tool === 'react_override_props' ? { id: 1, props: {} } : {},
       )
       expect(rejected).toMatchObject({
         ok: false,
+        errorCode: 'conflict',
         errorDetails: { hubCode: 'VERIFICATION_ACTIVE', verificationId },
       })
     }
     const interaction = await invoke('devtools_interaction_begin', { name: 'other' })
-    expect(interaction.errorDetails).toMatchObject({ hubCode: 'VERIFICATION_ACTIVE' })
+    expect(interaction).toMatchObject({
+      errorCode: 'conflict',
+      errorDetails: { hubCode: 'VERIFICATION_ACTIVE' },
+    })
     expect((await invoke('react_get_renders', { limit: 1 })).ok).toBe(true)
 
     const ended = await invoke('devtools_verify_end', { verificationId })

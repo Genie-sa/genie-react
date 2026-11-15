@@ -971,7 +971,7 @@ export class VerificationManager<TSession extends VerificationSession> {
       return {
         ok: false,
         error: `Verification ${verificationId} is already ending; wait for devtools_verify_end to return its verdict.`,
-        errorCode: 'invalid-args',
+        errorCode: 'conflict',
         errorDetails: { hubCode: 'VERIFICATION_ACTIVE' satisfies HubErrorCode, verificationId },
       }
     }
@@ -1262,7 +1262,7 @@ function lockedFailure(verificationId: string | undefined): VerificationInvocati
     error: verificationId
       ? `Verification ${verificationId} is recording on this document. End it with devtools_verify_end, or release it with devtools_verify_abort.`
       : 'A verification is starting on this document; wait for devtools_verify_begin to return.',
-    errorCode: 'invalid-args',
+    errorCode: 'conflict',
     errorDetails: {
       hubCode: 'VERIFICATION_ACTIVE' satisfies HubErrorCode,
       ...(verificationId ? { verificationId } : {}),

@@ -204,7 +204,7 @@ describe('runInit — plain React + Vite', () => {
     expect(text).toContain('npm install -D genie-react @genie-react/cli')
   })
 
-  it('still prints the <Genie /> render step — only it surfaces the memory + plugin tools', async () => {
+  it('prints the <Genie /> render step as optional, since genie() already connects the app', async () => {
     const dir = await project({
       'package.json': pkg({ react: '^19' }),
       'index.html': '<div id="root"></div>',
@@ -213,8 +213,43 @@ describe('runInit — plain React + Vite', () => {
     const { logger, lines } = capture()
     runInit({ cwd: dir, dryRun: true, logger })
     const text = lines.join('\n')
-    expect(text).toContain('render Genie near your app root')
+    expect(text).toContain(
+      'render Genie near your app root (dev only, optional, for the Query, Router, memory and timeline tools)',
+    )
     expect(text).toContain('{import.meta.env.DEV && <Genie />}')
+  })
+
+  it.each([
+    ['the entry that index.html loads', 'src/main.tsx'],
+    ['the root component', 'src/App.tsx'],
+  ])('leaves out the render step when %s renders <Genie />', async (_, file) => {
+    const dir = await project({
+      'package.json': pkg({ react: '^19' }),
+      'index.html':
+        '<div id="root"></div><script src="https://cdn.example/x.js"></script><script type="module" src="/src/main.tsx"></script>',
+      'vite.config.ts': VITE_CONFIG,
+      'src/main.tsx': "import { createRoot } from 'react-dom/client'\n",
+      [file]:
+        "import { Genie } from 'genie-react'\nexport const Root = () => <>{import.meta.env.DEV && <Genie />}</>\n",
+    })
+    const { logger, lines } = capture()
+    const result = runInit({ cwd: dir, dryRun: true, logger })
+
+    expect(result.rootRoute).toEqual({ action: 'already', path: join(dir, file) })
+    expect(lines.join('\n')).not.toContain('render Genie near your app root')
+  })
+
+  it('still offers the step when an app file imports genie-react without rendering <Genie />', async () => {
+    const dir = await project({
+      'package.json': pkg({ react: '^19' }),
+      'index.html': '<script type="module" src="/src/main.tsx"></script>',
+      'vite.config.ts': VITE_CONFIG,
+      'src/main.tsx':
+        "import { useGenieTool } from 'genie-react'\nimport { GenieScript } from 'x'\n<GenieScript />\n",
+    })
+    const result = runInit({ cwd: dir, dryRun: true, logger: capture().logger })
+
+    expect(result.rootRoute.action).toBe('skip')
   })
 })
 

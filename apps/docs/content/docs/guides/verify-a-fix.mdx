@@ -45,7 +45,7 @@ attempt 2 for these claims on this tab; previous fail vfy_…; code changed sinc
 | `render <Name> max <N>` | matched instances rendered at most N times |
 | `render <Name> min <N>` | they rendered at least N times |
 | `render <Name> max <N> counting updates` | updates only; a remount still fails unless you add `allow-remount` |
-| `render <Name> only <cause>[,<cause>]` | every render had only listed causes: `mount`, `children`, `router`, `props.<name>`, `state[<n>]`, `context.<Name>`, `query.<hash>` |
+| `render <Name> only <cause>[,<cause>]` | every render had only listed causes: `mount`, `children`, `router`, `props.<name>`, a state hook such as `state[<n>]`, `reducer[<n>]` or `this.state.<field>`, `context.<Name>`, `query.<hash>` |
 | `effect <Name>[#index] max <N>` | each effect ran at most N times |
 | `effect <Name>[#index] settles` | the effect stopped running after the app settled |
 | `boundaries clean` | no error boundary caught during the window or is in an error state at the end |
@@ -76,5 +76,6 @@ refused vfy_… "nothing"  0 commits, quiet after 609 ms (react, query)
 ## While a window is open
 
 Genie refuses tools that would skew the evidence on that tab, such as `react_clear_renders` and the
-override tools. `verify abort <id>` releases the window, and unended windows expire after five
+override tools, with reason `conflict` and `hubCode: "VERIFICATION_ACTIVE"`; its `next` ends the
+verification. `verify abort <id>` releases the window, and unended windows expire after five
 minutes. Genie does not check the screen, so confirm the result with the UI driver.

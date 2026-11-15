@@ -1,6 +1,7 @@
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { genieFetch } from '../genie-fetch'
 import { describeQuery, observeRequests, type RequestRecord } from './requests'
 
 let server: Server
@@ -84,6 +85,17 @@ describe('observeRequests with a real fetch', () => {
     } finally {
       stop()
       await (await pending).text()
+    }
+  })
+
+  it("leaves Genie's own fetches out and still records the app's fetch of the same URL", async () => {
+    const { records, stop } = observe()
+    try {
+      await (await genieFetch(`${base}/src/App.tsx?raw`)).text()
+      await (await fetch(`${base}/src/App.tsx?raw`)).text()
+      expect(records.map((record) => record.href)).toEqual([`${base}/src/App.tsx?raw`])
+    } finally {
+      stop()
     }
   })
 
