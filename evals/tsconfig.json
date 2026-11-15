@@ -8,5 +8,15 @@
     "checkJs": true,
     "types": ["node"]
   },
-  "include": ["run.mjs", "lib/**/*.mjs", "lib/**/*.ts", "realworld/**/*.mjs", "realworld/**/*.ts"]
+  "include": [
+    "run.mjs",
+    "lib/**/*.mjs",
+    "lib/**/*.ts",
+    "realworld/run-probes.mjs",
+    "realworld/run-spec-probes.mjs",
+    "realworld/lib/**/*.mjs",
+    "realworld/lib/**/*.ts",
+    "realworld/dashboard/**/*.mjs",
+    "realworld/dashboard/**/*.ts"
+  ]
 }
