@@ -28,7 +28,7 @@ const COVERAGE_DETAILS = {
     'Supplied QueryCache add/remove/update notifications; no pre-existing snapshot, mutation cache, payloads or inferred request links. Query hashes are bounded but may contain key values.',
   'no-query-client': 'No QueryClient supplied. Only the supplied QueryCache is observed.',
   'react-root-commits':
-    'Supported development React root commits; hook must precede React. renderDurationMs is root actualDuration when positive, otherwise unknown; not commit wall time, native UI timing, effects or component attribution. No Fiber tree traversal.',
+    'Supported development React root commits; hook must precede React. renderDurationMs is root actualDuration when positive, otherwise null with renderDurationUnavailable saying why; not commit wall time, native UI timing, effects or component attribution. No Fiber tree traversal.',
   'no-react-renderer': 'No supported development React renderer/hook; load Genie before React.',
   'tanstack-router':
     'Supplied TanStack Router lifecycle notifications only; no transition duration or causal navigation IDs inferred. Locations include pathname only.',
@@ -56,7 +56,7 @@ const eventSchema = z.object({
   details: z
     .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
     .describe(
-      "Times are milliseconds rounded to 0.01. Request (type completed, or in-flight at stop): URL without query/fragment/credentials; query with parameter names and, by default, salted hashes of the values (`~` and 10 hex digits: equal values hash alike within a page load, an empty value stays empty, null means no query); method (null when the request bypassed Genie's fetch/XHR observer); outcome (response, aborted, aborted-after-response, failed, in-flight, no-response from timing alone, unknown cross-origin); startMs/endMs relative to recording start, durationMs, detailedTimingAvailable, nullable responseStatus and responseReceived (false: no response arrived; null: cross-origin timing hides it); bodyReadMs when the app finished reading the body; for requests to the same method and path that overlap in time, overlappingSameEndpoint counts the others, finishedAfterNewer is true when a request started after this one finished first (an out-of-order response), and bodyReadLast is true for the one whose body the app read last (null when bodies were not observed or nothing overlapped). React: rendererId, nullable renderDurationMs (root actualDuration, not commit wall time) and documentCommitId, which joins react_render_causes events of the same commit (null when render tracking is not installed). Query: bounded queryHash, action, status and fetchStatus. Navigation: from/to pathname, pathChanged and hrefChanged. atMs is observation time; resource completion can be delivered later.",
+      "Times are milliseconds rounded to 0.01. Request (type completed, or in-flight at stop): URL without query/fragment/credentials; query with parameter names and, by default, salted hashes of the values (`~` and 10 hex digits: equal values hash alike within a page load, an empty value stays empty, null means no query); method (null when the request bypassed Genie's fetch/XHR observer); outcome (response, aborted, aborted-after-response, failed, in-flight, no-response from timing alone, unknown cross-origin); startMs/endMs relative to recording start, durationMs, detailedTimingAvailable, nullable responseStatus and responseReceived (false: no response arrived; null: cross-origin timing hides it); bodyReadMs when the app finished reading the body; for requests to the same method and path that overlap in time, overlappingSameEndpoint counts the others, finishedAfterNewer is true when a request started after this one finished first (an out-of-order response), and bodyReadLast is true for the one whose body the app read last (null when bodies were not observed or nothing overlapped). React: rendererId, nullable renderDurationMs (root actualDuration, not commit wall time) with renderDurationUnavailable when it is null (below-clock-resolution: the render took less than the page clock resolution; no-profiler-timing: this React build reports no durations), and documentCommitId, unique per commit, which joins react_render_causes events of the same commit (null when render tracking is not installed; a Fast Refresh commit has an ID but no events). Query: bounded queryHash, action, status and fetchStatus. Navigation: from/to pathname, pathChanged and hrefChanged. atMs is observation time; resource completion can be delivered later.",
     ),
 })
 const reportSchema = z.object({
@@ -227,6 +227,20 @@ function describeRequests(target: Recording): RequestDetails {
     })
   }
   return details
+}
+
+/** Root `actualDuration`, or why there is none: a React build without profiler timing, or render work shorter than the page clock's resolution, which browsers coarsen to 0.1 ms or more. */
+function renderDuration(duration: number | undefined): {
+  renderDurationMs: number | null
+  renderDurationUnavailable: 'no-profiler-timing' | 'below-clock-resolution' | null
+} {
+  if (typeof duration !== 'number' || !Number.isFinite(duration) || duration < 0) {
+    return { renderDurationMs: null, renderDurationUnavailable: 'no-profiler-timing' }
+  }
+  if (duration === 0) {
+    return { renderDurationMs: null, renderDurationUnavailable: 'below-clock-resolution' }
+  }
+  return { renderDurationMs: duration, renderDurationUnavailable: null }
 }
 
 function timingOutcome(responseReceived: unknown): string {
@@ -556,14 +570,10 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
           instrument({
             name: 'genie-timeline',
             onCommitFiberRoot: safeCommitHandler((rendererId, root) => {
-              const duration = root.current.actualDuration
               const documentCommitId = getDocumentCommitId()
               append(target, 'react', 'commit', {
                 rendererId,
-                renderDurationMs:
-                  typeof duration === 'number' && Number.isFinite(duration) && duration > 0
-                    ? duration
-                    : null,
+                ...renderDuration(root.current.actualDuration),
                 documentCommitId: documentCommitId > 0 ? documentCommitId : null,
               })
             }),
