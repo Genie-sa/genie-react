@@ -1373,7 +1373,7 @@ export class GenieBridge {
       error: recording
         ? `Verification ${verificationId} is recording on this document, so ${tool} is refused until it ends. Run genie-react verify end ${verificationId}, or release the lock with genie-react verify abort ${verificationId}.`
         : `A verification is starting on this document, so ${tool} is refused. Retry once genie-react verify begin returns.`,
-      errorCode: 'invalid-args',
+      errorCode: 'conflict',
       errorDetails: {
         hubCode: 'VERIFICATION_ACTIVE' satisfies HubErrorCode,
         ...(recording ? { verificationId } : {}),

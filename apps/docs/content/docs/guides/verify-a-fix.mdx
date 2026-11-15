@@ -76,5 +76,6 @@ refused vfy_… "nothing"  0 commits, quiet after 609 ms (react, query)
 ## While a window is open
 
 Genie refuses tools that would skew the evidence on that tab, such as `react_clear_renders` and the
-override tools. `verify abort <id>` releases the window, and unended windows expire after five
+override tools, with reason `conflict` and `hubCode: "VERIFICATION_ACTIVE"`; its `next` ends the
+verification. `verify abort <id>` releases the window, and unended windows expire after five
 minutes. Genie does not check the screen, so confirm the result with the UI driver.

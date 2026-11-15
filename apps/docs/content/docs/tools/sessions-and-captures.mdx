@@ -606,7 +606,7 @@ Drive the interaction with the UI driver, then call `devtools_verify_end`. A tar
 environment problem returns a completed document with `verdict: "refused"` instead, before any window
 starts. While the window records, the hub refuses `react_clear_renders`, `react_profile_start`,
 `react_profile_stop`, `devtools_interaction_begin` and the override tools on that document with
-`hubCode: "VERIFICATION_ACTIVE"`.
+`errorCode: "conflict"` (CLI `reason: "conflict"`) and `hubCode: "VERIFICATION_ACTIVE"`.
 
 ## `devtools_verify_end`
 
