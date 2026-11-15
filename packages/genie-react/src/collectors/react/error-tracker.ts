@@ -170,10 +170,7 @@ export function noteUnscannedCommit(): void {
 }
 
 /** Catches committed after `afterDocumentCommitId`; complete only when none was evicted and every commit since was scanned. */
-export function getBoundaryCatchLog(
-  afterDocumentCommitId: number,
-  limit: number,
-): BoundaryCatchLog {
+function getBoundaryCatchLog(afterDocumentCommitId: number, limit: number): BoundaryCatchLog {
   const matching = catchLog.filter((entry) => entry.documentCommitId > afterDocumentCommitId)
   const incompleteReasons: BoundaryCatchLog['incompleteReasons'] = []
   if (latestEvictedCatchCommit > afterDocumentCommitId) incompleteReasons.push('catches-evicted')

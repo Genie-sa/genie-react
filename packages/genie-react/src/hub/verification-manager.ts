@@ -61,7 +61,12 @@ import {
   type TargetResolution,
   type VerificationEvidence,
 } from './verify/evidence'
-import { evaluateGuards, type GuardInputs, type Snapshot } from './verify/guards'
+import {
+  ACCEPTED_COLLECTION,
+  evaluateGuards,
+  type GuardInputs,
+  type Snapshot,
+} from './verify/guards'
 import { refuse } from './verify/outcome'
 import { sourceMatches } from './verify/target'
 import { decide, guardRefusal, UI_CAVEAT } from './verify/verdict'
@@ -75,6 +80,7 @@ const RENDER_PAGE_LIMIT = 200
 const MAX_RENDER_PAGES = 25
 const EVENT_READ_LIMIT = 500
 const COHORT_LIMIT = 200
+const RENDER_PROBE_ARGS = { sort: 'renders', limit: 1, appOnly: false, includeCursor: false }
 
 /** Calls that would reset, pause or skew a recording window; refused on a document with an active verification. */
 const WINDOW_TOOLS: ReadonlySet<string> = new Set([
@@ -268,13 +274,11 @@ export class VerificationManager<TSession extends VerificationSession> {
     const verificationId = `vfy_${newId()}`
     const startedAt = new Date().toISOString()
     const retained: RetainedTool[] = []
-    const capture = async (tool: string, args: unknown) => {
-      const evidence = await captureToolEvidence(this.options.request, session, tool, args)
-      retained.push(evidence)
-      return evidence
-    }
-    const missing = requiredTools(input.claims).filter((tool) => !hasTool(session, tool))
-    const render = readRenderProbe(await capture('react_get_renders', renderProbeArgs()))
+    const capture = this.capturer(session, retained)
+    const missing = new Set(
+      input.claims.flatMap(toolsFor).filter((tool) => !hasTool(session, tool)),
+    )
+    const render = readRenderProbe(await capture('react_get_renders', RENDER_PROBE_ARGS))
     const snapshot = await this.snapshot(session, capture, render)
     const targets = distinctTargets(input.claims)
     const resolutions = new Map<string, TargetResolution>()
@@ -314,14 +318,7 @@ export class VerificationManager<TSession extends VerificationSession> {
         retryInMs: window.retryInMs,
       }
     }
-    const clear = readClear({
-      status: 'ok',
-      tool: 'react_clear_renders',
-      args: {},
-      capturedAt: startedAt,
-      durationMs: 0,
-      result: window.result,
-    })
+    const clear = readClear(window.result)
     if (!this.options.isCurrentSession(session) || !clear) {
       return {
         ok: false,
@@ -344,13 +341,7 @@ export class VerificationManager<TSession extends VerificationSession> {
       begin: { ...snapshot, clear },
       domains: input.settle.domains ?? advertisedDomains(session),
       tailMs,
-      fingerprint: claimFingerprint({
-        claims: input.claims,
-        targetSources: targets.map(
-          (target) => resolutions.get(verifyTargetKey(target))?.sourceFile ?? null,
-        ),
-        url: session.app.url,
-      }),
+      fingerprint: fingerprintOf(input, resolutions, session),
       retained,
       expiry: setTimeout(() => this.expire(verificationId, 'window_lost'), input.maxDurationMs),
     }
@@ -382,6 +373,15 @@ export class VerificationManager<TSession extends VerificationSession> {
         expiresAt,
         request: requestView(input),
       },
+    }
+  }
+
+  /** Captures evidence tools on one document and keeps every result for `verify show`. */
+  private capturer(session: TSession, retained: RetainedTool[]) {
+    return async (tool: string, args: unknown): Promise<RetainedTool> => {
+      const evidence = await captureToolEvidence(this.options.request, session, tool, args)
+      retained.push(evidence)
+      return evidence
     }
   }
 
@@ -445,14 +445,7 @@ export class VerificationManager<TSession extends VerificationSession> {
         refusal,
       }
     })
-    const targets = distinctTargets(input.claims)
-    const fingerprint = claimFingerprint({
-      claims: input.claims,
-      targetSources: targets.map(
-        (target) => context.resolutions.get(verifyTargetKey(target))?.sourceFile ?? null,
-      ),
-      url: session.app.url,
-    })
+    const fingerprint = fingerprintOf(input, context.resolutions, session)
     return this.store({
       verificationId,
       input,
@@ -497,11 +490,7 @@ export class VerificationManager<TSession extends VerificationSession> {
   private async endActive(active: ActiveVerification<TSession>): Promise<VerificationInvocation> {
     const { session, input } = active
     const retained = active.retained
-    const capture = async (tool: string, args: unknown) => {
-      const evidence = await captureToolEvidence(this.options.request, session, tool, args)
-      retained.push(evidence)
-      return evidence
-    }
+    const capture = this.capturer(session, retained)
     if (!this.options.isCurrentSession(session)) {
       return this.storeWindowLoss(
         active,
@@ -517,7 +506,7 @@ export class VerificationManager<TSession extends VerificationSession> {
     )
     const settledAt = settledCommit(settle)
     await this.wait(active.tailMs)
-    const preFreeze = readRenderProbe(await capture('react_get_renders', renderProbeArgs()))
+    const preFreeze = readRenderProbe(await capture('react_get_renders', RENDER_PROBE_ARGS))
     const freeze = readFreeze(await capture('react_profile_stop', {}))
     const frozenDocumentCommitId = freeze?.documentCommitId ?? preFreeze?.documentCommitId ?? null
     const settledDocumentCommitId =
@@ -635,7 +624,6 @@ export class VerificationManager<TSession extends VerificationSession> {
         0,
         ...[...targets.values()].map((target) => target.effects?.refreshCommitsExcluded ?? 0),
       ),
-      clear: active.begin.clear,
     }
     const guards = evaluateGuards(guardInputs)
     const evidence: VerificationEvidence = {
@@ -983,17 +971,6 @@ export class VerificationManager<TSession extends VerificationSession> {
   }
 }
 
-function requiredTools(claims: readonly VerifyClaim[]): string[] {
-  const tools = new Set(CORE_TOOLS)
-  for (const claim of claims) {
-    if (claim.kind === 'render-causes') tools.add('react_render_causes')
-    if (claim.kind === 'effect-runs' || claim.kind === 'effect-settles')
-      tools.add('react_effect_timeline')
-    if (claim.kind === 'boundaries-clean') tools.add('react_error_state')
-  }
-  return [...tools]
-}
-
 function toolsFor(claim: VerifyClaim): string[] {
   if (claim.kind === 'render-causes') return [...CORE_TOOLS, 'react_render_causes']
   if (claim.kind === 'effect-runs' || claim.kind === 'effect-settles')
@@ -1002,13 +979,10 @@ function toolsFor(claim: VerifyClaim): string[] {
   return CORE_TOOLS
 }
 
-const ACCEPTED_COLLECTION = (status: string | undefined): boolean =>
-  status === 'available' || (status?.startsWith('degraded (') ?? false)
-
 /** Refusals that are already certain before the window starts, so the agent does not drive the UI for nothing. */
 function beginRefusals(
   input: BeginInput,
-  missing: string[],
+  missing: ReadonlySet<string>,
   snapshot: Snapshot,
   resolutions: Map<string, TargetResolution>,
 ): (VerifyRefusal | null)[] {
@@ -1049,7 +1023,7 @@ function beginRefusals(
         )
       : null
   return input.claims.map((claim) => {
-    const absent = toolsFor(claim).filter((tool) => missing.includes(tool))
+    const absent = toolsFor(claim).filter((tool) => missing.has(tool))
     if (absent.length > 0) {
       return refuse(
         'capability_unavailable',
@@ -1123,6 +1097,21 @@ function resolveTarget(target: VerifyTarget, cohort: CohortRead | null): TargetR
   }
 }
 
+/** The claims, their resolved sources and the page: what a later run must share for its history to count. */
+function fingerprintOf(
+  input: BeginInput,
+  resolutions: ReadonlyMap<string, TargetResolution>,
+  session: VerificationSession,
+): string {
+  return claimFingerprint({
+    claims: input.claims,
+    targetSources: distinctTargets(input.claims).map(
+      (target) => resolutions.get(verifyTargetKey(target))?.sourceFile ?? null,
+    ),
+    url: session.app.url,
+  })
+}
+
 function distinctTargets(claims: readonly VerifyClaim[]): VerifyTarget[] {
   const seen = new Map<string, VerifyTarget>()
   for (const claim of claims) {
@@ -1153,10 +1142,6 @@ function settledCommit(settle: InteractionSettleResult): number | null {
   if (typeof observed !== 'object' || observed === null) return null
   const commit = (observed as { documentCommitId?: unknown }).documentCommitId
   return typeof commit === 'number' && Number.isInteger(commit) ? commit : null
-}
-
-function renderProbeArgs() {
-  return { sort: 'renders', limit: 1, appOnly: false, includeCursor: false }
 }
 
 function cohortArgs(target: VerifyTarget) {

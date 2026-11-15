@@ -1,9 +1,5 @@
 {
-  "argv": [
-    "verify",
-    "end",
-    "<id>"
-  ],
+  "argv": ["verify", "end", "<id>"],
   "exitCode": 0,
   "result": {
     "schemaVersion": "1.0",
@@ -143,14 +139,10 @@
             "afterDocumentCommitId": 1
           }
         ],
-        "caveats": [
-          "uncaught-errors-outside-boundaries-unobserved"
-        ]
+        "caveats": ["uncaught-errors-outside-boundaries-unobserved"]
       }
     ],
-    "caveats": [
-      "ui-outcome-not-observed"
-    ],
+    "caveats": ["ui-outcome-not-observed"],
     "ledger": {
       "fingerprint": "cf_f1128ea83fc4",
       "scope": "logical-session",

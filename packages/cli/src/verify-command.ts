@@ -28,7 +28,7 @@ import { genieCommand } from './package-manager'
 import { ClaimSyntaxError, parseClaim } from './verify-claims'
 import { renderVerificationText, withNextCommands } from './verify-output'
 
-export const VERIFY_ACTIONS = ['begin', 'end', 'show', 'abort'] as const
+const VERIFY_ACTIONS = ['begin', 'end', 'show', 'abort'] as const
 type VerifyAction = (typeof VERIFY_ACTIONS)[number]
 
 export interface VerifyOptions extends AgentOptions {

@@ -1,5 +1,5 @@
 import type { RefusalReason, VerifyGuard, VerifyGuardName } from '../../protocol'
-import type { ClearRead, RenderProbe, VisibilityRead } from './evidence'
+import type { RenderProbe, VisibilityRead } from './evidence'
 
 /** What the window looked like at `begin` and at `end`; every guard is decided from these raw values alone. */
 export interface GuardInputs {
@@ -22,7 +22,6 @@ export interface GuardInputs {
   /** Observation IDs every post-freeze read reported; null where a read carries none. */
   readObservationIds: (string | null)[]
   effectRefreshCommitsExcluded: number
-  clear: ClearRead | null
 }
 
 export interface Snapshot {
@@ -33,7 +32,8 @@ export interface Snapshot {
   visibility: VisibilityRead | null
 }
 
-const ACCEPTED_COLLECTION = (status: string | undefined): boolean =>
+/** The rule settle uses: degraded collection missed only commits before the hook installed. */
+export const ACCEPTED_COLLECTION = (status: string | undefined): boolean =>
   status === 'available' || (status?.startsWith('degraded (') ?? false)
 
 function guard(

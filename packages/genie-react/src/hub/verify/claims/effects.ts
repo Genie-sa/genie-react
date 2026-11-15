@@ -8,7 +8,7 @@ import {
   refused,
   settleRefusal,
 } from '../outcome'
-import { describe, type MatchedTarget, matchTarget } from '../target'
+import { describeTarget, type MatchedTarget, matchTarget } from '../target'
 import { targetEvidenceRefusal, upperBoundRefusal } from './renders'
 
 type EffectRunsClaim = Extract<VerifyClaim, { kind: 'effect-runs' }>
@@ -139,8 +139,8 @@ function effectEvidenceRefusal(
     return refuse(
       'target_not_found',
       wanted === undefined
-        ? `${describe(claim.target)} declares no effects, so a claim about its effects holds trivially.`
-        : `${describe(claim.target)} has no effect at position ${wanted}; it declares ${declared.length === 0 ? 'none' : declared.join(', ')}.`,
+        ? `${describeTarget(claim.target)} declares no effects, so a claim about its effects holds trivially.`
+        : `${describeTarget(claim.target)} has no effect at position ${wanted}; it declares ${declared.length === 0 ? 'none' : declared.join(', ')}.`,
       { declaredEffectIndexes: declared },
       { action: 'find-target', component: claim.target.component },
     )

@@ -214,7 +214,6 @@ export function guardInputs(overrides: Partial<GuardInputs> = {}): GuardInputs {
     freezeObservationId: OBSERVATION,
     readObservationIds: [OBSERVATION],
     effectRefreshCommitsExcluded: 0,
-    clear: { documentCommitId: START, observation: { id: OBSERVATION }, strictMode: 'on' },
     ...overrides,
   }
 }

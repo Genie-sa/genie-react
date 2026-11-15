@@ -1,9 +1,5 @@
 {
-  "argv": [
-    "verify",
-    "end",
-    "<id>"
-  ],
+  "argv": ["verify", "end", "<id>"],
   "exitCode": 4,
   "result": {
     "schemaVersion": "1.0",
@@ -137,9 +133,7 @@
         }
       }
     ],
-    "caveats": [
-      "ui-outcome-not-observed"
-    ],
+    "caveats": ["ui-outcome-not-observed"],
     "ledger": {
       "fingerprint": "cf_6772e29444e4",
       "scope": "logical-session",

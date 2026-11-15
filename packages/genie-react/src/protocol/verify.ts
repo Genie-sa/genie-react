@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { defineAgentToolContract } from './contract'
-import { appInfoSchema } from './protocol'
 import { renderObservationBudgetInputSchema } from './react-observation-schema'
 
 export { DEFAULT_RENDER_OBSERVATION_BUDGET } from './react-observation-schema'
@@ -53,15 +52,6 @@ export type InconclusiveReason = (typeof INCONCLUSIVE_REASONS)[number]
 /** Domains a verification can settle on before it freezes; React is always one of them. */
 export const VERIFY_SETTLE_DOMAINS = ['react', 'query', 'router'] as const
 export type VerifySettleDomain = (typeof VERIFY_SETTLE_DOMAINS)[number]
-
-/** Claim kinds of this release; Query, Router, Suspense and budget claims join this union later. */
-export const VERIFY_CLAIM_KINDS = [
-  'renders',
-  'render-causes',
-  'effect-runs',
-  'effect-settles',
-  'boundaries-clean',
-] as const
 
 export const VERIFY_CAUSE_KINDS = [
   'mount',
@@ -277,131 +267,6 @@ export function claimTarget(claim: VerifyClaim): VerifyTarget | null {
   }
 }
 
-export const devtoolsVerifyBeginContract = defineAgentToolContract({
-  name: 'devtools_verify_begin',
-  title: 'Begin a verification',
-  description:
-    'Declare claims about one interaction, resolve their targets, and start a locked observation window on one document. Drive the UI, then call devtools_verify_end. A target, capability or environment problem refuses here, before the interaction. While the window records, react_clear_renders, react_profile_start, react_profile_stop, devtools_interaction_begin and the override tools are refused on that document.',
-  group: 'meta',
-  input: z
-    .object({
-      name: printableText('verification name', 80),
-      claims: z.array(verifyClaimSchema).min(1).max(MAX_VERIFY_CLAIMS),
-      budget: renderObservationBudgetInputSchema,
-      lifecycle: lifecycleSchema,
-      settle: settleInputSchema,
-      tailMs: z
-        .number()
-        .int()
-        .min(0)
-        .max(30_000)
-        .optional()
-        .describe(
-          'How long to keep recording after the app settles; default is quietMs (at least 500), or for effect settles claims the larger of twice quietMs and 2000.',
-        ),
-      maxDurationMs: z
-        .number()
-        .int()
-        .min(10_000)
-        .max(1_800_000)
-        .default(DEFAULT_VERIFY_MAX_DURATION_MS)
-        .describe('The hub expires an unfinished window after this long and releases the lock.'),
-      allowOverrides: z
-        .boolean()
-        .default(false)
-        .describe(
-          'Allow overrides and simulated Query state during the window; the verdict then says they were active.',
-        ),
-    })
-    .strict()
-    .superRefine((input, context) => {
-      const targets = new Set(
-        input.claims.flatMap((claim) => {
-          const target = claimTarget(claim)
-          return target ? [verifyTargetKey(target)] : []
-        }),
-      )
-      if (targets.size > MAX_VERIFY_TARGETS) {
-        context.addIssue({
-          code: 'custom',
-          path: ['claims'],
-          message: `a verification accepts at most ${MAX_VERIFY_TARGETS} distinct targets`,
-        })
-      }
-      const domains = input.settle.domains
-      if (domains && new Set(domains).size !== domains.length) {
-        context.addIssue({
-          code: 'custom',
-          path: ['settle', 'domains'],
-          message: 'domains must be unique',
-        })
-      }
-      if (domains && !domains.includes('react')) {
-        context.addIssue({
-          code: 'custom',
-          path: ['settle', 'domains'],
-          message: 'domains must include react',
-        })
-      }
-    }),
-  output: z.unknown(),
-  annotations: { idempotentHint: false },
-})
-
-const verificationIdSchema = z.string().regex(/^vfy_[0-9a-f-]{36}$/, 'not a verification ID')
-
-export const devtoolsVerifyEndContract = defineAgentToolContract({
-  name: 'devtools_verify_end',
-  title: 'End a verification and return its verdict',
-  description:
-    'Settle the app across the settle domains with recording on, keep recording for the tail, freeze, read the evidence once, and decide every claim: pass, fail, refused or inconclusive. Idempotent: a repeated call returns the stored verdict.',
-  group: 'meta',
-  input: z.object({ verificationId: verificationIdSchema }).strict(),
-  output: z.unknown(),
-  annotations: { idempotentHint: true },
-})
-
-export const devtoolsVerifyReadContract = defineAgentToolContract({
-  name: 'devtools_verify_read',
-  title: 'Read a stored verdict and its evidence',
-  description:
-    'Return a stored verdict, every deciding item of one claim, the guards with their raw inputs, or a retained raw tool result. Reading never changes a verdict.',
-  group: 'meta',
-  input: z
-    .object({
-      verificationId: verificationIdSchema,
-      claim: z.number().int().min(1).max(MAX_VERIFY_CLAIMS).optional(),
-      section: z
-        .string()
-        .regex(/^(?:guards|raw:[a-z][a-z0-9_]{0,63})$/, 'section is guards or raw:<tool>')
-        .optional(),
-    })
-    .strict()
-    .refine((input) => input.claim === undefined || input.section === undefined, {
-      message: 'claim and section are mutually exclusive',
-    }),
-  output: z.unknown(),
-  annotations: { readOnlyHint: true },
-})
-
-export const devtoolsVerifyAbortContract = defineAgentToolContract({
-  name: 'devtools_verify_abort',
-  title: 'Abort a verification',
-  description:
-    'End a verification window without a verdict and release its document lock. Nothing is written to the rerun history.',
-  group: 'meta',
-  input: z.object({ verificationId: verificationIdSchema }).strict(),
-  output: z.unknown(),
-  annotations: { idempotentHint: true },
-})
-
-export const verifyTools = [
-  devtoolsVerifyBeginContract,
-  devtoolsVerifyEndContract,
-  devtoolsVerifyReadContract,
-  devtoolsVerifyAbortContract,
-]
-
 export const verifyFixSchema = z.object({
   action: z.enum([
     'begin-again',
@@ -475,7 +340,6 @@ export const verificationSessionSchema = z.object({
   documentGeneration: z.number().int().positive().optional(),
   sessionName: z.string().optional(),
   url: z.string().optional(),
-  app: appInfoSchema,
 })
 
 export const verificationLedgerSchema = z.object({
@@ -497,6 +361,179 @@ export const verificationLedgerSchema = z.object({
   failsOnSameCode: z.number().int().nonnegative(),
 })
 export type VerificationLedgerView = z.infer<typeof verificationLedgerSchema>
+
+export const verificationSchema = z.object({
+  schemaVersion: z.literal(VERIFY_SCHEMA_VERSION),
+  kind: z.literal('verification'),
+  verificationId: z.string(),
+  verdict: z
+    .enum(VERDICTS)
+    .optional()
+    .describe('Present once decided; the CLI exits with exitCode.'),
+  exitCode: z.number().int().optional(),
+  name: z.string(),
+  state: z.enum(['recording', 'completed', 'aborted']),
+  stage: z
+    .enum(['begin', 'end'])
+    .optional()
+    .describe('begin = refused before any window started; end = decided after the window.'),
+  session: verificationSessionSchema,
+  window: z.record(z.string(), z.unknown()).optional(),
+  targets: z.array(z.unknown()).optional(),
+  claims: z
+    .array(
+      z.union([verifyClaimResultSchema, z.object({ index: z.number().int(), text: z.string() })]),
+    )
+    .optional(),
+  caveats: z.array(z.string()).optional(),
+  ledger: verificationLedgerSchema.optional(),
+  evidence: z.object({ retained: z.boolean(), tools: z.array(z.string()) }).optional(),
+  startedAt: z.string(),
+  endedAt: z.string().optional(),
+  expiresAt: z.string().optional(),
+  request: z.record(z.string(), z.unknown()),
+})
+export type Verification = z.infer<typeof verificationSchema>
+
+export const devtoolsVerifyBeginContract = defineAgentToolContract({
+  name: 'devtools_verify_begin',
+  title: 'Begin a verification',
+  description:
+    'Declare claims about one interaction, resolve their targets, and start a locked observation window on one document. Drive the UI, then call devtools_verify_end. A target, capability or environment problem refuses here, before the interaction. While the window records, react_clear_renders, react_profile_start, react_profile_stop, devtools_interaction_begin and the override tools are refused on that document.',
+  group: 'meta',
+  input: z
+    .object({
+      name: printableText('verification name', 80),
+      claims: z.array(verifyClaimSchema).min(1).max(MAX_VERIFY_CLAIMS),
+      budget: renderObservationBudgetInputSchema,
+      lifecycle: lifecycleSchema,
+      settle: settleInputSchema,
+      tailMs: z
+        .number()
+        .int()
+        .min(0)
+        .max(30_000)
+        .optional()
+        .describe(
+          'How long to keep recording after the app settles; default is quietMs (at least 500), or for effect settles claims the larger of twice quietMs and 2000.',
+        ),
+      maxDurationMs: z
+        .number()
+        .int()
+        .min(10_000)
+        .max(1_800_000)
+        .default(DEFAULT_VERIFY_MAX_DURATION_MS)
+        .describe('The hub expires an unfinished window after this long and releases the lock.'),
+      allowOverrides: z
+        .boolean()
+        .default(false)
+        .describe(
+          'Allow overrides and simulated Query state during the window; the verdict then says they were active.',
+        ),
+    })
+    .strict()
+    .superRefine((input, context) => {
+      const targets = new Set(
+        input.claims.flatMap((claim) => {
+          const target = claimTarget(claim)
+          return target ? [verifyTargetKey(target)] : []
+        }),
+      )
+      if (targets.size > MAX_VERIFY_TARGETS) {
+        context.addIssue({
+          code: 'custom',
+          path: ['claims'],
+          message: `a verification accepts at most ${MAX_VERIFY_TARGETS} distinct targets`,
+        })
+      }
+      const domains = input.settle.domains
+      if (domains && new Set(domains).size !== domains.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['settle', 'domains'],
+          message: 'domains must be unique',
+        })
+      }
+      if (domains && !domains.includes('react')) {
+        context.addIssue({
+          code: 'custom',
+          path: ['settle', 'domains'],
+          message: 'domains must include react',
+        })
+      }
+    }),
+  output: verificationSchema,
+  annotations: { idempotentHint: false },
+})
+
+const verificationIdSchema = z.string().regex(/^vfy_[0-9a-f-]{36}$/, 'not a verification ID')
+
+export const devtoolsVerifyEndContract = defineAgentToolContract({
+  name: 'devtools_verify_end',
+  title: 'End a verification and return its verdict',
+  description:
+    'Settle the app across the settle domains with recording on, keep recording for the tail, freeze, read the evidence once, and decide every claim: pass, fail, refused or inconclusive. Idempotent: a repeated call returns the stored verdict.',
+  group: 'meta',
+  input: z.object({ verificationId: verificationIdSchema }).strict(),
+  output: verificationSchema,
+  annotations: { idempotentHint: true },
+})
+
+export const devtoolsVerifyReadContract = defineAgentToolContract({
+  name: 'devtools_verify_read',
+  title: 'Read a stored verdict and its evidence',
+  description:
+    'Return a stored verdict, every deciding item of one claim, the guards with their raw inputs, or a retained raw tool result. Reading never changes a verdict.',
+  group: 'meta',
+  input: z
+    .object({
+      verificationId: verificationIdSchema,
+      claim: z.number().int().min(1).max(MAX_VERIFY_CLAIMS).optional(),
+      section: z
+        .string()
+        .regex(/^(?:guards|raw:[a-z][a-z0-9_]{0,63})$/, 'section is guards or raw:<tool>')
+        .optional(),
+    })
+    .strict()
+    .refine((input) => input.claim === undefined || input.section === undefined, {
+      message: 'claim and section are mutually exclusive',
+    }),
+  output: z.union([
+    verificationSchema,
+    z.object({
+      verificationId: z.string(),
+      verdict: z.enum(VERDICTS),
+      claim: verifyClaimResultSchema,
+      evidence: z.record(z.string(), z.unknown()).nullable(),
+      evidenceRetained: z.boolean(),
+    }),
+    z.object({
+      verificationId: z.string(),
+      section: z.string(),
+      guards: z.array(verifyGuardSchema).optional(),
+      results: z.array(z.unknown()).optional(),
+    }),
+  ]),
+  annotations: { readOnlyHint: true },
+})
+
+export const devtoolsVerifyAbortContract = defineAgentToolContract({
+  name: 'devtools_verify_abort',
+  title: 'Abort a verification',
+  description:
+    'End a verification window without a verdict and release its document lock. Nothing is written to the rerun history.',
+  group: 'meta',
+  input: z.object({ verificationId: verificationIdSchema }).strict(),
+  output: verificationSchema,
+  annotations: { idempotentHint: true },
+})
+
+export const verifyTools = [
+  devtoolsVerifyBeginContract,
+  devtoolsVerifyEndContract,
+  devtoolsVerifyReadContract,
+  devtoolsVerifyAbortContract,
+]
 
 /** One claim in the canonical DSL, the inverse of the CLI parser; also what the verdict prints as `text`. */
 export function formatVerifyClaim(claim: VerifyClaim): string {

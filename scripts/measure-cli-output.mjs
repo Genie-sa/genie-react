@@ -102,7 +102,8 @@ function rendererFor(renderers, argv, name) {
   const failed = name.startsWith('failure-') || name.startsWith('truncated-')
   if (failed) return { label: 'CLI envelope', render: renderers.envelope, bespoke: true }
   if (command === 'doctor') return { label: 'doctor', render: renderers.doctor, bespoke: true }
-  if (command === 'verify') return { label: 'verification', render: renderers.verify, bespoke: true }
+  if (command === 'verify')
+    return { label: 'verification', render: renderers.verify, bespoke: true }
   if (command === 'status') {
     return {
       label: 'status',

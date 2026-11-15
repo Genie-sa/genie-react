@@ -41,7 +41,7 @@ function sessionFlags(session: string | undefined): string[] {
   return session !== undefined && SAFE_SESSION.test(session) ? ['--session', session] : []
 }
 
-export function showCommand(
+function showCommand(
   verificationId: string,
   session: string | undefined,
   claim?: number,
@@ -56,10 +56,7 @@ export function showCommand(
   ])
 }
 
-export function endCommand(
-  verificationId: string,
-  session: string | undefined,
-): Command | undefined {
+function endCommand(verificationId: string, session: string | undefined): Command | undefined {
   if (!VERIFICATION_ID.test(verificationId)) return undefined
   return genieCommand(['verify', 'end', verificationId, ...sessionFlags(session)])
 }

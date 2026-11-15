@@ -11,7 +11,12 @@ import {
 } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { reactCollector } from '../collectors/react'
-import type { VerifyClaimInput, VerifyClaimResult } from '../protocol'
+import {
+  devtoolsVerifyReadContract,
+  type VerifyClaimInput,
+  type VerifyClaimResult,
+  verificationSchema,
+} from '../protocol'
 import { act, byText, click, mount, unmountAll } from '../test-support/react-app'
 import { type VerifyHarnessOptions, verifyHarness } from '../test-support/verify-harness'
 
@@ -35,6 +40,7 @@ interface Verification {
 }
 
 const STABLE_APPEARANCE = { tone: 'success' }
+const effectRuns: string[] = []
 
 const StatusBadge = memo(function StatusBadge({ appearance }: { appearance: { tone: string } }) {
   return createElement('span', { 'data-tone': appearance.tone }, 'Pager on call')
@@ -95,8 +101,10 @@ describe('verify on a real React tree', () => {
     start()
     const began = await begin(badgeClaims)
     expect(began.state).toBe('recording')
+    expect(verificationSchema.safeParse(began).error).toBeUndefined()
     await typeTwice(app.container)
     const verdict = await end(began.verificationId)
+    expect(verificationSchema.safeParse(verdict).error).toBeUndefined()
 
     expect(verdict.verdict).toBe('fail')
     expect(verdict.exitCode).toBe(1)
@@ -261,6 +269,17 @@ describe('verify on a real React tree', () => {
         claim: 1,
       }),
     ).toMatchObject({ verdict: first.verdict, claim: first.claims[0] })
+    for (const read of [
+      { claim: 1 },
+      { section: 'guards' },
+      { section: 'raw:react_profile_stop' },
+    ]) {
+      const view = await verify.invoke('devtools_verify_read', {
+        verificationId: began.verificationId,
+        ...read,
+      })
+      expect(devtoolsVerifyReadContract.output.safeParse(view).error).toBeUndefined()
+    }
     expect(unknown).toMatchObject({
       ok: false,
       errorDetails: { hubCode: 'VERIFICATION_UNKNOWN' },
@@ -282,10 +301,11 @@ describe('verify on a real React tree', () => {
       ok: false,
       errorDetails: { hubCode: 'VERIFICATION_ACTIVE', verificationId: began.verificationId },
     })
-    expect(
-      (await verify.invoke('devtools_verify_abort', { verificationId: began.verificationId }))
-        .state,
-    ).toBe('aborted')
+    const aborted = await verify.invoke('devtools_verify_abort', {
+      verificationId: began.verificationId,
+    })
+    expect(aborted.state).toBe('aborted')
+    expect(verificationSchema.safeParse(aborted).error).toBeUndefined()
     expect(verify.manager.lockFor(sessionId, 'react_clear_renders')).toBeUndefined()
   })
 
@@ -301,7 +321,8 @@ describe('verify on a real React tree', () => {
     })
 
     const refusedAtBegin = await begin(badgeClaims)
-    expect(refusedAtBegin).toMatchObject({ verdict: 'refused', state: 'completed' })
+    expect(refusedAtBegin).toMatchObject({ verdict: 'refused', state: 'completed', stage: 'begin' })
+    expect(verificationSchema.safeParse(refusedAtBegin).error).toBeUndefined()
     expect(refusedAtBegin.claims[0]?.refusal?.reason).toBe('override_active')
 
     const allowed = await begin(badgeClaims, { allowOverrides: true })
@@ -377,7 +398,10 @@ describe('verify on a real React tree', () => {
   it('counts observed effect runs, and calls a StrictMode-only excess inconclusive', async () => {
     function Report({ strictOnly }: { strictOnly: boolean }): ReactNode {
       const [query, setQuery] = useState('')
-      useEffect(() => {}, [strictOnly ? 'fixed' : query])
+      const dependency = strictOnly ? 'fixed' : query
+      useEffect(() => {
+        effectRuns.push(dependency)
+      }, [dependency])
       return createElement(
         'button',
         { type: 'button', onClick: () => setQuery(`${query}c`) },
@@ -419,7 +443,9 @@ describe('verify on a real React tree', () => {
     let container: HTMLElement | undefined
     function Poller(): ReactNode {
       const [tick, setTick] = useState(0)
-      useEffect(() => {}, [tick])
+      useEffect(() => {
+        effectRuns.push(String(tick))
+      }, [tick])
       return createElement('button', { type: 'button', onClick: () => setTick(tick + 1) }, 'tick')
     }
     start({

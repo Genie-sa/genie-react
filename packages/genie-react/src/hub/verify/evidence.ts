@@ -45,7 +45,7 @@ const budgetAdviceSchema = z.object({
   suggestedBudget: z.record(z.string(), z.number()),
 })
 
-export const coverageSnapshotSchema = z.object({
+const coverageSnapshotSchema = z.object({
   complete: z.boolean(),
   semantics: z.enum(['exact', 'lower-bound']),
   skippedCommitFibers: z.number(),
@@ -251,7 +251,10 @@ function parsed<T>(schema: z.ZodType<T>, tool: RetainedTool | undefined): T | nu
 
 export const readFreeze = (tool?: RetainedTool) => parsed(freezeSchema, tool)
 export const readRenderProbe = (tool?: RetainedTool) => parsed(renderProbeSchema, tool)
-export const readClear = (tool?: RetainedTool) => parsed(clearSchema, tool)
+export function readClear(result: unknown): ClearRead | null {
+  const parsedResult = clearSchema.safeParse(result)
+  return parsedResult.success ? parsedResult.data : null
+}
 export const readOverrides = (tool?: RetainedTool) => parsed(overridesSchema, tool)
 export const readSimulatedQueries = (tool?: RetainedTool) => parsed(queryFetchingSchema, tool)
 export const readRefreshSequence = (tool?: RetainedTool) =>

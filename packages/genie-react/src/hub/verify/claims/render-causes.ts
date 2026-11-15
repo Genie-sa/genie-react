@@ -18,13 +18,13 @@ const NOTIFICATION_REASONS: Record<string, string> = {
 }
 
 /** A Query or Router cause is exact only when it joins the notification React delivered; any other grade is a lead. */
-export function isExactCause(cause: RenderCause): boolean {
+function isExactCause(cause: RenderCause): boolean {
   if (cause.evidence !== 'exact') return false
   const required = NOTIFICATION_REASONS[cause.kind]
   return required === undefined || cause.reason === required
 }
 
-export function causeAllowed(cause: RenderCause, allow: readonly VerifyCause[]): boolean {
+function causeAllowed(cause: RenderCause, allow: readonly VerifyCause[]): boolean {
   return allow.some(
     (allowed) =>
       allowed.kind === cause.kind && (allowed.name === undefined || allowed.name === cause.name),

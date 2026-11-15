@@ -57,7 +57,7 @@ export function matchTarget(evidence: TargetEvidence): MatchedTarget {
 }
 
 /** Distinct source files among same-named instances seen during the window; more than one means two components share the name. */
-export function windowSources(evidence: TargetEvidence): string[] {
+function windowSources(evidence: TargetEvidence): string[] {
   const { target } = evidence.resolution
   const files = [
     ...(evidence.renders?.records ?? []),
@@ -107,7 +107,7 @@ export function targetRefusal(
   ) {
     return refuse(
       'target_not_found',
-      `No ${describe(target)} instance was mounted at begin or rendered in the window; a target Genie cannot see is not a target that did nothing.`,
+      `No ${describeTarget(target)} instance was mounted at begin or rendered in the window; a target Genie cannot see is not a target that did nothing.`,
       { pendingAtBegin: evidence.resolution.status === 'pending' },
       { action: 'find-target', component: target.component },
     )
@@ -118,7 +118,7 @@ export function targetRefusal(
     )
     return refuse(
       'target_inactive',
-      `Every ${describe(target)} instance was frozen, hidden or suspended, so not rendering proves nothing.`,
+      `Every ${describeTarget(target)} instance was frozen, hidden or suspended, so not rendering proves nothing.`,
       { renderingStates: [...new Set(states)] },
       { action: 'begin-again' },
     )
@@ -126,7 +126,7 @@ export function targetRefusal(
   return null
 }
 
-export function describe(target: VerifyTarget): string {
+export function describeTarget(target: VerifyTarget): string {
   const parts = [target.component]
   if (target.key !== undefined) parts.push(`key ${JSON.stringify(target.key)}`)
   if (target.source !== undefined) parts.push(`in ${target.source}`)

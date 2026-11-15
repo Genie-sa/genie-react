@@ -8,7 +8,7 @@ import {
   refused,
   settleRefusal,
 } from '../outcome'
-import { describe, type MatchedTarget, matchTarget, targetRefusal } from '../target'
+import { describeTarget, type MatchedTarget, matchTarget, targetRefusal } from '../target'
 
 type RendersClaim = Extract<VerifyClaim, { kind: 'renders' }>
 
@@ -26,7 +26,7 @@ export function upperBoundRefusal(
   if (late.length > 0) {
     return refuse(
       'not_quiescent',
-      `${describe(target.resolution.target)} rendered after the app settled, during the ${evidence.window.tailMs} ms tail; work beyond the window could render it again.`,
+      `${describeTarget(target.resolution.target)} rendered after the app settled, during the ${evidence.window.tailMs} ms tail; work beyond the window could render it again.`,
       {
         settledDocumentCommitId: evidence.window.settledDocumentCommitId,
         latestRenderDocumentCommitId: Math.max(
@@ -85,7 +85,7 @@ function tailRenders(evidence: VerificationEvidence, records: InstanceRecord[]):
 }
 
 /** Exact only when the window's render analysis was complete and the report was consistent; otherwise a lower bound. */
-export function countSemantics(
+function countSemantics(
   evidence: VerificationEvidence,
   target: TargetEvidence,
 ): 'exact' | 'lower-bound' {
@@ -98,7 +98,7 @@ export function countSemantics(
 }
 
 /** Mounts in the window that replaced an instance which unmounted in it, plus mounts at a position that had mounted before; a changed key does either, never an update. */
-export function remountedInstances(matched: MatchedTarget): InstanceRecord[] {
+function remountedInstances(matched: MatchedTarget): InstanceRecord[] {
   const mounted = matched.records.filter((record) => record.mounts > 0)
   const stillMounted = new Set(
     matched.endInstances
