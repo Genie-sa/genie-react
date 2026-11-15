@@ -1053,15 +1053,17 @@ function editNextLayout(code: string): ViteEditResult {
 
   let next = code
   if (!rendersScript) {
-    const match = /([ \t]*)<body([^>]*)>/.exec(next)
+    const match = /([ \t]*)<body[^>]*>(?=([ \t]*\r?\n)?)/.exec(next)
     if (!match) {
       return {
         kind: 'manual',
         reason: 'no <body> in the root layout — render <GenieScript /> by hand',
       }
     }
-    const indent = match[1] ?? ''
-    const insertion = `${match[0]}\n${indent}  <GenieScript />`
+    const [bodyTag, indent = '', bodyEndsLine] = match
+    const insertion = bodyEndsLine
+      ? `${bodyTag}\n${indent}  <GenieScript />`
+      : `${bodyTag}<GenieScript />`
     next = next.slice(0, match.index) + insertion + next.slice(match.index + match[0].length)
   }
   if (!importsScript) next = insertImportLine(next, NEXT_IMPORT_LINE)

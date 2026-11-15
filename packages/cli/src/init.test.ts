@@ -325,11 +325,27 @@ describe('runInit — Next.js', () => {
     expect(result.rootRoute.action).toBe('edit')
     if (result.rootRoute.action !== 'edit') throw new Error('expected edit')
     expect(result.rootRoute.contents).toContain("import { GenieScript } from 'genie-react/next'")
-    expect(result.rootRoute.contents).toMatch(/<body>\n\s*<GenieScript \/>/)
+    expect(result.rootRoute.contents).toContain('      <body><GenieScript />{children}</body>\n')
     expect(result.instrumentation?.action).toBe('edit')
     if (result.instrumentation?.action !== 'edit') throw new Error('expected edit')
     expect(result.instrumentation.contents).toContain('registerGenie')
     expect(result.ok).toBe(true)
+  })
+
+  it('puts <GenieScript /> on its own line when the body content starts on the next line', async () => {
+    const dir = await project({
+      'package.json': pkg({ next: '^16', react: '^19' }),
+      'app/layout.tsx': NEXT_LAYOUT.replace(
+        '<body>{children}</body>',
+        '<body className="app">\n        {children}\n      </body>',
+      ),
+    })
+    const result = runInit({ cwd: dir, dryRun: true, logger: silent })
+
+    if (result.rootRoute.action !== 'edit') throw new Error('expected edit')
+    expect(result.rootRoute.contents).toContain(
+      '      <body className="app">\n        <GenieScript />\n        {children}\n',
+    )
   })
 
   it('creates instrumentation.ts and is idempotent on a second run', async () => {
