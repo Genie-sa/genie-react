@@ -22,7 +22,7 @@ export interface ReactRefreshUpdate {
   /** Changed files from the bundler's HMR transport; empty when there is no transport or its message has not arrived. */
   filePaths: string[]
   root: FiberRoot
-  /** New component types that were remounted, losing state. */
+  /** Component types with an instance that remounted and lost state: incompatible edits, and compatible edits below a remounted ancestor. */
   staleComponents: unknown[]
   /** Mounted fibers whose component types were remounted. */
   staleFibers: Fiber[]
@@ -330,6 +330,31 @@ const mountedFibersOfTypes = (root: FiberRoot, types: Set<unknown>): Fiber[] => 
   return matches
 }
 
+const committedFibers = (root: FiberRoot): Set<Fiber> => {
+  const fibers = new Set<Fiber>()
+  if (root.current) {
+    traverseFiber(root.current, (fiber) => {
+      fibers.add(fiber)
+      return false
+    })
+  }
+  return fibers
+}
+
+/** A fiber kept its state only if it, or its alternate, was committed before the refresh; a remounted ancestor recreates every fiber below it. */
+const splitByContinuity = (
+  fibers: Fiber[],
+  before: Set<Fiber>,
+): { preserved: Fiber[]; remounted: Fiber[] } => {
+  const preserved: Fiber[] = []
+  const remounted: Fiber[] = []
+  for (const fiber of fibers) {
+    const kept = before.has(fiber) || (fiber.alternate !== null && before.has(fiber.alternate))
+    ;(kept ? preserved : remounted).push(fiber)
+  }
+  return { preserved, remounted }
+}
+
 const handlers = new Set<ReactRefreshHandler>()
 const wrappedRenderers = new WeakSet<object>()
 
@@ -359,17 +384,29 @@ const wrapRenderer = (renderer: RefreshCapableRenderer): void => {
   wrappedRenderers.add(renderer)
 
   renderer.scheduleRefresh = (root, update) => {
+    const before = handlers.size === 0 ? null : committedFibers(root)
     original.call(renderer, root, update)
-    if (handlers.size === 0) return
+    if (!before) return
     const staleComponents = Array.from(update.staleFamilies, (family) => family.current)
     const updatedComponents = Array.from(update.updatedFamilies, (family) => family.current)
+    const updatedTypes = new Set(updatedComponents)
+    const updated = splitByContinuity(mountedFibersOfTypes(root, updatedTypes), before)
+    const typeOf = (fiber: Fiber): unknown =>
+      updatedTypes.has(fiber.type) ? fiber.type : getType(fiber.type)
+    const preservedTypes = new Set(updated.preserved.map(typeOf))
+    const remountedTypes = new Set(updated.remounted.map(typeOf))
     const refresh: ReactRefreshUpdate = {
       filePaths: takeFilePaths(),
       root,
-      staleComponents,
-      staleFibers: mountedFibersOfTypes(root, new Set(staleComponents)),
-      updatedComponents,
-      updatedFibers: mountedFibersOfTypes(root, new Set(updatedComponents)),
+      staleComponents: [
+        ...staleComponents,
+        ...updatedComponents.filter((type) => remountedTypes.has(type)),
+      ],
+      staleFibers: [...mountedFibersOfTypes(root, new Set(staleComponents)), ...updated.remounted],
+      updatedComponents: updatedComponents.filter(
+        (type) => preservedTypes.has(type) || !remountedTypes.has(type),
+      ),
+      updatedFibers: updated.preserved,
     }
     for (const handler of handlers) handler(refresh)
   }

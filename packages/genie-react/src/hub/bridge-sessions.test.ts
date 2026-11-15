@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { WebSocket } from 'ws'
-import { newId } from '../protocol'
+import { GENIE_REACT_VERSION, newId } from '../protocol'
 import {
   createTestBridge,
   delay,
@@ -41,6 +41,7 @@ describe('GenieBridge tab sessions', () => {
     send(ws, {
       kind: 'app/hello',
       protocol: 1,
+      runtimeVersion: GENIE_REACT_VERSION,
       sessionId,
       logicalSessionId,
       documentGeneration,

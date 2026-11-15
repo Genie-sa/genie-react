@@ -12,21 +12,24 @@ interface HttpReply {
   contentType: string | undefined
 }
 
-function request(port: number, path: string): Promise<HttpReply> {
+function request(port: number, path: string, hostHeader?: string): Promise<HttpReply> {
   return new Promise((resolve, reject) => {
-    get({ host: '127.0.0.1', port, path }, (res) => {
-      let body = ''
-      res.on('data', (chunk) => {
-        body += String(chunk)
-      })
-      res.on('end', () =>
-        resolve({
-          status: res.statusCode ?? 0,
-          body,
-          contentType: res.headers['content-type'],
-        }),
-      )
-    }).on('error', reject)
+    get(
+      { host: '127.0.0.1', port, path, headers: hostHeader ? { host: hostHeader } : {} },
+      (res) => {
+        let body = ''
+        res.on('data', (chunk) => {
+          body += String(chunk)
+        })
+        res.on('end', () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            body,
+            contentType: res.headers['content-type'],
+          }),
+        )
+      },
+    ).on('error', reject)
   })
 }
 
@@ -78,5 +81,18 @@ describe('standalone hub HTTP surface', () => {
 
     await expect(second.listen(port)).rejects.toMatchObject({ code: 'EADDRINUSE' })
     await second.close()
+  })
+
+  it('answers only requests addressed to a loopback host, so a DNS-rebound page cannot read it', async () => {
+    handle = createStandaloneBridge({ rootDir: '/home/someone/secret-project' })
+    const { port } = await handle.listen()
+    for (const path of ['/__genie/info', GENIE_CLIENT_PATH]) {
+      const rebound = await request(port, path, `attacker.example:${port}`)
+      expect(rebound.status).toBe(421)
+      expect(rebound.body).not.toContain('secret-project')
+    }
+    for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]) {
+      expect((await request(port, '/__genie/info', host)).status).toBe(200)
+    }
   })
 })

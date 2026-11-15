@@ -5,12 +5,11 @@ import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
 import {
   clearEffectEvents,
   markEffectInstrumentationUnavailable,
-  markEffectWithoutCleanup,
+  type PassiveEffectBinding,
   type PreparedEffectSchedule,
   prepareEffectSchedule,
   publishEffectSchedule,
-  runObservedEffectCleanup,
-  runObservedEffectCreate,
+  runObservedPassiveEffect,
 } from './effect-events'
 import type { InstanceDescriptor } from './instance-identity'
 import {
@@ -31,6 +30,7 @@ const HOOK_LAYOUT = 0b0100
 const HOOK_PASSIVE = 0b1000
 
 const EFFECT_WALK_LIMIT = 100
+const HOOK_WALK_LIMIT = 300
 const EFFECT_DEP_SCAN_LIMIT = 200
 const EFFECT_REPORT_LIMIT = 500
 const EFFECT_SOURCE_ATTRIBUTION_LIMIT = 80
@@ -114,12 +114,12 @@ export function prepareEffect(
     return preparedEffect({ scheduled: 0, complete: true }, null)
   }
 
-  const currentList = listEffects(fiber, budget)
+  const currentList = effectHookSlots(fiber, budget)
   let truncations = currentList.truncated ? 1 : 0
   if (currentList.effects.length === 0) {
     return preparedEffect({ scheduled: 0, complete: !currentList.truncated }, null, [], truncations)
   }
-  const previousList = listEffects(fiber.alternate, budget)
+  const previousList = effectHookSlots(fiber.alternate, budget)
   if (previousList.truncated) truncations += 1
   const effects = currentList.effects
   const prev = previousList.effects
@@ -132,15 +132,14 @@ export function prepareEffect(
       }
     : { id, name: getDisplayName(fiber.type) ?? 'Anonymous', stats: [], fiber }
   record.fiber = fiber
-  let scheduledCount = 0
   const schedules: PreparedEffectSchedule[] = []
-  const passiveInstrumentation: { effect: Effect; effectEventId: string }[] = []
+  const passiveInstrumentation: { effect: Effect; binding: PassiveEffectBinding }[] = []
 
   for (let i = 0; i < effects.length; i++) {
     if (!consumeCommitWork(budget, 'effects')) {
       truncations += 1
       return preparedEffect(
-        { scheduled: scheduledCount, complete: false },
+        { scheduled: currentList.scheduled, complete: false },
         record,
         schedules,
         truncations,
@@ -178,8 +177,8 @@ export function prepareEffect(
     if (hasCleanupFn(effect)) stat.hasCleanup = true
 
     const scheduled = (effect.tag & HOOK_HAS_EFFECT) !== 0
+    let effectEventId: string | null = null
     if (scheduled) {
-      scheduledCount += 1
       const prepared = prepareEffectSchedule({
         fiber,
         profileCommitId,
@@ -190,13 +189,22 @@ export function prepareEffect(
         previousDependencies: prev[i]?.deps ?? null,
         budget,
       })
-      if (prepared) schedules.push(prepared)
-      if (prepared && kind === 'effect') {
-        passiveInstrumentation.push({
-          effect,
-          effectEventId: prepared.effectEventId,
-        })
+      if (prepared) {
+        schedules.push(prepared)
+        effectEventId = prepared.effectEventId
       }
+    }
+    if (kind === 'effect') {
+      passiveInstrumentation.push({
+        effect,
+        binding: {
+          effectEventId,
+          fiber,
+          effectIndex: i,
+          onCleanupReturned: () => markCleanupFunctionObserved(id, i),
+          ran: false,
+        },
+      })
     }
 
     if (phase === 'update') {
@@ -213,7 +221,7 @@ export function prepareEffect(
   }
   return preparedEffect(
     {
-      scheduled: scheduledCount,
+      scheduled: currentList.scheduled,
       complete: !currentList.truncated && !previousList.truncated,
     },
     record,
@@ -228,7 +236,7 @@ function preparedEffect(
   record: EffectRecord | null,
   schedules: PreparedEffectSchedule[] = [],
   truncations = 0,
-  passiveInstrumentation: { effect: Effect; effectEventId: string }[] = [],
+  passiveInstrumentation: { effect: Effect; binding: PassiveEffectBinding }[] = [],
 ): PreparedEffectObservation {
   let published = false
   return {
@@ -239,42 +247,39 @@ function preparedEffect(
       truncatedEffectLists += truncations
       if (record) records.set(record.id, record)
       for (const schedule of schedules) publishEffectSchedule(schedule, instance)
-      for (const instrumentation of passiveInstrumentation) {
-        instrumentPassiveEffect(instrumentation.effect, instrumentation.effectEventId)
+      for (const { effect, binding } of passiveInstrumentation) {
+        instrumentPassiveEffect(effect, binding)
       }
     },
   }
 }
 
-const ORIGINAL_EFFECT_CREATE = Symbol('genie-react:original-effect-create')
-type InstrumentedCreate = ((...args: unknown[]) => unknown) & {
-  [ORIGINAL_EFFECT_CREATE]?: (...args: unknown[]) => unknown
+function markCleanupFunctionObserved(fiberId: number, slot: number): void {
+  const stat = records.get(fiberId)?.stats[slot]
+  if (stat) stat.hasCleanup = true
 }
 
-function instrumentPassiveEffect(effect: Effect, effectEventId: string): void {
-  const mutable = effect as Effect & { create?: InstrumentedCreate }
+type EffectCreate = (...args: unknown[]) => unknown
+const originalCreates = new WeakMap<EffectCreate, EffectCreate>()
+
+/** Every passive hook effect is wrapped, not only scheduled ones: React re-runs unscheduled effects when a hidden subtree is shown again. */
+function instrumentPassiveEffect(effect: Effect, binding: PassiveEffectBinding): void {
+  const mutable = effect as Effect & { create?: unknown }
   const current = mutable.create
   if (typeof current !== 'function') {
-    markEffectInstrumentationUnavailable(effectEventId)
+    markEffectInstrumentationUnavailable(binding.effectEventId)
     return
   }
-  const original = current[ORIGINAL_EFFECT_CREATE] ?? current
-  const wrapped: InstrumentedCreate = function (this: unknown, ...args: unknown[]): unknown {
-    const cleanup = runObservedEffectCreate(effectEventId, () => original.apply(this, args))
-    if (typeof cleanup !== 'function') {
-      markEffectWithoutCleanup(effectEventId)
-      return cleanup
-    }
-    return function (this: unknown, ...cleanupArgs: unknown[]): unknown {
-      return runObservedEffectCleanup(effectEventId, () => cleanup.apply(this, cleanupArgs))
-    }
+  const original = originalCreates.get(current as EffectCreate) ?? (current as EffectCreate)
+  const wrapped: EffectCreate = function (this: unknown, ...args: unknown[]): unknown {
+    return runObservedPassiveEffect(binding, () => original.apply(this, args))
   }
-  Object.defineProperty(wrapped, ORIGINAL_EFFECT_CREATE, { value: original })
+  originalCreates.set(wrapped, original)
   try {
     mutable.create = wrapped
-    if (mutable.create !== wrapped) markEffectInstrumentationUnavailable(effectEventId)
+    if (mutable.create !== wrapped) markEffectInstrumentationUnavailable(binding.effectEventId)
   } catch {
-    markEffectInstrumentationUnavailable(effectEventId)
+    markEffectInstrumentationUnavailable(binding.effectEventId)
   }
 }
 
@@ -285,8 +290,11 @@ export function removeEffectRecord(fiber: Fiber): void {
 
 /** Exact commit-time count of this component's effects scheduled by React. */
 export function scheduledEffectCount(fiber: Fiber): number {
-  if (!ownsEffectList(fiber)) return 0
-  return listEffects(fiber).effects.filter(
+  return ownsEffectList(fiber) ? countScheduled(listEffects(fiber).effects) : 0
+}
+
+function countScheduled(effects: Effect[]): number {
+  return effects.filter(
     (effect) => effectKind(effect.tag) !== null && (effect.tag & HOOK_HAS_EFFECT) !== 0,
   ).length
 }
@@ -658,9 +666,15 @@ function toFinding(
   }
 }
 
+const EFFECT_HOOK_NAMES: Record<EffectKind, string> = {
+  effect: 'useEffect',
+  layout: 'useLayoutEffect',
+  insertion: 'useInsertionEffect',
+}
+
 function noteFor(stat: EffectStat, hotness: EffectHotness): string | undefined {
   if (hotness.label !== 'hot') return undefined
-  const hookName = stat.kind === 'layout' ? 'useLayoutEffect' : 'useEffect'
+  const hookName = EFFECT_HOOK_NAMES[stat.kind]
   if (stat.depsMode === 'none' && stat.scheduled > 0) {
     return `no dependency array — React scheduled this ${hookName} on ${stat.scheduled}/${stat.updates} updates; add dependencies only if repeated scheduling is unintended`
   }
@@ -924,6 +938,31 @@ function listEffects(
     if (effect === first) break
   }
   return { effects: list, truncated: effect !== first }
+}
+
+interface HookNode {
+  memoizedState: unknown
+  next: HookNode | null
+}
+
+/** Effects in hook call order, keyed by hook slot: React also pushes hookless effects (useSyncExternalStore's snapshot check, useActionState's action sync) on only some renders, so list positions shift; those count as scheduled work but are never reported as app effects. */
+function effectHookSlots(
+  fiber: Fiber | null | undefined,
+  budget?: CommitWorkBudget,
+): { effects: Effect[]; scheduled: number; truncated: boolean } {
+  const list = listEffects(fiber, budget)
+  const scheduled = countScheduled(list.effects)
+  const listed = new Set<unknown>(list.effects)
+  const effects: Effect[] = []
+  let hook = (list.effects.length > 0 ? (fiber?.memoizedState ?? null) : null) as HookNode | null
+  for (let walked = 0; hook; walked += 1) {
+    if (walked >= HOOK_WALK_LIMIT || !consumeCommitWork(budget, 'effect-list')) {
+      return { effects, scheduled, truncated: true }
+    }
+    if (listed.has(hook.memoizedState)) effects.push(hook.memoizedState as Effect)
+    hook = hook.next
+  }
+  return { effects, scheduled, truncated: list.truncated }
 }
 
 function hasCleanupFn(effect: Effect): boolean {

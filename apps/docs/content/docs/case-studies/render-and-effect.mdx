@@ -110,10 +110,11 @@ cohorts. Selected fields were:
     "execution": {
       "status": "observed",
       "evidence": "exact",
-      "outcome": "completed"
+      "outcome": "completed",
+      "trigger": "commit"
     },
     "unobservedConsequences": [
-      "state-update",
+      "asynchronous-react-update",
       "external-store-write",
       "network",
       "event-listener",
@@ -133,7 +134,8 @@ The agent now knows three different things:
 
 - The click changed `App` state from `0` to `1` with exact evidence.
 - `HotEffectProbe` scheduled and executed because dependency slot `0` changed.
-- Network and state-write consequences were not observed, so the agent cannot invent that link.
+- The effect scheduled no React update while it ran, and asynchronous, network, and store-write
+  consequences were not observed, so the agent cannot invent that link.
 
 ## Prove repeated scheduling
 

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-type PackageManager = 'npm' | 'pnpm' | 'yarn-berry' | 'yarn-classic' | 'bun'
+export type PackageManager = 'npm' | 'pnpm' | 'yarn-berry' | 'yarn-classic' | 'bun'
 
 /** Without a lockfile, npm: it ships with Node, so every suggested command runs as written. */
 const DEFAULT_PACKAGE_MANAGER: PackageManager = 'npm'
@@ -29,7 +29,7 @@ const COMMANDS: Record<PackageManager, PackageManagerCommands> = {
 }
 
 /** Lockfile walk-up so a monorepo app dir reports the repo's real package manager. */
-function detectPackageManager(cwd: string): PackageManager {
+export function detectPackageManager(cwd: string): PackageManager {
   let dir = cwd
   while (true) {
     for (const [manager, files] of LOCKFILES) {

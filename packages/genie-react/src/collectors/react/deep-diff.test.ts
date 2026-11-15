@@ -97,6 +97,44 @@ describe('deepDiff', () => {
     })
   })
 
+  it.each([
+    {
+      shape: 'a RegExp match array whose input differs',
+      before: /b/.exec('ab'),
+      after: /b/.exec('cb'),
+    },
+    {
+      shape: 'an array with a differing non-index property',
+      before: Object.assign([1], { total: 1 }),
+      after: Object.assign([1], { total: 2 }),
+    },
+    {
+      shape: 'an array with a differing non-enumerable element',
+      before: Object.defineProperty([0], 0, { value: 1, enumerable: false }),
+      after: Object.defineProperty([0], 0, { value: 2, enumerable: false }),
+    },
+    {
+      shape: 'a plain object with a differing non-enumerable property',
+      before: Object.defineProperty({ a: 1 }, 'hidden', { value: 1 }),
+      after: Object.defineProperty({ a: 1 }, 'hidden', { value: 2 }),
+    },
+  ])('never claims equal contents for $shape', ({ before, after }) => {
+    const result = deepDiff(before, after, { plainObjectDepth: 1 })
+
+    expect(result.truncated).toBe(true)
+    expect(result.changes.some((change) => change.kind === 'reference-only')).toBe(false)
+  })
+
+  it('still claims equal contents for sparse arrays with matching holes', () => {
+    // biome-ignore lint/suspicious/noSparseArray: the hole is the input under test.
+    const result = deepDiff([, 1], [, 1])
+
+    expect(result).toMatchObject({
+      changes: [{ kind: 'reference-only', path: '' }],
+      truncated: false,
+    })
+  })
+
   it('keeps class instances opaque even when plain objects are walked', () => {
     class Value {
       count = 1

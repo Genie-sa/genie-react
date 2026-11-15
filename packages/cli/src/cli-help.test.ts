@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { CLI_OPTIONS, cliHelp, parseArgsFailureMessage } from './cli-help'
+import { DEFAULT_ERROR_CODES } from './failure-format'
 
 function parseError(args: string[]): Error {
   try {
@@ -38,6 +39,21 @@ describe('cliHelp', () => {
     expect(cliHelp()).toMatchObject({
       environment: { GENIE_BRIDGE_PORT: expect.stringContaining('1 to 65535') },
     })
+  })
+
+  it('documents every feedback reason the failure envelope can carry, and that nothing is sent by default', () => {
+    const help = cliHelp('feedback') as {
+      options: Record<string, { enum?: string[]; default?: unknown }>
+      notes: string[]
+    }
+    expect(help.options.reason?.enum).toEqual(Object.keys(DEFAULT_ERROR_CODES))
+    expect(help.options.kind).toMatchObject({
+      enum: ['bug', 'friction', 'idea', 'docs'],
+      default: 'bug',
+    })
+    expect(help.options.submit?.default).toBe(false)
+    expect(help.options).not.toHaveProperty('session')
+    expect(help.notes.join(' ')).toMatch(/nothing leaves the machine.*public/)
   })
 
   it('accepts --session for doctor', () => {

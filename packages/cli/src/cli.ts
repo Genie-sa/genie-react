@@ -20,6 +20,7 @@ import {
   writeOutput,
 } from './cli-output'
 import { agentFailure } from './failure-format'
+import { FEEDBACK_HINT, feedbackSuggestion } from './feedback-options'
 import { isRecord } from './guards'
 import { installOutputFailureHandler, setOutputContext } from './output-safety'
 import { genieCommand } from './package-manager'
@@ -311,6 +312,21 @@ async function main(): Promise<number> {
         force: values.force,
       })
     }
+    case 'feedback': {
+      const { runFeedbackCommand } = await import('./feedback-command')
+      return runFeedbackCommand({
+        message: values.message,
+        title: values.title,
+        kind: values.kind,
+        reason: values.reason,
+        tool: values.tool,
+        submit: values.submit ?? false,
+        draft: values.draft,
+        allowDuplicate: values['allow-duplicate'] ?? false,
+        cliVersion: agentOptions.cliVersion,
+        maxBytes,
+      })
+    }
     default:
       return 1
   }
@@ -335,8 +351,11 @@ main()
         `${renderFailure(
           agentFailure(
             'operational_failure',
-            `CLI operation failed. Inspect local setup with ${genieCommand(['doctor']).command} before retrying.`,
-            { next: genieCommand(['doctor']) },
+            `CLI operation failed. Inspect local setup with ${genieCommand(['doctor']).command} before retrying. ${FEEDBACK_HINT}`,
+            {
+              next: genieCommand(['doctor']),
+              feedback: feedbackSuggestion('operational_failure'),
+            },
           ),
         )}\n`,
       )

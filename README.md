@@ -91,5 +91,6 @@ Results print as compact text that keeps every field, written for a model to rea
 - [Add app tools for login, fixtures, or hard-to-reach states](https://genie-react.com/docs/tools/app-tools).
 - [Target the right tab when several agents are working](https://genie-react.com/docs/getting-started/sessions).
 - [Understand runtime overhead and the measured limits](docs/runtime-overhead.md).
+- [Report a bug or friction to the maintainers](https://genie-react.com/docs/reference/cli#report-a-problem-to-the-maintainers) with `genie-react feedback`. It shows the issue first and sends nothing until you add `--submit`.
 
 MIT © Genie React Agent contributors

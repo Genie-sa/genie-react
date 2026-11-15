@@ -57,6 +57,21 @@ afterEach(() => {
 })
 
 describe('startGenie', () => {
+  it('never starts a client or its collectors in a production bundle', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      const { startGenie, createGenieClient, startSpy, registerSpy } = await loadNative()
+      startGenie({ url: URL, queryClient: queryClientDuck() })
+      startGenie({ url: URL, router: routerDuck() })
+      expect(startSpy).not.toHaveBeenCalled()
+      expect(registerSpy).not.toHaveBeenCalled()
+      expect(createGenieClient).toHaveBeenCalledTimes(1)
+      expect(names(createGenieClient.mock.calls[0]?.[0].collectors ?? [])).toEqual([])
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('starts one client with the base collectors and stays a singleton', async () => {
     const { startGenie, createGenieClient, startSpy } = await loadNative()
 

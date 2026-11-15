@@ -149,8 +149,11 @@ npx @genie-react/cli call query_get \
 data, fetch activity, observer policy, and component subscriber evidence explain the visible UI.
 
 Data is depth-bounded after `path` is applied. At most 100 observers are returned; check
-`observersOmitted`. Treat subscriber evidence as current only when
-`subscriberObservationStatus` is `current-observation`.
+`observersOmitted`. TanStack Query releases before about 5.40 keep observers private, so observers
+that attached before Genie started are counted in `observerCount` and `observersOmitted` but not
+listed. Treat subscriber evidence as current only when `subscriberObservationStatus` is
+`current-observation`. `gcTime` and `staleTime` are milliseconds, or `"Infinity"`, `"static"`, or
+`"dynamic"` (a function); `staleTime` is the first observer's.
 
 ## `query_get_data`
 
@@ -222,6 +225,8 @@ npx @genie-react/cli call query_list_mutations '{}' --json
     {
       "mutationId": 7,
       "status": "success",
+      "isPaused": false,
+      "scopeId": null,
       "variables": { "title": "Ship docs" },
       "submittedAt": 1750000000000
     }
@@ -232,7 +237,10 @@ npx @genie-react/cli call query_list_mutations '{}' --json
 **Agent use:** Selects the exact mutation ID for `mutation_get` before checking success, error, or
 retry UI.
 
-The call returns every mutation still retained by TanStack Query. Variables are depth-bounded to 2. This read does not delete retained mutations.
+The call returns every mutation still retained by TanStack Query. A `pending` mutation with
+`isPaused:true` is queued, offline or behind another mutation with the same `scopeId`, and its
+mutation function has not run yet. Variables are depth-bounded to 2. This read does not delete
+retained mutations.
 
 ## `mutation_get`
 

@@ -24,6 +24,7 @@ script. `--help` prints help text, and `--help --json` returns structured comman
 | `call`   | Run one live tool.                                             |
 | `batch`  | Run several calls over one connection.                         |
 | `capture export` | Write a verified capture artifact and return its receipt. |
+| `feedback` | Preview a bug, friction, or idea report for the maintainers; `--submit` files it. |
 
 ## Discover a tool
 
@@ -137,6 +138,56 @@ required key when you sent only one unknown key, as in `{"component":"id"}`. `co
 arguments and fills each other key in the schema's example with a typed placeholder (`"<string>"`,
 `0`, `false`, `[]`, `{}`, or `null`), never the app's value. Replace the placeholders before calling.
 Only the hub can report `hubCode`; the CLI ignores one on an app tool.
+
+## Report a problem to the maintainers
+
+`feedback` turns a Genie bug, a point of friction, an idea, or a docs gap into a GitHub issue on
+`Genie-sa/genie-react`. Without `--submit` nothing leaves the machine: the result shows the exact
+title, body, and destination, saves them as a private draft, and `next` submits that draft unchanged.
+
+```bash
+echo "react_get_tree returned an empty tree after a hot reload" | \
+  npx @genie-react/cli feedback --reason operational_failure --tool react_get_tree --message -
+# After the user approves the preview, submit its data.draft.id.
+npx @genie-react/cli feedback --submit --draft "$DRAFT_ID"
+```
+
+The issue is public and posted from the GitHub account the GitHub CLI (`gh`) is signed in to, so
+agents show the preview and submit only after the user agrees. The report holds the message, the
+title, and these diagnostics only: CLI and `genie-react` versions, Node version, OS and architecture,
+package manager, detected framework, and React version. It never includes source, file contents,
+environment variables, tool results, or app data.
+
+Before anything is shown, the CLI cleans the message and title:
+
+- It replaces the home directory and the project's absolute paths with `<home>` and `<project>`.
+- It removes URL credentials, query strings, and fragments.
+- It redacts emails, private keys, JWTs, bearer tokens, known API key formats, `password=` style
+  assignments, and long random-looking strings. `redactions` counts each rule that fired.
+- It places the message in a code block, so its Markdown, HTML, `@mentions`, and `#123` references
+  do not render, notify, or cross-link. Mentions and references in the title get a zero-width space.
+- It cuts the title at 120 characters and the message at 6,000, and says so in `truncated` and in
+  the issue.
+
+| Option | Meaning |
+| --- | --- |
+| `--message <text>`, `--message -` | Report text, or read it from piped stdin. Required unless `--draft`. |
+| `--title <text>` | Issue title. Defaults to the first line of the message. |
+| `--kind` | `bug` (default), `friction`, `idea`, or `docs`. |
+| `--reason`, `--tool` | The `reason` of the Genie failure and the built-in tool involved, so reports group. App tools (`app_*`) are refused. |
+| `--submit` | File the issue with `gh`, requesting the `agent-feedback` label and filing without it when the label cannot be applied. |
+| `--draft <id>` | With `--submit`, file a saved preview unchanged. |
+| `--allow-duplicate` | With `--submit`, skip the duplicate check. |
+
+With `--reason`, `--submit` first searches open issues for the same failure signature (a hash of
+`reason` and `tool` in the diagnostics table). A match returns `reason:"feedback_duplicate"` with the
+existing issue and files nothing. When `gh` is missing, signed out, offline, or rate limited, the
+command exits 1 with `status:"action_required"`, saves the report to `data.reportPath`, and returns
+`data.newIssueUrl`, a prefilled new-issue link a person can open. A link that would exceed 8,000
+characters is shortened and marked; the saved file keeps the full report.
+
+`operational_failure` results, which point at Genie rather than at how it was called, carry a
+`feedback` command with the reason and any built-in tool already filled in.
 
 ## Output framing and limits
 

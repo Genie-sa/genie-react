@@ -272,6 +272,7 @@ async function connect(opts: AgentOptions): Promise<Connection> {
     invokeTimeoutMs: opts.timeoutMs ? opts.timeoutMs + INVOKE_GRACE_MS : 20_000,
     sessionId: resolveSession(opts.session),
     failFastOnRefused: source === 'fallback',
+    clientVersion: opts.cliVersion,
     logger: opts.verbose
       ? (message) =>
           writeDiagnostic(

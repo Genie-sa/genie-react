@@ -111,6 +111,7 @@ Reasons are snake_case and stable:
 | `unknown_session` | `--session` or `GENIE_SESSION` names no connected session | `session: {requested?, registeredTabs, connected: [...]}`; `registeredTabs: 0` means no browser tab has registered |
 | `not_connected` | No app is connected | |
 | `bridge_unreachable` | No bridge answered at the selected URL, or its connection closed before a call answered | `bridge: {url, source?}`; `source: "fallback"` means the URL was only the default guess |
+| `bridge_rejected` | The hub refused the connection (agent token, browser origin), or the CLI refused a hub from another genie-react `major.minor` release line (`errorCode: "version-mismatch"`) | `versions: {cli, hub}`; `hub: null` means the hub does not report its version |
 | `busy`, `timeout` | The app could not answer in time | |
 | `operational_failure` | Connectivity or local failure | |
 

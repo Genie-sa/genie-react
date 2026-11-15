@@ -57,9 +57,16 @@ async function exec(argv, { code = 0, cwd = fixture, environment = env } = {}) {
   return result
 }
 /** A JSON transcript: `--json` is appended, so every document checked here is the unchanged JSON contract. */
-async function run(argv, { code = 0, cwd = fixture, jsonl = false, diagnostics = false } = {}) {
+async function run(
+  argv,
+  { code = 0, cwd = fixture, jsonl = false, diagnostics = false, extraEnv = {} } = {},
+) {
   const machine = argv.includes('--ndjson') || argv.includes('--json')
-  const result = await exec(machine ? argv : [...argv, '--json'], { code, cwd })
+  const result = await exec(machine ? argv : [...argv, '--json'], {
+    code,
+    cwd,
+    environment: { ...env, ...extraEnv },
+  })
   const records = lines(result.stdout)
   const diagnosticRecords = lines(result.stderr)
   if (!diagnostics) assert.equal(diagnosticRecords.length, 0, 'Unexpected stderr')
@@ -83,7 +90,7 @@ try {
   const { value: help } = await run(['--help'])
   assert.equal(help.status, 'ok')
   assert.deepEqual((await run([])).value, help)
-  assert.equal(help.commands.length, 9)
+  assert.equal(help.commands.length, 10)
   for (const { name } of help.commands) {
     const { value } = await run([name, '--help'])
     assert.equal(value.command, name)
@@ -118,6 +125,10 @@ try {
     ['batch', '[]', '--json', '--ndjson'],
     ['capture', 'export'],
     ['capture', 'export', 'id', '--section', 'secret-token-section'],
+    ['feedback'],
+    ['feedback', '--message', 'x', '--kind', 'secret-token-kind'],
+    ['feedback', '--message', 'x', '--tool', 'app_secret-token'],
+    ['feedback', '--submit', '--draft', 'secret-token-draft'],
   ]) {
     const result = await run(argv, { code: 1 })
     assert.equal(result.value.status, 'error')
@@ -125,6 +136,34 @@ try {
     assert.equal(typeof result.value.userActionRequired, 'boolean')
     assert(!result.stdout.includes('secret-token'), 'Invalid input was echoed')
   }
+  const feedbackEnv = { extraEnv: { XDG_RUNTIME_DIR: fixture, PATH: join(fixture, 'no-gh') } }
+  const feedbackPreview = (
+    await run(
+      ['feedback', '--message', 'crash in $(whoami)', '--reason', 'tool_error'],
+      feedbackEnv,
+    )
+  ).value
+  assert.equal(feedbackPreview.reason, 'feedback_preview')
+  assert.equal(feedbackPreview.data.sent, false)
+  assert.deepEqual(feedbackPreview.next.argv.slice(-3), [
+    '--submit',
+    '--draft',
+    feedbackPreview.data.draft.id,
+  ])
+  const feedbackFallback = (
+    await run(['feedback', '--submit', '--draft', feedbackPreview.data.draft.id], {
+      ...feedbackEnv,
+      code: 1,
+    })
+  ).value
+  assert.equal(feedbackFallback.status, 'action_required')
+  assert.equal(feedbackFallback.data.cause, 'gh_missing')
+  assert.equal(feedbackFallback.data.issue.body, feedbackPreview.data.issue.body)
+  assert(
+    feedbackFallback.data.newIssueUrl.startsWith(
+      'https://github.com/Genie-sa/genie-react/issues/new?',
+    ),
+  )
   const failedDoctor = (await run(['doctor'], { code: 1 })).value
   assert.equal(failedDoctor.status, 'error')
   assert.equal(failedDoctor.reason, 'checks_failed')

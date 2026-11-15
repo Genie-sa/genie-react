@@ -641,10 +641,11 @@ export function captureIntegrityDigest(capture: CaptureArtifact): string {
   return createHash('sha256').update(stableJsonStringify(canonical)).digest('hex')
 }
 
+/** Hashes the JSON an export writes: dates, `toJSON` values and non-finite numbers take their serialized form, so a file re-verifies against its own checksum. */
 function stableJsonStringify(value: unknown): string {
-  const serialized = JSON.stringify(sortJsonObjectKeys(value))
-  if (serialized === undefined) throw new TypeError('Capture content is not JSON-serializable.')
-  return serialized
+  const json = JSON.stringify(value)
+  if (json === undefined) throw new TypeError('Capture content is not JSON-serializable.')
+  return JSON.stringify(sortJsonObjectKeys(JSON.parse(json)))
 }
 
 function sortJsonObjectKeys(value: unknown): unknown {
@@ -653,7 +654,6 @@ function sortJsonObjectKeys(value: unknown): unknown {
 
   return Object.fromEntries(
     Object.entries(value)
-      .filter(([, entry]) => entry !== undefined)
       .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
       .map(([key, entry]) => [key, sortJsonObjectKeys(entry)]),
   )
