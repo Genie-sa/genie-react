@@ -1,0 +1,56 @@
+{
+  "id": "issue-row-inline-handler",
+  "kind": "bug",
+  "category": "optimise",
+  "prompt": "Ticking one checkbox in the issue table lags. It looks like every row on the page redraws.",
+  "truth": {
+    "components": ["IssueRow", "IssueTable"],
+    "files": ["src/features/issues/issue-table.tsx", "src/features/issues/issue-row.tsx"],
+    "causePatterns": [
+      "onToggle|inline|arrow|function|handler|callback",
+      "@identity|PureComponent|shallow"
+    ],
+    "summary": "IssueTable passes each PureComponent IssueRow a new inline onToggle arrow on every render, so the shallow prop comparison always fails and all 100 rows re-render when one selection changes."
+  },
+  "referenceAnswer": {
+    "component": "IssueRow",
+    "cause": "IssueTable passes an inline onToggle arrow to each PureComponent row, so its shallow comparison always sees a new function.",
+    "file": "src/features/issues/issue-table.tsx"
+  },
+  "decoyAnswers": [
+    {
+      "component": "IssueRow",
+      "cause": "IssueRow is a PureComponent, which is slower than React.memo.",
+      "file": "src/features/issues/issue-row.tsx"
+    },
+    {
+      "component": "IssueTable",
+      "cause": "selectedIds is a new array after every toggle.",
+      "file": "src/store/issues.ts"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/features/issues/issue-table.tsx",
+      "find": "onToggle={() => this.props.selectionToggled(issue.id)}",
+      "replace": "onToggle={this.props.selectionToggled}"
+    },
+    {
+      "file": "src/features/issues/issue-row.tsx",
+      "find": "  onToggle: () => void\n",
+      "replace": "  onToggle: (id: string) => void\n"
+    },
+    {
+      "file": "src/features/issues/issue-row.tsx",
+      "find": "onChange={onToggle}",
+      "replace": "onChange={() => onToggle(issue.id)}"
+    }
+  ],
+  "probe": {
+    "script": "probes/issue-row-inline-handler.mjs"
+  },
+  "genieEvidence": {
+    "observability": "full",
+    "notes": "react_render_causes names prop onToggle (exact, unstable) on every row. The adaptive render budget covers only about 30 of 100 rows (mountedUnknown 70); the probe raises the budget to its maximum. Every row's behaviour evidence reports 2 subtree host mutations, which are React 18 Update flags from the new onChange/onClick closures, not DOM changes."
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "id": "poller-after-sign-out",
+  "kind": "bug",
+  "category": "verify",
+  "prompt": "Please verify that notification polling stops when I sign out. Our API logs show 401s from signed-out browsers.",
+  "truth": {
+    "components": ["NotificationsPoller"],
+    "files": ["src/layout/notifications-poller.tsx"],
+    "causePatterns": ["componentWillUnmount|unmount|cleanup|clearInterval", "interval|timer|poll"],
+    "summary": "NotificationsPoller starts a setInterval in componentDidMount and has no componentWillUnmount, so the interval outlives the shell after sign-out. In development, StrictMode mounts the class twice, so two intervals run from the start."
+  },
+  "referenceAnswer": {
+    "component": "NotificationsPoller",
+    "cause": "The interval started in componentDidMount is never cleared because the class has no componentWillUnmount.",
+    "file": "src/layout/notifications-poller.tsx"
+  },
+  "decoyAnswers": [
+    {
+      "component": "NotificationsPoller",
+      "cause": "componentDidUpdate restarts the interval on every render.",
+      "file": "src/layout/notifications-poller.tsx"
+    },
+    {
+      "component": "AppShell",
+      "cause": "The poller is rendered conditionally on config.",
+      "file": "src/layout/app-shell.tsx"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/layout/notifications-poller.tsx",
+      "find": "  schedule() {",
+      "replace": "  componentWillUnmount() {\n    clearInterval(this.timer)\n  }\n\n  schedule() {"
+    }
+  ],
+  "probe": {
+    "script": "probes/poller-after-sign-out.mjs"
+  },
+  "genieEvidence": {
+    "observability": "partial",
+    "notes": "The timeline request lane shows /api/notifications requests continuing after the DELETE /api/session request, with responseStatus 401, and in pairs (two intervals). Genie's React tools do not observe class lifecycle timers: react_effect_* cover hooks only, so the leak is visible only through its network consequence. The request lane omits the HTTP method, so DELETE and GET /api/session look identical."
+  }
+}

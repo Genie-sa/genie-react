@@ -1,0 +1,51 @@
+{
+  "id": "activity-refetch-on-typing",
+  "kind": "bug",
+  "category": "optimise",
+  "prompt": "Typing a comment on an issue fires a request to the activity endpoint on every keystroke.",
+  "truth": {
+    "components": ["ActivityLog", "IssueDetailPage", "useActivity"],
+    "files": [
+      "src/features/issue-detail/issue-detail-page.tsx",
+      "src/features/issue-detail/use-activity.ts"
+    ],
+    "causePatterns": ["types|array|dependency|deps|@identity", "effect|useEffect"],
+    "summary": "IssueDetailPage passes ActivityLog an inline types array. useActivity lists it as an effect dependency, and the comment draft lives in the page state, so each keystroke re-renders the page with a new array and the effect refetches."
+  },
+  "referenceAnswer": {
+    "component": "ActivityLog",
+    "cause": "IssueDetailPage passes a new inline types array on every render, and useActivity's effect depends on it, so each keystroke in the page-level comment draft refetches activity.",
+    "file": "src/features/issue-detail/issue-detail-page.tsx"
+  },
+  "decoyAnswers": [
+    {
+      "component": "CommentComposer",
+      "cause": "The textarea is controlled.",
+      "file": "src/features/issue-detail/comment-composer.tsx"
+    },
+    {
+      "component": "ActivityLog",
+      "cause": "The effect has no cleanup, so requests pile up.",
+      "file": "src/features/issue-detail/use-activity.ts"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/features/issue-detail/issue-detail-page.tsx",
+      "find": "import IssueTitleEditor from './issue-title-editor'\n",
+      "replace": "import IssueTitleEditor from './issue-title-editor'\n\nconst ACTIVITY_TYPES = ['created', 'status', 'field']\n"
+    },
+    {
+      "file": "src/features/issue-detail/issue-detail-page.tsx",
+      "find": "types={['created', 'status', 'field']}",
+      "replace": "types={ACTIVITY_TYPES}"
+    }
+  ],
+  "probe": {
+    "script": "probes/activity-refetch-on-typing.mjs"
+  },
+  "genieEvidence": {
+    "observability": "full",
+    "notes": "react_effect_audit reports the ActivityLog effect firing once per keystroke with lastChangedDep 1 (types), but labels it hotness 'not-hot' because the renders from its own fetch results did not fire it. The timeline request lane shows one /activity request per keystroke. Request URLs drop the query string (?types=...)."
+  }
+}
