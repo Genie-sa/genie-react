@@ -290,8 +290,8 @@ function instrumentPassiveEffect(effect: Effect, binding: PassiveEffectBinding):
 }
 
 /** Remove an effect owner only after React's exact onCommitFiberUnmount callback. */
-export function removeEffectRecord(fiber: Fiber): void {
-  if (ownsEffectList(fiber)) records.delete(getFiberId(fiber))
+export function removeEffectRecord(fiber: Fiber, fiberId?: number): void {
+  if (ownsEffectList(fiber)) records.delete(fiberId ?? getFiberId(fiber))
 }
 
 /** Exact commit-time count of this component's effects scheduled by React. */
