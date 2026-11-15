@@ -491,6 +491,25 @@ describe('verify on a real React tree', () => {
     expect(verdict.verdict).toBe('refused')
   })
 
+  it('expires a window nobody ended, releases the lock, and refuses with window_lost', async () => {
+    await mount(createElement(SearchScreen, { fixed: true }))
+    const verify = start()
+    vi.useFakeTimers()
+    try {
+      const began = await begin(badgeClaims, { maxDurationMs: 10_000 })
+      vi.advanceTimersByTime(10_000)
+
+      expect(
+        verify.manager.lockFor(verify.session.sessionId, 'react_clear_renders'),
+      ).toBeUndefined()
+      const verdict = await end(began.verificationId)
+      expect(verdict.verdict).toBe('refused')
+      expect(verdict.claims.every((result) => result.refusal?.reason === 'window_lost')).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('records every attempt and says when a pass follows failures on the same code', async () => {
     const broken = await mount(createElement(SearchScreen, { fixed: false }))
     start()
