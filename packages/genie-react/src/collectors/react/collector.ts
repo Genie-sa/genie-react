@@ -1,6 +1,6 @@
 import { type Fiber, getRDTHook } from 'bippy'
 import { defineCollector, defineCollectorTool, type GenieCollector } from '../../client'
-import { roundMilliseconds } from '../../protocol'
+import { reactPendingWorkContract, roundMilliseconds } from '../../protocol'
 import type { NodeId } from './contracts'
 import {
   reactClearRendersContract,
@@ -68,6 +68,7 @@ import {
   overrideFiberProps,
   resetOverrides,
 } from './overrides'
+import { getPendingReactWork } from './pending-work'
 import { getRefreshEvents, startRefreshTracking } from './refresh-tracker'
 import { getRenderCohort } from './render-cohort'
 import { reactMeasureContract, reactRendersSinceContract } from './render-contract'
@@ -717,6 +718,7 @@ export function reactCollector(): GenieCollector {
         handler: ({ includeSource, limit, appOnly }) =>
           getErrorState({ includeSource, limit, appOnly }),
       }),
+      defineCollectorTool({ contract: reactPendingWorkContract, handler: getPendingReactWork }),
       defineCollectorTool({
         contract: reactRefreshEventsContract,
         handler: ({ afterSequence, limit, includeSource, appOnly }) =>

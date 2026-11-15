@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,7 +10,12 @@ mkdirSync(testRuntimeDir, { recursive: true, mode: 0o700 })
 const entry = (path: string) =>
   fileURLToPath(new URL(`./packages/genie-react/src/${path}`, import.meta.url))
 
+const runtimeVersion: string = JSON.parse(
+  readFileSync(new URL('./packages/genie-react/package.json', import.meta.url), 'utf8'),
+).version
+
 export default defineConfig({
+  define: { __GENIE_REACT_VERSION__: JSON.stringify(runtimeVersion) },
   resolve: {
     alias: [
       { find: 'genie-react/protocol', replacement: entry('protocol/index.ts') },

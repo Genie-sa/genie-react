@@ -11,6 +11,7 @@ import { reactCollector } from '../collectors/react'
 import '../collectors/react/hook'
 import { queryCollector, routerCollector } from '../collectors/tanstack'
 import { isQueryClient, isRouter } from '../collectors/tanstack/guards'
+import { isProductionBuild } from '../production-build'
 
 export interface StartGenieOptions {
   /** Hub WebSocket URL (required; RN has no location to derive it from). iOS sim: ws://127.0.0.1:4390/__genie/ws, Android emulator: ws://10.0.2.2:4390/__genie/ws; the hub binds loopback, so a physical device needs a port forward. */
@@ -59,6 +60,11 @@ function tanstackCollectors(options: StartGenieOptions): GenieCollector[] {
 
 /** Start Genie in a React Native / Expo app. Call once, as early as possible; later calls register newly provided TanStack instances onto the running client. */
 export function startGenie(options: StartGenieOptions): GenieClient {
+  // A release bundle that skipped the documented __DEV__ guard still never opens a hub connection.
+  if (isProductionBuild()) {
+    client ??= createGenieClient({ url: options.url, appName: options.appName, collectors: [] })
+    return client
+  }
   if (client) {
     if (options.url !== startedUrl) {
       console.warn(`[genie] already connected to ${startedUrl} — new url ${options.url} ignored.`)

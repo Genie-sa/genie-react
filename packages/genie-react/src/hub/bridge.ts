@@ -16,12 +16,19 @@ import {
   devtoolsStatusContract,
   devtoolsWaitContract,
   encodeMessage,
+  GENIE_PROTOCOL_VERSION,
+  GENIE_REACT_VERSION,
   GENIE_WS_PATH,
   type HubErrorCode,
+  type HubInfo,
   metaToolDescriptors,
   newId,
+  type PendingReactWork,
+  reactPendingWorkContract,
   reactQuiesceContract,
   type SessionSummary,
+  safeDiagnostic,
+  sameReleaseLine,
   type ToolDescriptor,
   type ToolErrorDetails,
   toolValidationFailure,
@@ -85,7 +92,10 @@ interface BridgeStatus {
   tools: ToolDescriptor[]
   sessions: SessionSummary[]
   warnings: string[]
+  hub: HubInfo
 }
+
+const HUB_INFO: HubInfo = { version: GENIE_REACT_VERSION, protocol: GENIE_PROTOCOL_VERSION }
 
 interface AppSession {
   socket: WebSocket
@@ -103,6 +113,7 @@ interface AppSession {
   readyAt?: number
   /** Last `app/heartbeat` receipt; undefined until the first beat, which is how legacy (never-beating) clients opt out of busy fast-fail. */
   lastHeartbeatAt?: number
+  runtimeVersion?: string
 }
 
 type AppHello = Extract<AppMessage, { kind: 'app/hello' }>
@@ -141,6 +152,8 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>
   busyTimer: ReturnType<typeof setTimeout> | null
   sessionId: string
+  /** Only the document the request was sent to may answer it. */
+  socket: WebSocket
   /** The tool is not read-only, so losing its document mid-call leaves its side effects unknown. */
   mayHaveCompleted: boolean
 }
@@ -152,6 +165,8 @@ interface DefaultTabReload {
 
 type InterruptionCode = Extract<HubErrorCode, 'SESSION_DISCONNECTED' | 'SESSION_SUPERSEDED'>
 
+// Above the CLI's 50,000,000-byte output ceiling, so any result an agent can print still fits one frame.
+const MAX_FRAME_BYTES = 64 * 1024 * 1024
 const POLL_INTERVAL_MS = 150
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000
 
@@ -255,7 +270,7 @@ function unrefTimer(timer: ReturnType<typeof setInterval>): void {
 
 /** The hub: a `noServer` WSS mountable on Vite's HTTP server; calls route to the targeted tab's newest document (explicit `agent/invoke.sessionId`, else the only or already-targeted tab), and it answers the `devtools_status`/`devtools_wait` meta tools itself. */
 export class GenieBridge {
-  private readonly wss = new ws.WebSocketServer({ noServer: true })
+  private readonly wss = new ws.WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES })
   private readonly agents = new Set<WebSocket>()
   private readonly pending = new Map<string, PendingRequest>()
   private readonly connectionWaiters = new Set<() => void>()
@@ -285,6 +300,8 @@ export class GenieBridge {
   private readonly responsiveSockets = new WeakSet<WebSocket>()
   private readonly heartbeat: ReturnType<typeof setInterval>
   private readonly upgradePolicy: UpgradePolicy
+  /** The one document each app socket announced first; a socket cannot speak for a second document. */
+  private readonly socketDocuments = new WeakMap<WebSocket, string>()
   private readonly appOrigins = new WeakMap<
     WebSocket,
     Pick<SessionSummary, 'origin' | 'originUnverified'>
@@ -332,6 +349,11 @@ export class GenieBridge {
     return this.upgradePolicy.agentToken
   }
 
+  /** Whether a plain HTTP request's `Host` names this machine directly rather than a rebound domain. */
+  trustsHostHeader(hostHeader: string | undefined): boolean {
+    return this.upgradePolicy.trustsHostHeader(hostHeader)
+  }
+
   /** Returns `false` for non-{@link GENIE_WS_PATH} upgrades so another listener (e.g. Vite HMR) can handle them. */
   handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): boolean {
     if (new URL(request.url ?? '/', 'http://localhost').pathname !== GENIE_WS_PATH) return false
@@ -356,6 +378,7 @@ export class GenieBridge {
       tools: catalogOf(current),
       sessions: this.sessionSummaries(),
       warnings: this.statusWarnings(),
+      hub: HUB_INFO,
     }
   }
 
@@ -454,7 +477,10 @@ export class GenieBridge {
       this.clearDefaultTabReload()
     }
     const resolution = this.tabDocument(key, documents)
-    return resolution.ok && retargeted ? { ...resolution, retargeted } : resolution
+    if (!resolution.ok || !retargeted) return resolution
+    return pin && replacement
+      ? { ...resolution, retargeted }
+      : { ...resolution, retargeted, standIn: true }
   }
 
   private tabDocument(key: string, documents: AppSession[]): SessionResolution<AppSession> {
@@ -467,7 +493,7 @@ export class GenieBridge {
       (candidate) => this.staleMsOf(candidate) === null,
     )
     return live && others.length === 0
-      ? { ok: true, session: live, retargeted: true }
+      ? { ok: true, session: live, retargeted: true, standIn: true }
       : { ok: true, session }
   }
 
@@ -537,6 +563,7 @@ export class GenieBridge {
         current: session.sessionId === current?.sessionId,
         ...this.appOrigins.get(session.socket),
         ...(staleMs === null ? {} : { staleMs }),
+        ...(session.runtimeVersion === undefined ? {} : { runtimeVersion: session.runtimeVersion }),
       }
     })
   }
@@ -599,6 +626,16 @@ export class GenieBridge {
         ([logicalSessionId, sessions]) =>
           `Logical session collision ${JSON.stringify(logicalSessionId)} across ${sessions.join(', ')}; implicit and logical-id routing is paused until the cloned document is auto-forked.`,
       )
+    for (const session of this.apps.values()) {
+      if (
+        session.runtimeVersion !== undefined &&
+        sameReleaseLine(session.runtimeVersion, HUB_INFO.version)
+      )
+        continue
+      warnings.push(
+        `Session ${JSON.stringify(session.sessionId)} runs ${session.runtimeVersion === undefined ? 'a genie-react runtime that predates version reporting' : `genie-react runtime ${JSON.stringify(session.runtimeVersion)}`} but the hub is genie-react ${HUB_INFO.version}; tool results may not match what this hub and the CLI expect. Install one genie-react version, then restart the dev server and reload the app (clear the bundler's dependency cache if the version persists).`,
+      )
+    }
     const origins = [...this.apps.values()].map((session) => this.appOrigins.get(session.socket))
     const distinctOrigins = new Set(origins.map((entry) => entry?.origin))
     if (distinctOrigins.size > 1 && origins.some((entry) => entry?.originUnverified)) {
@@ -704,7 +741,7 @@ export class GenieBridge {
       case 'app/response': {
         this.markSessionAlive(socket, true)
         const pending = this.pending.get(message.id)
-        if (!pending) return
+        if (!pending || pending.socket !== socket) return
         this.clearPendingTimers(pending)
         this.pending.delete(message.id)
         pending.settle({
@@ -720,6 +757,14 @@ export class GenieBridge {
   }
 
   private registerDocument(socket: WebSocket, message: AppHello): void {
+    const announced = this.socketDocuments.get(socket)
+    if (announced !== undefined && announced !== message.sessionId) {
+      this.log('warn', 'ignored a hello for a second document on one socket', {
+        sessionId: announced,
+      })
+      return
+    }
+    this.socketDocuments.set(socket, message.sessionId)
     const now = Date.now()
     // Same-socket superseded documents were revived already; one reconnecting on a new socket drops the old one.
     this.evictSuperseded(message.sessionId)
@@ -786,6 +831,7 @@ export class GenieBridge {
       readyAt: existing?.readyAt,
       // A re-hello from a once-heartbeating session is a live JS turn (reload, reconnect, or tool refresh), so clear stale/busy state immediately.
       lastHeartbeatAt: existing?.lastHeartbeatAt === undefined ? undefined : now,
+      runtimeVersion: message.runtimeVersion,
     }
     this.apps.set(message.sessionId, registered)
     for (const peer of olderPeers) {
@@ -1077,6 +1123,7 @@ export class GenieBridge {
           ...(parsed.data.includeTools ? { tools: catalogOf(target) } : {}),
           sessions: this.sessionSummaries(),
           warnings: this.statusWarnings(),
+          hub: HUB_INFO,
         },
         undefined,
         { session: target },
@@ -1138,6 +1185,8 @@ export class GenieBridge {
     let observedCommits = 0
     let documentCommitId: number | null = null
     let renderCollection: string | null = null
+    let pendingWork: PendingReactWork | null = null
+    let pendingReason: string | undefined
     const finish = (outcome: 'idle' | 'timed-out' | 'unavailable', reason?: string) =>
       this.result(
         agent,
@@ -1151,6 +1200,7 @@ export class GenieBridge {
           documentCommitId,
           sessionId: session?.sessionId ?? null,
           renderCollection,
+          pendingWork,
           ...(reason ? { reason } : {}),
         },
         undefined,
@@ -1192,6 +1242,9 @@ export class GenieBridge {
         renderCollection =
           typeof sample?.renderCollection === 'string' ? sample.renderCollection : null
       }
+      const observedWork = reactPendingWorkContract.output.safeParse(sample?.pendingWork)
+      if (observedWork.success) pendingWork = observedWork.data
+      pendingReason = check.status === 'pending' ? check.reason : undefined
       if (check.status === 'unsupported' || check.status === 'failed') {
         finish('unavailable', check.reason)
         return
@@ -1206,7 +1259,8 @@ export class GenieBridge {
     }
     finish(
       'timed-out',
-      'React idle was not observed before timeoutMs. Inspect pending work and retry.',
+      pendingReason ??
+        'React idle was not observed before timeoutMs. Inspect pending work and retry.',
     )
   }
 
@@ -1531,15 +1585,14 @@ export class GenieBridge {
         pollState.reactChangedAt = now
       }
       const quietForMs = now - pollState.reactChangedAt
-      return {
-        status: quietForMs >= input.quietMs ? 'met' : 'pending',
-        lastObserved: {
-          documentCommitId: commit,
-          renderCollection,
-          quietForMs,
-          requiredQuietMs: input.quietMs,
-        },
+      const observed = {
+        documentCommitId: commit,
+        renderCollection,
+        quietForMs,
+        requiredQuietMs: input.quietMs,
       }
+      if (quietForMs < input.quietMs) return { status: 'pending', lastObserved: observed }
+      return this.checkPendingReactWork(session, input, pollState, observed)
     }
     if (domain === 'query') {
       if (!toolDescriptor(session, 'query_is_fetching')) {
@@ -1604,6 +1657,47 @@ export class GenieBridge {
     return pollState.frameCheck
   }
 
+  /** A quiet commit counter is not idle while React holds uncommitted work: a suspended transition never commits, and a Suspense fallback waits on data without one. */
+  private async checkPendingReactWork(
+    session: AppSession,
+    input: WaitInput,
+    pollState: WaitPollState,
+    observed: Record<string, unknown> & { documentCommitId: number },
+  ): Promise<WaitDomainCheck> {
+    if (!toolDescriptor(session, reactPendingWorkContract.name)) {
+      return { status: 'met', lastObserved: { ...observed, pendingWork: null } }
+    }
+    const response = await this.appRequestForSession(
+      reactPendingWorkContract.name,
+      {},
+      session,
+      input.deadline,
+    )
+    const parsed = reactPendingWorkContract.output.safeParse(response.result)
+    if (!response.ok || !parsed.success) {
+      return {
+        status: 'pending',
+        reason: `Pending React work could not be read: ${response.error ?? 'malformed react_pending_work result'}.`,
+        lastObserved: { ...observed, pendingWork: null },
+      }
+    }
+    const pendingWork = parsed.data
+    if (pendingWork.documentCommitId !== observed.documentCommitId) {
+      pollState.reactCommit = pendingWork.documentCommitId
+      pollState.reactChangedAt = Date.now()
+      return {
+        status: 'pending',
+        lastObserved: { ...observed, documentCommitId: pendingWork.documentCommitId, pendingWork },
+      }
+    }
+    const blocking = pendingWorkReason(pendingWork)
+    return {
+      status: blocking === null ? 'met' : 'pending',
+      ...(blocking === null ? {} : { reason: blocking }),
+      lastObserved: { ...observed, pendingWork },
+    }
+  }
+
   private forwardToApp(
     agent: WebSocket,
     id: string,
@@ -1663,20 +1757,24 @@ export class GenieBridge {
       settle(resolution)
       return
     }
-    const { session, retargeted } = resolution
-    // A tab that was already open only stands in for a reloading default on reads; a mutation there would change the wrong tab.
-    if (
-      retargeted &&
-      this.defaultTabReload !== null &&
-      toolDescriptor(session, tool)?.annotations?.readOnlyHint !== true
-    ) {
-      settle({
-        ok: false,
-        errorCode: 'not-connected',
-        errorDetails: { hubCode: 'SESSION_RELOADING' },
-        retryInMs: BUSY_RETRY_MS,
-        error: `The targeted tab ${JSON.stringify(this.defaultTabKey)} is reconnecting after a reload and "${tool}" is not read-only, so it was not run on another tab; retry shortly, or target a tab explicitly.`,
-      })
+    const { session, retargeted, standIn } = resolution
+    // Another tab only stands in for an absent or silent default on reads; a mutation there would change the wrong tab.
+    if (standIn && toolDescriptor(session, tool)?.annotations?.readOnlyHint !== true) {
+      settle(
+        this.defaultTabReload === null
+          ? {
+              ok: false,
+              errorCode: 'busy',
+              error: `The targeted tab ${JSON.stringify(this.defaultTabKey)} has not sent a heartbeat for over ${this.sessionStaleMs}ms (frozen, hung, or throttled in the background) and "${tool}" is not read-only, so it was not run on another tab; bring that tab to the foreground, or target a tab explicitly.`,
+            }
+          : {
+              ok: false,
+              errorCode: 'not-connected',
+              errorDetails: { hubCode: 'SESSION_RELOADING' },
+              retryInMs: BUSY_RETRY_MS,
+              error: `The targeted tab ${JSON.stringify(this.defaultTabKey)} is reconnecting after a reload and "${tool}" is not read-only, so it was not run on another tab; retry shortly, or target a tab explicitly.`,
+            },
+      )
       return
     }
     const settleWithSession = (response: AppResponse): void =>
@@ -1703,6 +1801,7 @@ export class GenieBridge {
       timer,
       busyTimer,
       sessionId: session.sessionId,
+      socket: session.socket,
       mayHaveCompleted: toolDescriptor(session, tool)?.annotations?.readOnlyHint !== true,
     })
     this.send(session.socket, { kind: 'bridge/request', id, tool, args })
@@ -1956,6 +2055,24 @@ function interruptedCallError(hubCode: InterruptionCode, mayHaveCompleted: boole
   return mayHaveCompleted
     ? `${cause}; the call is not read-only and may have completed, so inspect app state before retrying.`
     : `${cause}; retry the call.`
+}
+
+function pendingWorkReason(work: PendingReactWork): string | null {
+  const parts: string[] = []
+  if (work.scheduledRoots > 0) {
+    parts.push(
+      `${work.scheduledRoots} root${work.scheduledRoots === 1 ? ' has' : 's have'} an uncommitted or suspended update (for example a pending transition)`,
+    )
+  }
+  if (work.suspendedBoundaries > 0) {
+    const names = work.boundaries
+      .map((boundary) => safeDiagnostic(boundary.boundaryName, 80))
+      .join(', ')
+    parts.push(
+      `${work.suspendedBoundaries} Suspense boundar${work.suspendedBoundaries === 1 ? 'y shows' : 'ies show'} a fallback${names ? ` (${names})` : ''}`,
+    )
+  }
+  return parts.length === 0 ? null : `React work is still pending: ${parts.join('; ')}.`
 }
 
 function recordOf(value: unknown): Record<string, unknown> | null {

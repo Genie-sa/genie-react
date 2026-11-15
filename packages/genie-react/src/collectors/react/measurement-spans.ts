@@ -153,6 +153,13 @@ export function recordMeasurementRender(
   })
 }
 
+export function noteMeasurementUnmount(id: number): void {
+  for (const span of spans.values()) {
+    const record = span.records.get(id)
+    if (record) span.records.set(id, { ...record, unmounted: true })
+  }
+}
+
 /** Freeze the selected span before async source lookup; closing resumes the previous open span. */
 export async function readMeasurementSpan(handle: string, close: boolean, query: RenderQuery) {
   prune()

@@ -74,6 +74,12 @@ input evidence, and one `source` with `location` and `ownership` per component. 
 values and `deepDiff`, behavior `assessment`, `instance` details, `sourceProvenance`, and the legacy
 `unnecessary`, `unstableRenders`, `forget`, and `necessity` fields.
 
+`renders` counts committed renders: Strict Mode's second invocation, render attempts React discarded,
+and renders React bailed out of are not included. A component that unmounts inside the window keeps
+its counts and reports `unmounted: true`. Genie retains as many unmounted records as
+`lifecycle.bufferLimit` (default 1,000); older ones are evicted, counted in
+`coverage.droppedUnmountFibers`, and make the counts a lower bound.
+
 Use `nextCursor` with `cursor` to read the remainder; pass only `cursor` and optional `limit` or
 `view` on continuation calls. Pages retain the first report's ordering, counts, summary, source coverage, and
 observation metadata while new commits arrive. `pagination` reports the snapshot ID, row offset,
@@ -220,7 +226,12 @@ Props, `children` included, cause a render only for components that can skip it 
 `memo` components and classes that extend `PureComponent` or define `shouldComponentUpdate`. Any
 other component lists its own state, context, or store changes first, otherwise `parent`, and its
 changed props and `children` follow as observed inputs. State or context that received a new object
-with equal contents does not make a render `necessary` and counts toward `noObservedInputChange`. With complete coverage, a render of those components whose changed props
+with equal contents does not make a render `necessary` and counts toward `noObservedInputChange`.
+React renders a component on its own only for an input it saw change, so a render with no observed
+trigger and no rendered parent gets an `unknown` cause instead: `no-observable-fiber-input-change`
+for inputs Genie cannot read, such as `forceUpdate`, or `unclassified-hook-changed` with `hookIndex`
+for a hook it cannot classify, such as `useDeferredValue`. Neither counts toward
+`noObservedInputChange`. With complete coverage, a render of those components whose changed props
 were all reference-only or new functions counts toward `functionIdentityPropRenders` when any function
 changed identity, usually an inline callback, and toward `referenceOnlyPropRenders` otherwise.
 `undeterminedReferencePropRenders` counts renders whose reference changes a partial scan or a
@@ -1052,7 +1063,8 @@ these counts do not prove which interaction caused a commit.
 
 ## `react_quiesce`
 
-Waits until React document commits have remained unchanged for the requested interval.
+Waits until React document commits have remained unchanged for the requested interval and React
+holds no pending work.
 
 **Input:** `idleMs` is an integer from 100 to 5000 (default 500); `timeoutMs` is an integer from
 1 to 60000 (default 10000). Unknown fields are rejected. The CLI transport allows the requested deadline.
@@ -1064,7 +1076,21 @@ npx @genie-react/cli call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --jso
 **Output (selected fields):**
 
 ```json
-{"ok":true,"outcome":"idle","elapsedMs":750,"observedCommits":3,"documentCommitId":21,"renderCollection":"available"}
+{
+  "ok": true,
+  "outcome": "idle",
+  "elapsedMs": 750,
+  "observedCommits": 3,
+  "documentCommitId": 21,
+  "renderCollection": "available",
+  "pendingWork": {
+    "documentCommitId": 21,
+    "scheduledRoots": 0,
+    "suspendedBoundaries": 0,
+    "boundaries": [],
+    "scanTruncated": false
+  }
+}
 ```
 
 **Agent use:** Clear, drive one UI interaction, quiesce, then read the render report. Outcomes are
@@ -1073,5 +1099,38 @@ excluding commits before the first sample. A missing collector, changed document
 cannot prove idle. Historical late-hook degradation remains visible but can establish a new quiet
 interval. Failed samples restart the quiet interval; silent requests respect the overall deadline.
 Tool-catalog refreshes in the same document preserve the wait. Add `--fail-on-result-error` for a
-nonzero exit on a result with `ok:false`. This observes React commits, not continuous canvas/native
-frames, query freshness, or future scheduled work.
+nonzero exit on a result with `ok:false`.
+
+Once commits are quiet, quiesce reads [`react_pending_work`](#react_pending_work): a pending or
+suspended transition, or a Suspense boundary showing its fallback, keeps the outcome from `idle`, and
+a timeout names the blocking work in `reason`. `pendingWork` is `null` when the app runtime predates
+that tool; idle then covers commits only. Quiesce does not observe timers, promises that never reach
+React, query freshness, or continuous canvas/native frames.
+
+## `react_pending_work`
+
+Reports React work that has not committed yet.
+
+**Input:** none. Unknown fields are rejected.
+
+```bash
+npx @genie-react/cli call react_pending_work '{}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "documentCommitId": 42,
+  "scheduledRoots": 1,
+  "suspendedBoundaries": 1,
+  "boundaries": [{ "boundaryId": 17, "boundaryName": "Suspense" }],
+  "scanTruncated": false
+}
+```
+
+**Agent use:** `scheduledRoots` counts mounted roots with uncommitted or suspended updates, such as a
+transition waiting on data. `suspendedBoundaries` counts Suspense boundaries showing a fallback;
+boundaries held open by `react_toggle_suspense_fallback` are excluded. `boundaries` lists at most 20
+of them. `scanTruncated: true` means the fiber scan stopped at its limit, so the boundary count is a
+lower bound. `react_quiesce` and `devtools_wait` read this tool before they report React idle.

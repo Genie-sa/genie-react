@@ -32,6 +32,7 @@ export function formatAgentFailure(
     errorCode: options.errorCode ?? DEFAULT_ERROR_CODES[reason],
     ...(options.retryInMs === undefined ? {} : { retryInMs: options.retryInMs }),
     ...(options.next === undefined ? {} : { next: options.next }),
+    ...(options.feedback === undefined ? {} : { feedback: options.feedback }),
     ...(options.correctedExample === undefined
       ? {}
       : { correctedExample: options.correctedExample }),
