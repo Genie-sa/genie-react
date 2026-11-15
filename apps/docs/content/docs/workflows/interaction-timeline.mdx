@@ -17,7 +17,7 @@ Discover the tools, start a recording, and save its ID:
 ```bash
 npx @genie-react/cli tools timeline
 recording="$(npx @genie-react/cli call timeline_start \
-  '{"name":"open checkout","maxEvents":1000,"maxDurationMs":30000}')"
+  '{"name":"open checkout","maxEvents":1000,"maxDurationMs":30000}' --json)"
 timeline_id="$(jq -er '.id' <<<"$recording")"
 printf '%s\n' "$recording" | jq '{id,state,coverage}'
 ```
@@ -29,7 +29,7 @@ animation has finished. Then stop and save the first page:
 ```bash
 timeline_args="$(jq -cn --arg id "$timeline_id" '{id:$id}')"
 npx @genie-react/cli call timeline_stop "$timeline_args"
-npx @genie-react/cli call timeline_read "$timeline_args" > timeline-page-1.json
+npx @genie-react/cli call timeline_read "$timeline_args" --json > timeline-page-1.json
 jq '{state,stopReason,truncated,coverage,nextOffset}' timeline-page-1.json
 ```
 

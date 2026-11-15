@@ -1,0 +1,24 @@
+{
+  "argv": ["call", "timeline_stop", "{\"id\":\"timeline-8c4effcf-f95f-4af6-a8a6-2dddf4cbbfed\"}"],
+  "exitCode": 0,
+  "result": {
+    "id": "timeline-8c4effcf-f95f-4af6-a8a6-2dddf4cbbfed",
+    "name": "mutation",
+    "state": "stopped",
+    "stopReason": "manual",
+    "durationMs": 1636.8,
+    "maxEvents": 1000,
+    "maxDurationMs": 30000,
+    "eventCount": 9,
+    "truncated": false,
+    "correlation": "temporal-only",
+    "clock": "performance.now",
+    "ordering": "observation-time-then-sequence",
+    "coverage": {
+      "request": { "status": "available", "code": "resource-timing" },
+      "query": { "status": "available", "code": "query-cache" },
+      "react": { "status": "available", "code": "react-root-commits" },
+      "navigation": { "status": "unavailable", "code": "no-tanstack-router" }
+    }
+  }
+}

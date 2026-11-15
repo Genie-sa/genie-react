@@ -1,0 +1,38 @@
+{
+  "argv": ["call", "query_list", "{}"],
+  "exitCode": 0,
+  "result": {
+    "queries": [
+      {
+        "queryHash": "[\"greeting\"]",
+        "queryKey": ["greeting"],
+        "status": "success",
+        "fetchStatus": "idle",
+        "isStale": true,
+        "isActive": true,
+        "isDisabled": false,
+        "hasFetched": true,
+        "isCached": true,
+        "observerCount": 1,
+        "dataUpdatedAt": 1794700863120,
+        "recentFetches": 1
+      },
+      {
+        "queryHash": "[\"tasks\"]",
+        "queryKey": ["tasks"],
+        "status": "success",
+        "fetchStatus": "idle",
+        "isStale": true,
+        "isActive": true,
+        "isDisabled": false,
+        "hasFetched": true,
+        "isCached": true,
+        "observerCount": 1,
+        "dataUpdatedAt": 1794700865358,
+        "recentFetches": 2
+      }
+    ],
+    "total": 2,
+    "churn": { "orphaned": 0, "families": [] }
+  }
+}

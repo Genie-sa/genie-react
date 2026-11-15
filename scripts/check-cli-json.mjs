@@ -36,13 +36,13 @@ function lines(text) {
     .split('\n')
     .map((line) => JSON.parse(line))
 }
-async function run(argv, { code = 0, cwd = fixture, jsonl = false, diagnostics = false } = {}) {
+async function exec(argv, { code = 0, cwd = fixture, environment = env } = {}) {
   let result
   try {
     result = {
       ...(await execute(process.execPath, [cli, ...argv], {
         cwd,
-        env,
+        env: environment,
         timeout: 15000,
         maxBuffer: 2000000,
       })),
@@ -53,6 +53,13 @@ async function run(argv, { code = 0, cwd = fixture, jsonl = false, diagnostics =
     result = error
   }
   assert.equal(result.code, code, `${argv.join(' ')}: ${result.stdout}\n${result.stderr}`)
+  assert(!result.stdout.includes('\u001b') && !result.stderr.includes('\u001b'), 'ANSI escape')
+  return result
+}
+/** A JSON transcript: `--json` is appended, so every document checked here is the unchanged JSON contract. */
+async function run(argv, { code = 0, cwd = fixture, jsonl = false, diagnostics = false } = {}) {
+  const machine = argv.includes('--ndjson') || argv.includes('--json')
+  const result = await exec(machine ? argv : [...argv, '--json'], { code, cwd })
   const records = lines(result.stdout)
   const diagnosticRecords = lines(result.stderr)
   if (!diagnostics) assert.equal(diagnosticRecords.length, 0, 'Unexpected stderr')
@@ -89,6 +96,15 @@ try {
   const version = (await run(['--version'])).value
   assert.equal(typeof version.version, 'string')
   assert.deepEqual((await run(['--version', '--json'])).value, version)
+  const legacy = () => ({ ...env, GENIE_OUTPUT: 'json' })
+  for (const argv of [['--help'], ['call', '--help'], ['--version'], ['doctor'], ['call']]) {
+    const code = argv[0] === 'doctor' || (argv[0] === 'call' && argv.length === 1) ? 1 : 0
+    assert.equal(
+      (await exec(argv, { code, environment: legacy() })).stdout,
+      (await exec([...argv, '--json'], { code })).stdout,
+      `GENIE_OUTPUT=json must print exactly what --json prints for ${argv.join(' ')}`,
+    )
+  }
   for (const argv of [
     ['secret-token-command'],
     ['__proto__'],
@@ -186,9 +202,10 @@ try {
     ['tools', 'app_echo'],
     ['call', 'app_echo', '{}'],
   ]) {
-    const normal = await run([...argv, '--url', url])
-    const explicit = await run([...argv, '--url', url, '--json'])
-    if (argv[0] === 'call' || argv[0] === 'tools') assert.deepEqual(normal.value, explicit.value)
+    const explicit = await run([...argv, '--url', url])
+    const legacyOutput = await exec([...argv, '--url', url], { environment: legacy() })
+    if (argv[0] === 'call' || argv[0] === 'tools')
+      assert.equal(legacyOutput.stdout, explicit.stdout)
   }
   const verbose = await run(['status', '--url', url, '--verbose'], { diagnostics: true })
   assert(verbose.diagnostics.length > 0)
@@ -217,12 +234,17 @@ try {
   assert.equal(unverified.stdout, '')
   assert.equal(unverified.diagnostics[0].reason, 'fields_unverified')
   const batchArgs = ['batch', '[{"tool":"app_echo"},{"tool":"app_echo"}]', '--url', url]
-  assert.equal((await run(batchArgs, { jsonl: true })).value.length, 2)
-  assert.equal((await run([...batchArgs, '--json'])).value.length, 2)
+  assert.equal((await run([...batchArgs, '--ndjson'], { jsonl: true })).value.length, 2)
+  assert.equal((await run(batchArgs)).value.length, 2)
+  assert.equal(
+    lines((await exec(batchArgs, { environment: legacy() })).stdout).length,
+    2,
+    'GENIE_OUTPUT=json keeps the JSONL batch default',
+  )
 
   const hubDir = join(fixture, 'hub')
   await mkdir(hubDir)
-  const child = spawn(process.execPath, [cli, 'hub'], {
+  const child = spawn(process.execPath, [cli, 'hub', '--json'], {
     cwd: hubDir,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -271,9 +293,92 @@ try {
     { code: 1 },
   )
   assert.equal(disconnected.value.status, 'error')
+
+  const textHelp = (await exec(['--help'])).stdout
+  assert(textHelp.startsWith('genie-react: '), 'help is text by default')
+  assert.equal((await exec([])).stdout, textHelp)
+  for (const { name } of help.commands) {
+    const commandHelp = (await exec([name, '--help'])).stdout
+    assert(commandHelp.startsWith(`${name}: `) && commandHelp.includes('  --json  '))
+  }
+  assert.equal((await exec(['--version'])).stdout, `${version.version}\n`)
+  for (const argv of [
+    ['secret-token-command'],
+    ['--secret-token-flag'],
+    ['call'],
+    ['status', 'secret-token-extra'],
+  ]) {
+    const { stdout } = await exec(argv, { code: 1 })
+    const [first, second] = stdout.split('\n')
+    assert.match(first, /^error invalid_input: /, `${argv.join(' ')} must lead with its reason`)
+    assert.match(second, /^next: \$ /)
+    assert(!stdout.includes('secret-token'), 'Invalid input was echoed')
+  }
+  const badFormat = await exec(['status'], {
+    code: 1,
+    environment: { ...env, GENIE_OUTPUT: 'xml' },
+  })
+  assert.match(badFormat.stdout, /^error invalid_input: GENIE_OUTPUT must be text or json\./)
+  assert.equal(
+    (await exec(['call', 'app_echo', '{}', '--url', url])).stdout,
+    'value: "line one\\nline two"\nempty: []\ncount: 0\nmissing: null\n',
+  )
+  const textCapped = await exec(['call', 'app_large', '{"size":100000}', '--url', url])
+  assert.match(textCapped.stdout, /^truncated max_bytes: /)
+  assert(Buffer.byteLength(textCapped.stdout) <= 102400)
+  const spilled = /^outputPath: (.+\.txt)$/m.exec(textCapped.stdout)?.[1]
+  assert(spilled, 'a text truncation names its spill file')
+  assert.equal(
+    await readFile(spilled, 'utf8'),
+    `body: "${'界'.repeat(100000)}"\n`,
+    'a text spill holds the complete text result',
+  )
+  assert.match(textCapped.stdout, /^ {4}\$ .* --max-bytes \d+$/m)
+  assert.equal(
+    (await exec(['call', 'app_echo', '{}', '--fields', 'count,missing', '--url', url])).stdout,
+    '[1]:\n  - {count:0,missing:null}\n',
+  )
+  const textUnverified = await exec(['call', 'app_echo', '{}', '--fields', 'unknown', '--url', url])
+  assert.equal(textUnverified.stdout, '')
+  assert.match(textUnverified.stderr, /^! fields_unverified: /)
+  const textBatch = (await exec(batchArgs)).stdout
+  assert.deepEqual(
+    textBatch.split('\n').filter((line) => line.startsWith('[')),
+    ['[1/2] app_echo ok', '[2/2] app_echo ok'],
+  )
+  const textVerbose = await exec(['status', '--url', url, '--verbose'])
+  const diagnosticLines = textVerbose.stderr.trimEnd().split('\n')
+  assert(diagnosticLines.length > 0 && diagnosticLines.every((line) => line.startsWith('! ')))
+  assert.match(
+    (await exec(['doctor'], { cwd: hubDir, code: 1 })).stdout,
+    /^error checks_failed: [^\n]+\nchecks\[\d+\] /,
+  )
+  const textHub = spawn(process.execPath, [cli, 'hub'], {
+    cwd: hubDir,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let textHubStdout = ''
+  textHub.stdout.on('data', (chunk) => {
+    textHubStdout += chunk
+  })
+  const textHubExit = new Promise((resolve, reject) => {
+    textHub.once('close', resolve)
+    textHub.once('error', reject)
+  })
+  cleanups.push(async () => {
+    if (textHub.exitCode === null) textHub.kill('SIGTERM')
+    await textHubExit
+  })
+  await until(() => textHubStdout.includes('\n'))
+  assert.match(textHubStdout, /^ok hub_ready: The local hub is available\.\n/)
+  textHub.kill('SIGINT')
+  assert.equal(await textHubExit, 0)
+  assert.match(textHubStdout, /\nok hub_stopped: Stopped the local hub\.\n/)
+  checks += 2
 } finally {
   for (const cleanup of cleanups.reverse()) await cleanup()
   await rm(fixture, { recursive: true, force: true })
 }
 
-console.log(JSON.stringify({ status: 'passed', check: 'CLI JSON transcripts', checks }))
+console.log(JSON.stringify({ status: 'passed', check: 'CLI JSON and text transcripts', checks }))

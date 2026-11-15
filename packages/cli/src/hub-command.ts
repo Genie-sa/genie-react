@@ -1,4 +1,4 @@
-import { writeJson } from './cli-output'
+import { writeEnvelope } from './cli-output'
 import { isRecord } from './guards'
 import { genieCommand } from './package-manager'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
@@ -13,7 +13,7 @@ export async function runHub(options: HubOptions = {}): Promise<number> {
   const { removeDiscoveryFile, startGenieHub } = await import('genie-react/hub')
   const cwd = options.cwd ?? process.cwd()
   const failure = (reason: string, message: string): void => {
-    writeJson(
+    writeEnvelope(
       {
         schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: 'error',
@@ -45,7 +45,7 @@ export async function runHub(options: HubOptions = {}): Promise<number> {
   }
   const data = { cwd, port: result.port, url: result.url, clientUrl: result.clientUrl }
   const emit = (event: 'ready' | 'reused' | 'stopped'): void => {
-    writeJson(
+    writeEnvelope(
       {
         schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: 'ok',

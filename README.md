@@ -35,8 +35,8 @@ import { Genie } from 'genie-react'
 Check that your app is connected:
 
 ```bash
-pnpm exec genie-react status --sessions-only --json
-pnpm exec genie-react call react_get_tree '{"depth":3,"maxNodes":50}' --json
+pnpm exec genie-react status --sessions-only
+pnpm exec genie-react call react_get_tree '{"depth":3,"maxNodes":50}'
 ```
 
 Continue when the intended session has `ready: true` and the tree shows your components. If setup needs attention, run `pnpm exec genie-react doctor --live`.
@@ -64,25 +64,25 @@ Find a render cause. Replace `Checkout` with a component in your app:
 ```bash
 pnpm exec genie-react call react_clear_renders '{}'
 # Perform one action in the app.
-pnpm exec genie-react call react_render_causes '{"component":"Checkout","limit":10}' --json
+pnpm exec genie-react call react_render_causes '{"component":"Checkout","limit":10}'
 ```
 
 Read a Query:
 
 ```bash
-pnpm exec genie-react call query_list '{"limit":10}' --json
+pnpm exec genie-react call query_list '{"limit":10}'
 # Use a key returned above.
-pnpm exec genie-react call query_get '{"queryKey":["cart"]}' --json
+pnpm exec genie-react call query_get '{"queryKey":["cart"]}'
 ```
 
 Discover tools and their exact inputs:
 
 ```bash
 pnpm exec genie-react tools
-pnpm exec genie-react tools timeline_start --json
+pnpm exec genie-react tools timeline_start
 ```
 
-For scripts, use JSON and check the result's coverage before claiming a fix worked. CLI 0.14 and newer return JSON by default. Older releases need `--json` for structured reads. See [CLI output](https://genie-react.com/docs/getting-started/cli-output) for framing, limits, and migration details.
+Results print as compact text that keeps every field, written for a model to read. Scripts add `--json` to parse a result, or set `GENIE_OUTPUT=json` to keep the JSON-by-default output of CLI 0.14–0.19. Check the result's coverage before claiming a fix worked. See [CLI output](https://genie-react.com/docs/getting-started/cli-output) for the format, limits, and migration details.
 
 ## Go further
 

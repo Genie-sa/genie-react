@@ -87,7 +87,7 @@ export async function closeBrowserSession(session) {
  * @returns {Promise<Record<string, any>>}
  */
 async function genie(app, session, args) {
-  const result = await run(process.execPath, [join(app.dir, CLI_PATH), ...args], {
+  const result = await run(process.execPath, [join(app.dir, CLI_PATH), ...args, '--json'], {
     cwd: app.dir,
     env: { ...browserEnv(session), XDG_RUNTIME_DIR: app.runtimeDir },
     timeoutMs: 60_000,

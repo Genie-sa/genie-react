@@ -1,0 +1,197 @@
+{
+  "argv": ["call", "react_get_tree", "{}"],
+  "exitCode": 0,
+  "result": {
+    "ownershipCoverage": {
+      "complete": false,
+      "totalCandidates": 13,
+      "app": 11,
+      "library": 1,
+      "unknown": 1
+    },
+    "rootId": 4,
+    "nodes": [
+      {
+        "id": 4,
+        "parentId": null,
+        "name": "App",
+        "key": null,
+        "kind": "component",
+        "source": {
+          "file": "App.tsx",
+          "line": 168,
+          "column": 4,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "isLibrary": false,
+        "ownership": "app"
+      },
+      {
+        "id": 24,
+        "parentId": 4,
+        "name": "MemoChild",
+        "key": null,
+        "kind": "component",
+        "wrapperAncestry": [{ "kind": "memo", "name": "MemoChild" }],
+        "source": {
+          "file": "App.tsx",
+          "line": 194,
+          "column": 8,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "isLibrary": false,
+        "ownership": "app"
+      },
+      {
+        "id": 28,
+        "parentId": 4,
+        "name": "HotEffectProbe",
+        "key": null,
+        "kind": "component",
+        "source": {
+          "file": "App.tsx",
+          "line": 195,
+          "column": 8,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "isLibrary": false,
+        "ownership": "app"
+      },
+      {
+        "id": 32,
+        "parentId": 4,
+        "name": "ThemeReadout",
+        "key": null,
+        "kind": "component",
+        "source": {
+          "file": "App.tsx",
+          "line": 196,
+          "column": 8,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "isLibrary": false,
+        "ownership": "app"
+      },
+      {
+        "id": 47,
+        "parentId": 4,
+        "name": "LabErrorBoundary",
+        "key": null,
+        "kind": "component",
+        "source": {
+          "file": "App.tsx",
+          "line": 215,
+          "column": 8,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "isLibrary": false,
+        "ownership": "app"
+      },
+      {
+        "id": 48,
+        "parentId": 47,
+        "name": "Bomb",
+        "key": null,
+        "kind": "component",
+        "source": {
+          "file": "App.tsx",
+          "line": 216,
+          "column": 10,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "isLibrary": false,
+        "ownership": "app"
+      },
+      {
+        "id": 54,
+        "parentId": 4,
+        "name": "Unmountable",
+        "key": null,
+        "kind": "component",
+        "source": {
+          "file": "App.tsx",
+          "line": 229,
+          "column": 28,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "isLibrary": false,
+        "ownership": "app"
+      },
+      {
+        "id": 57,
+        "parentId": 4,
+        "name": "TaskPanel",
+        "key": null,
+        "kind": "component",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "isLibrary": false,
+        "ownership": "app"
+      },
+      {
+        "id": 69,
+        "parentId": 4,
+        "name": "FlagsPanel",
+        "key": null,
+        "kind": "component",
+        "source": {
+          "file": "App.tsx",
+          "line": 238,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "isLibrary": false,
+        "ownership": "app"
+      },
+      {
+        "id": 82,
+        "parentId": 4,
+        "name": "PricingCard",
+        "key": null,
+        "kind": "component",
+        "source": {
+          "file": "App.tsx",
+          "line": 242,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "isLibrary": false,
+        "ownership": "app"
+      },
+      {
+        "id": 92,
+        "parentId": 4,
+        "name": "StressGrid",
+        "key": null,
+        "kind": "component",
+        "source": {
+          "file": "App.tsx",
+          "line": 245,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "isLibrary": false,
+        "ownership": "app"
+      }
+    ],
+    "total": 13,
+    "truncated": false,
+    "truncatedBy": null,
+    "filteredNote": "11 components shown (2 library/unknown components hidden — set appOnly:false to include); source ownership is incomplete; unknown components were excluded"
+  }
+}

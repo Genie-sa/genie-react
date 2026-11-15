@@ -1,0 +1,106 @@
+{
+  "argv": ["tools", "react_get_renders"],
+  "exitCode": 0,
+  "result": {
+    "name": "react_get_renders",
+    "title": "Render report",
+    "description": "Timing fields are bundle-dependent; counts describe the observed run, not a production estimate. Report bounded component render counts, observed React input changes, stable mount identity, runtime timing, and source. Start a measurement with react_clear_renders, drive one interaction, then read this. The default summary view keeps compact per-component evidence; view:\"full\" adds input values and diffs, behavior assessment, detailed source provenance and the legacy unnecessary/forget fields. Arguments: nameFilter: minimum characters 1, maximum characters 160; excludeNames: maximum items 50; excludeNames[]: minimum characters 1, maximum characters 160; minUpdates: minimum 0; cursor: minimum characters 1, maximum characters 100; sort: one of \"renders\", \"updates\", \"unnecessary\", \"referenceOnly\", \"unstable\", \"selfTime\"; limit: minimum 1, maximum 200; view: one of \"summary\", \"full\".",
+    "group": "react.render",
+    "inputJsonSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "component": {
+          "description": "Only components whose name contains this string.",
+          "type": "string"
+        },
+        "nameFilter": {
+          "description": "Case-insensitive whole-name glob: * matches any text and ? matches one character. Applied before limit.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "excludeNames": {
+          "default": [],
+          "description": "Case-insensitive whole-name globs to exclude before limit.",
+          "maxItems": 50,
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 160 }
+        },
+        "minUpdates": {
+          "default": 0,
+          "description": "Minimum observed update count, applied before limit.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "includeCursor": {
+          "default": true,
+          "description": "Retain a frozen cursor for remaining rows. Set false for polling or one-shot reads: no snapshot is retained, the summary still covers the selected records, and omitted rows have no cursor.",
+          "type": "boolean"
+        },
+        "cursor": {
+          "description": "Continue a frozen report using nextCursor. Pass only cursor and optional limit; counts, filters, ordering, and source coverage remain frozen. Cursors expire after five minutes or after three newer paginated reports, and clear/profile start invalidates them.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "sort": {
+          "default": "renders",
+          "type": "string",
+          "enum": ["renders", "updates", "unnecessary", "referenceOnly", "unstable", "selfTime"]
+        },
+        "limit": { "default": 40, "type": "integer", "minimum": 1, "maximum": 200 },
+        "appOnly": {
+          "default": true,
+          "description": "Show only records with app source evidence. Unknown ownership is excluded instead of being attributed to the app; an exact app hook callsite keeps a framework-wrapped record visible.",
+          "type": "boolean"
+        },
+        "view": {
+          "default": "summary",
+          "description": "summary (default) returns bounded decision fields; full returns every component field, including legacy aliases.",
+          "type": "string",
+          "enum": ["summary", "full"]
+        }
+      }
+    },
+    "annotations": { "readOnlyHint": true },
+    "output": {
+      "kind": "outline",
+      "fields": {
+        "nextCursor": "string | null",
+        "pagination": "object",
+        "bundle": "\"development\" | \"production\" | \"mixed\" | \"unknown\"",
+        "timingsBundleDependent": "true",
+        "countsScope": "\"observed-run\"",
+        "tracking": "boolean",
+        "renderCollection": "string",
+        "commits": "number",
+        "documentCommitId": "integer",
+        "observation": "object | null",
+        "attribution": "object",
+        "sourceClassification": "object",
+        "omittedByLimit": "integer",
+        "comparable": "boolean",
+        "notComparableReasons": "array<string>",
+        "coverage": "object",
+        "filteredNote?": "string",
+        "view": "\"summary\" | \"full\"",
+        "summary": "object",
+        "components": "array<object>"
+      },
+      "next": {
+        "command": "pnpm exec genie-react tools react_get_renders --output-schema --session measure",
+        "argv": [
+          "pnpm",
+          "exec",
+          "genie-react",
+          "tools",
+          "react_get_renders",
+          "--output-schema",
+          "--session",
+          "measure"
+        ]
+      }
+    }
+  }
+}
