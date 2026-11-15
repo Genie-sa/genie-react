@@ -1,5 +1,6 @@
 import { type Fiber, isCompositeFiber, isHostFiber, type RenderPhase } from 'bippy'
-import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
+import { MAXIMUM_RENDER_OBSERVATION_BUDGET } from '../../protocol/react-observation-schema'
+import { type CommitWorkBudget, consumeCommitWork, createCommitWorkBudget } from './commit-budget'
 import { firstHostSelector, nameOf, registerFiber } from './fiber'
 import { LruMap } from './lru-map'
 import { classifyFiberFromCache, type FiberClassification } from './source'
@@ -60,11 +61,25 @@ const tombstones: InstanceTombstone[] = []
 let droppedTombstones = 0
 let excludedLifecycleFibers = 0
 let generationHistoryEvictions = 0
-const generationsByPath = new LruMap<string, number>(GENERATION_HISTORY_LIMIT, () => {
+const generationsByPath = new LruMap<number, number>(GENERATION_HISTORY_LIMIT, () => {
   generationHistoryEvictions += 1
 })
 let unanalyzedRenderIdentityRegistrations = 0
 let unanalyzedRenderIdentityComplete = true
+
+interface CountedMount {
+  mountGeneration: number
+  mountGenerationEvidence: MountGenerationEvidence
+}
+/** Mounts counted outside every window, keyed by the mounted Fiber; its alternate is created later from it, so a lookup checks both buffers. */
+let unobservedMounts = new WeakMap<Fiber, CountedMount>()
+const PLACEMENT = 0b10
+const HYDRATING = 0b1_0000_0000_0000
+const MOUNT_FLAGS = PLACEMENT | HYDRATING
+const UNOBSERVED_MOUNT_BUDGET = {
+  operationLimit: MAXIMUM_RENDER_OBSERVATION_BUDGET.operationLimit,
+  timeLimitMs: MAXIMUM_RENDER_OBSERVATION_BUDGET.timeLimitMs,
+}
 
 /** Reset only the measurement cohort. Physical mount identity intentionally survives a clear. */
 export function beginInstanceObservation(observationId: string): void {
@@ -115,9 +130,7 @@ export function prepareInstanceRender(
         if (published) return
         published = true
         prepared.publish()
-        liveInstances.delete(prepared.instance.fiberId)
-        observedInstanceIds.delete(prepared.instance.fiberId)
-        forgetUnanalyzedInstance(fiber, prepared.instance.fiberId)
+        releaseInstance(fiber, prepared.instance.fiberId)
         if (!observationId) return
         tombstones.push({
           ownership,
@@ -219,10 +232,72 @@ export function discardExcludedInstanceUnmount(
   fiber: Fiber,
   fiberId: number = registerFiber(fiber),
 ): void {
+  releaseInstance(fiber, fiberId)
+  excludedLifecycleFibers += 1
+}
+
+/** Count the components a commit nothing observes mounted, without describing them or giving them Bippy ids, so a window opened later still numbers a remount at the same position. React bubbles Placement, or Hydrating for a hydrated tree, from the top of every new subtree into its ancestors' subtreeFlags and gives a bailed-out Fiber only static flags, so the walk enters only subtrees this commit completed that can hold a new Fiber, and every Fiber there without an alternate is new. A walk the budget cuts short loses counts and is recorded as a history eviction. */
+export function noteUnobservedMounts(hostRoot: Fiber): void {
+  if (((hostRoot.flags | hostRoot.subtreeFlags) & MOUNT_FLAGS) === 0) return
+  const budget = createCommitWorkBudget(UNOBSERVED_MOUNT_BUDGET)
+  const stack: Fiber[] = [hostRoot]
+  while (stack.length > 0) {
+    const fiber = stack.pop() as Fiber
+    const mounted = fiber.alternate === null
+    if (
+      !consumeCommitWork(budget, 'unobserved-mounts') ||
+      (mounted && isCompositeFiber(fiber) && !countUnobservedMount(fiber, budget))
+    ) {
+      generationHistoryEvictions += 1
+      return
+    }
+    if (!mounted && (fiber.subtreeFlags & MOUNT_FLAGS) === 0) continue
+    for (let child = fiber.child; child; child = child.sibling) stack.push(child)
+  }
+}
+
+/** False when the budget ran out before the mount's position was resolved. */
+function countUnobservedMount(fiber: Fiber, budget: CommitWorkBudget): boolean {
+  const lineage =
+    (reuseCommitLineage ? lineageFromCommitPrefix(fiber, budget) : null) ??
+    walkLineage(fiber, budget)
+  if (budget.exhaustedLimit !== null) return false
+  const key = historyKeyOf(lineage)
+  const previousGeneration = generationsByPath.get(key)
+  const evicting =
+    previousGeneration === undefined && generationsByPath.size >= GENERATION_HISTORY_LIMIT
+  const counted: CountedMount = {
+    mountGeneration: (previousGeneration ?? 0) + 1,
+    mountGenerationEvidence:
+      previousGeneration === undefined && (generationHistoryEvictions > 0 || evicting)
+        ? 'unknown'
+        : 'exact',
+  }
+  generationsByPath.set(key, counted.mountGeneration)
+  unobservedMounts.set(fiber, counted)
+  return true
+}
+
+/** Forget an unmounted instance's live identity. Outside every window no window can be missing its lifecycle, so unlike an excluded unmount it is not counted as lost evidence. */
+export function releaseInstance(fiber: Fiber, fiberId: number): void {
   liveInstances.delete(fiberId)
   observedInstanceIds.delete(fiberId)
   forgetUnanalyzedInstance(fiber, fiberId)
-  excludedLifecycleFibers += 1
+  forgetCountedMount(fiber)
+}
+
+/** V8 shrinks a WeakMap's table on an explicit delete but not when the collector clears a dead key, so a session that mounts many components outside a window would otherwise keep the table at its peak size. */
+function forgetCountedMount(fiber: Fiber): void {
+  unobservedMounts.delete(fiber)
+  const alternate = fiber.alternate
+  if (alternate) unobservedMounts.delete(alternate)
+}
+
+function countedMountOf(fiber: Fiber): CountedMount | undefined {
+  const counted = unobservedMounts.get(fiber)
+  if (counted) return counted
+  const alternate = fiber.alternate
+  return alternate ? unobservedMounts.get(alternate) : undefined
 }
 
 /** Invalidate identities across a refresh commit whose synthetic lifecycle cannot be reported exactly. */
@@ -251,6 +326,7 @@ export function clearInstanceIdentityForTests(): void {
   generationHistoryEvictions = 0
   unanalyzedRenderIdentityRegistrations = 0
   unanalyzedRenderIdentityComplete = true
+  unobservedMounts = new WeakMap()
 }
 
 function forgetUnanalyzedInstance(fiber: Fiber, fiberId: number): void {
@@ -286,7 +362,7 @@ function prepareInstanceDescription(
     }
     return { instance, publish: () => liveInstances.set(fiberId, instance) }
   }
-  const structure = structuralIdentity(fiber, budget)
+  const { lineage, ...structure } = structuralIdentity(fiber, budget)
   if (existing) {
     const instance = {
       ...existing,
@@ -305,21 +381,26 @@ function prepareInstanceDescription(
     }
   }
 
-  const previousGeneration = generationsByPath.get(structure.logicalPath)
-  const mountGeneration = (previousGeneration ?? 0) + 1
+  const counted = countedMountOf(fiber)
+  const key = counted ? undefined : historyKeyOf(lineage)
+  const previousGeneration = key === undefined ? undefined : generationsByPath.get(key)
+  const mountGeneration = counted?.mountGeneration ?? (previousGeneration ?? 0) + 1
   const willEvict =
-    previousGeneration === undefined && generationsByPath.size >= GENERATION_HISTORY_LIMIT
+    !counted &&
+    previousGeneration === undefined &&
+    generationsByPath.size >= GENERATION_HISTORY_LIMIT
   const created: InstanceDescriptor = {
     fiberId,
     mountId: `mount:${mountSequence + 1}`,
     ...structure,
     mountGeneration,
     mountGenerationEvidence:
-      previousGeneration === undefined && (generationHistoryEvictions > 0 || willEvict)
+      counted?.mountGenerationEvidence ??
+      (previousGeneration === undefined && (generationHistoryEvictions > 0 || willEvict)
         ? 'unknown'
         : mountObserved
           ? 'exact'
-          : 'inferred',
+          : 'inferred'),
     hostSelector:
       captureHostSelector && consumeCommitWork(budget, 'host-selector')
         ? hostSelectorFor(fiber)
@@ -331,7 +412,8 @@ function prepareInstanceDescription(
     publish() {
       if (published) return
       published = true
-      generationsByPath.set(structure.logicalPath, mountGeneration)
+      if (key === undefined) forgetCountedMount(fiber)
+      else generationsByPath.set(key, mountGeneration)
       mountSequence += 1
       liveInstances.set(fiberId, created)
     },
@@ -344,7 +426,7 @@ function structuralIdentity(
 ): Pick<
   InstanceDescriptor,
   'key' | 'siblingIndex' | 'parent' | 'keyedParent' | 'logicalPath' | 'logicalIdentityEvidence'
-> {
+> & { lineage: ResolvedLineage } {
   const key = typeof fiber.key === 'string' ? fiber.key : null
   const siblingIndex = indexAmongSiblings(fiber, budget)
   const keyUnique = key !== null && isUniqueSiblingKey(fiber, key, budget)
@@ -365,11 +447,42 @@ function structuralIdentity(
     keyedParent: keyedParentFiber ? parentOf(keyedParentFiber) : null,
     logicalPath: lineage.path,
     logicalIdentityEvidence: lineage.unknown ? 'unknown' : ownEvidence,
+    lineage,
   }
+}
+
+/** Two 32-bit FNV-1a lanes over a logical path's characters. Generation history is keyed by them rather than by the path, so it neither keeps every path string it has seen nor flattens one per mount; a commit's walk folds each segment onto its cached prefix, and anything else hashes the finished path. */
+interface PathHash {
+  high: number
+  low: number
+}
+
+const EMPTY_PATH_HASH: PathHash = { high: 0x811c9dc5, low: 0x050c5d1f }
+const SEGMENT_JOINER = ' > '
+
+function foldPathHash(hash: PathHash, text: string): PathHash {
+  let { high, low } = hash
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index)
+    high = Math.imul(high ^ code, 0x01000193)
+    low = Math.imul(low ^ code, 0x5bd1e995)
+  }
+  return { high, low }
+}
+
+const appendSegmentHash = (hash: PathHash, segment: string, first: boolean): PathHash =>
+  foldPathHash(first ? hash : foldPathHash(hash, SEGMENT_JOINER), segment)
+
+/** 53 bits, so the key is an exact integer; ten thousand positions collide with odds near one in a hundred million. */
+function historyKeyOf(lineage: ResolvedLineage): number {
+  const { high, low } = lineage.hash ?? foldPathHash(EMPTY_PATH_HASH, lineage.path)
+  return (high >>> 11) * 0x1_0000_0000 + (low >>> 0)
 }
 
 interface ResolvedLineage {
   path: string
+  /** Folded only by a walk under a commit budget, whose prefixes later mounts in the commit reuse. */
+  hash: PathHash | null
   /** A segment had no position, or the walk stopped before the root. */
   unknown: boolean
 }
@@ -450,20 +563,22 @@ function lineageFromCommitPrefix(fiber: Fiber, budget: CommitWorkBudget): Resolv
     !consumeCommitWork(budget, 'instance-ancestry', totalSteps) ||
     !consumeCommitWork(budget, 'instance-siblings', prefix.siblingOperations)
   ) {
-    return { path: '', unknown: true }
+    return { path: '', hash: null, unknown: true }
   }
-  let { path, unknown, siblingOperations } = prefix
+  let { path, hash, unknown, siblingOperations } = prefix
   const resolved: [Fiber, LineagePrefix][] = []
   for (let position = below.length - 1; position >= 0; position -= 1) {
     const node = below[position] as Fiber
     const segment = resolveSegment(node, budget)
     path = `${path} > ${segment.segment}`
+    hash = hash && appendSegmentHash(hash, segment.segment, false)
     unknown ||= segment.unknown
     siblingOperations += segment.operations
     resolved.push([
       node,
       {
         path,
+        hash,
         unknown,
         steps: totalSteps - (stepsBelow[position] ?? 0),
         nodes: prefix.nodes + below.length - position,
@@ -472,7 +587,7 @@ function lineageFromCommitPrefix(fiber: Fiber, budget: CommitWorkBudget): Resolv
     ])
   }
   rememberPrefixes(budget, resolved)
-  return { path, unknown }
+  return { path, hash, unknown }
 }
 
 function walkLineage(fiber: Fiber, budget?: CommitWorkBudget): ResolvedLineage {
@@ -494,17 +609,20 @@ function walkLineage(fiber: Fiber, budget?: CommitWorkBudget): ResolvedLineage {
 
   const resolved: [Fiber, LineagePrefix][] = []
   let path = ''
+  let hash: PathHash | null = budget ? EMPTY_PATH_HASH : null
   let unknown = false
   let siblingOperations = 0
   for (const [position, node] of lineage.entries()) {
     const segment = resolveSegment(node, budget)
     path = position === 0 ? segment.segment : `${path} > ${segment.segment}`
+    hash = hash && appendSegmentHash(hash, segment.segment, position === 0)
     unknown ||= segment.unknown
     siblingOperations += segment.operations
     resolved.push([
       node,
       {
         path,
+        hash,
         unknown,
         steps: steps - (stepOfNode[position] ?? steps) + 1,
         nodes: position + 1,
@@ -514,7 +632,7 @@ function walkLineage(fiber: Fiber, budget?: CommitWorkBudget): ResolvedLineage {
   }
   if (current) unknown = true
   else if (budget) rememberPrefixes(budget, resolved)
-  return { path, unknown }
+  return { path, hash, unknown }
 }
 
 function identityName(fiber: Fiber): string {

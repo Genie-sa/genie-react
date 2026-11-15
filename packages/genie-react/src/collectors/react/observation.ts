@@ -13,6 +13,26 @@ let documentCommitId = 0
 let analysisGeneration = 0
 let eventSequence = 0
 let activeObservation: ObservationWindow | null = null
+let analysisHolds = 0
+
+/** Keep the full commit analysis running for a recording that reads it without opening a render window, such as a timeline; call the returned release when the recording stops. */
+export function holdCommitAnalysis(): () => void {
+  analysisHolds += 1
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    analysisHolds -= 1
+  }
+}
+
+export function isCommitAnalysisHeld(): boolean {
+  return analysisHolds > 0
+}
+
+export function hasActiveObservation(): boolean {
+  return activeObservation !== null
+}
 
 /** Start one explicit measurement window. This is not called an interaction: no user input is implied. */
 export function beginObservation(): ObservationWindow {
@@ -64,4 +84,5 @@ export function resetObservationStateForTests(): void {
   analysisGeneration = 0
   eventSequence = 0
   activeObservation = null
+  analysisHolds = 0
 }

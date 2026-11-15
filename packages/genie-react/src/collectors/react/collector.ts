@@ -103,6 +103,8 @@ import {
   getRenderTrackingCoverage,
   getSkippedCommitFiberCount,
   getTruncatedInputFiberCount,
+  getUnobservedCommitCount,
+  isRecordingPaused,
   isTracking,
   renderCollectionStatus,
   rendersDiff,
@@ -357,7 +359,7 @@ export function reactCollector(): GenieCollector {
         contract: reactOverrideHookStateContract,
         handler: async ({ id, hookIndex, stateIndex, path, value }) => {
           const fiber = requireFiber(id)
-          const commitsBefore = getCommitCount()
+          const commitsBefore = getDocumentCommitId()
           const resolved = applyHookStateOverride(fiber, { hookIndex, stateIndex }, path, value)
           const commitObserved = await observeCommitAfterOverride(commitsBefore)
           return {
@@ -424,7 +426,7 @@ export function reactCollector(): GenieCollector {
       defineCollectorTool({
         contract: reactResetOverridesContract,
         handler: async () => {
-          const commitsBefore = getCommitCount()
+          const commitsBefore = getDocumentCommitId()
           const result = resetOverrides()
           const rerendered = result.cleared.some((entry) => entry.outcome !== 'skipped-unmounted')
           return rerendered
@@ -531,9 +533,14 @@ export function reactCollector(): GenieCollector {
       defineCollectorTool({
         contract: reactMeasureContract,
         handler: ({ label }) => {
-          if (!isTracking() || renderCollectionStatus().startsWith('unavailable')) {
+          if (renderCollectionStatus().startsWith('unavailable')) {
             throw new Error(
               `Cannot open measurement: ${renderCollectionStatus()}. Enable render tracking and observe a commit first.`,
+            )
+          }
+          if (isRecordingPaused()) {
+            throw new Error(
+              'Cannot open measurement: react_profile_stop paused recording. Run react_profile_start or react_clear_renders first.',
             )
           }
           return openMeasurementSpan(label)
@@ -594,6 +601,7 @@ export function reactCollector(): GenieCollector {
             droppedUnmountFibers: report.droppedUnmountFibers,
             analysisFailedFibers: report.analysisFailedFibers,
             pausedCommits: report.pausedCommits,
+            unobservedCommits: report.unobservedCommits,
             truncatedInputFibers: report.truncatedInputFibers,
             propsNotEnumeratedFibers: report.propsNotEnumeratedFibers,
             budgetExhaustedCommits: report.budgetExhaustedCommits,
@@ -663,6 +671,7 @@ export function reactCollector(): GenieCollector {
               droppedUnmountFibers: report.droppedUnmountFibers,
               analysisFailedFibers: report.analysisFailedFibers,
               pausedCommits: report.pausedCommits,
+              unobservedCommits: report.unobservedCommits,
               truncatedInputFibers: report.truncatedInputFibers,
               propsNotEnumeratedFibers: report.propsNotEnumeratedFibers,
               budgetExhaustedCommits: report.budgetExhaustedCommits,
@@ -721,6 +730,7 @@ export function reactCollector(): GenieCollector {
               droppedUnmountFibers: getDroppedPendingUnmountFiberCount(),
               analysisFailedFibers: getAnalysisFailedFiberCount(),
               pausedCommits: getPausedCommitCount(),
+              unobservedCommits: getUnobservedCommitCount(),
               truncatedInputFibers: getTruncatedInputFiberCount(),
               propsNotEnumeratedFibers: getPropsNotEnumeratedFiberCount(),
               budgetExhaustedCommits: getBudgetExhaustedCommitCount(),
@@ -941,11 +951,11 @@ function requireFiber(id: NodeId): Fiber {
 const OVERRIDE_COMMIT_TIMEOUT_MS = 300
 const OVERRIDE_COMMIT_POLL_MS = 16
 
-/** Null means commits cannot be observed at all, so absence of one is not evidence the override failed to propagate. */
+/** Null means commits cannot be observed at all, so absence of one is not evidence the override failed to propagate. Document commits are counted whether or not a window is open. */
 async function observeCommitAfterOverride(commitsBefore: number): Promise<boolean | null> {
-  if (!isTracking() || renderCollectionStatus().startsWith('unavailable')) return null
+  if (renderCollectionStatus().startsWith('unavailable')) return null
   const deadline = Date.now() + OVERRIDE_COMMIT_TIMEOUT_MS
-  while (getCommitCount() <= commitsBefore) {
+  while (getDocumentCommitId() <= commitsBefore) {
     if (Date.now() >= deadline) return false
     await new Promise((resolve) => setTimeout(resolve, OVERRIDE_COMMIT_POLL_MS))
   }

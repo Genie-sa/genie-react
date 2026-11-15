@@ -1,7 +1,7 @@
 import { check } from '../harness.mjs'
 
 export default async function probe({ session, page }) {
-  await session.open('/issues/CORE-12')
+  await session.open('/issues/CORE-12?_genie_observe')
   await page.locator('.presence li').first().waitFor()
   await session.quiesce()
   const timeline = await session.call('react_effect_timeline', {

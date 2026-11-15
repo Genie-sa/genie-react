@@ -4,7 +4,7 @@ import { getRDTHook, instrument } from 'bippy'
 import { z } from 'zod'
 import { defineCollector, defineCollectorTool, type GenieCollector } from '../../client'
 import { defineAgentToolContract, newId, roundMilliseconds } from '../../protocol'
-import { getDocumentCommitId } from '../react/observation'
+import { getDocumentCommitId, holdCommitAnalysis } from '../react/observation'
 import { isSafeRenderer, safeCommitHandler } from '../react/safe-instrumentation'
 import { describeQuery, observeRequests, type RequestRecord } from './requests'
 
@@ -555,6 +555,7 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
             }),
           }),
         )
+        target.dispose.push(holdCommitAnalysis())
         target.report.coverage.react = { status: 'available', code: 'react-root-commits' }
       }
       // Subscriptions can synchronously notify; release immediately if the cap stopped setup.

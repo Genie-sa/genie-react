@@ -45,6 +45,8 @@ export interface RenderTrackingCoverage {
   analysisFailedFibers: number
   /** Commits after profiling paused: outside the measured window, so counts read now miss them. */
   pausedCommits: number
+  /** Commits while no window, span or recording was open: Genie did not analyse them at all. */
+  unobservedCommits: number
   truncatedInputFibers: number
   propsNotEnumeratedFibers: number
   budgetExhaustedCommits: number
@@ -85,6 +87,7 @@ export interface IncompleteCoverageReason {
     | 'budget-exhausted'
     | 'unmounts-dropped'
     | 'commits-after-profile-stop'
+    | 'commits-not-observed'
     | AnalysisFailureReason
     | 'inputs-truncated'
     | 'props-not-enumerated'
@@ -104,6 +107,9 @@ type RenderTrackingCoverageInput = Omit<
   | 'observationBudget'
   | 'incompleteBecause'
 > & { gaps?: CoverageGapDetails }
+
+export const UNOBSERVED_COMMITS_NEXT =
+  'Open a window with react_clear_renders (or devtools_interaction_begin), repeat the interaction, then read again. To observe a page load, load the page with _genie_observe in its URL.'
 
 const ANALYSIS_FAILURE_DETAIL: Record<AnalysisFailureReason, string> = {
   'renderer-not-analyzed':
@@ -140,6 +146,14 @@ function incompleteCoverageReasons(
       fibers: 0,
       detail: `${input.pausedCommits} commits happened after react_profile_stop paused recording, so counts are a lower bound for that time.`,
       next: 'Run react_clear_renders, repeat the step, and read before stopping the profile.',
+    })
+  }
+  if (input.unobservedCommits > 0) {
+    reasons.push({
+      reason: 'commits-not-observed',
+      fibers: 0,
+      detail: `${input.unobservedCommits} commits happened while no render window, profile, measurement or timeline was open. Genie analyses renders and effects only while one is open, so nothing from those commits is recorded.`,
+      next: UNOBSERVED_COMMITS_NEXT,
     })
   }
   const failures = input.gaps?.analysisFailures ?? []
@@ -184,6 +198,7 @@ export function buildRenderTrackingCoverage(
     input.droppedUnmountFibers === 0 &&
     input.analysisFailedFibers === 0 &&
     input.pausedCommits === 0 &&
+    input.unobservedCommits === 0 &&
     input.budgetExhaustedCommits === 0
   const inputAttributionComplete =
     measurementComplete && input.truncatedInputFibers === 0 && input.propsNotEnumeratedFibers === 0
@@ -218,6 +233,7 @@ export function renderEvidenceComparability(
   if (coverage.droppedUnmountFibers > 0) reasons.push('dropped-unmount-fibers')
   if (coverage.analysisFailedFibers > 0) reasons.push('fiber-analysis-failed')
   if (coverage.pausedCommits > 0) reasons.push('commits-after-profile-stop')
+  if (coverage.unobservedCommits > 0) reasons.push('commits-not-observed')
   if (coverage.truncatedInputFibers > 0) reasons.push(RENDER_INPUT_SCAN_TRUNCATED)
   if (coverage.propsNotEnumeratedFibers > 0) reasons.push(RENDER_PROPS_NOT_ENUMERATED)
   if (coverage.budgetExhaustedCommits > 0) reasons.push('commit-analysis-budget-exhausted')

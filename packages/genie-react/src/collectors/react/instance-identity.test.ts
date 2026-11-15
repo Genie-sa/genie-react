@@ -11,6 +11,8 @@ import {
   invalidateLiveInstancesForRefresh,
   noteInstanceRender,
   noteUnanalyzedInstanceRender,
+  noteUnobservedMounts,
+  releaseInstance,
   wasInstanceObserved,
   wasInstanceRenderUnanalyzed,
 } from './instance-identity'
@@ -410,5 +412,83 @@ describe('commit-scoped sibling identity work', () => {
 
     expect(first).toMatchObject({ siblingIndex: 0, logicalIdentityEvidence: 'positional' })
     expect(last).toMatchObject({ siblingIndex: null, logicalIdentityEvidence: 'unknown' })
+  })
+})
+
+describe('mount generations across the ways a position is counted', () => {
+  const PLACEMENT = 0b10
+
+  /** A committed host root over App > <main> > Rows > (Row "a", Row "b"); the rows have no alternate, so they mounted in this commit. */
+  function committedTree(): { hostRoot: Fiber; rows: Fiber; a: Fiber } {
+    const hostRoot = asFiber({ ...host('root'), tag: 3, subtreeFlags: PLACEMENT, flags: 0 })
+    ;(hostRoot as { alternate: unknown }).alternate = {}
+    const app = component('App')
+    const main = host('main')
+    const rows = component('Rows')
+    const a = component('Row', 'a')
+    const b = component('Row', 'b')
+    for (const settled of [app, main, rows])
+      Object.assign(settled, { alternate: {}, flags: 0, subtreeFlags: PLACEMENT })
+    attach(hostRoot, [app])
+    attach(app, [main])
+    attach(main, [rows])
+    attach(rows, [a, b])
+    return { hostRoot, rows, a }
+  }
+
+  function remountRowA(rows: Fiber, a: Fiber): Fiber {
+    const replacement = component('Row', 'a')
+    attach(rows, [replacement, (a as { sibling: Fiber }).sibling])
+    return replacement
+  }
+
+  it.each([
+    { counted: 'during a commit', describedLater: 'by a read', countWithBudget: true },
+    { counted: 'by a read', describedLater: 'during a commit', countWithBudget: false },
+  ])(
+    'numbers a remount counted $counted and described $describedLater as generation 2',
+    ({ countWithBudget }) => {
+      const { rows, a } = committedTree()
+      const first = noteInstanceRender(
+        a,
+        'mount',
+        1,
+        1,
+        countWithBudget ? createCommitWorkBudget() : undefined,
+      )
+      discardExcludedInstanceUnmount(a, first.fiberId)
+
+      const replacement = remountRowA(rows, a)
+      const second = countWithBudget
+        ? instanceForMountedFiber(replacement)
+        : noteInstanceRender(replacement, 'mount', 2, 2, createCommitWorkBudget())
+
+      expect(second.logicalPath).toBe(first.logicalPath)
+      expect(second.mountGeneration).toBe(2)
+    },
+  )
+
+  it('numbers a remount after a mount and unmount that no window saw', () => {
+    const { hostRoot, rows, a } = committedTree()
+    noteUnobservedMounts(hostRoot)
+    releaseInstance(a, getFiberId(a))
+
+    const replacement = remountRowA(rows, a)
+
+    expect(instanceForMountedFiber(replacement)).toMatchObject({
+      mountGeneration: 2,
+      mountGenerationEvidence: 'inferred',
+    })
+    expect(getInstanceIdentityCoverage().generationHistoryEvictions).toBe(0)
+  })
+
+  it('reuses the number of a mount no window saw instead of counting it again', () => {
+    const { hostRoot, a } = committedTree()
+    noteUnobservedMounts(hostRoot)
+
+    expect(instanceForMountedFiber(a)).toMatchObject({
+      mountGeneration: 1,
+      mountGenerationEvidence: 'exact',
+    })
   })
 })

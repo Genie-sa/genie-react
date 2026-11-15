@@ -71,6 +71,16 @@ export function openMeasurementSpan(label: string) {
   return metadata(span)
 }
 
+/** An open span reads the full analysis of each commit it owns, so it keeps that analysis running until it closes or expires. */
+export function hasOpenMeasurementSpan(): boolean {
+  if (spans.size === 0) return false
+  const now = Date.now()
+  for (const span of spans.values()) {
+    if (span.endedAtDocumentCommitId === null && now < span.expiresAt) return true
+  }
+  return false
+}
+
 /** Claim once per document commit, so all roots' individual commits have exactly one owner. */
 export function beginMeasurementCommit(documentCommitId: number, observable: boolean): void {
   if (spans.size === 0) {
