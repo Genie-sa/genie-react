@@ -1,5 +1,5 @@
 import type { BridgeStatusMessage, SessionSummary } from 'genie-react/protocol'
-import type { AgentBrowser } from './agent-browser'
+import type { AgentBrowserClient } from './agent-browser'
 
 /** Where the target came from: `--session`, GENIE_SESSION, agent-browser, or the hub's default tab for this agent. */
 export type SessionSource = 'flag' | 'environment' | 'agent-browser' | 'implicit-current'
@@ -49,7 +49,7 @@ const MAX_SCANNED_SESSIONS = 32
 export async function resolveTabTarget(
   request: TargetRequest,
   status: () => Pick<BridgeStatusMessage, 'sessionId' | 'sessions'>,
-  agentBrowser: AgentBrowser,
+  agentBrowser: AgentBrowserClient,
 ): Promise<TabTarget> {
   const { selector } = request
   if (selector) {
@@ -127,7 +127,7 @@ export function isTargetOf(session: SessionSummary, target: string): boolean {
 /** Running agent-browser sessions whose active tab is one of `tabs`. */
 export async function agentBrowserSessionsShowing(
   tabs: readonly SessionSummary[],
-  agentBrowser: AgentBrowser,
+  agentBrowser: AgentBrowserClient,
 ): Promise<Array<Omit<AgentBrowserLink, 'via'>>> {
   const origins = new Set(tabs.flatMap((session) => originOf(session) ?? []))
   if (origins.size === 0) return []
@@ -151,7 +151,7 @@ async function agentBrowserTab<Via extends Exclude<AgentBrowserVia, 'discovery'>
   session: string,
   via: Via,
   settle: TargetRequest['settle'],
-  agentBrowser: AgentBrowser,
+  agentBrowser: AgentBrowserClient,
   known: () => boolean = () => false,
 ): Promise<(AgentBrowserLink & { via: Via }) | (AgentBrowserMiss & { via: Via }) | 'known' | null> {
   const running = await agentBrowser.sessions()

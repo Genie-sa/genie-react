@@ -13,7 +13,12 @@ import {
   devtoolsWaitContract,
   reactQuiesceContract,
 } from 'genie-react/protocol'
-import { AGENT_BROWSER_SESSION_ENV, AgentBrowser, isAgentBrowserSessionName } from './agent-browser'
+import type { AgentBrowserClient } from './agent-browser'
+import {
+  AGENT_BROWSER_SESSION_ENV,
+  isAgentBrowserSessionName,
+  lazyAgentBrowser,
+} from './agent-browser-session'
 import {
   type AnsweredResult,
   BridgeCallError,
@@ -42,7 +47,6 @@ import {
   resolveBridge,
   resolveExplicitBridge,
 } from './discovery'
-import { withElementBox } from './element-ref'
 import {
   CLI_OUTPUT_SCHEMA_VERSION,
   describeFailure,
@@ -222,7 +226,7 @@ export interface Connection {
   connection: NonNullable<FailureContext['connection']>
   /** The tab this command's tab-scoped calls target, settled once after the hub greets. */
   target: () => Promise<TabTarget>
-  agentBrowser: AgentBrowser
+  agentBrowser: AgentBrowserClient
 }
 
 export interface ConnectOptions {
@@ -294,7 +298,7 @@ export async function connect(
     })
   }
   markPhase('connect:resolved')
-  const agentBrowser = new AgentBrowser()
+  const agentBrowser = lazyAgentBrowser()
   const target = once(async () => {
     await link.connected()
     const resolved = await resolveTabTarget(
@@ -758,7 +762,9 @@ export async function runCall(
 }
 
 /** Tool arguments with any agent-browser `ref` turned into the box the app matches. */
-function elementArgs(connection: Connection, tool: string, args: unknown): Promise<unknown> {
+async function elementArgs(connection: Connection, tool: string, args: unknown): Promise<unknown> {
+  if (!isRecord(args) || !('ref' in args)) return args
+  const { withElementBox } = await import('./element-ref')
   return withElementBox(
     tool,
     args,

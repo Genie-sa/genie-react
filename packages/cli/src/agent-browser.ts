@@ -1,15 +1,12 @@
 import { execFile } from 'node:child_process'
 import { GENIE_TAB_IDENTITY_GLOBAL } from 'genie-react/protocol'
+import { isAgentBrowserSessionName } from './agent-browser-session'
 import { isRecord } from './guards'
 
-/** agent-browser's own default-session variable: an agent that exports it shares it with every Genie command in that shell. */
-export const AGENT_BROWSER_SESSION_ENV = 'AGENT_BROWSER_SESSION'
+export { AGENT_BROWSER_SESSION_ENV, isAgentBrowserSessionName } from './agent-browser-session'
 
 /** The agent-browser executable, when it is not `agent-browser` on PATH. */
 export const AGENT_BROWSER_COMMAND_ENV = 'GENIE_AGENT_BROWSER'
-
-/** Names this CLI hands to agent-browser; anything else could read as one of its flags. */
-const SESSION_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 
 /** A busy or hung agent-browser daemon must not stall a Genie command. */
 export const AGENT_BROWSER_TIMEOUT_MS = 2_000
@@ -46,10 +43,6 @@ const PAGE_PROBE = `(() => {
   }
 })()`
 const PAGE_PROBE_BASE64 = Buffer.from(PAGE_PROBE).toString('base64')
-
-export function isAgentBrowserSessionName(value: string | undefined): value is string {
-  return value !== undefined && SESSION_NAME.test(value)
-}
 
 /** Every argument is an identifier, a ref or base64, so the Windows shell that `.cmd` shims need has nothing to interpret. */
 export const runAgentBrowser: AgentBrowserCommand = (args) =>
@@ -90,6 +83,9 @@ export function parseReply(stdout: string): AgentBrowserReply {
     ...(typeof reply.error === 'string' ? { error: reply.error } : {}),
   }
 }
+
+/** What tab targeting and ref lookups read from agent-browser; the command path holds a lazy one so it loads the client only when it asks. */
+export type AgentBrowserClient = Pick<AgentBrowser, 'sessions' | 'origin' | 'page' | 'html' | 'box'>
 
 /** The documented agent-browser CLI commands Genie reads: `session list`, `get url`, `eval` and `get box`. None changes the page. */
 export class AgentBrowser {

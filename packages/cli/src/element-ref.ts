@@ -4,7 +4,7 @@ import {
   type BridgeStatusMessage,
   type SessionSummary,
 } from 'genie-react/protocol'
-import type { AgentBrowser } from './agent-browser'
+import type { AgentBrowserClient } from './agent-browser'
 import { CliFailure, nextCommand } from './failure'
 import { isRecord } from './guards'
 import { agentBrowserSessionsShowing, isTargetOf, type TabTarget } from './tab-target'
@@ -19,7 +19,7 @@ export async function withElementBox(
   tool: string,
   args: unknown,
   routing: () => Promise<{ target: TabTarget; status: HubView }>,
-  agentBrowser: AgentBrowser,
+  agentBrowser: AgentBrowserClient,
 ): Promise<unknown> {
   if (
     !REF_TOOLS.has(tool) ||
@@ -58,7 +58,7 @@ async function sessionShowing(
   ref: string,
   target: TabTarget,
   status: HubView,
-  agentBrowser: AgentBrowser,
+  agentBrowser: AgentBrowserClient,
 ): Promise<string> {
   const tab = targetedTab(target, status)
   if (!tab) {
