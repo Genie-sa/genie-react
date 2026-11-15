@@ -70,7 +70,7 @@ root's tree.
 
 Reports wrapper ancestry, source roles, ownership, and source-map health for mounted components.
 
-**Input:** `component` is an optional exact display name; `exact:false` matches every name containing it, ignoring case, and `componentMatch` reports which names matched. `limit` is an integer from 1 to 500
+**Input:** `component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. `limit` is an integer from 1 to 500
 and defaults to 200. `appOnly` defaults to `false`; `true` keeps only records with resolved app
 ownership.
 
