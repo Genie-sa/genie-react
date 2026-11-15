@@ -134,3 +134,29 @@ automation before or concurrently with it. It measures page-wide main-thread fra
 React work alone. A tab hidden at start errors. Hiding it during sampling, sparse calibration, or a
 refresh-rate mode change sets comparability evidence that must be read. The internal timeout ends a
 stalled sample; no animation-frame subscription remains after the result.
+
+## `browser_visibility`
+
+Reports whether the document is visible now and how often it was hidden since Genie started.
+
+**Input:** none.
+
+```bash
+npx @genie-react/cli call browser_visibility '{}' --session logical-review --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "source": "document",
+  "state": "visible",
+  "hiddenTransitions": 1,
+  "hiddenMs": 4120
+}
+```
+
+**Agent use:** Compare `hiddenTransitions` between two reads to tell whether the app was hidden in
+between; `verify` refuses a window with a hidden interval. `source` is `document` in a browser,
+`app-state` on React Native when `startGenie` received `AppState`, and `unavailable` when there is no
+visibility signal.

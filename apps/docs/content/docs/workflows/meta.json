@@ -4,6 +4,7 @@
   "defaultOpen": true,
   "pages": [
     "index",
+    "verify-a-fix",
     "render-optimization",
     "components-and-context",
     "effects",

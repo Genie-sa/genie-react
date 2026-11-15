@@ -81,24 +81,92 @@ export async function closeBrowserSession(session) {
  */
 
 /**
+ * Runs the CLI with `--json` and returns its exit code with the parsed document, since `verify` reports its verdict as the exit code.
+ * @param {App} app
+ * @param {string} session
+ * @param {string[]} args
+ * @returns {Promise<{ code: number | null, json: Record<string, any> }>}
+ */
+async function genieRun(app, session, args) {
+  const result = await run(process.execPath, [join(app.dir, CLI_PATH), ...args, '--json'], {
+    cwd: app.dir,
+    env: { ...browserEnv(session), XDG_RUNTIME_DIR: app.runtimeDir },
+    timeoutMs: 120_000,
+  })
+  try {
+    return { code: result.code, json: JSON.parse(result.stdout) }
+  } catch {
+    throw new Error(
+      `genie-react ${args.join(' ')} returned non-JSON: ${result.stdout}${result.stderr}`,
+    )
+  }
+}
+
+/**
  * @param {App} app
  * @param {string} session
  * @param {string[]} args
  * @returns {Promise<Record<string, any>>}
  */
 async function genie(app, session, args) {
-  const result = await run(process.execPath, [join(app.dir, CLI_PATH), ...args, '--json'], {
-    cwd: app.dir,
-    env: { ...browserEnv(session), XDG_RUNTIME_DIR: app.runtimeDir },
-    timeoutMs: 60_000,
-  })
-  try {
-    return JSON.parse(result.stdout)
-  } catch {
-    throw new Error(
-      `genie-react ${args.join(' ')} returned non-JSON: ${result.stdout}${result.stderr}`,
-    )
+  return (await genieRun(app, session, args)).json
+}
+
+/**
+ * The task's expectations as verify claims; a probe with no interaction has nothing for a window to observe, so it gets none.
+ * @param {Probe} probe
+ * @returns {string[]}
+ */
+export function probeClaims(probe) {
+  if (probe.steps.length === 0) return []
+  return [
+    ...(probe.renders
+      ? [`render ${probe.renders.component} max ${probe.renders.maxUpdates} counting updates`]
+      : []),
+    ...(probe.noCaughtErrors ? ['boundaries clean'] : []),
+  ]
+}
+
+/**
+ * Drives the steps inside a verify window and grades on its exit code, so a skipped target, a remount or a late render cannot pass.
+ * @param {App} app
+ * @param {string} session
+ * @param {Probe} probe
+ * @returns {Promise<Check | null>}
+ */
+async function verifyProbe(app, session, probe) {
+  const claims = probeClaims(probe)
+  if (claims.length === 0) return null
+  const began = await genieRun(app, session, [
+    'verify',
+    'begin',
+    '--name',
+    'eval probe',
+    ...claims.flatMap((claim) => ['--claim', claim]),
+  ])
+  if (began.json.state !== 'recording') {
+    return { name: 'probe.verify', pass: false, detail: verdictDetail(began.json) }
   }
+  for (const step of probe.steps) await agentBrowser(session, step)
+  const ended = await genieRun(app, session, ['verify', 'end', began.json.verificationId])
+  return {
+    name: 'probe.verify',
+    pass: ended.code === 0 && ended.json.verdict === 'pass',
+    detail: `exit ${ended.code}; ${verdictDetail(ended.json)}`,
+  }
+}
+
+/**
+ * @param {Record<string, any>} document
+ */
+function verdictDetail(document) {
+  const claims = Array.isArray(document.claims) ? document.claims : []
+  return `${document.verdict ?? document.reason}: ${claims
+    .map(
+      (/** @type {Record<string, any>} */ claim) =>
+        `${claim.text} ${claim.verdict}${claim.refusal ? ` (${claim.refusal.reason})` : ''}`,
+    )
+    .join(', ')}`
 }
 
 /**
@@ -137,6 +205,8 @@ export async function runProbe({ dir, runtimeDir, url, screen, probe, session })
   try {
     await openBrowserSession(session, target.toString())
     await waitForGenieSession(app, session)
+    const verified = await verifyProbe(app, session, probe)
+    if (verified) checks.push(verified)
     if (probe.renders) {
       await genie(app, session, [
         'call',
@@ -153,16 +223,17 @@ export async function runProbe({ dir, runtimeDir, url, screen, probe, session })
       const renders = await genie(app, session, [
         'call',
         'react_get_renders',
-        JSON.stringify({ component, limit: 50 }),
+        JSON.stringify({ component, limit: 50, appOnly: false }),
       ])
       const components = Array.isArray(renders.components) ? renders.components : []
       const updates = components
         .filter((entry) => entry?.name === component)
         .reduce((sum, entry) => sum + (typeof entry.updates === 'number' ? entry.updates : 0), 0)
+      const exact = renders.coverage?.complete === true && renders.summary?.semantics === 'exact'
       checks.push({
         name: 'probe.renders',
-        pass: renders.tracking === true && updates <= maxUpdates,
-        detail: `${component} updates=${updates}, max=${maxUpdates}`,
+        pass: renders.tracking === true && exact && updates <= maxUpdates,
+        detail: `${component} updates=${updates}, max=${maxUpdates}, coverage ${exact ? 'exact' : 'incomplete'}`,
       })
       const cohort = await genie(app, session, [
         'call',

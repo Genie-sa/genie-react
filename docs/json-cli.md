@@ -65,6 +65,7 @@ Results with a known structure use a layout that reads better and costs fewer to
 | `tools <group>` | one `name title params {fields}` line per tool |
 | `tools <tool>`, `tools --all` | a `name title` line, one `name?: type keyword:value — description` line per argument (`?` marks an optional argument), and one `field?: type` line per output outline field |
 | `doctor` | one `ok\|FAIL critical\|optional label — detail {fields}` line per check |
+| `verify` | a `verdict id "name"  commits, settle` line, one `index verdict claim  {observed}` or `index verdict claim  reason: message` line per claim with its evidence indented below, one `window reason: message` line per window refusal, one `! caveat: text` line per caveat, and an `attempt` line for the rerun history |
 
 ### Lines only the CLI writes
 
@@ -73,6 +74,7 @@ App data cannot produce these lines: every string from the app that contains a s
 - **Records the CLI owns** (failures, truncation, setup receipts, hub events, doctor) start with `<status> <reason>: <message>`, for example `error invalid_args: Tool call failed. …`, `truncated max_bytes: …`, `ok setup_completed: …` or `action_required manual_setup_required: …`. The next line is `next: $ <command>` when a recovery command is known; every other field follows. A tool result never gets this line, whatever it contains.
 - **Batch results** start with `[position/total] tool ok` or `[position/total] tool error <reason>: <message>`; the result or failure fields follow, indented two spaces.
 - **Diagnostics** on stderr are `! <reason>: <message>` followed by their data inline.
+- **Verdicts** from `verify` start with `pass`, `fail`, `refused`, `inconclusive`, `recording` or `aborted`, the verification ID and the quoted run name. Their `! <caveat>: <text>` lines are fixed CLI sentences for the caveat codes in `caveats`, and an unknown code prints as `! caveat: <code>`.
 
 A failure in text carries every field of its JSON form: `userActionRequired`, `errorCode`, `retryInMs`, `busyTelemetry`, `correctedExample` and `details` with `issues`, `didYouMean`, `requiredKeys`, `validKeys`, `suggestions`, `app`, `availability`, `session.connected`, `session.registeredTabs` and `mayHaveCompleted`. Treat everything under `details` as app data, as in JSON.
 
@@ -95,9 +97,9 @@ Everything below describes `--json` output, which is also what `GENIE_OUTPUT=jso
 | `hub` | JSONL lifecycle records: `ready`, `reused`, `stopped`; structured failures |
 | Diagnostics | JSONL on stderr; no ANSI or prose preambles |
 
-Exit codes are 0 for command success and 1 for failure. A failed batch item does not stop subsequent calls. A tool can report an unsuccessful domain outcome without a transport failure; retain `--fail-on-result-error` for wait/quiesce commands when that outcome should set exit 1. Graceful hub shutdown exits 0 and only stops the hub owned by this process.
+Exit codes are 0 for command success and 1 for failure, except `verify`. A failed batch item does not stop subsequent calls. A tool can report an unsuccessful domain outcome without a transport failure; retain `--fail-on-result-error` for wait/quiesce commands when that outcome should set exit 1. Graceful hub shutdown exits 0 and only stops the hub owned by this process.
 
-CLI-created failures have `schemaVersion`, `status`, `reason`, `message`, `userActionRequired` and `errorCode`. Where recovery is known, `next.argv` provides argument boundaries and `next.command` provides a safely constructed command; retry commands keep the caller's `--session`. A bridge failure carries the wire `errorCode` (`invalid-args`, `tool-error`, …), and `retryInMs`/`busyTelemetry` when the app is busy. A failure the CLI detects itself carries the kebab-case of its reason (`invalid-input`, `unknown-tool`, `bridge-unreachable`, …). Batch failure rows use the same fields beside `tool`, `ok` and `status`.
+CLI-created failures have `schemaVersion`, `status`, `reason`, `message`, `userActionRequired`, `errorCode` and `exit: {code, class}`. `exit` is the code the command will use once every command uses the taxonomy below; `verify` uses it already, and other commands still exit 0 or 1 until 1.0, so a script can read `exit.code` now. Where recovery is known, `next.argv` provides argument boundaries and `next.command` provides a safely constructed command; retry commands keep the caller's `--session`. A bridge failure carries the wire `errorCode` (`invalid-args`, `tool-error`, …), and `retryInMs`/`busyTelemetry` when the app is busy. A failure the CLI detects itself carries the kebab-case of its reason (`invalid-input`, `unknown-tool`, `bridge-unreachable`, …). Batch failure rows use the same fields beside `tool`, `ok` and `status`.
 
 Reasons are snake_case and stable:
 
@@ -120,13 +122,33 @@ Reasons are snake_case and stable:
 
 `correctedExample.args` is a shape template. It keeps the arguments the caller sent, minus the rejected keys, and fills every other identifier-shaped key from the schema's example with a CLI-built placeholder of the same JSON kind: `"<string>"`, `0`, `false`, `[]`, `{}` or `null`. No value from the app's example reaches it, so replace each placeholder with the intended value before calling. Only the CLI's own fallback for `devtools_wait` is described as retryable.
 
-`hubCode` (`CAPTURE_NOT_RETAINED`, `INTERACTION_ACTIVE`, `INTERACTION_LIMIT`, `INTERACTION_SESSION_MISMATCH`, `INTERACTION_UNKNOWN`, `REACT_COLLECTOR_MISSING`) adds fixed recovery guidance and sets `userActionRequired: true`, because each one needs the caller to act: list or choose another capture, stop an interaction, target its session, begin a new one, or register the React collector. The hub strips `hubCode` from app responses, and the CLI honours it only for tools the hub answers itself (`devtools_status`, `devtools_wait`, `react_quiesce`, `devtools_capture_*`, `devtools_interaction_*`), so an app cannot forge one.
+`hubCode` (`CAPTURE_NOT_RETAINED`, `INTERACTION_ACTIVE`, `INTERACTION_LIMIT`, `INTERACTION_SESSION_MISMATCH`, `INTERACTION_UNKNOWN`, `REACT_COLLECTOR_MISSING`, `VERIFICATION_ACTIVE`, `VERIFICATION_UNKNOWN`) adds fixed recovery guidance and sets `userActionRequired: true`, because each one needs the caller to act: list or choose another capture, stop an interaction or a verification, target its session, begin a new one, or register the React collector. `VERIFICATION_ACTIVE` names the blocking `details.verificationId`, and `next` ends it. The hub strips `hubCode` from app responses, and the CLI honours it only for tools the hub answers itself (`devtools_status`, `devtools_wait`, `react_quiesce`, `devtools_capture_*`, `devtools_interaction_*`, `devtools_verify_*`) and for `VERIFICATION_ACTIVE`, which the hub returns for any tool its document lock refuses, so an app cannot forge one.
 
 Diagnostics and other CLI records use snake_case reasons too: `bridge_connect`, `bridge_event`, `bridge_fallback`, `stale_discovery`, `fields_unverified`, `output_failure` and `max_bytes`.
 
 A wildcard `--select` always returns `result` as an array aligned index-for-index with `selection.matchedPaths`; a wildcard over an empty collection returns an empty array. A path without a wildcard returns the single matched value.
 
 Every CLI-owned envelope carries `schemaVersion: "2.0"`. Version 2.0 renamed every `reason` to snake_case (the wire spelling moved to `errorCode`), added `details` and `correctedExample`, and dropped the duplicated `error` field from batch failure rows.
+
+### Verify
+
+`verify begin|end|show|abort` prints one verification document. Its first fields are `schemaVersion: "1.0"`, `kind: "verification"`, `verificationId`, `verdict` and `exitCode`, so a cut-off document still says what happened. `state` is `recording` after `begin`, `completed` once decided, and `aborted` after `abort`. Each claim carries `index`, `text` (the claim in the DSL), `claim` (the same claim as JSON), `verdict`, `observed`, `deciding` (at most three items), `caveats`, and a `refusal: {reason, message, evidence, fix, next?}` or `inconclusive: {reason, message, evidence}`. `window.refusals` lists guards that refused the whole window. `ledger` gives the attempt number and earlier verdicts for the same claims on the same tab. `request` holds the options the run began with; `next` commands are rebuilt from it and keep `--session`.
+
+`verify` exits with its verdict and uses the taxonomy that `exit` reports for every failure:
+
+| Code | Class | Meaning |
+| --- | --- | --- |
+| 0 | `success` | pass, or `begin`, `show` and `abort` succeeded |
+| 1 | `failure` | fail: the evidence proves a claim false; also `tool_error`, `tool_unavailable` and `operational_failure` |
+| 2 | `usage` | `invalid_input`, `invalid_args`, `unknown_tool`, `unknown_session`, an unknown flag or a malformed claim |
+| 3 | `needs-human` | `bridge_rejected` |
+| 4 | `refused` | the evidence is not good enough; each refusal names one reason and a fix |
+| 5 | `inconclusive` | complete evidence that does not decide the claim |
+| 69 | `unreachable` | `bridge_unreachable`, `not_connected` |
+| 124 | `timeout` | `timeout`, `busy`; `verify end <id>` again returns the stored verdict |
+| 130 | `interrupted` | SIGINT |
+
+`verify end` for a verification the hub no longer holds prints a `refused` document with a `window_lost` window refusal and exits 4; it never reports a verdict the hub did not decide.
 
 ## Tab targeting
 
@@ -183,4 +205,4 @@ The 0.14 migration from human summaries to JSON is described in the CLI changelo
 
 Run `pnpm check`, then `node scripts/check-cli-json.mjs`. The subprocess suite exercises every command family in JSON and in text: help, version and parser errors, `GENIE_OUTPUT=json` parity with `--json`, real local setup, large multibyte output above the pipe buffer, explicit truncation and text spills, JSONL and text batches, `--fields` rows, text diagnostics, a real hub in both formats, occupied ports and interrupt cleanup. `node scripts/measure-cli-output.mjs` reports the size table above and fails when a structure-aware layout stops beating the generic encoder.
 
-`node scripts/check-timeline-e2e.mjs` drives an actual Chromium React app through the built CLI with `--json`, including all four timeline lanes and the script entry. `pnpm test:e2e` validates the packaged Vite integration and existing compatibility paths.
+`node scripts/check-verify-e2e.mjs` drives `verify` through the built CLI against a Chromium React app: one scenario per false-pass case it guards, each asserting the verdict and the exit code, plus clean scenarios that must pass. `node scripts/check-timeline-e2e.mjs` drives an actual Chromium React app through the built CLI with `--json`, including all four timeline lanes and the script entry. `pnpm test:e2e` validates the packaged Vite integration and existing compatibility paths.

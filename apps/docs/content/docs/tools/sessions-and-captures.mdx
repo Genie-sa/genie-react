@@ -560,3 +560,136 @@ interaction. React profiling freezes before settle, so later commits are counted
 freeze succeeds. The bridge caches the newest 20 completed interactions; repeating stop is
 idempotent only while its result remains cached. There is no separate cancel call, so stopping is
 the cleanup step.
+
+## `devtools_verify_begin`
+
+Declares claims, resolves their targets, and starts a locked observation window. `genie-react verify begin`
+calls it; see [Verify a fix](/docs/workflows/verify-a-fix) for the workflow.
+
+**Input:** `name` is a required string of 1–80 characters. `claims` is a required list of 1–20 claims over
+at most 10 distinct targets. Each claim has a `kind`: `renders` with a `target` and exactly one of `max` or
+`min`, an optional `counting` of `renders` (default) or `updates`, and `allowRemount` (default `false`,
+only with `counting:"updates"`); `render-causes` with a `target` and an `allow` list of 1–20 causes, each a
+`kind` from `mount`, `children`, `router`, `props`, `state`, `context`, `query`, `parent` and
+`external-store` with an optional `name`; `effect-runs` with a `target` and `max`; `effect-settles` with a
+`target`; and `boundaries-clean` with a `scope` of `window` (default) or `end`. A `target` has a required
+`component` display name, an optional `source` file suffix, an optional `key`, and for effect claims an
+optional `effectIndex`. `budget` takes `fiberLimit`, `operationLimit`, `timeLimitMs`,
+`targetOperationReserve`, `targetTimeReserveMs` and `adaptive` with the `react_clear_renders` defaults.
+`lifecycle` takes `bufferLimit` and `targetReserve`. `settle` takes `quietMs` (100–5,000, default 500),
+`timeoutMs` (500–60,000, default 10,000) and `domains`, a list from `react`, `query` and `router` that must
+include `react` and defaults to every domain the app advertises. `tailMs` (0–30,000) overrides the tail,
+`maxDurationMs` (10,000–1,800,000, default 300,000) bounds the window, and `allowOverrides` (default
+`false`) permits overrides during it.
+
+```bash
+npx @genie-react/cli call devtools_verify_begin \
+  '{"name":"type in filter","claims":[{"kind":"renders","target":{"component":"StatusBadge"},"max":0},{"kind":"renders","target":{"component":"SearchScreen"},"min":1},{"kind":"boundaries-clean"}]}' \
+  --session logical-review --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "kind": "verification",
+  "verificationId": "vfy_3b74e2c8-91a6-4f5d-b207-6c83a1d94e50",
+  "state": "recording",
+  "window": { "observationId": "observation:4", "startDocumentCommitId": 57, "tailMs": 500 },
+  "targets": [{ "target": { "component": "StatusBadge" }, "status": "resolved", "instances": 1 }]
+}
+```
+
+**Agent use:** Prefer `genie-react verify begin`, which parses the claim DSL and builds recovery commands.
+Drive the interaction with the UI driver, then call `devtools_verify_end`. A target, capability or
+environment problem returns a completed document with `verdict: "refused"` instead, before any window
+starts. While the window records, the hub refuses `react_clear_renders`, `react_profile_start`,
+`react_profile_stop`, `devtools_interaction_begin` and the override tools on that document with
+`hubCode: "VERIFICATION_ACTIVE"`.
+
+## `devtools_verify_end`
+
+Settles the app with recording on, records the tail, freezes, reads the evidence once, and decides every claim.
+
+**Input:** `verificationId` is a required `vfy_` ID from `devtools_verify_begin`.
+
+```bash
+npx @genie-react/cli call devtools_verify_end \
+  '{"verificationId":"vfy_3b74e2c8-91a6-4f5d-b207-6c83a1d94e50"}' --session logical-review --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "verificationId": "vfy_3b74e2c8-91a6-4f5d-b207-6c83a1d94e50",
+  "verdict": "fail",
+  "exitCode": 1,
+  "state": "completed",
+  "claims": [
+    {
+      "index": 1,
+      "text": "render StatusBadge max 0",
+      "verdict": "fail",
+      "observed": { "renders": 4, "semantics": "exact", "instances": 1 }
+    }
+  ],
+  "caveats": ["ui-outcome-not-observed"],
+  "ledger": { "attempt": 1, "failsOnSameCode": 0 }
+}
+```
+
+**Agent use:** Read `verdict` and each claim's `refusal` or `inconclusive` reason; a refusal's `fix` names
+what to change before the next run. A repeated call returns the stored verdict, so call it again after a
+timeout. `hubCode: "VERIFICATION_UNKNOWN"` means the hub no longer holds the window; begin a new one.
+
+## `devtools_verify_read`
+
+Returns a stored verdict, every deciding item of one claim, the guards, or one retained tool result.
+
+**Input:** `verificationId` is a required `vfy_` ID. `claim` is an optional claim number from 1 to 20.
+`section` is an optional `guards` or `raw:<tool>`, such as `raw:react_get_renders`. `claim` and `section`
+are mutually exclusive.
+
+```bash
+npx @genie-react/cli call devtools_verify_read \
+  '{"verificationId":"vfy_3b74e2c8-91a6-4f5d-b207-6c83a1d94e50","claim":1}' --session logical-review --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "verificationId": "vfy_3b74e2c8-91a6-4f5d-b207-6c83a1d94e50",
+  "verdict": "fail",
+  "claim": { "index": 1, "verdict": "fail" },
+  "evidenceRetained": true
+}
+```
+
+**Agent use:** Read one claim's `evidence` (render records, cause events, effect executions and the
+instances seen at begin and end) to find what to fix. Reading never changes a verdict.
+
+## `devtools_verify_abort`
+
+Ends a verification window without a verdict and releases its document lock.
+
+**Input:** `verificationId` is a required `vfy_` ID.
+
+```bash
+npx @genie-react/cli call devtools_verify_abort \
+  '{"verificationId":"vfy_3b74e2c8-91a6-4f5d-b207-6c83a1d94e50"}' --session logical-review --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "verificationId": "vfy_3b74e2c8-91a6-4f5d-b207-6c83a1d94e50",
+  "state": "aborted"
+}
+```
+
+**Agent use:** Abort a window you will not finish, so other tools can reset the observation on that tab.
+An aborted run writes no rerun history.
+
