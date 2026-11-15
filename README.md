@@ -45,7 +45,7 @@ Using [React Native or Expo](https://genie-react.com/docs/setup/react-native), [
 
 ## Give your agent a useful task
 
-`init` installs the Genie skill in `.agents/skills/genie` for Codex, Cursor, and other Agent Skills clients, and links it into `.claude/skills/genie` for Claude Code. Without the CLI, `npx skills add Genie-sa/genie-react` installs the same skill. Pair your agent with [agent-browser](https://github.com/vercel-labs/agent-browser) or [agent-device](https://github.com/callstack/agent-device) so it can use the UI and check what changed.
+`init` installs the Genie skill in `.agents/skills/genie` for Codex, Cursor, and other Agent Skills clients, and links it into `.claude/skills/genie` for Claude Code. Its commands call the installed `node_modules/.bin/genie-react` directly, since a wrapper such as `pnpm exec` or `npx` adds 75–350 ms to every call an agent makes. Without the CLI, `npx skills add Genie-sa/genie-react` installs the same skill. Pair your agent with [agent-browser](https://github.com/vercel-labs/agent-browser) or [agent-device](https://github.com/callstack/agent-device) so it can use the UI and check what changed.
 
 Try a prompt like:
 
@@ -91,6 +91,7 @@ Results print as compact text that keeps every field, written for a model to rea
 - [Add app tools for login, fixtures, or hard-to-reach states](https://genie-react.com/docs/tools/app-tools).
 - [Target the right tab when several agents are working](https://genie-react.com/docs/getting-started/sessions).
 - [Understand runtime overhead and the measured limits](docs/runtime-overhead.md).
+- [Measure CLI latency per command](docs/cli-latency.md).
 - [Report a bug or friction to the maintainers](https://genie-react.com/docs/reference/cli#report-a-problem-to-the-maintainers) with `genie-react feedback`. It shows the issue first and sends nothing until you add `--submit`.
 
 MIT © Genie React Agent contributors

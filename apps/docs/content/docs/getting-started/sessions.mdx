@@ -50,9 +50,11 @@ matching tabs.
   cache restores. Every page load in the tab is a new document with a higher generation. `status`
   shows one row per tab: its current document.
 - **Default tab.** A call without `--session` goes to the only connected tab. Once a call has used a
-  tab, later untargeted calls stay on it, even after you open other tabs. When several tabs are
-  connected and none has been used yet, the call fails with reason `unknown_session` and hub code
-  `SESSION_AMBIGUOUS`, and `details.session.connected` lists the tabs.
+  tab, later untargeted calls from the same agent stay on it, even after you open other tabs. Each
+  agent has its own default, and untargeted calls never land on a tab another agent used in the last
+  10 minutes. When several tabs are connected and none has been used yet, the call fails with reason
+  `unknown_session` and hub code `SESSION_AMBIGUOUS`; when every tab is in use by another agent, it
+  fails with `SESSION_CLAIMED`. In both, `details.session.connected` lists the tabs.
 - **Reload grace.** When the default tab's document disconnects, the hub waits up to 5 seconds for
   it to come back. A tab that connects during that wait, such as a React Native app after a Metro
   reload, becomes the default at once. If exactly one other tab is open, it answers in the
@@ -71,6 +73,48 @@ Use a direct bridge only when discovery is not enough:
 ```bash
 export GENIE_BRIDGE_URL=ws://127.0.0.1:4390/__genie/ws
 ```
+
+## Working in parallel
+
+Several agents can share one machine, one dev server, and one hub. Genie keeps each agent's evidence
+its own, or says why it cannot.
+
+### What an agent must do
+
+- Open its own tab with its own name (`?_genie=<name>`) and pass `--session <name>` on every command.
+- Run the CLI from its own checkout or worktree, so discovery finds that worktree's hub.
+- Set `GENIE_AGENT=<name>` when it shares a shell or a worktree with another agent and no harness
+  session tells them apart, for example subagents that run their own captures.
+
+### What Genie guarantees
+
+- **Identity.** Each CLI process names its caller: `GENIE_AGENT` when set, else a hash of the Claude
+  Code (`CLAUDE_CODE_SESSION_ID`) or Codex (`CODEX_THREAD_ID`) session, else a hash of the git
+  worktree root. Without any of them, calls share one anonymous caller, as before.
+- **Routing.** A call reaches only the tab it targets. Untargeted calls keep a default per agent and
+  skip tabs other agents use. A shared name opened in two tabs fails as ambiguous.
+- **Per-tab state.** A tab has one render window, one profile, one timeline, one set of overrides
+  and its Query simulations. A read from a window another agent restarted, paused, or changed with a
+  state-changing tool, or from a window that a reload replaced, fails instead of returning the other
+  window's data. Resetting overrides, restoring or re-simulating a Query, or starting a timeline
+  while another agent holds one is refused. A hold lapses after 5 minutes without a call from its
+  agent.
+- **Several hubs.** Discovery never leaves the current git checkout or worktree. A worktree nested in
+  another checkout reaches only its own hub, and a monorepo root with several live hubs below it
+  lists them instead of picking one. Two dev servers started for one project at once publish one
+  consistent endpoint and token; the other server says so in its log.
+- **Shared files.** Oversized outputs, feedback drafts, and agent tokens use unique names and atomic
+  writes, and a spilled output is kept for at least an hour.
+
+### What each error means
+
+| Failure | Meaning | What to do |
+| --- | --- | --- |
+| `unknown_session`, `SESSION_CLAIMED` | Every connected tab is in use by another agent | Open your own tab and pass `--session`; pass `--session` to share one deliberately |
+| `conflict`, `OBSERVATION_SUPERSEDED` | Another agent restarted, paused, or changed your render window or recording, or the tab reloaded (`details.ownership.cause`) | Start a new window and repeat the interaction on your own tab |
+| `conflict`, `STATE_HELD` | Another agent holds the overrides, Query simulation, or recording you would reset | Leave it; use your own tab or retry after that agent finishes |
+| `! session-shared` diagnostic | Another agent used this tab recently | Move to your own tab |
+| `! window-displaced` diagnostic | Your call disturbed another agent's window | Move to your own tab |
 
 ## How this helps the agent
 

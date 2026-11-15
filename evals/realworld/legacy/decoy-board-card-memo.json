@@ -1,0 +1,18 @@
+{
+  "id": "decoy-board-card-memo",
+  "kind": "decoy",
+  "category": "decoy",
+  "prompt": "Changing a card priority on the board: do all 420 cards re-render?",
+  "truth": {
+    "components": ["BoardCard"],
+    "files": ["src/features/board/board-card.tsx"],
+    "summary": "BoardCard is wrapped in memo and receives the issue entity and a stable onOpen callback; only the changed card's entity changes."
+  },
+  "flaggedWhen": "Genie reports more than one BoardCard updating after one priority change.",
+  "probe": {
+    "script": "probes/decoy-board-card-memo.mjs"
+  },
+  "genieEvidence": {
+    "notes": "react_component_cohort reports exactly one updated BoardCard out of 420."
+  }
+}

@@ -195,13 +195,18 @@ export default {
         await ctx.page.getByRole('button', { name: 'add tea' }).click()
         await ctx.page.getByRole('button', { name: 'add coffee' }).click()
         await waitForText(ctx.page, '[data-testid=lab-cart]', 'cart:2')
-        const cart = await ctx.call('plugin_get_events', { pluginId: 'cart-devtools', limit: 200 })
-        const latest = cart.events
-          .filter((event) => JSON.stringify(event).includes('cart-updated'))
-          .at(-1)
+        const latest = await waitFor('a cart event carrying both items', async () => {
+          const cart = await ctx.call('plugin_get_events', {
+            pluginId: 'cart-devtools',
+            limit: 200,
+          })
+          const event = cart.events
+            .filter((candidate) => JSON.stringify(candidate).includes('cart-updated'))
+            .at(-1)
+          return JSON.stringify(event ?? null).includes('Coffee') ? event : undefined
+        })
         check(
-          JSON.stringify(latest).includes('"total":10') &&
-            JSON.stringify(latest).includes('Coffee'),
+          JSON.stringify(latest).includes('"total":10'),
           'the latest cart event must carry both items and total 10',
           latest,
         )
@@ -298,6 +303,7 @@ export default {
       async run(ctx) {
         await ctx.open('/dashboard')
         await ctx.page.getByText('Acme NA #1').waitFor()
+        await ctx.call('react_clear_renders', {})
         const all = await ctx.call('react_component_cohort', {
           component: 'MetricRow',
           exact: true,

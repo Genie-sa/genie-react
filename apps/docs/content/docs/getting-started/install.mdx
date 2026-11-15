@@ -28,14 +28,19 @@ runs without prompts. `--yes` is accepted for existing automation and makes the 
 
 The skill lands in `.agents/skills/genie`, which Codex, Cursor, and other Agent Skills clients read.
 Claude Code reads only `.claude/skills`, so `init` also links `.claude/skills/genie` to that copy, or
-copies it where symlinks are unavailable. The skill's commands, and the commands the CLI suggests
-once Genie is installed, use the package manager found from your lockfile: `npx genie-react` for
-npm, `pnpm exec genie-react` for pnpm, `yarn genie-react` for Yarn 2+, `yarn --silent genie-react`
-for Yarn 1, or `bunx genie-react` for Bun. Without a lockfile they use npm. `doctor` reports either
-location when it drifts from the installed CLI; rerun `init` to refresh it. If your agent loads the
-skill from a directory outside the project, such as `/opt/skills/genie`, set `GENIE_SKILL_DIR` to it.
-`doctor` then checks that directory instead of the two project locations. It accepts the skill as
-shipped in `@genie-react/cli` or as `init` renders it for your package manager.
+copies it where symlinks are unavailable. When `@genie-react/cli` is installed, the skill's commands
+call its binary directly, such as `node_modules/.bin/genie-react` from the app folder or
+`../../node_modules/.bin/genie-react` when a workspace hoists it, because an agent runs the CLI on
+every step and a package-manager wrapper adds 10–350 ms to each call. Before the CLI is installed, on
+Windows, and with Yarn Plug'n'Play, the skill uses the package manager found from your lockfile, as
+the commands the CLI suggests always do: `npx genie-react` for npm, `pnpm exec genie-react` for
+pnpm, `yarn genie-react` for Yarn 2+, `yarn --silent genie-react` for Yarn 1, or `bunx genie-react`
+for Bun. Without a lockfile they use npm. Rerun `init` after installing to switch the skill to the
+binary. `doctor` reports either location when it drifts from the installed CLI; rerun `init` to
+refresh it. If your agent loads the skill from a directory outside the project, such as
+`/opt/skills/genie`, set `GENIE_SKILL_DIR` to it. `doctor` then checks that directory instead of the
+two project locations. It accepts the skill as shipped in `@genie-react/cli` or as `init` renders it
+for this project.
 
 `init` writes only into an empty directory or one that already holds Genie's skill. It never
 follows a symlink out of the project. Any other file, directory, or symlink at either location is

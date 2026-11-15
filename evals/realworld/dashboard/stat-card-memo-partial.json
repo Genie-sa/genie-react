@@ -1,0 +1,17 @@
+{
+  "id": "stat-card-memo-partial",
+  "kind": "decoy",
+  "category": "optimise",
+  "symptom": "Changing the dashboard trend range re-renders the dashboard page. Are all stat cards re-rendering?",
+  "truth": {
+    "components": ["StatCard", "DashboardPage"],
+    "files": ["src/features/dashboard/stat-card.tsx", "src/features/dashboard/dashboard-page.tsx"],
+    "cause": "Correct: only the two cards whose sparkline trend prop changed re-render; the memo holds for the other two."
+  },
+  "probe": {
+    "script": "probes/stat-card-memo.mjs",
+    "genie": "observable",
+    "evidence": ["react_get_renders"]
+  },
+  "expectation": "not-flagged"
+}

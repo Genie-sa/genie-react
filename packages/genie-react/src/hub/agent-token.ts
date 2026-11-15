@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { constants, realpathSync } from 'node:fs'
 import { open, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -34,8 +34,7 @@ function tokenFileForRealRoot(realRoot: string): string {
 export async function writeAgentToken(rootDir: string, token: string): Promise<string> {
   ensurePrivateDirectory(agentTokenDirectory())
   const file = await agentTokenFile(rootDir)
-  const temporary = `${file}.${process.pid}.tmp`
-  await rm(temporary, { force: true })
+  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
   await writeFile(temporary, `${JSON.stringify({ token, pid: process.pid })}\n`, {
     mode: PRIVATE_FILE_MODE,
     flag: 'wx',

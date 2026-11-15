@@ -35,6 +35,7 @@ export default defineConfig({
       'packages/*/src/**/*.test.ts',
       'apps/docs/src/**/*.test.ts',
       'evals/lib/**/*.test.ts',
+      'evals/realworld/**/*.test.ts',
     ],
   },
 })

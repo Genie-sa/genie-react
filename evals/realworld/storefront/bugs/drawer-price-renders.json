@@ -1,0 +1,25 @@
+{
+  "id": "drawer-price-renders",
+  "kind": "bug",
+  "category": "optimise",
+  "prompt": "Opening the bag preview from the header feels sluggish on category pages with many products. Nothing on the product cards changes, but the profiler shows every price re-rendering. Find out why and stop it.",
+  "truth": {
+    "components": ["ShopProviders", "Price"],
+    "files": ["components/providers/shop-providers.tsx"],
+    "cause": "ShopProviders owns the bag-preview open state and passes LocaleContext a new object literal on every render, so toggling the drawer gives every useLocale consumer (each Price) a new context value with equal contents.",
+    "summary": "Memoise the locale context value on locale, formatPrice and setLocale so unrelated provider state does not re-render its consumers."
+  },
+  "referenceFix": [
+    {
+      "file": "components/providers/shop-providers.tsx",
+      "find": "  const drawer = useMemo<CartDrawerState>(",
+      "replace": "  const localeValue = useMemo(\n    () => ({ locale, currency: currencyFor(locale), formatPrice, setLocale }),\n    [locale, formatPrice, setLocale],\n  )\n\n  const drawer = useMemo<CartDrawerState>("
+    },
+    {
+      "file": "components/providers/shop-providers.tsx",
+      "find": "<LocaleContext value={{ locale, currency: currencyFor(locale), formatPrice, setLocale }}>",
+      "replace": "<LocaleContext value={localeValue}>"
+    }
+  ],
+  "probe": { "module": "probes/drawer-price-renders.mjs" }
+}

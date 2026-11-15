@@ -1,0 +1,43 @@
+{
+  "id": "order-hold-rerenders-all-rows",
+  "kind": "bug",
+  "category": "optimise",
+  "symptom": "Putting a single order on hold from its row menu makes the whole orders table flash and stutter; every visible row re-renders, not just the one that changed.",
+  "truth": {
+    "components": ["OrdersTable", "OrderRow"],
+    "files": ["src/features/orders/orders-table.tsx", "src/features/orders/order-row.tsx"],
+    "cause": "OrdersTable memoises onStatusChange with rows in its dependency list (it looks the order up to label the toast). Any data change gives every memoised OrderRow a new onStatusChange, so all rows re-render."
+  },
+  "referenceFix": [
+    {
+      "file": "src/features/orders/order-row.tsx",
+      "find": "  onStatusChange: (id: string, status: OrderStatus) => void",
+      "replace": "  onStatusChange: (order: OrderSummary, status: OrderStatus) => void"
+    },
+    {
+      "file": "src/features/orders/order-row.tsx",
+      "find": "onSelect: () => onStatusChange(order.id, 'on_hold')",
+      "replace": "onSelect: () => onStatusChange(order, 'on_hold')"
+    },
+    {
+      "file": "src/features/orders/order-row.tsx",
+      "find": "onSelect: () => onStatusChange(order.id, 'shipped')",
+      "replace": "onSelect: () => onStatusChange(order, 'shipped')"
+    },
+    {
+      "file": "src/features/orders/order-row.tsx",
+      "find": "onSelect: () => onStatusChange(order.id, 'cancelled')",
+      "replace": "onSelect: () => onStatusChange(order, 'cancelled')"
+    },
+    {
+      "file": "src/features/orders/orders-table.tsx",
+      "find": "    (id: string, status: OrderSummary['status']) => {\n      const order = rows.find((row) => row.id === id)\n      if (order) changeStatus({ id, number: order.number, status })\n    },\n    [rows, changeStatus],",
+      "replace": "    (order: OrderSummary, status: OrderSummary['status']) => changeStatus({ id: order.id, number: order.number, status }),\n    [changeStatus],"
+    }
+  ],
+  "probe": {
+    "script": "probes/single-row-hold.mjs",
+    "genie": "observable",
+    "evidence": ["react_clear_renders", "react_component_cohort", "react_render_causes"]
+  }
+}

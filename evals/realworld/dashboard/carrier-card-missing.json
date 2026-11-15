@@ -1,0 +1,46 @@
+{
+  "id": "carrier-card-missing",
+  "kind": "bug",
+  "category": "verify",
+  "symptom": "Verify the dashboard: the Carrier performance card is missing. There is no error message and the layout just has a gap where it should be.",
+  "truth": {
+    "components": ["CarrierPerformanceCard", "WidgetBoundary"],
+    "files": [
+      "src/features/dashboard/carrier-performance-card.tsx",
+      "src/features/dashboard/widget-boundary.tsx"
+    ],
+    "cause": "Polar Freight has no shipments, so the API returns onTimeRate and averageTransitDays as null. CarrierPerformanceCard calls toFixed on them through non-null assertions and throws, and WidgetBoundary renders its fallback, which defaults to null, so the error is swallowed."
+  },
+  "referenceFix": [
+    {
+      "file": "src/features/dashboard/carrier-performance-card.tsx",
+      "find": "(carrier.onTimeRate ?? 0) < ON_TIME_TARGET && 'text-amber-600'",
+      "replace": "carrier.onTimeRate !== null && carrier.onTimeRate < ON_TIME_TARGET && 'text-amber-600'"
+    },
+    {
+      "file": "src/features/dashboard/carrier-performance-card.tsx",
+      "find": "                    {carrier.onTimeRate!.toFixed(1)}%",
+      "replace": "                    {carrier.onTimeRate === null ? '—' : `${carrier.onTimeRate.toFixed(1)}%`}"
+    },
+    {
+      "file": "src/features/dashboard/carrier-performance-card.tsx",
+      "find": "{carrier.averageTransitDays!.toFixed(1)} d",
+      "replace": "{carrier.averageTransitDays === null ? '—' : `${carrier.averageTransitDays.toFixed(1)} d`}"
+    },
+    {
+      "file": "src/features/dashboard/widget-boundary.tsx",
+      "find": "import { track } from '../../lib/telemetry'",
+      "replace": "import { ErrorPanel } from '../../components/ui/feedback'\nimport { track } from '../../lib/telemetry'"
+    },
+    {
+      "file": "src/features/dashboard/widget-boundary.tsx",
+      "find": "    if (this.state.failed) return this.props.fallback ?? null",
+      "replace": "    if (this.state.failed) {\n      return this.props.fallback ?? <ErrorPanel title=\"This widget could not be displayed\" message=\"Reload the page to try again.\" />\n    }"
+    }
+  ],
+  "probe": {
+    "script": "probes/carrier-card.mjs",
+    "genie": "observable",
+    "evidence": ["react_error_state", "react_find_components"]
+  }
+}

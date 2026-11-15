@@ -1,0 +1,43 @@
+{
+  "id": "account-menu-selector",
+  "kind": "bug",
+  "category": "optimise",
+  "prompt": "The avatar menu in the top bar re-renders whenever anything happens in the app, for example on every keystroke in the issue filter.",
+  "truth": {
+    "components": ["AccountMenu"],
+    "files": ["src/layout/account-menu.tsx"],
+    "causePatterns": ["useSelector|useAppSelector|selector", "object|\\{|@identity|shallow|equal"],
+    "summary": "AccountMenu passes useAppSelector a selector that returns a new { user, savedViewCount } object, and useSelector compares with ===, so every dispatched action re-renders it."
+  },
+  "referenceAnswer": {
+    "component": "AccountMenu",
+    "cause": "The useAppSelector selector returns a new object literal on every call, so the reference check fails after every action.",
+    "file": "src/layout/account-menu.tsx"
+  },
+  "decoyAnswers": [
+    {
+      "component": "AccountMenu",
+      "cause": "Dropdown is a class component that re-renders its children.",
+      "file": "src/components/dropdown.tsx"
+    },
+    {
+      "component": "TopBar",
+      "cause": "TopBar re-renders AccountMenu on every action.",
+      "file": "src/layout/top-bar.tsx"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/layout/account-menu.tsx",
+      "find": "  const { user, savedViewCount } = useAppSelector((state) => ({\n    user: state.session.user,\n    savedViewCount: state.savedViews.views.length,\n  }))\n",
+      "replace": "  const user = useAppSelector((state) => state.session.user)\n  const savedViewCount = useAppSelector((state) => state.savedViews.views.length)\n"
+    }
+  ],
+  "probe": {
+    "script": "probes/account-menu-selector.mjs"
+  },
+  "genieEvidence": {
+    "observability": "partial",
+    "notes": "react_render_causes reports external-store (inferred). react-redux 8's development stability check also logs 'Selector unknown returned a different result' in the browser console, which Genie does not surface."
+  }
+}

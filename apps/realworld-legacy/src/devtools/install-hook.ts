@@ -1,0 +1,1 @@
+import 'genie-react/hook'

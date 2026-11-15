@@ -1,0 +1,23 @@
+{
+  "id": "search-palette-stale-results",
+  "kind": "bug",
+  "category": "fix",
+  "symptom": "In the ⌘K search palette, typing a full order number such as SO-105000 sometimes lists other orders. The results belong to what I had typed a moment earlier.",
+  "truth": {
+    "components": ["CommandPalette"],
+    "files": ["src/layout/command-palette.tsx"],
+    "cause": "The search effect starts a request for each debounced term but never cancels or ignores the previous one. A broad early term (\"SO\") answers more slowly than the full term, and its late response overwrites the newer results."
+  },
+  "referenceFix": [
+    {
+      "file": "src/layout/command-palette.tsx",
+      "find": "    setLoading(true)\n    api\n      .search(debouncedTerm)\n      .then((result) => {\n        setResponse(result)\n        setActiveIndex(0)\n      })\n      .catch(() => setResponse({ query: debouncedTerm, results: [] }))\n      .finally(() => setLoading(false))\n  }, [debouncedTerm])",
+      "replace": "    const controller = new AbortController()\n    setLoading(true)\n    api\n      .search(debouncedTerm, controller.signal)\n      .then((result) => {\n        setResponse(result)\n        setActiveIndex(0)\n      })\n      .catch(() => {\n        if (!controller.signal.aborted) setResponse({ query: debouncedTerm, results: [] })\n      })\n      .finally(() => {\n        if (!controller.signal.aborted) setLoading(false)\n      })\n    return () => controller.abort()\n  }, [debouncedTerm])"
+    }
+  ],
+  "probe": {
+    "script": "probes/search-race.mjs",
+    "genie": "observable",
+    "evidence": ["react_find_components", "react_inspect_component", "timeline_read"]
+  }
+}

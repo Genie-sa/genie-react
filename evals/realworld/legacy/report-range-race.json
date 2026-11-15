@@ -1,0 +1,48 @@
+{
+  "id": "report-range-race",
+  "kind": "bug",
+  "category": "fix",
+  "prompt": "On Reports, if I click \"Last 90 days\" and then quickly \"Last 7 days\", the 7-day button stays selected but the chart shows 90 days of data.",
+  "truth": {
+    "components": ["ReportRangePicker", "loadReports"],
+    "files": ["src/features/reports/state/actions.ts"],
+    "causePatterns": ["race|order|stale|slower|late|out-of-order", "response|request|thunk"],
+    "summary": "The hand-written loadReports thunk dispatches REPORTS_RECEIVED for whichever response arrives, without checking that it still matches the requested range, so the slower 90-day response overwrites the 7-day one."
+  },
+  "referenceAnswer": {
+    "component": "loadReports",
+    "cause": "The thunk does not ignore stale responses, so the slow 90d request resolves after the 7d request and overwrites its data.",
+    "file": "src/features/reports/state/actions.ts"
+  },
+  "decoyAnswers": [
+    {
+      "component": "ReportRangePicker",
+      "cause": "The range buttons are not disabled while loading.",
+      "file": "src/features/reports/report-range-picker.tsx"
+    },
+    {
+      "component": "reportsReducer",
+      "cause": "REPORTS_REQUESTED does not reset the old data.",
+      "file": "src/features/reports/state/reducer.ts"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/features/reports/state/actions.ts",
+      "find": "  return async (dispatch) => {",
+      "replace": "  return async (dispatch, getState) => {"
+    },
+    {
+      "file": "src/features/reports/state/actions.ts",
+      "find": "      dispatch({ type: REPORTS_RECEIVED, throughput, cycleTime, workload })\n",
+      "replace": "      const current = getState().reports\n      if (current.projectKey !== projectKey || current.range !== range) return\n      dispatch({ type: REPORTS_RECEIVED, throughput, cycleTime, workload })\n"
+    }
+  ],
+  "probe": {
+    "script": "probes/report-range-race.mjs"
+  },
+  "genieEvidence": {
+    "observability": "app-tools-only",
+    "notes": "Genie has no Redux or thunk awareness. The timeline shows the two throughput requests completing out of order (paths only; the range query parameter is stripped, so the two are indistinguishable). app_redux_state shows reports.range '7d' with reports.throughput.range '90d', and app_redux_actions shows RECEIVED arriving after the second REQUESTED."
+  }
+}

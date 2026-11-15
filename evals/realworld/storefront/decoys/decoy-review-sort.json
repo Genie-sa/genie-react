@@ -1,0 +1,11 @@
+{
+  "id": "decoy-review-sort",
+  "kind": "decoy",
+  "looksLike": "Changing the review sort keeps showing the previous order for a moment and leaves the old sort's query in the cache, which reads like stale data or a leaked query.",
+  "whyCorrect": "ReviewList uses placeholderData: keepPreviousData on a query keyed by product and sort, marks the list aria-busy while the new key loads, and the old key simply becomes inactive in the cache until garbage collection.",
+  "truth": {
+    "components": ["ReviewList"],
+    "files": ["components/product/review-list.tsx"]
+  },
+  "probe": { "module": "probes/decoy-review-sort.mjs" }
+}

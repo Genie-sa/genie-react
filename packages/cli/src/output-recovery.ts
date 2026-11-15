@@ -1,14 +1,10 @@
-import { lstatSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import {
-  ensurePrivateDirectory,
-  genieUserDirectory,
-  isOwnedByCurrentUser,
-} from 'genie-react/hub/token'
+import { ensurePrivateDirectory, genieUserDirectory } from 'genie-react/hub/token'
 import { genieCommand } from './package-manager'
+import { pruneOwnFiles } from './private-files'
 import type { OutputSuggestion, Overflow, OverflowRecovery } from './result-selection'
 
-const RETAINED_SPILLS = 20
 const MAX_SUGGESTED_BYTES = 50_000_000
 const MIN_SUGGESTED_BRANCH_BYTES = 1_024
 const MAX_SUGGESTED_PATH_LENGTH = 200
@@ -153,33 +149,6 @@ function spillOutput(
   } catch {
     return undefined
   }
-  pruneSpills(directory)
+  pruneOwnFiles(directory, SPILL_NAME)
   return path
-}
-
-/** Removes only our own regular spill files beyond the newest few; anything else in the directory is left alone. */
-function pruneSpills(directory: string): void {
-  let names: string[]
-  try {
-    names = readdirSync(directory).filter((name) => SPILL_NAME.test(name))
-  } catch {
-    return
-  }
-  const spills = names.flatMap((name) => {
-    const path = join(directory, name)
-    try {
-      const info = lstatSync(path)
-      return info.isFile() && isOwnedByCurrentUser(info.uid)
-        ? [{ path, modified: info.mtimeMs }]
-        : []
-    } catch {
-      return []
-    }
-  })
-  spills.sort((left, right) => right.modified - left.modified)
-  for (const stale of spills.slice(RETAINED_SPILLS)) {
-    try {
-      rmSync(stale.path)
-    } catch {}
-  }
 }

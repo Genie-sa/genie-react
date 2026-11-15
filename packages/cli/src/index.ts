@@ -28,6 +28,7 @@ import {
   type SkillLocation,
   skillVersion,
 } from './agent-skill'
+import { resolveCallerIdentity } from './caller-identity'
 import {
   ancestorDirectories,
   BridgeConfigError,
@@ -586,6 +587,15 @@ interface SourceMapHealth {
   unknown: number
 }
 
+/** The live probe calls as this agent, so it reaches the tab the agent uses; an invalid GENIE_AGENT only drops the identity here, since every other command reports it. */
+function probeCaller(): string | undefined {
+  try {
+    return resolveCallerIdentity(process.cwd()).id
+  } catch {
+    return undefined
+  }
+}
+
 async function probeSession(
   url: string,
   token: string | undefined,
@@ -598,6 +608,7 @@ async function probeSession(
     connectTimeoutMs: timeoutMs,
     invokeTimeoutMs: timeoutMs * 2,
     sessionId: session,
+    caller: probeCaller(),
   })
   link.start()
   try {

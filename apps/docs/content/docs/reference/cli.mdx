@@ -211,7 +211,7 @@ Output defaults to 102,400 bytes per document or per batch or hub record. An exp
 output becomes an explicit `status:"truncated"` envelope with `largestPaths` and runnable
 `suggestions` (summary view, smaller `limit`, `--select` branch, or a raised limit). An oversized
 `call` or `tools` result is also written whole, in the output format, to `outputPath` in a private per-user directory,
-`genie-react-<uid>/out` under `$XDG_RUNTIME_DIR` or the OS temp dir, which keeps the newest 20 files. Never treat the envelope itself as complete evidence.
+`genie-react-<uid>/out` under `$XDG_RUNTIME_DIR` or the OS temp dir, which keeps every file for at least an hour, so another agent's output cannot evict one you were just told to read. Never treat the envelope itself as complete evidence.
 
 ```bash
 npx @genie-react/cli call --help

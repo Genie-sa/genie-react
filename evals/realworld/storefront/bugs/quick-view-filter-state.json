@@ -1,0 +1,25 @@
+{
+  "id": "quick-view-filter-state",
+  "kind": "bug",
+  "category": "fix",
+  "prompt": "On a category page I expand \"Show all colours\", then click a product to open the quick view. When I close it, the colour list has collapsed again and the page jumped back to the top. The quick view is supposed to sit on top of the grid without disturbing it. Fix it.",
+  "truth": {
+    "components": ["PageTransition", "FilterPanel"],
+    "files": ["components/layout/page-transition.tsx"],
+    "cause": "The shop layout's PageTransition keys its wrapper on usePathname(). Opening the intercepted quick-view route changes the URL to /product/…, so React remounts the whole category subtree under the modal and discards FilterPanel's state (and again on close).",
+    "summary": "Key the transition on the children slot's selected segments (useSelectedLayoutSegments), which do not change while the @modal slot shows the intercepted route."
+  },
+  "referenceFix": [
+    {
+      "file": "components/layout/page-transition.tsx",
+      "find": "import { usePathname } from 'next/navigation'\n",
+      "replace": "import { useSelectedLayoutSegments } from 'next/navigation'\n"
+    },
+    {
+      "file": "components/layout/page-transition.tsx",
+      "find": "  const pathname = usePathname()\n  return (\n    <div key={pathname} className=\"page-transition\">\n",
+      "replace": "  const segments = useSelectedLayoutSegments()\n  return (\n    <div key={segments.join('/')} className=\"page-transition\">\n"
+    }
+  ],
+  "probe": { "module": "probes/quick-view-filter-state.mjs" }
+}

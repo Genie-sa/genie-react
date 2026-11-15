@@ -1,0 +1,18 @@
+{
+  "id": "decoy-status-summary-connect",
+  "kind": "decoy",
+  "category": "decoy",
+  "prompt": "StatusSummary's mapStateToProps returns an object literal. Does it re-render on every action like the other connected components?",
+  "truth": {
+    "components": ["StatusSummary"],
+    "files": ["src/features/issues/status-summary.tsx"],
+    "summary": "connect shallow-compares the object mapStateToProps returns. Its only field comes from a memoised createSelector over the issue list, so the comparison holds."
+  },
+  "flaggedWhen": "Genie reports StatusSummary updates while typing in the issue filter.",
+  "probe": {
+    "script": "probes/decoy-status-summary-connect.mjs"
+  },
+  "genieEvidence": {
+    "notes": "react_get_renders reports no updates for StatusSummary or Connect(StatusSummary)."
+  }
+}

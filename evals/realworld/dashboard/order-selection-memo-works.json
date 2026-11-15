@@ -1,0 +1,17 @@
+{
+  "id": "order-selection-memo-works",
+  "kind": "decoy",
+  "category": "optimise",
+  "symptom": "Selecting an order checkbox re-renders the orders table. Is every row re-rendering?",
+  "truth": {
+    "components": ["OrdersTable", "OrderRow"],
+    "files": ["src/features/orders/orders-table.tsx"],
+    "cause": "Correct: OrdersTable re-renders for the new selection, but each memoised OrderRow receives a boolean selected prop and stable callbacks, so only the toggled row re-renders."
+  },
+  "probe": {
+    "script": "probes/selection-one-row.mjs",
+    "genie": "observable",
+    "evidence": ["react_component_cohort"]
+  },
+  "expectation": "not-flagged"
+}

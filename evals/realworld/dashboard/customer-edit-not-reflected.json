@@ -1,0 +1,23 @@
+{
+  "id": "customer-edit-not-reflected",
+  "kind": "bug",
+  "category": "fix",
+  "symptom": "After editing a customer account and clicking Save, the success toast appears but the customer page still shows the old account name until a full reload.",
+  "truth": {
+    "components": ["useUpdateCustomer", "CustomerEditModal", "CustomerDetailPage"],
+    "files": ["src/features/customers/customer-queries.ts"],
+    "cause": "useUpdateCustomer invalidates ['customers', id], but the detail query key is ['customers', 'detail', id] and list keys are ['customers', 'list', params]; the partial key matches neither, so nothing refetches."
+  },
+  "referenceFix": [
+    {
+      "file": "src/features/customers/customer-queries.ts",
+      "find": "queryClient.invalidateQueries({ queryKey: ['customers', customer.id] })",
+      "replace": "queryClient.invalidateQueries({ queryKey: customerKeys.all })"
+    }
+  ],
+  "probe": {
+    "script": "probes/customer-edit.mjs",
+    "genie": "observable",
+    "evidence": ["query_get", "query_notifications"]
+  }
+}

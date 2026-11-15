@@ -1,0 +1,30 @@
+{
+  "id": "wishlist-card-renders",
+  "kind": "bug",
+  "category": "optimise",
+  "prompt": "Tapping the heart on one product card in a category grid re-renders every card in the grid, even though ProductCard is wrapped in memo. Find out why memo isn't working and fix it.",
+  "truth": {
+    "components": ["ProductCard", "ProductGrid"],
+    "files": ["components/catalog/product-grid.tsx", "components/catalog/product-card.tsx"],
+    "cause": "ProductGrid passes onToggleSaved as an inline arrow (() => wishlist.toggle(product.id)), creating a new function for every card on every grid render, so memo's shallow prop comparison always fails when the wishlist context changes.",
+    "summary": "Pass the stable wishlist.toggle callback and let the card supply its own product id, so only the card whose isSaved changed re-renders."
+  },
+  "referenceFix": [
+    {
+      "file": "components/catalog/product-grid.tsx",
+      "find": "          onToggleSaved={() => wishlist.toggle(product.id)}\n",
+      "replace": "          onToggleSaved={wishlist.toggle}\n"
+    },
+    {
+      "file": "components/catalog/product-card.tsx",
+      "find": "  onToggleSaved: () => void\n",
+      "replace": "  onToggleSaved: (productId: string) => void\n"
+    },
+    {
+      "file": "components/catalog/product-card.tsx",
+      "find": "onToggle={onToggleSaved} />",
+      "replace": "onToggle={() => onToggleSaved(product.id)} />"
+    }
+  ],
+  "probe": { "module": "probes/wishlist-card-renders.mjs" }
+}

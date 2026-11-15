@@ -1,0 +1,25 @@
+{
+  "id": "checkout-quote-effect",
+  "kind": "bug",
+  "category": "optimise",
+  "prompt": "On the Delivery step of checkout, typing in \"Delivery instructions\" makes the delivery options flicker, and the network panel shows a shipping-quote request for every key I press. The address hasn't changed, so quotes shouldn't be refetched. Fix it.",
+  "truth": {
+    "components": ["ShippingOptions", "DeliveryStep"],
+    "files": ["components/checkout/shipping-options.tsx", "components/checkout/delivery-step.tsx"],
+    "cause": "DeliveryStep passes destination as an inline object literal, and ShippingOptions' quote effect depends on that object, so every CheckoutFlow re-render (any keystroke) creates a new identity and re-runs the effect, aborting and re-sending the request.",
+    "summary": "Depend on the primitive fields (country, postalCode) in the effect, or memoise the destination object in the parent."
+  },
+  "referenceFix": [
+    {
+      "file": "components/checkout/shipping-options.tsx",
+      "find": "  const [failed, setFailed] = useState(false)\n\n  useEffect(() => {\n    const controller = new AbortController()\n    const params = new URLSearchParams({\n      country: destination.country,\n      postalCode: destination.postalCode,\n    })\n",
+      "replace": "  const [failed, setFailed] = useState(false)\n  const { country, postalCode } = destination\n\n  useEffect(() => {\n    const controller = new AbortController()\n    const params = new URLSearchParams({ country, postalCode })\n"
+    },
+    {
+      "file": "components/checkout/shipping-options.tsx",
+      "find": "  }, [destination])\n",
+      "replace": "  }, [country, postalCode])\n"
+    }
+  ],
+  "probe": { "module": "probes/checkout-quote-effect.mjs" }
+}

@@ -1,0 +1,48 @@
+{
+  "id": "search-stale-query",
+  "kind": "bug",
+  "category": "fix",
+  "prompt": "Global search in the top bar always shows the same recent issues no matter what I type.",
+  "truth": {
+    "components": ["GlobalSearch"],
+    "files": ["src/layout/global-search.tsx"],
+    "causePatterns": ["closure|stale|captured|useMemo|debounce", "query|dependency|deps|\\[\\]"],
+    "summary": "GlobalSearch builds its debounced search inside useMemo with an empty dependency list. The callback closes over the first render's query (''), so every search sends an empty query."
+  },
+  "referenceAnswer": {
+    "component": "GlobalSearch",
+    "cause": "The debounced callback is created once in useMemo with [] and captures the initial empty query, so every search is sent with ''.",
+    "file": "src/layout/global-search.tsx"
+  },
+  "decoyAnswers": [
+    {
+      "component": "GlobalSearch",
+      "cause": "The search reducer ignores out-of-order responses.",
+      "file": "src/store/search.ts"
+    },
+    {
+      "component": "GlobalSearch",
+      "cause": "The debounce delay is too long.",
+      "file": "src/utils/debounce.ts"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/layout/global-search.tsx",
+      "find": "    () => debounce(() => dispatch(searchIssues(query)), SEARCH_DELAY_MS),\n    [],\n",
+      "replace": "    () => debounce((text: string) => dispatch(searchIssues(text)), SEARCH_DELAY_MS),\n    [dispatch],\n"
+    },
+    {
+      "file": "src/layout/global-search.tsx",
+      "find": "          runSearch()\n",
+      "replace": "          runSearch(event.target.value)\n"
+    }
+  ],
+  "probe": {
+    "script": "probes/search-stale-query.mjs"
+  },
+  "genieEvidence": {
+    "observability": "app-tools-only",
+    "notes": "Genie's React tools cannot show a closure's captured value: react_inspect_component shows the current query state and an opaque debounced function. The timeline request lane strips query strings, so /api/search?q= and /api/search?q=webhook look the same. The probe relies on the app_redux_actions tool, which records the search thunk's argument."
+  }
+}

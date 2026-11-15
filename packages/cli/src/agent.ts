@@ -22,6 +22,7 @@ import {
   INVOKE_GRACE_MS,
 } from './agent-link'
 import { renderBatchItemText } from './batch-output'
+import { resolveCallerIdentity } from './caller-identity'
 import {
   DEFAULT_MAX_BYTES,
   outputFormat,
@@ -60,6 +61,7 @@ import { isRecord, isRecordArray } from './guards'
 import { type CallInvocation, recoverOverflow } from './output-recovery'
 import { setOutputContext } from './output-safety'
 import { genieCommand } from './package-manager'
+import { markPhase } from './phase'
 import {
   FieldSelectionError,
   type Overflow,
@@ -212,16 +214,21 @@ interface Connection {
 }
 
 /** Bridge selection errors (bad --url, ambiguous discovery, invalid GENIE_BRIDGE_PORT) are reported here, so callers only handle a live link. */
-async function openConnection(opts: AgentOptions, operation: string): Promise<Connection | null> {
+async function openConnection(
+  opts: AgentOptions,
+  operation: string,
+  { toolCatalog = false } = {},
+): Promise<Connection | null> {
   try {
-    return await connect(opts)
+    return await connect(opts, toolCatalog)
   } catch (error) {
     await emitCaughtFailure(opts, operation, error, {})
     return null
   }
 }
 
-async function connect(opts: AgentOptions): Promise<Connection> {
+async function connect(opts: AgentOptions, toolCatalog: boolean): Promise<Connection> {
+  markPhase('connect:start')
   const cwd = opts.cwd ?? process.cwd()
   let url: string
   let token: string | undefined
@@ -265,6 +272,7 @@ async function connect(opts: AgentOptions): Promise<Connection> {
       sessionSelection: resolveSession(opts.session) === undefined ? 'current' : 'explicit',
     })
   }
+  markPhase('connect:resolved')
   const link = new GenieAgentLink({
     url,
     token,
@@ -272,8 +280,10 @@ async function connect(opts: AgentOptions): Promise<Connection> {
     // A per-call --timeout still wins per-invoke (timeoutMs + grace); this is the default when none is given.
     invokeTimeoutMs: opts.timeoutMs ? opts.timeoutMs + INVOKE_GRACE_MS : 20_000,
     sessionId: resolveSession(opts.session),
+    caller: resolveCallerIdentity(cwd).id,
     failFastOnRefused: source === 'fallback',
     clientVersion: opts.cliVersion,
+    toolCatalog,
     logger: opts.verbose
       ? (message) =>
           writeDiagnostic(
@@ -630,6 +640,7 @@ export async function runCall(
     })
     const { result } = answered
     reportAnsweringTab(link, answered)
+    reportOtherAgents(answered)
     const operationId = operationIdOf(result)
     if (operationId) setOutputContext({ operation: `call ${tool}`, operationId })
     const rendered = renderResult(
@@ -896,6 +907,7 @@ export async function runBatch(
         })
         const { result, session } = answered
         if (answered.retargeted) reportAnsweringTab(link, answered)
+        reportOtherAgents(answered)
         const operationId = operationIdOf(result)
         setOutputContext({
           operation: `batch ${item.tool}`,
@@ -1060,7 +1072,7 @@ export async function runTools(
   opts: AgentOptions = {},
 ): Promise<number> {
   setOutputContext({ operation: 'tools' })
-  const connection = await openConnection(opts, 'Tool discovery failed.')
+  const connection = await openConnection(opts, 'Tool discovery failed.', { toolCatalog: true })
   if (!connection) return 1
   const { link } = connection
   try {
@@ -1183,6 +1195,23 @@ function emitToolsResult(
 }
 
 /** Raw tool output has no envelope, so with several tabs open, or when the default tab was replaced, the answering tab is reported on stderr. */
+/** Agents read stderr too, so sharing a tab or disturbing another agent's window never goes unnoticed. */
+function reportOtherAgents({ sharedWith, displaced }: AnsweredResult): void {
+  if (displaced) {
+    writeDiagnostic(
+      'window-displaced',
+      `This call replaced or disturbed the ${displaced.resource} of ${displaced.otherCallers} other agent${displaced.otherCallers === 1 ? '' : 's'} on this tab; their dependent reads now fail with OBSERVATION_SUPERSEDED. Use your own tab: open the app with ?_genie=<your-name> and pass --session <your-name>.`,
+      displaced,
+    )
+  } else if (sharedWith) {
+    writeDiagnostic(
+      'session-shared',
+      `${sharedWith} other agent${sharedWith === 1 ? '' : 's'} used this tab recently. Render windows, recordings and overrides are per tab, so Genie fails reads another agent disturbed; use your own tab to avoid that.`,
+      { otherCallers: sharedWith },
+    )
+  }
+}
+
 function reportAnsweringTab(link: GenieAgentLink, { session, retargeted }: AnsweredResult): void {
   const answering = safeAnsweringSession(session)
   if (!answering) return
@@ -1238,23 +1267,36 @@ function waitForTools(
     link.onStatus = (status) => {
       if (settled(status)) finish(status)
     }
-    // Nudge the bridge to surface a connected app (and rebroadcast its catalog).
-    void link.invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs }).catch((error) => {
-      if (!(error instanceof BridgeRejectedError || error instanceof BridgeUnreachableError)) return
-      for (const timer of timers) clearTimeout(timer)
-      link.onStatus = null
-      reject(error)
-    })
+    // A greeting that already carries the catalog settles the wait; otherwise nudge the bridge to surface a connected app and rebroadcast it.
+    void link
+      .connected()
+      .then((greeting) =>
+        settled(greeting)
+          ? undefined
+          : link.invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs }),
+      )
+      .catch((error) => {
+        if (!(error instanceof BridgeRejectedError || error instanceof BridgeUnreachableError))
+          return
+        for (const timer of timers) clearTimeout(timer)
+        link.onStatus = null
+        reject(error)
+      })
   })
 }
 
-/** Bridge-global wait (sessionId: null) so a stale --session fails fast on the real call instead of stalling here; its own timeout tracks --wait so a small --timeout can't truncate the connect window. */
+/** Bridge-global wait (sessionId: null) so a stale --session fails fast on the real call instead of stalling here; its own timeout tracks --wait so a small --timeout can't truncate the connect window. A greeting that already reports the default tab ready answers the wait without a round trip. */
 async function waitForApp(link: GenieAgentLink, opts: AgentOptions): Promise<boolean> {
   const waitMs = opts.waitMs ?? 15_000
   const ready = await link
-    .invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs: waitMs }, null, {
-      timeoutMs: waitMs,
-    })
+    .connected()
+    .then((greeting) =>
+      greeting.connected && greeting.ready
+        ? { ok: true }
+        : link.invoke(devtoolsWaitContract, { condition: 'ready', timeoutMs: waitMs }, null, {
+            timeoutMs: waitMs,
+          }),
+    )
     .catch(nullUnlessTerminal)
   if (ready?.ok) return true
   emitFailure(

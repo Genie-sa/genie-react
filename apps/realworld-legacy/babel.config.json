@@ -1,0 +1,12 @@
+{
+  "presets": [
+    ["@babel/preset-env", { "targets": "defaults", "bugfixes": true }],
+    ["@babel/preset-react", { "runtime": "automatic" }],
+    "@babel/preset-typescript"
+  ],
+  "env": {
+    "development": {
+      "presets": [["@babel/preset-react", { "runtime": "automatic", "development": true }]]
+    }
+  }
+}

@@ -683,6 +683,71 @@ describe('runInit — agent skill locations', () => {
     )
   })
 
+  const BIN = 'node_modules/.bin/genie-react'
+
+  it.each([
+    ['an app with its own binary', 'pnpm-lock.yaml', '', [BIN], BIN],
+    [
+      'an app in a workspace that hoists the binary',
+      'package-lock.json',
+      'apps/web/',
+      [BIN],
+      `../../${BIN}`,
+    ],
+    [
+      'an app with its own and a hoisted binary',
+      'bun.lock',
+      'apps/web/',
+      [BIN, `apps/web/${BIN}`],
+      BIN,
+    ],
+    ['a binary outside the project', 'yarn.lock', 'apps/web/', [], 'yarn genie-react'],
+  ])(
+    'skill commands call the installed binary for %s',
+    async (_, lockfile, app, bins, invocation) => {
+      const outer = await mkdtemp(join(root, 'outer-'))
+      await mkdir(join(outer, 'node_modules/.bin'), { recursive: true })
+      await writeFile(join(outer, BIN), '#!/bin/sh\n')
+      const workspace = join(outer, 'workspace')
+      const files = Object.fromEntries(
+        Object.entries(VITE_APP).map(([name, body]) => [`${app}${name}`, body]),
+      )
+      for (const [name, body] of Object.entries({ ...files, [lockfile]: '' })) {
+        await mkdir(dirname(join(workspace, name)), { recursive: true })
+        await writeFile(join(workspace, name), body)
+      }
+      for (const bin of bins) {
+        await mkdir(dirname(join(workspace, bin)), { recursive: true })
+        await writeFile(join(workspace, bin), '#!/bin/sh\n')
+      }
+      const dir = join(workspace, app)
+
+      runInit({ cwd: dir, logger: silent })
+
+      const installed = await readFile(join(dir, '.agents/skills/genie/SKILL.md'), 'utf8')
+      expect(installed).toContain(`\n${invocation} tools --session my-agent\n`)
+      expect(installed).not.toContain('npx genie-react')
+      const doctor = runDoctor({ cwd: dir, logger: silent })
+      expect(doctor.skill.current).toBe(true)
+      await rm(join(dir, '.claude'), { recursive: true })
+      expect(runDoctor({ cwd: dir, logger: silent }).remediation.join('\n')).not.toContain(BIN)
+    },
+  )
+
+  it('keeps the exec command on Windows, where shells cannot run a .bin path as written', async () => {
+    const dir = await project({ ...VITE_APP, 'pnpm-lock.yaml': '', [BIN]: '#!/bin/sh\n' })
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    try {
+      runInit({ cwd: dir, logger: silent })
+    } finally {
+      if (platform) Object.defineProperty(process, 'platform', platform)
+    }
+
+    const installed = await readFile(join(dir, '.agents/skills/genie/SKILL.md'), 'utf8')
+    expect(installed).toContain('\npnpm exec genie-react tools --session my-agent\n')
+  })
+
   it.each([
     [
       'a foreign skill directory',

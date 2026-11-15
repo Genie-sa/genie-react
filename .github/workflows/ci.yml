@@ -34,6 +34,9 @@ jobs:
       - name: Verify JSON CLI transcripts
         run: node scripts/check-cli-json.mjs
 
+      - name: Guard CLI startup cost
+        run: node scripts/check-cli-startup.mjs
+
       - name: Typecheck Expo integration
         run: pnpm --filter @genie-react/expo-demo typecheck
 
@@ -92,6 +95,34 @@ jobs:
 
       - name: Run ${{ matrix.app }} against the built CLI and runtime
         run: node scripts/check-apps-e2e.mjs --app ${{ matrix.app }}
+
+  runtime-overhead:
+    name: Runtime overhead guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build runtime
+        run: pnpm --filter genie-react build
+
+      - name: Guard runtime overhead against a no-Genie baseline
+        run: node scripts/benchmark-runtime-overhead.mjs --guard --output "$RUNNER_TEMP/runtime-overhead.json"
+
+      - name: Upload measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-overhead
+          path: ${{ runner.temp }}/runtime-overhead.json
+          if-no-files-found: ignore
 
   compatibility:
     name: Compatibility · ${{ matrix.profile }} · Node ${{ matrix.node }}

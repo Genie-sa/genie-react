@@ -1,7 +1,9 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { WebSocket } from 'ws'
 import {
+  AGENT_TOOLS_QUERY_PARAM,
   type AgentErrorCode,
   type AgentMessage,
   type AgentToolContract,
@@ -11,11 +13,13 @@ import {
   appMessageSchema,
   type BusyTelemetry,
   type ConnectionRole,
+  callerIdSchema,
   DEFAULT_REQUEST_TIMEOUT_MS,
   decodeFrame,
   devtoolsStatusContract,
   devtoolsWaitContract,
   encodeMessage,
+  GENIE_CALLER_HEADER,
   GENIE_PROTOCOL_VERSION,
   GENIE_REACT_VERSION,
   GENIE_WS_PATH,
@@ -23,6 +27,7 @@ import {
   type HubInfo,
   metaToolDescriptors,
   newId,
+  type OwnershipResource,
   type PendingReactWork,
   reactPendingWorkContract,
   reactQuiesceContract,
@@ -42,6 +47,8 @@ import {
   type InteractionSettleResult,
   isInteractionTool,
 } from './interaction-manager'
+import { OwnershipGuard } from './ownership-guard'
+import { ANONYMOUS_CALLER, OwnershipLedger } from './ownership-ledger'
 import {
   answeringSessionOf,
   type RoutableDocument,
@@ -153,6 +160,11 @@ interface AppResponse {
   retargeted?: boolean
 }
 
+type ResultExtra = Omit<AppResponse, 'ok' | 'result' | 'error' | 'session'> & {
+  session?: RoutableDocument | null
+  displaced?: { resource: OwnershipResource; otherCallers: number }
+}
+
 interface PendingRequest {
   settle: (response: AppResponse) => void
   timer: ReturnType<typeof setTimeout>
@@ -193,6 +205,7 @@ const TARGET_RELOAD_GRACE_MS = 5_000
 const TOOL_REREGISTRATION_POLL_MS = 50
 // One ~1s app heartbeat plus jitter: an older document quieter than this is frozen or unloading, not a live duplicate.
 const SUPERSEDE_SILENCE_MS = 1_500
+const MAX_CALLER_DEFAULTS = 256
 
 interface WaitInput {
   condition: WaitCondition
@@ -253,6 +266,10 @@ function legacyQueryMatches(query: Record<string, unknown>, name: string): boole
 }
 
 /** A session's full catalog: its advertised tools plus the bridge-answered meta tools, so listings and toolCount agree. */
+function statusFrame(status: BridgeStatus, withTools: boolean) {
+  return { kind: 'bridge/status' as const, ...status, ...(withTools ? {} : { tools: [] }) }
+}
+
 function catalogOf(session: AppSession | null | undefined): ToolDescriptor[] {
   return [...(session?.tools ?? []), ...metaToolDescriptors]
 }
@@ -279,6 +296,7 @@ function unrefTimer(timer: ReturnType<typeof setInterval>): void {
 export class GenieBridge {
   private readonly wss = new ws.WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES })
   private readonly agents = new Set<WebSocket>()
+  private readonly agentsWithoutTools = new WeakSet<WebSocket>()
   private readonly pending = new Map<string, PendingRequest>()
   private readonly connectionWaiters = new Set<() => void>()
   private readonly requestTimeoutMs: number
@@ -313,10 +331,16 @@ export class GenieBridge {
     WebSocket,
     Pick<SessionSummary, 'origin' | 'originUnverified'>
   >()
-  /** Tab key untargeted calls stick to, so opening another tab never silently retargets them. */
-  private defaultTabKey: string | null = null
-  /** Pending while the default tab's last document is gone but may still reconnect from a reload. */
-  private defaultTabReload: DefaultTabReload | null = null
+  /** Per caller, the tab key its untargeted calls stick to, so opening another tab, or another agent's first call, never silently retargets them. */
+  private readonly defaultTabs = new Map<string, string>()
+  /** Per tab key, pending while a default tab's last document is gone but may still reconnect from a reload. */
+  private readonly tabReloads = new Map<string, DefaultTabReload>()
+  /** The caller of the agent call being handled, carried across the awaits of routing and the hub's own tools. */
+  private readonly callerScope = new AsyncLocalStorage<string>()
+  /** The caller an agent connection named at upgrade; a call's own `caller` overrides it. */
+  private readonly agentCallers = new WeakMap<WebSocket, string>()
+  private readonly ownership = new OwnershipLedger()
+  private readonly guard: OwnershipGuard<AppSession>
   /** Tab key → the tools its last document advertised, kept for the reload grace: a reloaded document says hello before its app collectors register their tools again. */
   private readonly reloadedTabTools = new Map<
     string,
@@ -356,6 +380,9 @@ export class GenieBridge {
       settle: (session, domains, quietMs, timeoutMs) =>
         this.settleInteraction(session, domains, quietMs, timeoutMs),
     })
+    this.guard = new OwnershipGuard<AppSession>(this.ownership, (session, tool, args) =>
+      this.appRequestForSession(tool, args, session),
+    )
     const interval = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
     this.heartbeat = setInterval(() => this.sweepDeadConnections(), interval)
     unrefTimer(this.heartbeat)
@@ -373,14 +400,20 @@ export class GenieBridge {
 
   /** Returns `false` for non-{@link GENIE_WS_PATH} upgrades so another listener (e.g. Vite HMR) can handle them. */
   handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): boolean {
-    if (new URL(request.url ?? '/', 'http://localhost').pathname !== GENIE_WS_PATH) return false
+    const url = new URL(request.url ?? '/', 'http://localhost')
+    if (url.pathname !== GENIE_WS_PATH) return false
     const verdict = this.upgradePolicy.authorize(request)
     if (!verdict.ok) {
       this.log('warn', `rejected connection: ${verdict.reason}`)
       rejectUpgrade(socket, verdict.status, verdict.reason)
       return true
     }
-    this.wss.handleUpgrade(request, socket, head, (ws) => this.onConnection(ws, verdict))
+    const withTools = url.searchParams.get(AGENT_TOOLS_QUERY_PARAM) !== 'none'
+    const caller = callerIdSchema.safeParse(request.headers[GENIE_CALLER_HEADER])
+    this.wss.handleUpgrade(request, socket, head, (ws) => {
+      if (caller.success && verdict.role === 'agent') this.agentCallers.set(ws, caller.data)
+      this.onConnection(ws, verdict, withTools)
+    })
     return true
   }
 
@@ -408,7 +441,10 @@ export class GenieBridge {
     for (const timer of this.logicalCollisionTimers.values()) clearTimeout(timer)
     this.logicalCollisionTimers.clear()
     this.generationRaces.clear()
-    this.clearDefaultTabReload()
+    for (const reload of this.tabReloads.values()) clearTimeout(reload.timer)
+    this.tabReloads.clear()
+    this.defaultTabs.clear()
+    this.ownership.clear()
     this.captures.clear()
     this.interactions.clear()
     // terminate(), not close(): a graceful close handshake with a half-open peer blocks shutdown on ws's 30s timeout.
@@ -440,8 +476,32 @@ export class GenieBridge {
     return tabs
   }
 
-  /** Resolves an explicit target, or the default tab; `pin` makes an unambiguous default sticky for later untargeted calls. */
+  private currentCaller(): string {
+    return this.callerScope.getStore() ?? ANONYMOUS_CALLER
+  }
+
+  private get defaultTabKey(): string | null {
+    return this.defaultTabs.get(this.currentCaller()) ?? null
+  }
+
+  private get defaultTabReload(): DefaultTabReload | null {
+    const key = this.defaultTabKey
+    return key === null ? null : (this.tabReloads.get(key) ?? null)
+  }
+
+  /** Resolves an explicit target, or the caller's default tab; `pin` makes an unambiguous default sticky for later untargeted calls and records that the caller uses the tab. */
   private resolveTarget(target?: string, pin = true): SessionResolution<AppSession> {
+    const resolution = this.resolveTargetFor(target, pin)
+    if (pin && resolution.ok && !resolution.standIn) {
+      this.ownership.recordTabUse(tabKeyOf(resolution.session), this.currentCaller())
+    }
+    return resolution
+  }
+
+  private resolveTargetFor(
+    target: string | undefined,
+    pin: boolean,
+  ): SessionResolution<AppSession> {
     if (target) {
       const session = this.resolveSession(target)
       return session ? { ok: true, session } : { ok: false, ...this.unknownSession(target) }
@@ -449,7 +509,9 @@ export class GenieBridge {
     const tabs = this.tabDocuments()
     const pinned = this.defaultTabKey === null ? undefined : tabs.get(this.defaultTabKey)
     if (this.defaultTabKey !== null && pinned) return this.tabDocument(this.defaultTabKey, pinned)
-    const live = [...tabs]
+    const caller = this.currentCaller()
+    const live = [...tabs].filter(([key]) => !this.ownership.isClaimedByOthers(key, caller))
+    if (live.length === 0 && tabs.size > 0) return this.claimedTabs(tabs, caller)
     const fresh = live.filter(([, documents]) =>
       documents.some((session) => this.staleMsOf(session) === null),
     )
@@ -489,15 +551,42 @@ export class GenieBridge {
     // A tab that connected after the default left replaces it (a Metro reload, a fresh tab); one already open only answers while the default may still reconnect.
     const replacement =
       !reload || documents.every((document) => document.connectedAt >= reload.since)
-    if (pin && replacement) {
-      this.defaultTabKey = key
-      this.clearDefaultTabReload()
-    }
+    if (pin && replacement) this.pinDefaultTab(caller, key)
     const resolution = this.tabDocument(key, documents)
     if (!resolution.ok || !retargeted) return resolution
     return pin && replacement
       ? { ...resolution, retargeted }
       : { ...resolution, retargeted, standIn: true }
+  }
+
+  private pinDefaultTab(caller: string, key: string): void {
+    this.defaultTabs.delete(caller)
+    this.defaultTabs.set(caller, key)
+    while (this.defaultTabs.size > MAX_CALLER_DEFAULTS) {
+      const oldest = this.defaultTabs.keys().next().value as string | undefined
+      if (oldest === undefined) break
+      this.defaultTabs.delete(oldest)
+    }
+  }
+
+  /** Untargeted calls never land on a tab another agent is using; sharing one takes an explicit target. */
+  private claimedTabs(
+    tabs: Map<string, AppSession[]>,
+    caller: string,
+  ): SessionResolution<AppSession> {
+    const labels = [...tabs.values()].map((documents) => documents.map(tabLabel).join(' / '))
+    const otherCallers = Math.max(
+      ...[...tabs.keys()].map((key) => this.ownership.otherTabUsers(key, caller)),
+    )
+    return {
+      ok: false,
+      errorCode: 'unknown-session',
+      errorDetails: {
+        hubCode: 'SESSION_CLAIMED',
+        ownership: { resource: 'tab', cause: 'claimed', otherCallers },
+      },
+      error: `Every connected app tab is in use by another agent: ${labels.join('; ')}. Open your own tab with ?_genie=<your-name> in the URL and pass --session <your-name>, or pass --session <target> to share one of these tabs deliberately.`,
+    }
   }
 
   private tabDocument(key: string, documents: AppSession[]): SessionResolution<AppSession> {
@@ -592,9 +681,10 @@ export class GenieBridge {
   private hasReadySession(sessionId?: string): boolean {
     const resolution = this.resolveTarget(sessionId, false)
     if (resolution.ok) return resolution.session.readyAt !== undefined
-    // An ambiguous target is reported by the call that needs one, so readiness waits must not stall on it.
+    // An ambiguous or claimed default is reported by the call that needs one, so readiness waits must not stall on it.
+    const hubCode = resolution.errorDetails?.hubCode
     return (
-      resolution.errorDetails?.hubCode === 'SESSION_AMBIGUOUS' &&
+      (hubCode === 'SESSION_AMBIGUOUS' || hubCode === 'SESSION_CLAIMED') &&
       [...this.apps.values()].some((session) => session.readyAt !== undefined)
     )
   }
@@ -672,6 +762,7 @@ export class GenieBridge {
   private onConnection(
     socket: WebSocket,
     { role, origin, originUnverified }: Extract<UpgradeVerdict, { ok: true }>,
+    withTools: boolean,
   ): void {
     const connection: Connection = { socket, role }
     if (origin !== undefined) {
@@ -679,7 +770,7 @@ export class GenieBridge {
     }
     this.connections.add(socket)
     this.responsiveSockets.add(socket)
-    if (role === 'agent') this.registerAgent(socket)
+    if (role === 'agent') this.registerAgent(socket, withTools)
     socket.on('message', (data) => this.onMessage(connection, data.toString()))
     socket.on('pong', () => this.responsiveSockets.add(socket))
     socket.on('close', () => this.onClose(connection))
@@ -717,9 +808,19 @@ export class GenieBridge {
     }
   }
 
-  private registerAgent(socket: WebSocket): void {
+  private registerAgent(socket: WebSocket, withTools: boolean): void {
     this.agents.add(socket)
-    this.send(socket, { kind: 'bridge/status', ...this.getStatus() })
+    if (!withTools) this.agentsWithoutTools.add(socket)
+    this.send(socket, statusFrame(this.statusFor(this.callerOf(socket)), withTools))
+  }
+
+  private callerOf(agent: WebSocket): string {
+    return this.agentCallers.get(agent) ?? ANONYMOUS_CALLER
+  }
+
+  /** The status a caller sees: its own default tab, and the tabs it may use. */
+  private statusFor(caller: string): BridgeStatus {
+    return this.callerScope.run(caller, () => this.getStatus())
   }
 
   private handleAppMessage(socket: WebSocket, message: AppMessage): void {
@@ -877,7 +978,7 @@ export class GenieBridge {
     } else {
       this.scheduleLogicalCollision(registered)
     }
-    if (this.defaultTabKey === tabKeyOf(registered)) this.clearDefaultTabReload()
+    this.clearTabReload(tabKeyOf(registered))
     this.notifyConnectionWaiters()
     this.broadcastStatus()
   }
@@ -886,6 +987,7 @@ export class GenieBridge {
   private supersede(document: AppSession, successor: AppSession): void {
     this.rememberTabTools(document)
     this.apps.delete(document.sessionId)
+    this.ownership.forgetDocument(document.sessionId)
     this.clearCollisionTimer(document.sessionId)
     document.successorSessionId = successor.sessionId
     successor.predecessorSessionId ??= document.sessionId
@@ -1090,24 +1192,28 @@ export class GenieBridge {
         this.send(socket, { kind: 'bridge/pong', id: message.id })
         return
       case 'agent/invoke':
-        this.handleInvoke(
-          socket,
-          message.id,
-          message.tool,
-          message.args,
-          message.sessionId,
-          message.timeoutMs,
-        ).catch((error: unknown) => {
-          this.log('error', `${message.tool} failed inside the hub`, error)
-          this.result(
-            socket,
-            message.id,
-            false,
-            undefined,
-            `${message.tool} failed inside the Genie hub: ${error instanceof Error ? error.message : String(error)}`,
-            { errorCode: 'tool-error' },
+        this.callerScope
+          .run(message.caller ?? this.callerOf(socket), () =>
+            this.handleInvoke(
+              socket,
+              message.id,
+              message.tool,
+              message.args,
+              message.sessionId,
+              message.timeoutMs,
+            ),
           )
-        })
+          .catch((error: unknown) => {
+            this.log('error', `${message.tool} failed inside the hub`, error)
+            this.result(
+              socket,
+              message.id,
+              false,
+              undefined,
+              `${message.tool} failed inside the Genie hub: ${error instanceof Error ? error.message : String(error)}`,
+              { errorCode: 'tool-error' },
+            )
+          })
         return
     }
   }
@@ -1156,11 +1262,23 @@ export class GenieBridge {
     }
 
     if (isCaptureTool(tool) || isInteractionTool(tool)) {
+      if (await this.refusedByOwnership(agent, id, tool, args, sessionId)) return
       const response = isCaptureTool(tool)
         ? await this.captures.invoke(tool, args, sessionId)
         : await this.interactions.invoke(tool, args, sessionId)
+      const outcome = response.session
+        ? this.guard.settle(response.session, this.currentCaller(), tool, args, response)
+        : {}
+      if (outcome.failure) {
+        const { ok: _, error, ...extra } = outcome.failure
+        this.result(agent, id, false, undefined, error, { ...extra, session: response.session })
+        return
+      }
       if (response.ok) {
-        this.result(agent, id, true, response.result, undefined, { session: response.session })
+        this.result(agent, id, true, response.result, undefined, {
+          session: response.session,
+          displaced: outcome.displaced,
+        })
         return
       }
       const { ok: _, error, ...extra } = response
@@ -1178,7 +1296,23 @@ export class GenieBridge {
       return
     }
 
-    this.forwardToApp(agent, id, tool, args, sessionId, timeoutMs)
+    await this.forwardToApp(agent, id, tool, args, sessionId, timeoutMs)
+  }
+
+  /** Answers the call with the ownership conflict that must stop it, if any; the target is peeked, so a refusal never pins a default tab. */
+  private async refusedByOwnership(
+    agent: WebSocket,
+    id: string,
+    tool: string,
+    args: unknown,
+    sessionId?: string,
+  ): Promise<boolean> {
+    const target = this.peekTarget(sessionId)
+    const refusal = target && (await this.guard.admit(target, this.currentCaller(), tool, args))
+    if (!refusal) return false
+    const { ok: _, error, ...extra } = refusal
+    this.result(agent, id, false, undefined, error, { ...extra, session: target })
+    return true
   }
 
   private async handleQuiesce(
@@ -1722,23 +1856,36 @@ export class GenieBridge {
     }
   }
 
-  private forwardToApp(
+  private async forwardToApp(
     agent: WebSocket,
     id: string,
     tool: string,
     args: unknown,
     sessionId?: string,
     timeoutMs?: number,
-  ): void {
-    // Agents choose their own ids, so a colliding in-flight id gets a hub-minted one to keep two agents' replies apart.
-    this.sendAppRequest(
-      this.pending.has(id) ? newId() : id,
-      tool,
-      args,
-      ({ ok, result, error, ...extra }) => this.result(agent, id, ok, result, error, extra),
-      sessionId,
-      timeoutMs,
+  ): Promise<void> {
+    if (await this.refusedByOwnership(agent, id, tool, args, sessionId)) return
+    const response = await new Promise<AppResponse>((resolve) =>
+      // Agents choose their own ids, so a colliding in-flight id gets a hub-minted one to keep two agents' replies apart.
+      this.sendAppRequest(
+        this.pending.has(id) ? newId() : id,
+        tool,
+        args,
+        resolve,
+        sessionId,
+        timeoutMs,
+      ),
     )
+    const outcome = response.session
+      ? this.guard.settle(response.session, this.currentCaller(), tool, args, response)
+      : {}
+    if (outcome.failure) {
+      const { ok: _, error, ...extra } = outcome.failure
+      this.result(agent, id, false, undefined, error, { ...extra, session: response.session })
+      return
+    }
+    const { ok, result, error, ...extra } = response
+    this.result(agent, id, ok, result, error, { ...extra, displaced: outcome.displaced })
   }
 
   private appRequestForSession(
@@ -2030,8 +2177,10 @@ export class GenieBridge {
       this.promoteLogicalSuccessor(session)
       this.log('info', `app disconnected: ${session.app.name ?? session.sessionId}`)
       this.failPendingForSession(session.sessionId, 'SESSION_DISCONNECTED')
-      if (this.defaultTabKey === tabKeyOf(session) && !this.tabDocuments().has(this.defaultTabKey))
-        this.holdDefaultTabForReload()
+      this.ownership.forgetDocument(session.sessionId)
+      const tabKey = tabKeyOf(session)
+      if ([...this.defaultTabs.values()].includes(tabKey) && !this.tabDocuments().has(tabKey))
+        this.holdTabForReload(tabKey)
       this.broadcastStatus()
       return
     }
@@ -2057,25 +2206,37 @@ export class GenieBridge {
   }
 
   /** Keeps untargeted calls on a reloading tab instead of letting another tab take over; waiters re-check once the grace lapses. */
-  private holdDefaultTabForReload(): void {
-    this.clearDefaultTabReload()
+  private holdTabForReload(tabKey: string): void {
+    this.clearTabReload(tabKey)
     const timer = setTimeout(() => {
-      this.defaultTabReload = null
+      this.tabReloads.delete(tabKey)
       this.notifyConnectionWaiters()
     }, this.targetReloadGraceMs)
     unrefTimer(timer)
-    this.defaultTabReload = { timer, since: Date.now() }
+    this.tabReloads.set(tabKey, { timer, since: Date.now() })
   }
 
-  private clearDefaultTabReload(): void {
-    if (this.defaultTabReload) clearTimeout(this.defaultTabReload.timer)
-    this.defaultTabReload = null
+  private clearTabReload(tabKey: string): void {
+    const reload = this.tabReloads.get(tabKey)
+    if (reload) clearTimeout(reload.timer)
+    this.tabReloads.delete(tabKey)
   }
 
   private broadcastStatus(): void {
     if (this.agents.size === 0) return
-    const frame = encodeMessage({ kind: 'bridge/status', ...this.getStatus() })
-    for (const agent of this.agents) if (agent.readyState === ws.WebSocket.OPEN) agent.send(frame)
+    const frames = new Map<string, string>()
+    for (const agent of this.agents) {
+      if (agent.readyState !== ws.WebSocket.OPEN) continue
+      const caller = this.callerOf(agent)
+      const withTools = !this.agentsWithoutTools.has(agent)
+      const key = `${withTools ? 'catalog' : 'lean'}:${caller}`
+      let frame = frames.get(key)
+      if (frame === undefined) {
+        frame = encodeMessage(statusFrame(this.statusFor(caller), withTools))
+        frames.set(key, frame)
+      }
+      agent.send(frame)
+    }
   }
 
   private result(
@@ -2084,10 +2245,11 @@ export class GenieBridge {
     ok: boolean,
     result?: unknown,
     error?: string,
-    extra?: Omit<AppResponse, 'ok' | 'result' | 'error' | 'session'> & {
-      session?: RoutableDocument | null
-    },
+    extra?: ResultExtra,
   ): void {
+    const sharedWith = extra?.session
+      ? this.ownership.otherTabUsers(tabKeyOf(extra.session), this.currentCaller())
+      : 0
     this.send(agent, {
       kind: 'bridge/result',
       id,
@@ -2100,6 +2262,8 @@ export class GenieBridge {
       busyTelemetry: extra?.busyTelemetry,
       session: extra?.session ? answeringSessionOf(extra.session) : undefined,
       retargeted: extra?.retargeted,
+      ...(sharedWith > 0 ? { sharedWith } : {}),
+      ...(extra?.displaced ? { displaced: extra.displaced } : {}),
     })
   }
 

@@ -1,0 +1,18 @@
+{
+  "id": "query-observer-effects-rerun",
+  "kind": "decoy",
+  "category": "optimise",
+  "symptom": "Opening the edit modal on a customer page re-runs an effect in CustomerDetailPage. Is an effect firing on every render?",
+  "truth": {
+    "components": ["CustomerDetailPage"],
+    "files": ["src/features/customers/customer-detail-page.tsx"],
+    "cause": "Not an app bug: the only app effect in CustomerDetailPage (pushRecent) has unchanged dependencies and does not re-run. The effect that re-runs is TanStack Query's internal useBaseQuery setOptions effect inside useSuspenseQuery, which runs after every render by design."
+  },
+  "probe": {
+    "script": "probes/query-observer-effects.mjs",
+    "genie": "observable",
+    "evidence": ["react_effect_timeline"]
+  },
+  "expectation": "known-false-positive",
+  "finding": "F10"
+}
