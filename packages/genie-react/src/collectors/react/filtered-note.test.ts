@@ -138,6 +138,7 @@ describe('getRendersReport filteredNote count', () => {
       }
       const cold = await getRendersMeasurement({ sort: 'renders', limit: 200, appOnly: true })
       expect(cold.sourceClassification).toEqual({
+        affects: 'result',
         complete: false,
         totalCandidates: 241,
         evaluated: 120,
@@ -152,6 +153,7 @@ describe('getRendersReport filteredNote count', () => {
       await vi.runAllTimersAsync()
       const warm = await getRendersMeasurement({ sort: 'renders', limit: 200, appOnly: true })
       expect(warm.sourceClassification).toEqual({
+        affects: 'result',
         complete: true,
         totalCandidates: 241,
         evaluated: 241,
@@ -176,6 +178,7 @@ describe('getRendersReport filteredNote count', () => {
 
     const missing = await getRendersMeasurement({ sort: 'renders', limit: 50, appOnly: true })
     expect(missing.sourceClassification).toEqual({
+      affects: 'result',
       complete: false,
       totalCandidates: 3,
       evaluated: 3,
@@ -190,6 +193,7 @@ describe('getRendersReport filteredNote count', () => {
       component: 'UnknownOwner',
     })
     expect(selected.sourceClassification).toEqual({
+      affects: 'ownership-labels',
       complete: false,
       totalCandidates: 1,
       evaluated: 1,
@@ -200,6 +204,7 @@ describe('getRendersReport filteredNote count', () => {
     withOwnSource(unknown, at('/src/Recovered.tsx'))
     const recovered = await getRendersMeasurement({ sort: 'renders', limit: 50, appOnly: true })
     expect(recovered.sourceClassification).toEqual({
+      affects: 'result',
       complete: true,
       totalCandidates: 3,
       evaluated: 3,

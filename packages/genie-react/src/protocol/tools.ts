@@ -277,7 +277,7 @@ export const captureReadSummarySchema = captureSummarySchema.extend({
       notComparableReasons: z.array(z.string()),
       coverage: z.object({
         complete: z.boolean(),
-        semantics: z.enum(['exact', 'lower-bound']).nullable(),
+        semantics: z.enum(['exact', 'lower-bound', 'unknown']).nullable(),
       }),
     })
     .nullable()

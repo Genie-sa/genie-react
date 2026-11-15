@@ -11,9 +11,10 @@
 
 - `necessity: necessary` means the render's subtree wrote to the DOM; `unnecessary` means its inputs were provably equal or it wrote nothing. `necessityReason` `callbacks-changed` or `effects-scheduled` means new closures Genie cannot compare: check behaviour before skipping that render.
 - A `parent` cause names the tree parent; `origin` names the ancestor whose own update started the cascade, which is usually where the fix goes. A wrapper (`Connect(Inner)`, `memo(forwardRef())`) carries the inner component's causes in `wraps`.
+- A class state cause (`this.state.draft`) or a `forceUpdate` render carries `classUpdates`: each call it applied, with its `fields` and `caller`. `phase: "lifecycle"` names the method exactly, such as `componentDidUpdate`; `event` and `react-work` are inferred, and `callback` (a timer, promise or subscription) is unknown, so read `caller`.
 - An `external-store` cause appears only when the subscription fired; `changedFields` names what changed and `storeId` is shared by every subscriber of one store. Context causes share `contextId`.
 - A `component` argument matches one exact display name. `exact:false` matches substrings and can mix components, so read `componentMatch`.
-- Ownership comes from a component's own code, so a library provider written in your file is `library`. `appOnly:true` hides only known library code; `unknown` stays visible, and `filteredNote` counts what was hidden.
+- Ownership comes from a component's own code, so a library provider written in your file is `library`. `appOnly:true` hides only known library code; `unknown` stays visible, and `filteredNote` counts what was hidden. While ownership is unresolved, coverage is incomplete (`source-classification-incomplete`); `sourceClassification.affects` says whether that changes the rows (`result`) or only their labels. `appOnly:false` gives counts that do not depend on ownership.
 
 ## Effects, data and errors
 

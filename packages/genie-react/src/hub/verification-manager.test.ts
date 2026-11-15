@@ -17,6 +17,7 @@ import {
   type VerifyClaimResult,
   verificationSchema,
 } from '../protocol'
+import { MAXIMUM_RENDER_OBSERVATION_BUDGET } from '../protocol/react-observation-schema'
 import { loadReact18 } from '../test-support/react-18'
 import { act, byText, click, mount, unmountAll } from '../test-support/react-app'
 import { type VerifyHarnessOptions, verifyHarness } from '../test-support/verify-harness'
@@ -687,4 +688,51 @@ describe('verify on a page that mixes React builds', () => {
       ['refused', 'coverage_incomplete'],
     ])
   })
+})
+
+describe('verify on a tree with more matching instances than one render report keeps', () => {
+  const CELLS = 5_100
+
+  function Cell({ value }: { value: number }): ReactNode {
+    return createElement('td', null, value)
+  }
+
+  function Grid(): ReactNode {
+    const [tick, setTick] = useState(0)
+    return createElement(
+      'div',
+      null,
+      createElement('button', { type: 'button', onClick: () => setTick(tick + 1) }, 'tick'),
+      createElement(
+        'table',
+        null,
+        createElement(
+          'tbody',
+          null,
+          createElement(
+            'tr',
+            null,
+            Array.from({ length: CELLS }, (_, index) =>
+              createElement(Cell, { key: index, value: index + tick }),
+            ),
+          ),
+        ),
+      ),
+    )
+  }
+
+  it('refuses a max claim it could read only one page of instead of passing on that page', async () => {
+    const app = await mount(createElement(Grid))
+    start()
+    const began = await begin(
+      [{ kind: 'renders', target: { component: 'Cell' }, max: CELLS - 100 }],
+      { budget: MAXIMUM_RENDER_OBSERVATION_BUDGET },
+    )
+    await click(byText(app.container, 'tick'))
+    const verdict = await end(began.verificationId)
+
+    expect(verdict.claims.map((claim) => [claim.verdict, claim.refusal?.reason])).toEqual([
+      ['refused', 'evidence_truncated'],
+    ])
+  }, 20_000)
 })

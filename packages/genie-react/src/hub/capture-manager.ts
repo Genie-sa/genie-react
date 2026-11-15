@@ -547,7 +547,10 @@ function renderEvidence(sections: CaptureArtifact['sections']): CaptureReadSumma
       : [],
     coverage: {
       complete: coverage?.complete === true,
-      semantics: semantics === 'exact' || semantics === 'lower-bound' ? semantics : null,
+      semantics:
+        semantics === 'exact' || semantics === 'lower-bound' || semantics === 'unknown'
+          ? semantics
+          : null,
     },
   }
 }

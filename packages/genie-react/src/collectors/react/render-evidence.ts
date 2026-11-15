@@ -1,4 +1,5 @@
 import type { Fiber } from 'bippy'
+import { withResolvedCallers } from './class-updates'
 import { countExternalStoreHooks, type RenderCause } from './render-causes'
 import {
   type ExternalStoreSourceResolution,
@@ -29,6 +30,7 @@ export function withReportEvidence(
         },
       }
     }
+    if (cause.kind === 'state' || cause.kind === 'unknown') return withResolvedCallers(cause)
     if (cause.kind === 'external-store' || cause.kind === 'query' || cause.kind === 'router') {
       return {
         ...cause,

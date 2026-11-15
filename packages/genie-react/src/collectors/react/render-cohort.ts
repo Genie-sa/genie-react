@@ -14,6 +14,7 @@ import {
 import { type RendererBundle, rendererBundleOf } from './measurement-environment'
 import { getActiveObservation, type ObservationWindow } from './observation'
 import type { reactComponentCohortContract } from './render-contract'
+import type { SourceClassificationEffect } from './render-reports'
 import { captureReportEpoch, reportAttribution, reportStateMatches } from './report-attribution'
 import {
   classifyFibersWithinBudget,
@@ -54,7 +55,7 @@ export interface CohortInstance {
 export interface RenderCohort {
   attribution: ReturnType<typeof reportAttribution>
   documentCommitId: number
-  ownershipCoverage: ReturnType<typeof ownershipCoverage>
+  ownershipCoverage: ReturnType<typeof ownershipCoverage> & { affects: SourceClassificationEffect }
   observation: ObservationWindow | null
   query: { component: string; exact: boolean }
   componentMatch: ComponentMatch
@@ -339,7 +340,7 @@ export async function getRenderCohort(
   return {
     attribution: reportAttribution(epoch),
     documentCommitId: epoch.documentCommitId,
-    ownershipCoverage: ownership,
+    ownershipCoverage: { ...ownership, affects: query.appOnly ? 'result' : 'ownership-labels' },
     observation,
     query: { component: query.component, exact: query.exact },
     componentMatch: describeComponentMatch(query, seenNames),

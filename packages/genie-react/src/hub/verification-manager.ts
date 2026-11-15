@@ -753,7 +753,7 @@ export class VerificationManager<TSession extends VerificationSession> {
     if (!last) return null
     return {
       records: read.flatMap((page) => page.records),
-      omittedByLimit: cursor ? Math.max(1, last.omittedByLimit) : 0,
+      omittedByLimit: cursor ? Math.max(1, last.omittedByLimit) : last.omittedByLimit,
       attributionStale: read.some((page) => page.attributionStale),
       observationId: last.observationId,
     }
