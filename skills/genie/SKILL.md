@@ -59,6 +59,7 @@ npx genie-react tools react_render_causes --session my-agent
 | Which repeated rows updated? | `react_component_cohort` |
 | What happened around an effect? | `react_effect_timeline`, then `react_effect_audit` |
 | Did Query data reach React? | `query_get`, then `query_notifications` |
+| Which action caused this render? (Redux apps) | `react_render_causes` with `"view":"full"`: the `external-store` cause's `redux`; then `redux_actions` |
 | Did an invalidation reach my query? | `query_invalidations` |
 | Did navigation finish? (TanStack Router apps) | `router_get_state` |
 | What is blocking this UI? | `react_error_state` |
