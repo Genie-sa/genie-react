@@ -1,0 +1,55 @@
+{
+  "argv": ["tools", "--all", "--max-bytes", "4000"],
+  "exitCode": 0,
+  "result": {
+    "schemaVersion": "2.0",
+    "status": "truncated",
+    "reason": "max_bytes",
+    "maxBytes": 4000,
+    "originalBytes": 98679,
+    "omittedPathCount": 2498,
+    "outputPath": "/tmp/genie-react-501/out/tools-all-1794700876331-77556.json",
+    "message": "The result exceeded --max-bytes. The complete JSON was written to outputPath; read it from there, or follow a suggestion to request less.",
+    "largestPaths": [
+      { "path": "/tools", "bytes": 98570, "items": 77 },
+      { "path": "/app/url", "bytes": 40 },
+      { "path": "/app/name", "bytes": 11 },
+      { "path": "/app/reactVersion", "bytes": 8 }
+    ],
+    "suggestions": [
+      {
+        "reason": "Inspect the first item of the largest array (largestPaths[0]).",
+        "command": "pnpm exec genie-react tools --all --session measure --select /tools/0 --max-bytes 4000",
+        "argv": [
+          "pnpm",
+          "exec",
+          "genie-react",
+          "tools",
+          "--all",
+          "--session",
+          "measure",
+          "--select",
+          "/tools/0",
+          "--max-bytes",
+          "4000"
+        ]
+      },
+      {
+        "reason": "Accept the complete result on stdout.",
+        "command": "pnpm exec genie-react tools --all --session measure --max-bytes 98679",
+        "argv": [
+          "pnpm",
+          "exec",
+          "genie-react",
+          "tools",
+          "--all",
+          "--session",
+          "measure",
+          "--max-bytes",
+          "98679"
+        ]
+      }
+    ],
+    "topLevelPaths": ["/app", "/tools"]
+  }
+}

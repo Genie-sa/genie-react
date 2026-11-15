@@ -9,9 +9,17 @@ import {
   cliHelp,
   POSITIONAL_LIMITS,
   parseArgsFailureMessage,
+  renderHelpText,
 } from './cli-help'
-import { writeDiagnostic, writeJson } from './cli-output'
-import { formatAgentFailure } from './failure-format'
+import {
+  OUTPUT_FORMAT_ENV,
+  renderFailure,
+  resolveOutputFormat,
+  setOutputFormat,
+  writeDiagnostic,
+  writeOutput,
+} from './cli-output'
+import { agentFailure } from './failure-format'
 import { FEEDBACK_HINT, feedbackSuggestion } from './feedback-options'
 import { isRecord } from './guards'
 import { installOutputFailureHandler, setOutputContext } from './output-safety'
@@ -36,14 +44,22 @@ function unsupportedOption(command: string, values: ParsedValues): string | null
 }
 
 function writeCliFailure(message: string, command?: string): void {
-  writeJson(
-    JSON.parse(
-      formatAgentFailure('invalid_input', message, {
+  process.stdout.write(
+    `${renderFailure(
+      agentFailure('invalid_input', message, {
         userActionRequired: true,
         next: genieCommand([...(command ? [command] : []), '--help']),
       }),
-    ),
+    )}\n`,
   )
+}
+
+/** Runs before argument parsing so a rejected command line still answers in the format the caller asked for. */
+function selectOutputFormat(argv: readonly string[]): boolean {
+  const machine = argv.includes('--json') || argv.includes('--ndjson')
+  const format = resolveOutputFormat(machine, process.env[OUTPUT_FORMAT_ENV])
+  setOutputFormat(format ?? 'text')
+  return format !== null
 }
 
 function parseFields(raw: string | undefined): string[] | undefined {
@@ -78,11 +94,21 @@ function readVersion(): string {
 }
 
 async function main(): Promise<number> {
+  if (!selectOutputFormat(process.argv.slice(2))) {
+    writeCliFailure(`${OUTPUT_FORMAT_ENV} must be text or json. Unset it for text output.`)
+    return 1
+  }
   const { values, positionals } = parseArgs({
     args: process.argv.slice(2),
     allowPositionals: true,
     options: CLI_OPTIONS,
   })
+  setOutputFormat(
+    resolveOutputFormat(
+      values.json === true || values.ndjson === true,
+      process.env[OUTPUT_FORMAT_ENV],
+    ) ?? 'text',
+  )
 
   const command = positionals[0]
   if (command !== undefined && !Object.hasOwn(COMMANDS, command)) {
@@ -180,14 +206,15 @@ async function main(): Promise<number> {
   }
   const maxBytes = values['max-bytes'] ? Number(values['max-bytes']) : undefined
   if (values.version) {
-    writeJson(
-      { schemaVersion: CLI_OUTPUT_SCHEMA_VERSION, status: 'ok', version: readVersion() },
-      maxBytes,
+    const version = readVersion()
+    writeOutput(
+      { schemaVersion: CLI_OUTPUT_SCHEMA_VERSION, status: 'ok', version },
+      { maxBytes, text: () => version },
     )
     return 0
   }
   if (!command || values.help) {
-    writeJson(cliHelp(command), maxBytes)
+    writeOutput(cliHelp(command), { maxBytes, text: renderHelpText })
     return 0
   }
 
@@ -320,9 +347,9 @@ main()
       const command = process.argv.slice(2).find((arg) => Object.hasOwn(COMMANDS, arg))
       writeCliFailure(parseArgsFailureMessage(error, command), command)
     } else {
-      writeJson(
-        JSON.parse(
-          formatAgentFailure(
+      process.stdout.write(
+        `${renderFailure(
+          agentFailure(
             'operational_failure',
             `CLI operation failed. Inspect local setup with ${genieCommand(['doctor']).command} before retrying. ${FEEDBACK_HINT}`,
             {
@@ -330,7 +357,7 @@ main()
               feedback: feedbackSuggestion('operational_failure'),
             },
           ),
-        ),
+        )}\n`,
       )
     }
     process.exitCode = 1

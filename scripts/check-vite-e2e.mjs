@@ -753,13 +753,14 @@ async function main() {
       'call',
       'react_get_renders',
       JSON.stringify({ ...selection, limit: 1 }),
+      '--json',
     ])
-    const defaultPage = parseSuccessfulJson('default render page', defaultPageResult)
+    const defaultPage = parseSuccessfulJson('one-row render page', defaultPageResult)
     assert(
       typeof defaultPage.nextCursor === 'string' &&
         defaultPage.components.length === 1 &&
         defaultPage.pagination.totalComponents === 241,
-      `${stage}: default JSON omitted bounded continuation evidence`,
+      `${stage}: one-row JSON page omitted bounded continuation evidence`,
     )
     const invalid = await runCli([
       'call',

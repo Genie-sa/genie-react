@@ -1,0 +1,372 @@
+{
+  "argv": [
+    "call",
+    "devtools_capture_compare",
+    "{\"baselineCaptureIds\":[\"cap_ef330f9e-71a4-4a70-94e4-f5e398c5288a\",\"cap_e0a0cf44-a8e5-4ec0-b9b1-e6b4fd4a5639\",\"cap_fd891861-677a-45e2-b380-04adfe5754d4\"],\"candidateCaptureIds\":[\"cap_7080433b-c929-4e37-b7ea-f8304f258bb7\",\"cap_31312444-51a1-430c-9c6c-754bc80698d6\",\"cap_5e2f87a1-fa0a-4905-8850-48902e92fd2d\"],\"minimumRuns\":2}"
+  ],
+  "exitCode": 0,
+  "result": {
+    "schemaVersion": "1.0",
+    "kind": "capture-comparison",
+    "comparisonId": "cmp_d7e40fd6-381e-4692-8be3-699da5300331",
+    "createdAt": "2026-11-15T00:01:15.222Z",
+    "minimumRuns": 2,
+    "policy": {
+      "warmupRuns": 1,
+      "outlierThreshold": 3.5,
+      "confidenceLevel": 0.95,
+      "minimumEffectPct": 5
+    },
+    "excluded": {
+      "warmupBaselineCaptureIds": ["cap_ef330f9e-71a4-4a70-94e4-f5e398c5288a"],
+      "warmupCandidateCaptureIds": ["cap_7080433b-c929-4e37-b7ea-f8304f258bb7"]
+    },
+    "baselineCaptureIds": [
+      "cap_ef330f9e-71a4-4a70-94e4-f5e398c5288a",
+      "cap_e0a0cf44-a8e5-4ec0-b9b1-e6b4fd4a5639",
+      "cap_fd891861-677a-45e2-b380-04adfe5754d4"
+    ],
+    "candidateCaptureIds": [
+      "cap_7080433b-c929-4e37-b7ea-f8304f258bb7",
+      "cap_31312444-51a1-430c-9c6c-754bc80698d6",
+      "cap_5e2f87a1-fa0a-4905-8850-48902e92fd2d"
+    ],
+    "overall": "informational",
+    "metrics": [
+      {
+        "metric": "react.commits",
+        "direction": "lower-is-better",
+        "baseline": { "samples": 2, "median": 3, "p95": 3, "mad": 0, "min": 3, "max": 3 },
+        "candidate": { "samples": 2, "median": 3, "p95": 3, "mad": 0, "min": 3, "max": 3 },
+        "missingBaselineCaptureIds": [],
+        "missingCandidateCaptureIds": [],
+        "excludedCaptureIds": {},
+        "outlierBaselineCaptureIds": [],
+        "outlierCandidateCaptureIds": [],
+        "comparable": true,
+        "notComparableReasons": [],
+        "delta": { "median": 0, "regressionPct": 0 },
+        "confidence": {
+          "level": 0.95,
+          "pValue": 1,
+          "achieved": 0,
+          "significant": false,
+          "minimumEffectPct": 5,
+          "observedEffectPct": 0,
+          "noiseFloorPct": 0
+        },
+        "verdict": "informational",
+        "reasons": ["no significant change (0%, p=1); pass budgets to gate on it"]
+      },
+      {
+        "metric": "react.renders",
+        "direction": "lower-is-better",
+        "baseline": { "samples": 2, "median": 3, "p95": 3, "mad": 0, "min": 3, "max": 3 },
+        "candidate": { "samples": 2, "median": 3, "p95": 3, "mad": 0, "min": 3, "max": 3 },
+        "missingBaselineCaptureIds": [],
+        "missingCandidateCaptureIds": [],
+        "excludedCaptureIds": {},
+        "outlierBaselineCaptureIds": [],
+        "outlierCandidateCaptureIds": [],
+        "comparable": true,
+        "notComparableReasons": [],
+        "delta": { "median": 0, "regressionPct": 0 },
+        "confidence": {
+          "level": 0.95,
+          "pValue": 1,
+          "achieved": 0,
+          "significant": false,
+          "minimumEffectPct": 5,
+          "observedEffectPct": 0,
+          "noiseFloorPct": 0
+        },
+        "verdict": "informational",
+        "reasons": ["no significant change (0%, p=1); pass budgets to gate on it"]
+      },
+      {
+        "metric": "react.updates",
+        "direction": "lower-is-better",
+        "baseline": { "samples": 2, "median": 3, "p95": 3, "mad": 0, "min": 3, "max": 3 },
+        "candidate": { "samples": 2, "median": 3, "p95": 3, "mad": 0, "min": 3, "max": 3 },
+        "missingBaselineCaptureIds": [],
+        "missingCandidateCaptureIds": [],
+        "excludedCaptureIds": {},
+        "outlierBaselineCaptureIds": [],
+        "outlierCandidateCaptureIds": [],
+        "comparable": true,
+        "notComparableReasons": [],
+        "delta": { "median": 0, "regressionPct": 0 },
+        "confidence": {
+          "level": 0.95,
+          "pValue": 1,
+          "achieved": 0,
+          "significant": false,
+          "minimumEffectPct": 5,
+          "observedEffectPct": 0,
+          "noiseFloorPct": 0
+        },
+        "verdict": "informational",
+        "reasons": ["no significant change (0%, p=1); pass budgets to gate on it"]
+      },
+      {
+        "metric": "react.unnecessary",
+        "direction": "lower-is-better",
+        "baseline": { "samples": 2, "median": 0, "p95": 0, "mad": 0, "min": 0, "max": 0 },
+        "candidate": { "samples": 2, "median": 0, "p95": 0, "mad": 0, "min": 0, "max": 0 },
+        "missingBaselineCaptureIds": [],
+        "missingCandidateCaptureIds": [],
+        "excludedCaptureIds": {},
+        "outlierBaselineCaptureIds": [],
+        "outlierCandidateCaptureIds": [],
+        "comparable": true,
+        "notComparableReasons": [],
+        "delta": { "median": 0, "regressionPct": 0 },
+        "confidence": {
+          "level": 0.95,
+          "pValue": 1,
+          "achieved": 0,
+          "significant": false,
+          "minimumEffectPct": 5,
+          "observedEffectPct": 0,
+          "noiseFloorPct": null
+        },
+        "verdict": "informational",
+        "reasons": ["no significant change (0%, p=1); pass budgets to gate on it"]
+      },
+      {
+        "metric": "react.selfTimeMs",
+        "direction": "lower-is-better",
+        "baseline": {
+          "samples": 2,
+          "median": 1.15,
+          "p95": 1.195,
+          "mad": 0.05,
+          "min": 1.1,
+          "max": 1.2
+        },
+        "candidate": {
+          "samples": 2,
+          "median": 1.35,
+          "p95": 1.395,
+          "mad": 0.05,
+          "min": 1.3,
+          "max": 1.4
+        },
+        "missingBaselineCaptureIds": [],
+        "missingCandidateCaptureIds": [],
+        "excludedCaptureIds": {},
+        "outlierBaselineCaptureIds": [],
+        "outlierCandidateCaptureIds": [],
+        "comparable": true,
+        "notComparableReasons": [],
+        "delta": { "median": 0.2, "regressionPct": 17.3913 },
+        "confidence": {
+          "level": 0.95,
+          "pValue": 0.3333,
+          "achieved": 0.6667,
+          "significant": false,
+          "minimumEffectPct": 5,
+          "observedEffectPct": 17.3913,
+          "noiseFloorPct": 6.4461
+        },
+        "verdict": "informational",
+        "reasons": ["no significant change (17.3913%, p=0.3333); pass budgets to gate on it"]
+      },
+      {
+        "metric": "effects.hot",
+        "direction": "lower-is-better",
+        "baseline": { "samples": 2, "median": 9, "p95": 9, "mad": 0, "min": 9, "max": 9 },
+        "candidate": { "samples": 2, "median": 9, "p95": 9, "mad": 0, "min": 9, "max": 9 },
+        "missingBaselineCaptureIds": [],
+        "missingCandidateCaptureIds": [],
+        "excludedCaptureIds": {},
+        "outlierBaselineCaptureIds": [],
+        "outlierCandidateCaptureIds": [],
+        "comparable": true,
+        "notComparableReasons": [],
+        "delta": { "median": 0, "regressionPct": 0 },
+        "confidence": {
+          "level": 0.95,
+          "pValue": 1,
+          "achieved": 0,
+          "significant": false,
+          "minimumEffectPct": 5,
+          "observedEffectPct": 0,
+          "noiseFloorPct": 0
+        },
+        "verdict": "informational",
+        "reasons": ["no significant change (0%, p=1); pass budgets to gate on it"]
+      },
+      {
+        "metric": "query.pending",
+        "direction": "lower-is-better",
+        "baseline": { "samples": 2, "median": 0, "p95": 0, "mad": 0, "min": 0, "max": 0 },
+        "candidate": { "samples": 2, "median": 0, "p95": 0, "mad": 0, "min": 0, "max": 0 },
+        "missingBaselineCaptureIds": [],
+        "missingCandidateCaptureIds": [],
+        "excludedCaptureIds": {},
+        "outlierBaselineCaptureIds": [],
+        "outlierCandidateCaptureIds": [],
+        "comparable": true,
+        "notComparableReasons": [],
+        "delta": { "median": 0, "regressionPct": 0 },
+        "confidence": {
+          "level": 0.95,
+          "pValue": 1,
+          "achieved": 0,
+          "significant": false,
+          "minimumEffectPct": 5,
+          "observedEffectPct": 0,
+          "noiseFloorPct": null
+        },
+        "verdict": "informational",
+        "reasons": ["no significant change (0%, p=1); pass budgets to gate on it"]
+      },
+      {
+        "metric": "memory.usedHeapBytes",
+        "direction": "lower-is-better",
+        "baseline": {
+          "samples": 2,
+          "median": 68000000,
+          "p95": 68000000,
+          "mad": 0,
+          "min": 68000000,
+          "max": 68000000
+        },
+        "candidate": {
+          "samples": 2,
+          "median": 68000000,
+          "p95": 68000000,
+          "mad": 0,
+          "min": 68000000,
+          "max": 68000000
+        },
+        "missingBaselineCaptureIds": [],
+        "missingCandidateCaptureIds": [],
+        "excludedCaptureIds": {},
+        "outlierBaselineCaptureIds": [],
+        "outlierCandidateCaptureIds": [],
+        "comparable": true,
+        "notComparableReasons": [],
+        "delta": { "median": 0, "regressionPct": 0 },
+        "confidence": {
+          "level": 0.95,
+          "pValue": 1,
+          "achieved": 0,
+          "significant": false,
+          "minimumEffectPct": 5,
+          "observedEffectPct": 0,
+          "noiseFloorPct": 0
+        },
+        "verdict": "informational",
+        "reasons": ["no significant change (0%, p=1); pass budgets to gate on it"]
+      },
+      {
+        "metric": "performance.avgFps",
+        "direction": "higher-is-better",
+        "baseline": {
+          "samples": 0,
+          "median": null,
+          "p95": null,
+          "mad": null,
+          "min": null,
+          "max": null
+        },
+        "candidate": {
+          "samples": 0,
+          "median": null,
+          "p95": null,
+          "mad": null,
+          "min": null,
+          "max": null
+        },
+        "missingBaselineCaptureIds": [
+          "cap_e0a0cf44-a8e5-4ec0-b9b1-e6b4fd4a5639",
+          "cap_fd891861-677a-45e2-b380-04adfe5754d4"
+        ],
+        "missingCandidateCaptureIds": [
+          "cap_31312444-51a1-430c-9c6c-754bc80698d6",
+          "cap_5e2f87a1-fa0a-4905-8850-48902e92fd2d"
+        ],
+        "excludedCaptureIds": {
+          "cap_e0a0cf44-a8e5-4ec0-b9b1-e6b4fd4a5639": ["metric-value-unavailable"],
+          "cap_fd891861-677a-45e2-b380-04adfe5754d4": ["metric-value-unavailable"],
+          "cap_31312444-51a1-430c-9c6c-754bc80698d6": ["metric-value-unavailable"],
+          "cap_5e2f87a1-fa0a-4905-8850-48902e92fd2d": ["metric-value-unavailable"]
+        },
+        "outlierBaselineCaptureIds": [],
+        "outlierCandidateCaptureIds": [],
+        "comparable": true,
+        "notComparableReasons": [],
+        "delta": { "median": null, "regressionPct": null },
+        "confidence": {
+          "level": 0.95,
+          "pValue": null,
+          "achieved": null,
+          "significant": false,
+          "minimumEffectPct": 5,
+          "observedEffectPct": null,
+          "noiseFloorPct": null
+        },
+        "verdict": "insufficient-data",
+        "reasons": [
+          "requires 2 usable samples per cohort after warm-up and outlier exclusion; found 0 baseline and 0 candidate"
+        ]
+      },
+      {
+        "metric": "performance.droppedFrames",
+        "direction": "lower-is-better",
+        "baseline": {
+          "samples": 0,
+          "median": null,
+          "p95": null,
+          "mad": null,
+          "min": null,
+          "max": null
+        },
+        "candidate": {
+          "samples": 0,
+          "median": null,
+          "p95": null,
+          "mad": null,
+          "min": null,
+          "max": null
+        },
+        "missingBaselineCaptureIds": [
+          "cap_e0a0cf44-a8e5-4ec0-b9b1-e6b4fd4a5639",
+          "cap_fd891861-677a-45e2-b380-04adfe5754d4"
+        ],
+        "missingCandidateCaptureIds": [
+          "cap_31312444-51a1-430c-9c6c-754bc80698d6",
+          "cap_5e2f87a1-fa0a-4905-8850-48902e92fd2d"
+        ],
+        "excludedCaptureIds": {
+          "cap_e0a0cf44-a8e5-4ec0-b9b1-e6b4fd4a5639": ["metric-value-unavailable"],
+          "cap_fd891861-677a-45e2-b380-04adfe5754d4": ["metric-value-unavailable"],
+          "cap_31312444-51a1-430c-9c6c-754bc80698d6": ["metric-value-unavailable"],
+          "cap_5e2f87a1-fa0a-4905-8850-48902e92fd2d": ["metric-value-unavailable"]
+        },
+        "outlierBaselineCaptureIds": [],
+        "outlierCandidateCaptureIds": [],
+        "comparable": true,
+        "notComparableReasons": [],
+        "delta": { "median": null, "regressionPct": null },
+        "confidence": {
+          "level": 0.95,
+          "pValue": null,
+          "achieved": null,
+          "significant": false,
+          "minimumEffectPct": 5,
+          "observedEffectPct": null,
+          "noiseFloorPct": null
+        },
+        "verdict": "insufficient-data",
+        "reasons": [
+          "requires 2 usable samples per cohort after warm-up and outlier exclusion; found 0 baseline and 0 candidate"
+        ]
+      }
+    ],
+    "violations": [],
+    "warnings": []
+  }
+}

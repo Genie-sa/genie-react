@@ -1,0 +1,351 @@
+{
+  "argv": ["call", "react_render_causes", "{\"limit\":50}"],
+  "exitCode": 0,
+  "result": {
+    "tracking": true,
+    "commits": 6,
+    "documentCommitId": 13,
+    "observation": { "id": "observation:1", "epoch": 1, "startedAfterDocumentCommitId": 7 },
+    "attribution": {
+      "status": "current",
+      "startedAtDocumentCommitId": 13,
+      "completedAtDocumentCommitId": 13,
+      "startedAtAnalysisGeneration": 14,
+      "completedAtAnalysisGeneration": 14
+    },
+    "view": "summary",
+    "events": [
+      {
+        "renderEventId": "render:13:184",
+        "documentCommitId": 13,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "causes": [
+          {
+            "kind": "query",
+            "evidence": "exact",
+            "name": "[\"tasks\"]",
+            "reason": "query-notification-delivered",
+            "changedResultFields": ["data", "dataUpdatedAt"]
+          },
+          { "kind": "external-store", "evidence": "inferred", "name": "tanstack-mutation-observer" }
+        ],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:234:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:12:174",
+        "documentCommitId": 12,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "causes": [
+          { "kind": "state", "evidence": "exact", "name": "state[1]" },
+          { "kind": "external-store", "evidence": "inferred", "name": "tanstack-mutation-observer" }
+        ],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:234:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:11:164",
+        "documentCommitId": 11,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "causes": [{ "kind": "state", "evidence": "exact", "name": "state[1]" }],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:234:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:10:154",
+        "documentCommitId": 10,
+        "componentId": 92,
+        "componentName": "StressGrid",
+        "mountId": "mount:12",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:245:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:10:153",
+        "documentCommitId": 10,
+        "componentId": 82,
+        "componentName": "PricingCard",
+        "mountId": "mount:11",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:242:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:10:152",
+        "documentCommitId": 10,
+        "componentId": 69,
+        "componentName": "FlagsPanel",
+        "mountId": "mount:10",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:238:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:10:149",
+        "documentCommitId": 10,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:234:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:10:139",
+        "documentCommitId": 10,
+        "componentId": 54,
+        "componentName": "Unmountable",
+        "mountId": "mount:8",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:229:28", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:10:137",
+        "documentCommitId": 10,
+        "componentId": 107,
+        "componentName": "LoadedSlowChild",
+        "mountId": "mount:14",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:223:10", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:10:136",
+        "documentCommitId": 10,
+        "componentId": 48,
+        "componentName": "Bomb",
+        "mountId": "mount:7",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "LabErrorBoundary" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:216:10", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:10:135",
+        "documentCommitId": 10,
+        "componentId": 47,
+        "componentName": "LabErrorBoundary",
+        "mountId": "mount:6",
+        "causes": [
+          { "kind": "parent", "evidence": "inferred", "name": "App" },
+          { "kind": "props", "evidence": "exact", "name": "onReset" },
+          { "kind": "children", "evidence": "exact" }
+        ],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:215:8", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:10:134",
+        "documentCommitId": 10,
+        "componentId": 32,
+        "componentName": "ThemeReadout",
+        "mountId": "mount:5",
+        "causes": [
+          { "kind": "context", "evidence": "exact", "name": "ThemeContext", "contextIndex": 0 }
+        ],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:196:8", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:10:133",
+        "documentCommitId": 10,
+        "componentId": 28,
+        "componentName": "HotEffectProbe",
+        "mountId": "mount:4",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:195:8", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:10:131",
+        "documentCommitId": 10,
+        "componentId": 24,
+        "componentName": "MemoChild",
+        "mountId": "mount:3",
+        "causes": [
+          { "kind": "props", "evidence": "exact", "name": "badge", "referenceOnly": true }
+        ],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:194:8", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:10:130",
+        "documentCommitId": 10,
+        "componentId": 4,
+        "componentName": "App",
+        "mountId": "mount:2",
+        "causes": [{ "kind": "state", "evidence": "exact", "name": "state[3]" }],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:168:4", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:9:125",
+        "documentCommitId": 9,
+        "componentId": 82,
+        "componentName": "PricingCard",
+        "mountId": "mount:11",
+        "causes": [{ "kind": "state", "evidence": "exact", "name": "state[0]" }],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:242:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:8:124",
+        "documentCommitId": 8,
+        "componentId": 92,
+        "componentName": "StressGrid",
+        "mountId": "mount:12",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:245:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:8:123",
+        "documentCommitId": 8,
+        "componentId": 82,
+        "componentName": "PricingCard",
+        "mountId": "mount:11",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:242:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:8:122",
+        "documentCommitId": 8,
+        "componentId": 69,
+        "componentName": "FlagsPanel",
+        "mountId": "mount:10",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:238:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:8:119",
+        "documentCommitId": 8,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:234:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:8:109",
+        "documentCommitId": 8,
+        "componentId": 54,
+        "componentName": "Unmountable",
+        "mountId": "mount:8",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:229:28", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:8:107",
+        "documentCommitId": 8,
+        "componentId": 107,
+        "componentName": "LoadedSlowChild",
+        "mountId": "mount:14",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:223:10", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:8:106",
+        "documentCommitId": 8,
+        "componentId": 48,
+        "componentName": "Bomb",
+        "mountId": "mount:7",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "LabErrorBoundary" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:216:10", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:8:105",
+        "documentCommitId": 8,
+        "componentId": 47,
+        "componentName": "LabErrorBoundary",
+        "mountId": "mount:6",
+        "causes": [
+          { "kind": "parent", "evidence": "inferred", "name": "App" },
+          { "kind": "props", "evidence": "exact", "name": "onReset" },
+          { "kind": "children", "evidence": "exact" }
+        ],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:215:8", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:8:104",
+        "documentCommitId": 8,
+        "componentId": 32,
+        "componentName": "ThemeReadout",
+        "mountId": "mount:5",
+        "causes": [
+          { "kind": "context", "evidence": "exact", "name": "ThemeContext", "contextIndex": 0 }
+        ],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:196:8", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:8:103",
+        "documentCommitId": 8,
+        "componentId": 28,
+        "componentName": "HotEffectProbe",
+        "mountId": "mount:4",
+        "causes": [
+          { "kind": "parent", "evidence": "inferred", "name": "App" },
+          { "kind": "props", "evidence": "exact", "name": "count" }
+        ],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:195:8", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:8:101",
+        "documentCommitId": 8,
+        "componentId": 24,
+        "componentName": "MemoChild",
+        "mountId": "mount:3",
+        "causes": [
+          { "kind": "props", "evidence": "exact", "name": "badge", "referenceOnly": true }
+        ],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:194:8", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:8:100",
+        "documentCommitId": 8,
+        "componentId": 4,
+        "componentName": "App",
+        "mountId": "mount:2",
+        "causes": [{ "kind": "state", "evidence": "exact", "name": "state[0]" }],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:168:4", "ownership": "app" }
+      }
+    ],
+    "omittedByLimit": 0,
+    "renderEventRetention": {
+      "evictedEvents": 0,
+      "earliestDocumentCommitId": 8,
+      "latestDocumentCommitId": 13
+    },
+    "coverage": {
+      "skippedCommitFibers": 0,
+      "droppedUnmountFibers": 0,
+      "analysisFailedFibers": 0,
+      "truncatedInputFibers": 0,
+      "propsNotEnumeratedFibers": 0,
+      "budgetExhaustedCommits": 0,
+      "budgetExhaustedSubsystems": [],
+      "complete": true,
+      "inputAttributionComplete": true,
+      "semantics": "exact",
+      "coverageDomain": "render-causality",
+      "droppedRenderEvents": 0
+    }
+  }
+}

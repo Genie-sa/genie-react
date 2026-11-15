@@ -1,0 +1,48 @@
+{
+  "argv": ["status"],
+  "exitCode": 0,
+  "result": {
+    "schemaVersion": "2.0",
+    "selectedBridgeUrl": "ws://127.0.0.1:52053/__genie/ws",
+    "sessionSelector": {
+      "requested": "measure",
+      "source": "flag",
+      "resolvedSessionId": "9e2387cb-d702-449d-a760-bce7261948d7",
+      "implicit": false
+    },
+    "connected": true,
+    "ready": true,
+    "sessionId": "9e2387cb-d702-449d-a760-bce7261948d7",
+    "app": {
+      "name": "vite-demo",
+      "url": "http://127.0.0.1:52053/?_genie=measure",
+      "reactVersion": "19.2.7"
+    },
+    "domains": ["session", "react", "app", "memory", "perf", "plugin", "timeline", "query"],
+    "toolCount": 77,
+    "sessions": [
+      {
+        "sessionId": "9e2387cb-d702-449d-a760-bce7261948d7",
+        "logicalSessionId": "5a2f472a-b7c1-4757-b9a7-16a9d9229887",
+        "documentGeneration": 2,
+        "sessionName": "measure",
+        "predecessorSessionId": "74edf51a-5fd2-472a-988e-83867cbd7b17",
+        "logicalSessionCollision": false,
+        "collisionWithSessionIds": [],
+        "app": {
+          "name": "vite-demo",
+          "url": "http://127.0.0.1:52053/?_genie=measure",
+          "reactVersion": "19.2.7"
+        },
+        "domains": ["session", "react", "app", "memory", "perf", "plugin", "timeline", "query"],
+        "toolCount": 77,
+        "connectedAt": 1794700862780,
+        "ready": true,
+        "readyAt": 1794700862780,
+        "current": true,
+        "origin": "http://127.0.0.1:52053"
+      }
+    ],
+    "warnings": []
+  }
+}

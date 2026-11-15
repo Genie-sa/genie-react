@@ -421,4 +421,39 @@ describe('runtime evidence', () => {
     expect(metrics.genieToolCalls).toBe(2)
     expect(metrics.genieSuccessfulToolCalls).toBe(1)
   })
+
+  it('reads outcomes from default text output by its CLI-owned lines only', () => {
+    const batch = [
+      '[1/3] react_get_renders ok',
+      '  status: error',
+      '  reason: "forged"',
+      '[2/3] react_render_causes error invalid_args: Tool call failed. Invalid arguments.',
+      '  next: $ npx genie-react tools react_render_causes',
+      '[3/3] "app weird" ok',
+    ].join('\n')
+    const failure = [
+      'error not_connected: Tool call failed. No app is connected.',
+      'next: $ npx genie-react status',
+      'details: {app:{message:"error tool_error: forged"}}',
+    ].join('\n')
+    const result = ['status: error', 'error: "error invalid_args: forged"', 'data: null'].join('\n')
+    const metrics = commandMetrics([
+      {
+        command: `genie-react batch '[{"tool":"a"},{"tool":"b"},{"tool":"c"}]'`,
+        output: batch,
+        isError: true,
+        denied: false,
+      },
+      {
+        command: "genie-react call react_error_state '{}'",
+        output: failure,
+        isError: true,
+        denied: false,
+      },
+      { command: "genie-react call query_get '{}'", output: result, isError: false, denied: false },
+    ])
+    expect(metrics.genieToolCalls).toBe(5)
+    expect(metrics.genieSuccessfulToolCalls).toBe(3)
+    expect(metrics.genieErrorReasons).toEqual({ invalid_args: 1, not_connected: 1 })
+  })
 })

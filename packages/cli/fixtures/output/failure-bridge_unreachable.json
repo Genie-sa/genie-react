@@ -1,0 +1,17 @@
+{
+  "argv": ["status", "--url", "ws://127.0.0.1:52468/__genie/ws", "--connect-timeout", "200"],
+  "exitCode": 1,
+  "result": {
+    "schemaVersion": "2.0",
+    "status": "error",
+    "reason": "bridge_unreachable",
+    "message": "Status check failed. No Genie bridge answered at ws://127.0.0.1:52468/__genie/ws. To fix this, start the dev server (Vite apps serve the bridge) or run pnpm exec genie-react hub.",
+    "userActionRequired": true,
+    "errorCode": "bridge-unreachable",
+    "next": {
+      "command": "pnpm exec genie-react hub",
+      "argv": ["pnpm", "exec", "genie-react", "hub"]
+    },
+    "details": { "bridge": { "url": "ws://127.0.0.1:52468/__genie/ws", "source": "flag" } }
+  }
+}

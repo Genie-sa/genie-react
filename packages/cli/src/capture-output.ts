@@ -1,4 +1,11 @@
 import { isRecord } from './guards'
+import {
+  encodeText,
+  fieldsWithLayout,
+  flowText,
+  hoistSharedFields,
+  scalarText,
+} from './text-output'
 
 export function summarizeCapture(result: unknown): string | null {
   if (
@@ -107,4 +114,46 @@ function budgetSuffix(value: unknown): string {
 
 function formatBytes(bytes: number): string {
   return bytes < 1_000 ? `${bytes} B` : `${round(bytes / 1_000)} KB`
+}
+
+/** `devtools_capture_compare`: one `metric verdict {fields}` line per metric, then its reasons. */
+export function renderCaptureComparisonText(value: unknown): string {
+  if (!isRecord(value) || !Array.isArray(value.metrics) || !value.metrics.every(isMetric)) {
+    return encodeText(value)
+  }
+  const metrics = value.metrics
+  return fieldsWithLayout(value, 'metrics', () => metricLines(metrics)).join('\n')
+}
+
+function metricLines(
+  metrics: Array<Record<string, unknown> & { metric: string; verdict: string }>,
+): string[] {
+  const { shared, rest } = hoistSharedFields(
+    metrics.map(({ metric: _metric, verdict: _verdict, reasons: _reasons, ...fields }) => fields),
+  )
+  return [
+    `metrics[${metrics.length}] (metric verdict {fields}, then one line per reason):`,
+    ...(shared === null ? [] : [`  each: ${flowText(shared)}`]),
+    ...metrics.flatMap((metric, index) => {
+      const fields = rest[index] as Record<string, unknown>
+      const extra = Object.keys(fields).length === 0 ? '' : ` ${flowText(fields)}`
+      return [
+        `  ${scalarText(metric.metric)} ${scalarText(metric.verdict)}${extra}`,
+        ...reasonLines(metric),
+      ]
+    }),
+  ]
+}
+
+function isMetric(
+  value: unknown,
+): value is Record<string, unknown> & { metric: string; verdict: string } {
+  return isRecord(value) && typeof value.metric === 'string' && typeof value.verdict === 'string'
+}
+
+function reasonLines(metric: Record<string, unknown>): string[] {
+  if (!Object.hasOwn(metric, 'reasons')) return []
+  const { reasons } = metric
+  if (!Array.isArray(reasons) || reasons.length === 0) return [`    reasons: ${flowText(reasons)}`]
+  return reasons.map((reason) => `    reason: ${flowText(reason)}`)
 }

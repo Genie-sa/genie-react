@@ -335,10 +335,16 @@ function batchSize(words) {
  * @typedef {{ ok: number, errors: string[], sawBatchItems: boolean }} GenieOutcomes
  */
 
+/** The first line of a CLI failure in text output, and a batch item header, as the CLI writes them at column 0. */
+const TEXT_FAILURE = /^error ([a-z][a-z_]*): /
+const TEXT_BATCH_ITEM = /^\[\d+\/\d+\] (?:"(?:[^"\\]|\\.)*"|\S+) (?:ok$|error ([a-z][a-z_]*): )/
+
 /**
- * Classifies the JSON values a command printed: batch items carry `tool` and `status`, and error envelopes carry
- * `status: "error"` with a string `reason` and either `schemaVersion` or a batch item's `tool`, so app data that
- * happens to hold `status: "error"` (a failed query, say) is not miscounted.
+ * Classifies what a command printed, as JSON or as the CLI's default text. JSON batch items carry `tool` and
+ * `status`, and JSON error envelopes carry `status: "error"` with a string `reason` and either `schemaVersion` or a
+ * batch item's `tool`, so app data that happens to hold `status: "error"` (a failed query, say) is not miscounted.
+ * Text output is read only from column-0 lines that tool data cannot produce: `error <reason>: …` failure lines and
+ * `[n/total] tool ok|error <reason>: …` batch headers.
  * @param {string} output
  * @returns {GenieOutcomes}
  */
@@ -359,6 +365,17 @@ function genieOutcomes(output) {
     } else if (isBatchItem && value.status === 'ok') outcomes.ok += 1
   }
   for (const value of parseJsonValues(output)) visit(value)
+  for (const line of output.split('\n')) {
+    const item = TEXT_BATCH_ITEM.exec(line)
+    if (item) {
+      outcomes.sawBatchItems = true
+      if (item[1] === undefined) outcomes.ok += 1
+      else outcomes.errors.push(item[1])
+      continue
+    }
+    const failure = TEXT_FAILURE.exec(line)
+    if (failure?.[1]) outcomes.errors.push(failure[1])
+  }
   return outcomes
 }
 

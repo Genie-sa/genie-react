@@ -7,8 +7,8 @@ import {
   genieUserDirectory,
   isOwnedByCurrentUser,
 } from 'genie-react/hub/token'
-import { writeJson } from './cli-output'
-import { formatAgentFailure } from './failure-format'
+import { renderFailure, writeEnvelope } from './cli-output'
+import { agentFailure } from './failure-format'
 import {
   FEEDBACK_KINDS,
   FEEDBACK_LABEL,
@@ -112,14 +112,14 @@ export async function runFeedbackCommand(options: FeedbackCommandOptions): Promi
       : preview(report, draft, options)
   } catch (error) {
     if (!(error instanceof FeedbackInputError)) throw error
-    writeJson(
-      JSON.parse(
-        formatAgentFailure('invalid_input', error.message, {
+    process.stdout.write(
+      `${renderFailure(
+        agentFailure('invalid_input', error.message, {
           userActionRequired: true,
           next: genieCommand(['feedback', '--help']),
         }),
-      ),
-      options.maxBytes,
+        options.maxBytes,
+      )}\n`,
     )
     return 1
   }
@@ -232,7 +232,7 @@ function preview(
   options: FeedbackCommandOptions,
 ): number {
   const issue = draft ?? issueOf(report)
-  writeJson(
+  writeEnvelope(
     envelope({
       status: 'ok',
       reason: 'feedback_preview',
@@ -302,7 +302,7 @@ async function submit(
     .map((line) => line.trim())
     .findLast((line) => ISSUE_URL.test(line))
   const number = url ? Number(ISSUE_URL.exec(url)?.[1]) : undefined
-  writeJson(
+  writeEnvelope(
     envelope({
       status: 'ok',
       reason: 'feedback_submitted',
@@ -372,7 +372,7 @@ function reportDuplicate(
   draftId: string | undefined,
   options: FeedbackCommandOptions,
 ): number {
-  writeJson(
+  writeEnvelope(
     envelope({
       status: 'ok',
       reason: 'feedback_duplicate',
@@ -418,7 +418,7 @@ function fallback(
 ): number {
   const reportPath = saveMarkdown(issue, draftId ?? `fb_${randomUUID()}`)
   const link = newIssueLink(issue)
-  writeJson(
+  writeEnvelope(
     envelope({
       status: 'action_required',
       reason: 'feedback_not_sent',

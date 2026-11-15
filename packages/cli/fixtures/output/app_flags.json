@@ -1,0 +1,5 @@
+{
+  "argv": ["call", "app_flags", "{}"],
+  "exitCode": 0,
+  "result": { "beta_banner": false, "compact_mode": false }
+}
