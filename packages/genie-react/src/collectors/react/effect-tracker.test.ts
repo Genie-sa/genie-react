@@ -71,6 +71,23 @@ interface EffectSpec {
   legacyDestroy?: boolean
 }
 
+/** A fiber's hook-backed effects: React's circular `lastEffect` list plus the hook chain whose slots hold the same effect objects. */
+function effectHooks(specs: EffectSpec[]): {
+  updateQueue: { lastEffect: Effect | null }
+  memoizedState: unknown
+} {
+  const lastEffect = effectList(specs)
+  const nodes: Effect[] = []
+  for (let node = lastEffect?.next ?? null; node && nodes.length < specs.length; node = node.next) {
+    nodes.push(node)
+  }
+  const memoizedState = nodes.reduceRight<unknown>(
+    (next, effect) => ({ memoizedState: effect, next }),
+    null,
+  )
+  return { updateQueue: { lastEffect }, memoizedState }
+}
+
 /** Build a circular effect linked-list and return its `lastEffect` (whose `.next` is the first). */
 function effectList(specs: EffectSpec[]): Effect | null {
   if (specs.length === 0) return null
@@ -109,10 +126,8 @@ function makeComponent(
   return {
     fiber: asFiber(fiber),
     commit(phase: RenderPhase, effects: EffectSpec[], prevEffects?: EffectSpec[]) {
-      fiber.updateQueue = { lastEffect: effectList(effects) }
-      fiber.alternate = prevEffects
-        ? { updateQueue: { lastEffect: effectList(prevEffects) } }
-        : null
+      Object.assign(fiber, effectHooks(effects))
+      fiber.alternate = prevEffects ? effectHooks(prevEffects) : null
       return recordEffect(asFiber(fiber), phase)
     },
   }
@@ -151,9 +166,7 @@ describe('recordEffect dependency-mode classification', () => {
 
   it('keeps prepared effect stats and events private until publication', async () => {
     const component = makeComponent('AtomicEffect')
-    Object.assign(component.fiber, {
-      updateQueue: { lastEffect: effectList([{ tag: PASSIVE | HAS_EFFECT, deps: [] }]) },
-    })
+    Object.assign(component.fiber, effectHooks([{ tag: PASSIVE | HAS_EFFECT, deps: [] }]))
 
     const prepared = prepareEffect(component.fiber, 'mount', 1)
     expect(await getEffectAudit({ limit: 50 })).toEqual([])

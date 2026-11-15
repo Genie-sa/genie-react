@@ -28,6 +28,7 @@ export {
   reactRenderCausesContract,
   renderCauseSchema,
 } from './render-contract'
+export { reactSuspenseContract } from './suspense-contract'
 
 /** A fiber's stable id (bippy `getFiberId`), branded against the collector's other numbers; erases to a plain number at runtime, so it serializes unchanged. */
 const nodeIdSchema = z.number().int().brand<'ReactNodeId'>()
@@ -730,7 +731,7 @@ export const reactErrorStateContract = defineAgentToolContract({
   name: 'react_error_state',
   title: 'Error & suspense state (why is it blank/stuck?)',
   description:
-    'Report error boundaries that have caught an error (with the boundary + throwing component, the message/stack, and their source file:line) and Suspense boundaries currently showing a fallback. Answers "why is the page blank or stuck?" — a render/tree snapshot cannot show a caught error or a suspended subtree. Recorded at commit time, so call it after the blank/stuck state appears. Boundaries you are holding open with react_force_error_boundary / react_toggle_suspense_fallback are included and flagged `forced:true` (release them with react_reset_overrides); real errors/suspends are `forced:false`.',
+    'Report error boundaries that have caught an error (with the boundary + throwing component, the message/stack, and their source file:line) and Suspense boundaries currently showing a fallback. Answers "why is the page blank or stuck?" — a render/tree snapshot cannot show a caught error or a suspended subtree. Catches are recorded at commit time and re-checked against the live tree on every call, so a boundary that recovered drops out and react_clear_renders does not hide one that is still failing; fallbacks are read from the live tree. Boundaries you are holding open with react_force_error_boundary / react_toggle_suspense_fallback are included and flagged `forced:true` (release them with react_reset_overrides); real errors/suspends are `forced:false`.',
   group: 'react.render',
   input: z.object({
     appOnly: appOnlySchema,
@@ -749,6 +750,9 @@ export const reactErrorStateContract = defineAgentToolContract({
       z.object({
         boundaryId: z.number(),
         boundaryName: z.string(),
+        boundaryKind: z
+          .enum(['error-boundary', 'root'])
+          .describe('root = no boundary caught the error and React unmounted the whole root.'),
         boundarySource: sourceSchema,
         throwingComponent: z.string().nullable(),
         message: z.string().nullable(),
@@ -759,6 +763,18 @@ export const reactErrorStateContract = defineAgentToolContract({
           .describe(
             'true = held open by react_force_error_boundary (no real throw); false = a real caught error.',
           ),
+        status: z
+          .enum(['active', 'unknown'])
+          .describe(
+            'active = still in its error state now; unknown = it re-rendered with different state since the catch and may have recovered, so check the screen.',
+          ),
+        statusReason: z.enum([
+          'state-unchanged-since-catch',
+          'error-fields-unchanged',
+          'root-has-no-children',
+          'forced',
+          'state-changed-since-catch',
+        ]),
       }),
     ),
     suspended: z.array(

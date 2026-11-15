@@ -174,20 +174,24 @@ const queryIdentitySchema = z.object({
 
 export const renderAssessmentSchema = z.object({
   inputEvidence: z.enum(['mount', 'changed', 'none-observed', 'incomplete']),
-  observedInputKinds: z.array(
-    z.enum([
-      'mount',
-      'props',
-      'state',
-      'children',
-      'context',
-      'external-store',
-      'query',
-      'router',
-      'parent',
-      'unknown',
-    ]),
-  ),
+  observedInputKinds: z
+    .array(
+      z.enum([
+        'mount',
+        'props',
+        'state',
+        'children',
+        'context',
+        'external-store',
+        'query',
+        'router',
+        'parent',
+        'unknown',
+      ]),
+    )
+    .describe(
+      'Kinds of the exact input changes; unknown marks a changed hook Genie cannot classify.',
+    ),
   behaviorEvidence: z.object({
     subtreeHostMutations: z.object({
       status: z.enum(['observed', 'none-observed', 'incomplete']),
@@ -369,11 +373,22 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('unknown'),
     evidence: z.literal('unknown'),
-    reason: z.enum([
-      'no-observable-fiber-input-change',
-      'input-analysis-incomplete',
-      'causal-analysis-incomplete',
-    ]),
+    reason: z
+      .enum([
+        'no-observable-fiber-input-change',
+        'input-analysis-incomplete',
+        'causal-analysis-incomplete',
+        'unclassified-hook-changed',
+      ])
+      .describe(
+        'no-observable-fiber-input-change: React rendered for an input Genie cannot see, such as forceUpdate. unclassified-hook-changed: a hook Genie cannot classify, such as useDeferredValue, holds a new value.',
+      ),
+    hookIndex: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe('Position of the changed hook for unclassified-hook-changed.'),
   }),
 ])
 
@@ -413,16 +428,23 @@ export const renderComponentSchema = z.object({
   id: z.number(),
   name: z.string(),
   instance: instanceDescriptorSchema,
-  renders: z.number(),
+  renders: z
+    .number()
+    .describe(
+      'Committed renders observed in this window. StrictMode double invocation, render attempts React discarded, and renders React bailed out of are not counted.',
+    ),
   mounts: z.number(),
   updates: z.number(),
+  unmounted: z
+    .boolean()
+    .describe('The instance unmounted inside this window; its renders stay counted.'),
   unnecessary: z
     .number()
     .describe('Legacy count; use noObservedInputChange and assessment for new integrations.'),
   noObservedInputChange: z
     .number()
     .describe(
-      'Updates with complete input coverage where no input held a new value: nothing changed, or state or context only received a new object with equal contents.',
+      'Updates with complete input coverage where no input held a new value: the parent rendered without changing props, or state or context only received a new object with equal contents. Updates with no observed trigger, such as forceUpdate or useDeferredValue, are excluded and carry an unknown cause.',
     ),
   referenceOnlyPropRenders: z
     .number()
@@ -517,6 +539,10 @@ export const renderComponentSummarySchema = z.object({
   renders: z.number(),
   updates: z.number(),
   mounts: z.number().optional().describe('Omitted when zero, like the other optional counts.'),
+  unmounted: z
+    .literal(true)
+    .optional()
+    .describe('Present when the instance unmounted inside this window.'),
   noObservedInputChange: z
     .number()
     .optional()
@@ -661,7 +687,15 @@ export const renderObservationInputSchema = z.object({
   budget: renderObservationBudgetInputSchema,
   lifecycle: z
     .object({
-      bufferLimit: z.number().int().min(100).max(20_000).default(1_000),
+      bufferLimit: z
+        .number()
+        .int()
+        .min(100)
+        .max(20_000)
+        .default(1_000)
+        .describe(
+          'Bounds pending unmounts per commit and the unmounted components whose renders stay in the report.',
+        ),
       targetReserve: z.number().int().min(0).max(5_000).default(100),
     })
     .default({ bufferLimit: 1_000, targetReserve: 100 })

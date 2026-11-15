@@ -1,5 +1,6 @@
 import { CAPTURE_DOMAINS } from './capture-domains'
 import { DEFAULT_MAX_BYTES } from './cli-output'
+import { FEEDBACK_COMMAND, FEEDBACK_OPTION_DETAILS, FEEDBACK_OPTIONS } from './feedback-options'
 import { genieCommand } from './package-manager'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 import { editDistance } from './tool-output'
@@ -30,10 +31,11 @@ export const CLI_OPTIONS = {
   section: { type: 'string' },
   force: { type: 'boolean' },
   verbose: { type: 'boolean' },
+  ...FEEDBACK_OPTIONS,
 } as const
 
 type OptionName = keyof typeof CLI_OPTIONS
-interface OptionDetail {
+export interface OptionDetail {
   description: string
   default?: string | number | boolean
   minimum?: number
@@ -124,6 +126,7 @@ const OPTION_DETAILS: Record<OptionName, OptionDetail> = {
     description: 'Emit bootstrap and connection diagnostics as JSONL on stderr',
     default: false,
   },
+  ...FEEDBACK_OPTION_DETAILS,
 }
 interface Argument {
   name: string
@@ -131,7 +134,7 @@ interface Argument {
   description: string
   enum?: string[]
 }
-interface Command {
+export interface Command {
   description: string
   arguments: Argument[]
   options: OptionName[]
@@ -256,6 +259,7 @@ export const COMMANDS: Record<string, Command> = {
       '--output is required. Existing files are refused unless --force. The artifact is verified and written atomically; stdout contains its receipt.',
     ],
   },
+  feedback: FEEDBACK_COMMAND,
 }
 const GLOBAL_OPTIONS: OptionName[] = ['help', 'version', 'json', 'max-bytes']
 export const COMMAND_OPTIONS: Record<string, ReadonlySet<string>> = Object.fromEntries(

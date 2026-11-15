@@ -186,7 +186,9 @@ async function classifyRecordReports(
         totalTime: roundMilliseconds(rest.totalTime),
         cumulativeSelfTime: roundMilliseconds(rest.cumulativeSelfTime),
         cumulativeTotalTime: roundMilliseconds(rest.cumulativeTotalTime),
-        causes: withReportEvidence(rest.causes, source, hookSources, externalStoreCount),
+        causes: record.unmounted
+          ? withReportEvidence(rest.causes, source, undefined, 0, 'component-unmounted')
+          : withReportEvidence(rest.causes, source, hookSources, externalStoreCount),
         noObservedInputChange: rest.unnecessary,
         compiler: {
           memoCacheObserved: rest.forget,
@@ -365,11 +367,14 @@ export async function buildRenderCauseEventsReport(
     // Component source and ownership belong to the mounted instance; only hook-level evidence is specific to its latest render.
     const sameInstance =
       liveRecord !== undefined && liveRecord.instance.mountId === event.instance.mountId
-    const isLatestEvent = sameInstance && liveRecord.latestRenderEventId === event.renderEventId
+    const isLatestEvent =
+      sameInstance &&
+      !liveRecord.unmounted &&
+      liveRecord.latestRenderEventId === event.renderEventId
     const eventSource = attributionCurrent && sameInstance ? classification.source : null
     const unavailableReason = !attributionCurrent
       ? 'report-state-advanced'
-      : liveRecord === undefined
+      : liveRecord === undefined || liveRecord.unmounted
         ? 'component-unmounted'
         : isLatestEvent
           ? undefined

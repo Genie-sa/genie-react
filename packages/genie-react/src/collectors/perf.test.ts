@@ -136,4 +136,36 @@ describe('sampleFps', () => {
     expect(report.avgFps).toBe(60)
     expect(report.hidden).toBe(false)
   })
+
+  it('marks a sample unreliable when the tab hid and returned between two frames', async () => {
+    const document = new EventTarget() as EventTarget & { visibilityState: string }
+    document.visibilityState = 'visible'
+    vi.stubGlobal('document', document)
+    let now = 1000
+    let frames = 0
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      frames += 1
+      if (frames === 5) {
+        document.visibilityState = 'hidden'
+        document.dispatchEvent(new Event('visibilitychange'))
+        now += 400
+        document.visibilityState = 'visible'
+        document.dispatchEvent(new Event('visibilitychange'))
+      }
+      now += 1000 / 60
+      queueMicrotask(() => cb(now))
+      return 0
+    })
+
+    const report = await sampleFps(600)
+
+    expect(report.worstFrameMs).toBeGreaterThan(400)
+    expect(report.visibility).toEqual({
+      startedHidden: false,
+      endedHidden: false,
+      hiddenDuringSample: true,
+    })
+    expect(report).toMatchObject({ hidden: true, comparable: false })
+    expect(report.notComparableReasons).toContain('document-hidden-during-sample')
+  })
 })

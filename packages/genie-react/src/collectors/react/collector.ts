@@ -1,6 +1,6 @@
 import { type Fiber, getRDTHook } from 'bippy'
 import { defineCollector, defineCollectorTool, type GenieCollector } from '../../client'
-import { roundMilliseconds } from '../../protocol'
+import { reactPendingWorkContract, roundMilliseconds } from '../../protocol'
 import { findComponents } from './component-search'
 import type { NodeId } from './contracts'
 import {
@@ -31,6 +31,7 @@ import {
   reactRenderCausesContract,
   reactRendersDiffContract,
   reactResetOverridesContract,
+  reactSuspenseContract,
   reactToggleSuspenseFallbackContract,
   stylexInspectContract,
 } from './contracts'
@@ -67,6 +68,7 @@ import {
   overrideFiberProps,
   resetOverrides,
 } from './overrides'
+import { getPendingReactWork } from './pending-work'
 import { getRefreshEvents, startRefreshTracking } from './refresh-tracker'
 import { getRenderCohort } from './render-cohort'
 import { reactMeasureContract, reactRendersSinceContract } from './render-contract'
@@ -107,6 +109,8 @@ import {
   parseStyleSources,
   styleProvenanceStatus,
 } from './style-provenance'
+import { getSuspenseReport } from './suspense-boundaries'
+import { startSuspenseCapture } from './suspense-capture'
 
 function currentEffectCoverage() {
   const renderCoverage = getRenderTrackingCoverage('measurement')
@@ -127,16 +131,21 @@ async function effectTimeline({
   const tracking = isTracking()
   const documentCommitId = getDocumentCommitId()
   const coverage = currentEffectCoverage()
+  const report = await getEffectScheduleEventsWithOwnership({
+    appOnly,
+    component,
+    afterDocumentCommitId,
+    limit,
+  })
   return {
     tracking,
     documentCommitId,
-    ...(await getEffectScheduleEventsWithOwnership({
-      appOnly,
-      component,
-      afterDocumentCommitId,
-      limit,
-    })),
-    coverage,
+    ...report,
+    coverage: {
+      ...coverage,
+      complete:
+        coverage.complete && report.evictedEvents === 0 && report.refreshCommitsExcluded === 0,
+    },
   }
 }
 
@@ -192,6 +201,7 @@ export function reactCollector(): GenieCollector {
       // Fallback for setups that did not load the hook early — captures future commits only.
       startRefreshTracking()
       startRenderTracking()
+      startSuspenseCapture()
       // Ride the commit loop with a throttled heartbeat so an animation- or list-saturated thread stays live.
       setCommitListener(ctx.markActivity)
       return () => setCommitListener(null)
@@ -695,6 +705,8 @@ export function reactCollector(): GenieCollector {
         handler: ({ includeSource, limit, appOnly }) =>
           getErrorState({ includeSource, limit, appOnly }),
       }),
+      defineCollectorTool({ contract: reactSuspenseContract, handler: getSuspenseReport }),
+      defineCollectorTool({ contract: reactPendingWorkContract, handler: getPendingReactWork }),
       defineCollectorTool({
         contract: reactRefreshEventsContract,
         handler: ({ afterSequence, limit, includeSource, appOnly }) =>

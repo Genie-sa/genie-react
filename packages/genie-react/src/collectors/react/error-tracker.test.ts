@@ -1,11 +1,11 @@
 import type { Fiber } from 'bippy'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  clearErrorState,
   getErrorState,
   installErrorCapture,
   parseBoundaryError,
   recordErrorState,
+  resetErrorStateForTests,
 } from './error-tracker'
 
 import { defaultWorkTags } from './work-tags'
@@ -42,17 +42,23 @@ const reactBoundaryArgs = [
   'React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary.',
 ]
 
+const windowErrors = vi.hoisted(() => ({ listener: null as ((event: Event) => void) | null }))
+
 let originalError: typeof console.error
 beforeAll(() => {
   originalError = console.error
   console.error = () => {}
+  vi.stubGlobal('addEventListener', (type: string, listener: (event: Event) => void) => {
+    if (type === 'error') windowErrors.listener = listener
+  })
   installErrorCapture()
 })
 afterAll(() => {
   console.error = originalError
+  vi.unstubAllGlobals()
 })
 beforeEach(() => {
-  clearErrorState()
+  resetErrorStateForTests()
   forced.errors = []
   forced.suspense = []
 })
@@ -106,6 +112,20 @@ describe('recordErrorState — caught errors', () => {
     expect((await getErrorState({})).caughtErrors).toHaveLength(0)
   })
 
+  it('takes the message React 18 reports through the window when its log is text only', async () => {
+    windowErrors.listener?.({ error: new Error('older handler failure') } as unknown as Event)
+    windowErrors.listener?.({ error: new Error('render failure') } as unknown as Event)
+    console.error(
+      'The above error occurred in the <Boomer> component:\n\n    at Boomer\n\nReact will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary.',
+    )
+    recordErrorState(boundaryFiber('ErrorBoundary'))
+
+    expect((await getErrorState({})).caughtErrors[0]).toMatchObject({
+      message: 'render failure',
+      throwingComponent: 'Boomer',
+    })
+  })
+
   it('correlates the captured console.error message with the boundary', async () => {
     console.error(...reactBoundaryArgs)
     recordErrorState(boundaryFiber('ErrorBoundary'))
@@ -114,17 +134,46 @@ describe('recordErrorState — caught errors', () => {
     expect(caught?.throwingComponent).toBe('Boomer')
   })
 
-  it('clears a caught boundary once it re-renders without DidCapture (recovery)', async () => {
+  it('keeps a boundary caught while its error state persists and clears it once reset', async () => {
     const type = (): null => null
     Object.assign(type, { displayName: 'ErrorBoundary' })
-    const fiber = { flags: DID_CAPTURE, type } as Record<string, unknown>
+    const healthy = { error: null }
+    const failed = { error: 'boom' }
+    const fiber = {
+      flags: DID_CAPTURE,
+      type,
+      memoizedState: failed,
+      alternate: { memoizedState: healthy },
+    } as Record<string, unknown>
 
     recordErrorState(asFiber(fiber))
-    expect((await getErrorState({})).caughtErrors).toHaveLength(1)
-
-    fiber.flags = 0b1 // re-renders without DidCapture → recovered
+    fiber.flags = 0b1
     recordErrorState(asFiber(fiber))
-    expect((await getErrorState({})).caughtErrors).toHaveLength(0)
+    expect((await getErrorState({})).caughtErrors).toEqual([
+      expect.objectContaining({ status: 'active', statusReason: 'state-unchanged-since-catch' }),
+    ])
+
+    fiber.memoizedState = { error: 'boom', retries: 1 }
+    expect((await getErrorState({})).caughtErrors).toEqual([
+      expect.objectContaining({ status: 'active', statusReason: 'error-fields-unchanged' }),
+    ])
+
+    fiber.memoizedState = { error: null, retries: 1 }
+    expect((await getErrorState({})).caughtErrors).toEqual([])
+  })
+
+  it('reports an unknown status when a boundary that caught on mount changes state', async () => {
+    const type = (): null => null
+    Object.assign(type, { displayName: 'ErrorBoundary' })
+    const fiber = { flags: DID_CAPTURE, type, memoizedState: { error: 'boom' } }
+
+    recordErrorState(asFiber(fiber))
+    fiber.memoizedState = { error: 'boom again' }
+    const state = await getErrorState({})
+    expect(state.caughtErrors).toEqual([
+      expect.objectContaining({ status: 'unknown', statusReason: 'state-changed-since-catch' }),
+    ])
+    expect(state.blankTreeHint).toContain('may have recovered')
   })
 })
 

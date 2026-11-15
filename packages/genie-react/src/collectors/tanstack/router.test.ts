@@ -24,12 +24,10 @@ interface StubRouter {
   router: AnyRouter
   store: object
   emitStore: (snapshot: unknown) => void
-  navigated: Array<{ to: string }>
   invalidated: number
 }
 
 function makeRouter(): StubRouter {
-  const navigated: Array<{ to: string }> = []
   const storeListeners = new Set<(snapshot: unknown) => void>()
   let invalidated = 0
   const state = {
@@ -68,12 +66,8 @@ function makeRouter(): StubRouter {
   const router = {
     state,
     stores: { __store: store },
+    history: { createHref: (href: string) => href },
     subscribe: () => () => {},
-    navigate: async ({ to }: { to: string }) => {
-      navigated.push({ to })
-      state.location.pathname = to
-      state.location.href = to
-    },
     invalidate: async () => {
       invalidated += 1
     },
@@ -84,7 +78,6 @@ function makeRouter(): StubRouter {
     emitStore: (snapshot) => {
       for (const listener of storeListeners) listener(snapshot)
     },
-    navigated,
     get invalidated() {
       return invalidated
     },
@@ -170,17 +163,6 @@ describe('routerCollector', () => {
     expect(result.matches[1]?.routeId).toBe('/dashboard')
     expect(result.matches[1]?.params).toEqual({ id: '7' })
     expect(result.matches[1]?.loaderData).toEqual({ widgets: 3 })
-  })
-
-  it('router_navigate drives navigation and echoes the new pathname', async () => {
-    const stub = makeRouter()
-    const collector = routerCollector(stub.router)
-    const result = (await call(collector, 'router_navigate', {
-      to: '/about',
-      replace: false,
-    })) as { ok: boolean; pathname: string }
-    expect(result).toEqual({ ok: true, pathname: '/about' })
-    expect(stub.navigated).toEqual([{ to: '/about' }])
   })
 
   it('router_invalidate forces loaders to re-run', async () => {
