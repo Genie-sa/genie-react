@@ -68,6 +68,14 @@ const VITE_IMPORT_LINE = `import { genie } from '${VITE_PLUGIN_SPECIFIER}'`
 const GENIE_IMPORT_LINE = `import { Genie } from '${GENIE_PACKAGE}'`
 const GENIE_RENDER_SNIPPET = '{import.meta.env.DEV && <Genie />}'
 
+// Exact-match the root specifier so `genie-react/vite` in the same file doesn't count; the 0.1.0 name counts as wired so init stays idempotent across the rename.
+const GENIE_ROOT_IMPORT = /['"](genie-react|@genie-react\/react)['"]/
+const GENIE_RENDER = /<Genie\b/
+// Vite serves index.html's module scripts from the project root, so a leading `/` is root-relative; URLs with a scheme are skipped.
+const VITE_MODULE_SCRIPT =
+  /<script\b(?=[^>]*\btype\s*=\s*["']module["'])[^>]*\bsrc\s*=\s*["']\/?([^"':?#]+)["']/gi
+const VITE_ROOT_COMPONENT_FILES = ['src/App.tsx', 'src/App.jsx'] as const
+
 const ROOT_ROUTE_FILES = [
   'src/routes/__root.tsx',
   'src/routes/__root.jsx',
@@ -831,10 +839,15 @@ function detectRootRoute(cwd: string): string | null {
 
 function planRootRouteEdit(cwd: string, framework: Framework): RootRouteOutcome {
   if (framework === 'react-vite') {
+    const rendering = viteAppFiles(cwd).find((file) => {
+      const code = readFileSafe(file)
+      return GENIE_ROOT_IMPORT.test(code) && GENIE_RENDER.test(code)
+    })
+    if (rendering) return { action: 'already', path: rendering }
     return {
       action: 'skip',
       reason:
-        'plain React + Vite — genie() injects the react + session tools; render <Genie /> (next steps) for the memory + plugin tools',
+        'plain React + Vite — genie() connects the app with the React and session tools; <Genie /> is optional and adds the Query, Router, memory and timeline tools',
     }
   }
 
@@ -852,10 +865,16 @@ function planRootRouteEdit(cwd: string, framework: Framework): RootRouteOutcome 
   }
 }
 
+/** The entries index.html loads and the conventional root component: where a plain Vite app renders `<Genie />`. */
+function viteAppFiles(cwd: string): string[] {
+  const html = readFileSafe(join(cwd, 'index.html'))
+  const entries = [...html.matchAll(VITE_MODULE_SCRIPT)].map((match) => match[1] as string)
+  return [...entries, ...VITE_ROOT_COMPONENT_FILES].map((file) => join(cwd, file))
+}
+
 function editRootRoute(code: string, framework: Framework): ViteEditResult {
-  // Exact-match the root specifier so `genie-react/vite` in the same file doesn't count; the 0.1.0 name counts as wired so init stays idempotent across the rename.
-  const importsGenie = /['"](genie-react|@genie-react\/react)['"]/.test(code)
-  const rendersGenie = /<Genie\b/.test(code)
+  const importsGenie = GENIE_ROOT_IMPORT.test(code)
+  const rendersGenie = GENIE_RENDER.test(code)
   if (importsGenie && rendersGenie) return { kind: 'already' }
 
   let next = code
@@ -971,7 +990,6 @@ function printNextSteps(
   cwd: string,
 ): void {
   const pm = packageManagerHints(cwd)
-  // 'skip' (plain React + Vite) still wants the render step: only <Genie /> surfaces the memory + plugin tools there.
   const componentHandled = rootRoute.action === 'edit' || rootRoute.action === 'already'
   let step = 1
   log.info('\nNext steps:')
@@ -979,7 +997,12 @@ function printNextSteps(
   log.info('       npx @genie-react/cli link <path-to-genie>   # local checkout (no publish), or:')
   log.info(`       ${pm.add} ${requiredPackages(framework).join(' ')}`)
   if (!componentHandled) {
-    log.info(`  ${step++}. render Genie near your app root (dev only):`)
+    // 'skip' is plain React + Vite, where genie() already connects the app.
+    const purpose =
+      rootRoute.action === 'skip'
+        ? ', optional, for the Query, Router, memory and timeline tools'
+        : ''
+    log.info(`  ${step++}. render Genie near your app root (dev only${purpose}):`)
     log.info(`       ${GENIE_IMPORT_LINE}`)
     log.info(`       ${GENIE_RENDER_SNIPPET}`)
   }
