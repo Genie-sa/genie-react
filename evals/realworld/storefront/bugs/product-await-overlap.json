@@ -1,0 +1,20 @@
+{
+  "id": "product-await-overlap",
+  "kind": "bug",
+  "category": "optimise",
+  "prompt": "Product pages take close to a second to replace the loading skeleton, even on a warm server. Profile what the page waits on and make it faster without changing what it shows.",
+  "truth": {
+    "components": ["ProductPage"],
+    "files": ["app/(shop)/product/[slug]/page.tsx"],
+    "cause": "ProductPage awaits getInventory and then getRatingSummary one after the other although both only need product.id, creating a request waterfall.",
+    "summary": "getProduct must finish first (the others need its id), but inventory and ratings are independent and should run in parallel with Promise.all."
+  },
+  "referenceFix": [
+    {
+      "file": "app/(shop)/product/[slug]/page.tsx",
+      "find": "  const inventory = await getInventory(product.id)\n  const ratings = await getRatingSummary(product.id)\n",
+      "replace": "  const [inventory, ratings] = await Promise.all([\n    getInventory(product.id),\n    getRatingSummary(product.id),\n  ])\n"
+    }
+  ],
+  "probe": { "module": "probes/product-await-overlap.mjs" }
+}

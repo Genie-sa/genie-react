@@ -1,0 +1,24 @@
+{
+  "id": "related-section-error",
+  "kind": "bug",
+  "category": "fix",
+  "prompt": "The \"You may also like\" row is missing on most bag product pages (it shows fine on coats). There's no error on the page. Find out what is going on and fix it.",
+  "truth": {
+    "components": ["RelatedProducts", "SectionBoundary"],
+    "files": [
+      "lib/data/catalog.ts",
+      "app/(shop)/product/[slug]/page.tsx",
+      "components/ui/section-boundary.tsx"
+    ],
+    "cause": "Bags list retired products in relatedIds, and getRelatedProducts resolves them with requireProducts, which throws UnknownProductError. The server component error reaches the client-side SectionBoundary, whose fallback defaults to null, so the section disappears without any visible error.",
+    "summary": "Resolve related ids leniently (skip retired products) in getRelatedProducts. The boundary hid the failure; it should also render a visible fallback or report the error."
+  },
+  "referenceFix": [
+    {
+      "file": "lib/data/catalog.ts",
+      "find": "  return requireProducts(product.relatedIds).map(toSummary)\n",
+      "replace": "  return productSummaries(product.relatedIds)\n"
+    }
+  ],
+  "probe": { "module": "probes/related-section-error.mjs" }
+}

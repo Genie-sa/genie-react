@@ -1,0 +1,11 @@
+{
+  "id": "decoy-deal-countdown",
+  "kind": "decoy",
+  "looksLike": "DealCountdown re-renders every second from a setInterval started in an effect, which reads like a render storm or a leaked timer.",
+  "whyCorrect": "The effect has an empty dependency list and clears its interval on cleanup; each render shows a new remaining time, so every update is caused by a real state change. It renders a placeholder on the server to avoid a hydration mismatch.",
+  "truth": {
+    "components": ["DealCountdown"],
+    "files": ["components/home/deal-countdown.tsx"]
+  },
+  "probe": { "module": "probes/decoy-deal-countdown.mjs" }
+}

@@ -1,0 +1,11 @@
+{
+  "id": "decoy-theme-value",
+  "kind": "decoy",
+  "looksLike": "ThemeProvider passes an inline object literal as its context value without useMemo, the same shape as the LocaleContext bug.",
+  "whyCorrect": "ThemeProvider is rendered by the root server layout with server children, and its only state is the theme, so it re-renders only when the theme actually changes. Every new value object carries a changed theme.",
+  "truth": {
+    "components": ["ThemeProvider", "ThemeToggle"],
+    "files": ["components/providers/theme-provider.tsx"]
+  },
+  "probe": { "module": "probes/decoy-theme-value.mjs" }
+}

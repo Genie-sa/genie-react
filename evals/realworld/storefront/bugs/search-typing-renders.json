@@ -1,0 +1,30 @@
+{
+  "id": "search-typing-renders",
+  "kind": "bug",
+  "category": "optimise",
+  "prompt": "Typing in the search box is janky once there are results on screen, even though the results list is supposed to update in the background with useDeferredValue. Find why the deferred value isn't helping and fix it.",
+  "truth": {
+    "components": ["SearchResults", "SearchExperience"],
+    "files": ["components/search/search-results.tsx"],
+    "cause": "SearchResults is a plain function component, so every urgent re-render of SearchExperience (each keystroke) re-renders the whole results list with the old deferred props; useDeferredValue only helps when the expensive child can bail out.",
+    "summary": "Wrap SearchResults in memo so urgent renders with unchanged term and items skip it and only the deferred render pays its cost."
+  },
+  "referenceFix": [
+    {
+      "file": "components/search/search-results.tsx",
+      "find": "import type { ReactNode } from 'react'\n",
+      "replace": "import { memo, type ReactNode } from 'react'\n"
+    },
+    {
+      "file": "components/search/search-results.tsx",
+      "find": "export function SearchResults({\n  term,\n  items,\n}: {\n  term: string\n  items: ProductSummary[]\n}): ReactNode {",
+      "replace": "export const SearchResults = memo(function SearchResults({\n  term,\n  items,\n}: {\n  term: string\n  items: ProductSummary[]\n}): ReactNode {"
+    },
+    {
+      "file": "components/search/search-results.tsx",
+      "find": "    </ul>\n  )\n}\n",
+      "replace": "    </ul>\n  )\n})\n"
+    }
+  ],
+  "probe": { "module": "probes/search-typing-renders.mjs" }
+}

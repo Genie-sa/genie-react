@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-const SPEC_RUNNER_APPS = new Set(['dashboard'])
+const RUNNERS = new Map([
+  ['dashboard', './run-spec-probes.mjs'],
+  ['storefront', './run-storefront-probes.mjs'],
+])
 
-const usesSpecRunner = process.argv.slice(2).some((argument) => SPEC_RUNNER_APPS.has(argument))
-await import(usesSpecRunner ? './run-spec-probes.mjs' : './run-harness-probes.mjs')
+const app = process.argv.slice(2).find((argument) => RUNNERS.has(argument))
+await import(RUNNERS.get(app ?? '') ?? './run-harness-probes.mjs')

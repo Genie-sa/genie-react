@@ -1,0 +1,35 @@
+{
+  "id": "sort-pending-state",
+  "kind": "bug",
+  "category": "fix",
+  "prompt": "On category pages, changing a filter dims the grid and says \"Updating…\" while the new products load, but changing \"Sort by\" does nothing visible for most of a second and then the order suddenly jumps. Users think the dropdown is broken. Make sorting show the same pending state.",
+  "truth": {
+    "components": ["SortControl", "CatalogResults"],
+    "files": ["components/catalog/sort-control.tsx"],
+    "cause": "SortControl calls router.push directly instead of the CatalogNavigation navigate helper, so the navigation runs in Next's internal transition and the shared useTransition isPending that CatalogResults reads never becomes true; React keeps showing the stale grid without an indicator.",
+    "summary": "Navigate through useCatalogNavigation().navigate so the push runs inside the shared startTransition and isPending drives the Updating state."
+  },
+  "referenceFix": [
+    {
+      "file": "components/catalog/sort-control.tsx",
+      "find": "import { useRouter } from 'next/navigation'\nimport type { ReactNode } from 'react'\n",
+      "replace": "import type { ReactNode } from 'react'\n"
+    },
+    {
+      "file": "components/catalog/sort-control.tsx",
+      "find": "import type { CatalogQuery, SortOrder } from '../../lib/data/types'\n",
+      "replace": "import type { CatalogQuery, SortOrder } from '../../lib/data/types'\nimport { useCatalogNavigation } from './catalog-navigation'\n"
+    },
+    {
+      "file": "components/catalog/sort-control.tsx",
+      "find": "  const router = useRouter()\n",
+      "replace": "  const { navigate } = useCatalogNavigation()\n"
+    },
+    {
+      "file": "components/catalog/sort-control.tsx",
+      "find": "        onChange={(event) =>\n          router.push(catalogHref(query, { sort: event.target.value as SortOrder }), {\n            scroll: false,\n          })\n        }\n",
+      "replace": "        onChange={(event) => navigate(catalogHref(query, { sort: event.target.value as SortOrder }))}\n"
+    }
+  ],
+  "probe": { "module": "probes/sort-pending-state.mjs" }
+}

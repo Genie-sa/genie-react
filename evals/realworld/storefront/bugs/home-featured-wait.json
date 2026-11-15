@@ -1,0 +1,20 @@
+{
+  "id": "home-featured-wait",
+  "kind": "bug",
+  "category": "optimise",
+  "prompt": "On the home page the \"Featured this week\" row takes almost two seconds to show up, long after New arrivals and Winter deals have appeared, even though featured products are cheap to load. Find out why and make it appear as soon as its own data is ready.",
+  "truth": {
+    "components": ["HomePage", "FeaturedCollection", "EditorsPicks"],
+    "files": ["app/(shop)/page.tsx"],
+    "cause": "FeaturedCollection and the slow, personalised EditorsPicks (1.6s) share one Suspense boundary, so React reveals both only when the slower one resolves.",
+    "summary": "A Suspense boundary reveals its whole subtree together. Giving EditorsPicks its own boundary lets the featured row stream at ~150ms."
+  },
+  "referenceFix": [
+    {
+      "file": "app/(shop)/page.tsx",
+      "find": "        <FeaturedCollection />\n        <EditorsPicks />\n      </Suspense>\n",
+      "replace": "        <FeaturedCollection />\n      </Suspense>\n      <Suspense fallback={<RailSkeleton title=\"Picked for you\" />}>\n        <EditorsPicks />\n      </Suspense>\n"
+    }
+  ],
+  "probe": { "module": "probes/home-featured-wait.mjs" }
+}

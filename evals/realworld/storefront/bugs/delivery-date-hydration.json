@@ -1,0 +1,34 @@
+{
+  "id": "delivery-date-hydration",
+  "kind": "bug",
+  "category": "fix",
+  "prompt": "Customers browsing from Germany report that the product page flickers on load and the console shows a hydration error. Our prices are still in dollars for them, so the shop locale is en-US. Find the component and fix it.",
+  "truth": {
+    "components": ["DeliveryEstimate"],
+    "files": ["components/product/delivery-estimate.tsx"],
+    "cause": "DeliveryEstimate formats the arrival date with toLocaleDateString(undefined, …), so the server renders it in its own locale and timezone and the browser in the visitor's, and the text differs during hydration.",
+    "summary": "Format with the shop locale from LocaleContext and a fixed timeZone so server and client produce the same string."
+  },
+  "referenceFix": [
+    {
+      "file": "components/product/delivery-estimate.tsx",
+      "find": "import type { ReactNode } from 'react'\n",
+      "replace": "import type { ReactNode } from 'react'\nimport { useLocale } from '../providers/locale-context'\n"
+    },
+    {
+      "file": "components/product/delivery-estimate.tsx",
+      "find": "  const arrival = addBusinessDays(new Date(), businessDays)\n",
+      "replace": "  const { locale } = useLocale()\n  const arrival = addBusinessDays(new Date(), businessDays)\n"
+    },
+    {
+      "file": "components/product/delivery-estimate.tsx",
+      "find": "arrival.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })",
+      "replace": "arrival.toLocaleDateString(locale, {\n          weekday: 'long',\n          month: 'long',\n          day: 'numeric',\n          timeZone: 'UTC',\n        })"
+    }
+  ],
+  "probe": {
+    "status": "blocked",
+    "missingEvidence": "React reports the mismatch through onRecoverableError/reportError ('Hydration failed because the server rendered text didn't match the client'), but Genie records only errors caught by error boundaries: react_error_state returns caughtErrors:[] and no tool or timeline lane reports recoverable or hydration errors, nor which subtree React regenerated on the client.",
+    "control": "probes/delivery-date-control.mjs"
+  }
+}

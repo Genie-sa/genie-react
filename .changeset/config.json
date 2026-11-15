@@ -14,6 +14,7 @@
     "@genie-react/vite-demo",
     "@genie-react/plain-demo",
     "@genie-react/realworld-dashboard",
-    "@genie-react/realworld-legacy"
+    "@genie-react/realworld-legacy",
+    "@genie-react/realworld-storefront"
   ]
 }

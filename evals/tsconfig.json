@@ -14,9 +14,11 @@
     "lib/**/*.ts",
     "realworld/run-probes.mjs",
     "realworld/run-spec-probes.mjs",
+    "realworld/run-storefront-probes.mjs",
     "realworld/lib/**/*.mjs",
     "realworld/lib/**/*.ts",
     "realworld/dashboard/**/*.mjs",
-    "realworld/dashboard/**/*.ts"
+    "realworld/dashboard/**/*.ts",
+    "realworld/storefront/**/*.mjs"
   ]
 }

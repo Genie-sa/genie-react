@@ -1,0 +1,20 @@
+{
+  "id": "cart-quantity-rollback",
+  "kind": "bug",
+  "category": "fix",
+  "prompt": "In the bag, pressing + on an item that is nearly sold out shows \"Only 2 left\", but the quantity stays at 3 and the subtotal includes the third item until I reload. Checkout then charges for 2. Make the bag show what the server actually accepted.",
+  "truth": {
+    "components": ["CartLines"],
+    "files": ["components/cart/cart-lines.tsx"],
+    "cause": "changeQuantity commits the requested change into the base lines state after updateLineQuantity resolves, even when the server rejected it, so useOptimistic has nothing to roll back to.",
+    "summary": "After the action resolves, replace the base state with the cart the server returned (result.cart.lines) instead of re-applying the requested change."
+  },
+  "referenceFix": [
+    {
+      "file": "components/cart/cart-lines.tsx",
+      "find": "      setLines((current) => applyLineChange(current, { variantId, quantity }))\n",
+      "replace": "      setLines(result.cart.lines)\n"
+    }
+  ],
+  "probe": { "module": "probes/cart-quantity-rollback.mjs" }
+}
