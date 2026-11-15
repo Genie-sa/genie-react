@@ -31,15 +31,23 @@ default adaptive budget grows to fit the tree mounted when you clear. When a lim
 `coverage.budgetAdvice` names it and suggests a budget: clear with that budget and repeat the step,
 because growth on later commits cannot restore evidence skipped by the commit that ran out.
 
-Real demo output:
+Excerpt of real `react_render_causes` output from the Vite demo:
 
 ```text
-4 commits · 6 components · 24 renders · 24 updates · 4 unstable · 2 unnecessary
-unstable props: onClick×4
-  Button #81 4× (0m 4u) · 4 unstable · self 0.2ms · ↻ props: onClick(unstable) (button.tsx:50)
+events[5] (componentName #componentId {fields}, then ← kind evidence name {fields} per cause):
+  each: {mountId:mount:9,source:{location:App.tsx:234:6,ownership:app}}
+  TaskPanel #57 {renderEventId:render:13:184,documentCommitId:13,inputEvidence:changed}
+    ← query exact "[\"tasks\"]" {reason:query-notification-delivered,changedResultFields:[data,dataUpdatedAt]}
+    ← external-store inferred tanstack-mutation-observer
+  TaskPanel #57 {renderEventId:render:10:149,documentCommitId:10,inputEvidence:none-observed}
+    ← parent inferred App
+coverage:
+  complete: true
+  inputAttributionComplete: true
+  semantics: exact
 ```
 
-The agent gets the component, source line, render cost, and exact cause. Causes include props, state, context, Query, Router, parent renders, and mounts.
+The agent gets the component, source location, and each cause with its evidence grade: `exact`, `inferred`, or `unknown`. Causes include props, state, context, Query, Router, parent renders, and mounts.
 
 ## Audit an effect
 
@@ -53,19 +61,21 @@ Each effect reports its own source and whether ownership evidence is `exact`, `i
 
 ```bash
 npx @genie-react/cli call react_find_components '{"query":"App","exact":true}'
-# Use the id returned above. The demo returned App #65.
-npx @genie-react/cli call react_inspect_component '{"id":65}'
+# Use the id returned above. The Vite demo returned TaskPanel #57.
+npx @genie-react/cli call react_inspect_component '{"id":57}'
 ```
 
-Excerpt from the demo:
+Excerpt from the Vite demo:
 
 ```text
-App #65 · function
-  props: {}
-  hooks: 12
-    [0] effect
-    [1] state stateIndex 0 = listeners, subscribe, options, refetch
-    [3] other = status="success", fetchStatus="idle", isPending=false, isSuccess=true, isError=false, data, +18 more
+id: 57
+name: TaskPanel
+kind: function
+props: {}
+hooks[29]:
+  - {index:0,kind:state,stateful:true,stateIndex:0,value:admin}
+  - {index:1,kind:state,stateful:true,stateIndex:1,value:""}
+  - {index:6,kind:effect,stateful:false,customHooks:[useQuery,useBaseQuery],deps:["ƒ anonymous()"]}
 ```
 
 The agent can read the mounted component's real props, state, and hooks instead of guessing from source.
@@ -78,7 +88,10 @@ npx @genie-react/cli call query_simulate_state \
 ```
 
 ```text
-ok=true · queryHash="[\"demo\",\"greeting\"]" · simulatedState="pending" · originalStatus="success"
+ok: true
+queryHash: "[\"demo\",\"greeting\"]"
+simulatedState: pending
+originalStatus: success
 ```
 
 The agent can drive and verify the real loading UI, then restore the exact query state:
@@ -88,15 +101,16 @@ npx @genie-react/cli call query_restore_state '{"queryKey":["demo","greeting"]}'
 ```
 
 ```text
-ok=true · restored=1
+ok: true
+restored: 1
 ```
 
 ## Output for agents
 
-Common read tools print short text by default. Add `--json` for the full compact JSON result:
+Every command prints compact text by default. It keeps every field of the result, quotes app strings so they cannot fake a line, and costs fewer tokens than the same JSON: about 72% of the tokens across the recorded results, 42–60% for a component tree. Add `--json` for the JSON document:
 
 ```bash
-npx @genie-react/cli call react_inspect_component '{"id":65}' --json
+npx @genie-react/cli call react_inspect_component '{"id":57}' --json
 ```
 
 Use `--fields` when the agent only needs a few fields:
@@ -105,8 +119,9 @@ Use `--fields` when the agent only needs a few fields:
 npx @genie-react/cli call query_list '{}' --fields queryHash,status,fetchStatus
 ```
 
-```json
-{"queryHash":"[\"demo\",\"greeting\"]","status":"success","fetchStatus":"idle"}
+```text
+[1]:
+  - {queryHash:"[\"demo\",\"greeting\"]",status:success,fetchStatus:idle}
 ```
 
 Every tool includes its input schema and a runnable example:
@@ -116,9 +131,9 @@ npx @genie-react/cli tools
 npx @genie-react/cli tools react_inspect_component
 ```
 
-`--json` prints one compact JSON value to stdout. `batch` prints JSONL by default; use `--json` for one JSON array. Errors use the same stable machine format and do not mix prose into stdout.
+A failure starts with `error <reason>: <message>`, then `next: $ <command>` when a recovery command is known. `--json` prints one compact JSON value instead, with the same fields. `batch` prints one block per result under a `[n/total] tool ok|error` header; `batch --json` prints one JSON array and `batch --ndjson` prints JSONL.
 
-Use `--ndjson` when you want to state JSONL explicitly. CLI-owned status, batch, and error objects include `schemaVersion`. Successful calls keep the output schema shown by `tools <tool>`.
+Scripts that parse output add `--json`, or set `GENIE_OUTPUT=json` once to keep the 0.19 output, JSONL included. CLI-owned status, batch, and error objects include `schemaVersion` in JSON. Successful calls keep the output schema shown by `tools <tool>`. The [output contract](https://github.com/Genie-sa/genie-react/blob/main/docs/json-cli.md) specifies the text format.
 
 Use `--verbose` when startup is unclear. It prints the CLI version, bridge target, session, and time budgets to stderr. `--connect-timeout <ms>` bounds only the bridge connection.
 

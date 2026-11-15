@@ -1,4 +1,11 @@
-import { _fiberRoots, type Fiber, getFiberId, getLatestFiber, traverseFiber } from 'bippy'
+import { _fiberRoots, type Fiber, getFiberId, getReactWorkTagsForFiber, traverseFiber } from 'bippy'
+import { isKnownProxy } from '../causal/proxy-tagging'
+import {
+  isArrayValue,
+  isDataDescriptor,
+  plainOwnKeys,
+  safeOwnPropertyDescriptor,
+} from '../causal/safe-object'
 import { nameOf } from './fiber'
 import { forcedErrorBoundaries, forcedSuspenseBoundaries } from './overrides'
 import {
@@ -9,13 +16,23 @@ import {
 } from './source'
 import { isSuspenseFiber } from './work-tags'
 
-// React's DidCapture flag is set on a boundary only during the catch commit, then cleared — transient, like fallback state, so both are recorded at commit time rather than scanned on demand.
+// React's DidCapture flag is set on a boundary only during the catch commit, then cleared, so catches are recorded at commit time and re-verified against the live tree on every read.
 const DID_CAPTURE = 0b1000_0000
 const ERROR_LOG_LIMIT = 50
+const NO_STATE: unique symbol = Symbol('genie-react:no-pre-catch-state')
+const NO_REPORTED_ERROR: unique symbol = Symbol('genie-react:no-reported-error')
 
 interface CaughtEntry {
   boundaryId: number
   fiber: Fiber
+  isRoot: boolean
+  /** State the boundary committed with when it caught; identical state later means it is still in that error state. */
+  caughtState: unknown
+  /** State before the catch, when the boundary had committed before; NO_STATE for a boundary that caught while mounting. */
+  preCatchState: unknown
+  /** Fields getDerivedStateFromError changed, fixed at the catch; null until first read, undefined when they cannot be known. */
+  errorFields: string[] | undefined | null
+  log: ErrorLog | null
 }
 
 interface SuspendedEntry {
@@ -37,42 +54,59 @@ let captureInstalled = false
 let originalConsoleError: typeof console.error | null = null
 let captureConsoleError: typeof console.error | null = null
 
+/** A new observation drops unclaimed logs only: a boundary in its error state or a showing fallback is current UI state, not window evidence. */
 export function clearErrorState(): void {
+  errorLog.length = 0
+}
+
+export function resetErrorStateForTests(): void {
   caught.clear()
   suspended.clear()
   errorLog.length = 0
 }
 
-/** Per-fiber commit hook: captures boundaries that caught this commit and Suspense boundaries showing a fallback (both transient, so recorded, not polled). */
+const isHostRootFiber = (fiber: Fiber): boolean =>
+  fiber.tag === getReactWorkTagsForFiber(fiber).HostRoot
+
+/** Per-fiber commit hook: records boundaries (or a root) that caught this commit, and Suspense boundaries showing a fallback for renderers Genie cannot scan live. */
 export function recordErrorState(fiber: Fiber): void {
-  const flags = fiber.flags
-  if ((flags & DID_CAPTURE) !== 0) {
-    const id = getFiberId(fiber)
-    caught.set(id, { boundaryId: id, fiber })
-  } else if (caught.size > 0) {
-    // A previously-caught boundary that re-renders without DidCapture has recovered ("Try again").
-    const id = getFiberId(fiber)
-    if (caught.has(id)) caught.delete(id)
-  }
   if (isSuspenseFiber(fiber)) {
     const id = getFiberId(fiber)
     if (suspenseShowsFallback(fiber)) suspended.set(id, { id, fiber })
     else suspended.delete(id)
+    return
   }
+  if ((fiber.flags & DID_CAPTURE) === 0) return
+  const id = getFiberId(fiber)
+  const isRoot = isHostRootFiber(fiber)
+  caught.set(id, {
+    boundaryId: id,
+    fiber,
+    isRoot,
+    caughtState: fiber.memoizedState,
+    preCatchState: fiber.alternate ? fiber.alternate.memoizedState : NO_STATE,
+    errorFields: null,
+    log: takeErrorLog(isRoot ? null : nameOf(fiber)),
+  })
 }
 
-// The fallback shows exactly when React parks a non-null memoizedState; bippy types it non-null, so the one nullable read is isolated here.
+/** React logs a caught error before the commit that records it; claiming the newest matching log (and dropping older ones for that boundary) keeps a repeat catch from reporting a stale message. */
+function takeErrorLog(boundaryName: string | null): ErrorLog | null {
+  for (let index = errorLog.length - 1; index >= 0; index -= 1) {
+    const entry = errorLog[index]
+    if (entry?.boundaryName !== boundaryName) continue
+    for (let older = index; older >= 0; older -= 1) {
+      if (errorLog[older]?.boundaryName === boundaryName) errorLog.splice(older, 1)
+    }
+    return entry
+  }
+  return null
+}
+
+// The fallback shows exactly when React parks a non-null memoizedState; a dehydrated boundary is still showing server HTML, not its fallback.
 function suspenseShowsFallback(fiber: Fiber): boolean {
-  return isSuspenseFiber(fiber) && fiber.memoizedState != null
-}
-
-/** A recorded fiber may have unmounted since (no commit fires on unmount of a parked subtree). */
-function isMounted(fiber: Fiber): boolean {
-  const latest = getLatestFiber(fiber) ?? fiber
-  for (const root of _fiberRoots) {
-    if (traverseFiber(root.current, (node) => node === latest)) return true
-  }
-  return false
+  const state = fiber.memoizedState as { dehydrated?: unknown } | null
+  return isSuspenseFiber(fiber) && state != null && state.dehydrated == null
 }
 
 /** Patches console.error to capture React's dev boundary-error logs (message + throwing component name) alongside DidCapture; installed from hook.ts before React loads, and always calls the original. */
@@ -84,7 +118,7 @@ export function installErrorCapture(): void {
     try {
       const parsed = parseBoundaryError(args)
       if (parsed) {
-        errorLog.push(parsed)
+        errorLog.push(withReportedError(parsed))
         if (errorLog.length > ERROR_LOG_LIMIT) errorLog.shift()
       }
     } catch {
@@ -93,6 +127,26 @@ export function installErrorCapture(): void {
     originalConsoleError?.apply(console, args)
   }
   console.error = captureConsoleError
+  globalThis.addEventListener?.('error', noteReportedError)
+}
+
+let reportedError: unknown = NO_REPORTED_ERROR
+
+// React 18 dev rethrows a caught error through a guarded event (so the browser reports it) and then logs only text naming the components.
+function noteReportedError(event: Event): void {
+  reportedError = (event as ErrorEvent).error
+}
+
+function withReportedError(parsed: ErrorLog): ErrorLog {
+  const reported = reportedError
+  reportedError = NO_REPORTED_ERROR
+  if (parsed.message !== null || reported === NO_REPORTED_ERROR) return parsed
+  return { ...parsed, message: ownString(reported, 'message'), stack: ownString(reported, 'stack') }
+}
+
+function ownString(value: unknown, key: string): string | null {
+  const field = ownDataValue(value, key)?.value
+  return typeof field === 'string' ? field : null
 }
 
 /** Restore console.error during module/HMR teardown without clobbering a later patch. */
@@ -100,9 +154,11 @@ export function uninstallErrorCapture(): void {
   if (captureConsoleError && console.error === captureConsoleError && originalConsoleError) {
     console.error = originalConsoleError
   }
+  globalThis.removeEventListener?.('error', noteReportedError)
   captureInstalled = false
   captureConsoleError = null
   originalConsoleError = null
+  reportedError = NO_REPORTED_ERROR
 }
 
 export function parseBoundaryError(args: unknown[]): ErrorLog | null {
@@ -124,10 +180,19 @@ export function parseBoundaryError(args: unknown[]): ErrorLog | null {
   }
 }
 
+export type CaughtErrorStatusReason =
+  | 'state-unchanged-since-catch'
+  | 'error-fields-unchanged'
+  | 'root-has-no-children'
+  | 'forced'
+  | 'state-changed-since-catch'
+
 export interface CaughtError {
   sourceOwnership: SourceOwnership
   boundaryId: number
   boundaryName: string
+  /** `root` means no boundary caught the error and React unmounted the whole root. */
+  boundaryKind: 'error-boundary' | 'root'
   boundarySource: ResolvedSource | null
   throwingComponent: string | null
   message: string | null
@@ -136,6 +201,9 @@ export interface CaughtError {
   isLibraryBoundary: boolean
   /** True when the boundary is held in its error state by react_force_error_boundary rather than a real thrown error. */
   forced: boolean
+  /** `active` = still in its error state now; `unknown` = it re-rendered with different state since the catch and may have recovered. */
+  status: 'active' | 'unknown'
+  statusReason: CaughtErrorStatusReason
 }
 
 export interface SuspendedBoundary {
@@ -158,6 +226,94 @@ export interface ErrorState {
   blankTreeHint: string | null
 }
 
+type BoundaryStatus =
+  | { status: 'active' | 'unknown'; reason: CaughtErrorStatusReason }
+  | { status: 'recovered' }
+
+interface LiveTree {
+  current: Map<CaughtEntry, Fiber>
+  fallbacks: Fiber[]
+}
+
+/** One walk of every committed tree resolves each recorded boundary to its current fiber and finds every Suspense fallback on screen now. */
+function scanLiveTree(entries: CaughtEntry[]): LiveTree {
+  const wanted = new Map<Fiber, CaughtEntry>()
+  for (const entry of entries) {
+    wanted.set(entry.fiber, entry)
+    if (entry.fiber.alternate) wanted.set(entry.fiber.alternate, entry)
+  }
+  const current = new Map<CaughtEntry, Fiber>()
+  const fallbacks: Fiber[] = []
+  for (const root of _fiberRoots) {
+    traverseFiber(root.current, (node) => {
+      const entry = wanted.get(node)
+      if (entry) current.set(entry, node)
+      if (suspenseShowsFallback(node)) fallbacks.push(node)
+      return false
+    })
+  }
+  return { current, fallbacks }
+}
+
+function ownDataValue(value: unknown, key: string): { value: unknown } | undefined {
+  if (typeof value !== 'object' || value === null || isKnownProxy(value)) return undefined
+  const descriptor = safeOwnPropertyDescriptor(value, key)
+  if (descriptor === null) return { value: undefined }
+  return isDataDescriptor(descriptor) ? { value: descriptor.value } : undefined
+}
+
+function rendersChildrenElement(boundary: Fiber): boolean {
+  const children = ownDataValue(boundary.memoizedProps, 'children')?.value
+  const first = isArrayValue(children) ? children[0] : children
+  const props = ownDataValue(first, 'props')
+  return (
+    props !== undefined && boundary.child !== null && boundary.child.memoizedProps === props.value
+  )
+}
+
+/** The fields getDerivedStateFromError changed; restoring their pre-catch values means the boundary was reset. */
+function errorFields(entry: CaughtEntry): string[] | undefined {
+  if (entry.preCatchState === NO_STATE) return undefined
+  const before = plainOwnKeys(entry.preCatchState)
+  const after = plainOwnKeys(entry.caughtState)
+  if (!before || !after) return undefined
+  const fields = [...new Set([...before, ...after])].filter((key) => {
+    const previous = ownDataValue(entry.preCatchState, key)
+    const next = ownDataValue(entry.caughtState, key)
+    return !previous || !next || !Object.is(previous.value, next.value)
+  })
+  return fields.length > 0 ? fields : undefined
+}
+
+function fieldsMatch(state: unknown, reference: unknown, fields: string[]): boolean {
+  return fields.every((key) => {
+    const actual = ownDataValue(state, key)
+    const expected = ownDataValue(reference, key)
+    return actual !== undefined && expected !== undefined && Object.is(actual.value, expected.value)
+  })
+}
+
+function boundaryStatus(entry: CaughtEntry, current: Fiber): BoundaryStatus {
+  if (entry.isRoot) {
+    const element = ownDataValue(current.memoizedState, 'element')
+    return element?.value == null
+      ? { status: 'active', reason: 'root-has-no-children' }
+      : { status: 'recovered' }
+  }
+  const state = current.memoizedState
+  if (state === entry.caughtState)
+    return { status: 'active', reason: 'state-unchanged-since-catch' }
+  if (rendersChildrenElement(current)) return { status: 'recovered' }
+  if (entry.errorFields === null) entry.errorFields = errorFields(entry)
+  const fields = entry.errorFields
+  if (fields && fieldsMatch(state, entry.preCatchState, fields)) return { status: 'recovered' }
+  if (fields && fieldsMatch(state, entry.caughtState, fields)) {
+    entry.caughtState = state
+    return { status: 'active', reason: 'error-fields-unchanged' }
+  }
+  return { status: 'unknown', reason: 'state-changed-since-catch' }
+}
+
 export async function getErrorState(query: {
   appOnly?: boolean
   includeSource?: boolean
@@ -170,64 +326,84 @@ export async function getErrorState(query: {
       ? classifyFiber(fiber)
       : Promise.resolve({ source: null, isLibrary: false, ownership: 'unknown' } as const)
 
-  // Evict recorded boundaries that have unmounted since (no commit fires); skipped when no roots are registered so a rootless context keeps its state.
-  if (_fiberRoots.size > 0) {
-    for (const [id, entry] of caught) if (!isMounted(entry.fiber)) caught.delete(id)
-    for (const [id, entry] of suspended) if (!isMounted(entry.fiber)) suspended.delete(id)
-  }
-
-  // Match each caught boundary to its console-logged error by name, consuming each log once so same-named boundaries can't grab the same (or an unrelated) entry. Forced boundaries never threw, so they carry no log.
-  const consumed = new Set<number>()
   const forcedErrorIds = new Set(forcedErrorBoundaries().map(getFiberId))
-  const organicCaught = [...caught.values()].map((entry) => {
-    const boundaryName = nameOf(entry.fiber)
-    const index = errorLog.findIndex(
-      (item, i) => !consumed.has(i) && item.boundaryName === boundaryName,
-    )
-    if (index >= 0) consumed.add(index)
-    return {
-      fiber: entry.fiber,
-      boundaryId: entry.boundaryId,
-      boundaryName,
-      log: index >= 0 ? errorLog[index] : null,
-      // React DevTools' forced error goes through a real DidCapture commit, so only the override registry can tell it apart.
-      forced: forcedErrorIds.has(entry.boundaryId),
+  // Without registered roots there is no live tree to verify against, so recorded state stands as committed.
+  const live = _fiberRoots.size > 0 ? scanLiveTree([...caught.values()]) : null
+  const organicCaught: {
+    fiber: Fiber
+    boundaryId: number
+    entry: CaughtEntry
+    forced: boolean
+    status: 'active' | 'unknown'
+    statusReason: CaughtErrorStatusReason
+  }[] = []
+  for (const [id, entry] of caught) {
+    const current = live ? live.current.get(entry) : entry.fiber
+    if (!current) {
+      caught.delete(id)
+      continue
     }
-  })
+    // React DevTools' forced error goes through a real DidCapture commit, so only the override registry can tell it apart.
+    const forced = forcedErrorIds.has(entry.boundaryId)
+    const status = forced
+      ? { status: 'active' as const, reason: 'forced' as const }
+      : boundaryStatus(entry, current)
+    if (status.status === 'recovered') {
+      caught.delete(id)
+      continue
+    }
+    organicCaught.push({
+      fiber: current,
+      boundaryId: entry.boundaryId,
+      entry,
+      forced,
+      status: status.status,
+      statusReason: status.reason,
+    })
+  }
   const caughtIds = new Set(caught.keys())
   const forcedCaught = dedupeByBoundaryId(forcedErrorBoundaries(), caughtIds).map((entry) => ({
     ...entry,
-    boundaryName: nameOf(entry.fiber),
-    log: null as ErrorLog | null,
+    entry: null,
     forced: true,
+    status: 'active' as const,
+    statusReason: 'forced' as const,
   }))
 
   const caughtCandidates: CaughtError[] = await Promise.all(
     [...organicCaught, ...forcedCaught]
       .slice(0, query.appOnly ? 1000 : limit)
-      .map(async ({ fiber, boundaryId, boundaryName, log, forced }) => {
+      .map(async ({ fiber, boundaryId, entry, forced, status, statusReason }) => {
         const { source, isLibrary, ownership } = await classify(fiber)
+        const log = entry?.log ?? null
+        const isRoot = entry?.isRoot ?? false
         return {
           boundaryId,
-          boundaryName,
-          boundarySource: includeSource ? source : null,
+          boundaryName: isRoot ? 'root' : nameOf(fiber),
+          boundaryKind: isRoot ? ('root' as const) : ('error-boundary' as const),
+          boundarySource: includeSource && !isRoot ? source : null,
           sourceOwnership: ownership,
           throwingComponent: log?.throwingComponent ?? null,
           message: log?.message ?? (forced ? FORCED_ERROR_MESSAGE : null),
           stack: log?.stack ? (includeSource ? log.stack : withoutLibraryFrames(log.stack)) : null,
           isLibraryBoundary: isLibrary,
           forced,
+          status,
+          statusReason,
         }
       }),
   )
 
-  const suspendedIds = new Set(suspended.keys())
+  const showing = live
+    ? live.fallbacks.map((fiber) => ({ id: getFiberId(fiber), fiber }))
+    : [...suspended.values()]
+  const suspendedIds = new Set(showing.map((entry) => entry.id))
   const forcedSuspenseFibers = forcedSuspenseBoundaries()
   const forcedSuspenseIds = new Set(forcedSuspenseFibers.map(getFiberId))
   const forcedSuspended = dedupeByBoundaryId(forcedSuspenseFibers, suspendedIds)
   const suspendedCandidates: SuspendedBoundary[] = await Promise.all(
     [
-      ...[...suspended.values()].map((entry) => ({
+      ...showing.map((entry) => ({
         fiber: entry.fiber,
         boundaryId: entry.id,
         forced: forcedSuspenseIds.has(entry.id),
@@ -259,8 +435,8 @@ export async function getErrorState(query: {
     blankTreeHint: hintFrom(caughtErrors),
     ownershipCoverage: ownershipCoverage(all.map((entry) => entry.sourceOwnership)),
     scanTruncated:
-      caught.size + forcedCaught.length > caughtCandidates.length ||
-      suspended.size + forcedSuspended.length > suspendedCandidates.length,
+      organicCaught.length + forcedCaught.length > caughtCandidates.length ||
+      showing.length + forcedSuspended.length > suspendedCandidates.length,
   }
 }
 
@@ -279,17 +455,24 @@ export function withoutLibraryFrames(stack: string): string {
   return omitted > 0 ? [...kept, `    … ${omitted} library frames omitted`].join('\n') : stack
 }
 
-// Forced boundaries are appended after organic ones, so a real thrown error always wins the hint; a forced-only state gets its own reset guidance.
+// Forced boundaries are appended after organic ones and unknown states sort last, so a real active error always wins the hint.
 function hintFrom(caughtErrors: CaughtError[]): string | null {
-  const first = caughtErrors[0]
+  const first =
+    caughtErrors.find((entry) => entry.status === 'active' && !entry.forced) ??
+    caughtErrors.find((entry) => entry.status === 'active') ??
+    caughtErrors[0]
   if (!first) return null
   if (first.forced)
     return `error boundary <${first.boundaryName}> is held in its error state by react_force_error_boundary (no real error) — call react_reset_overrides to release it`
+  const what = first.message ? `"${first.message}"` : 'an error'
+  const by = first.throwingComponent ? ` thrown by <${first.throwingComponent}>` : ''
+  if (first.boundaryKind === 'root')
+    return `an uncaught error${first.message ? ` (${what})` : ''}${by} unmounted the root — no error boundary caught it, so nothing renders`
   const at = first.boundarySource
     ? ` at ${first.boundarySource.file}:${first.boundarySource.line}`
     : ''
-  const what = first.message ? `"${first.message}"` : 'an error'
-  const by = first.throwingComponent ? ` thrown by <${first.throwingComponent}>` : ''
+  if (first.status === 'unknown')
+    return `error boundary <${first.boundaryName}>${at} caught ${what}${by} and has since re-rendered with different state — it may have recovered; check the screen`
   return `error boundary <${first.boundaryName}>${at} caught ${what}${by} — the subtree below it did not render`
 }
 

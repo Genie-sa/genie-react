@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type ClientOptions, WebSocket } from 'ws'
-import { encodeMessage } from '../protocol'
+import { encodeMessage, GENIE_REACT_VERSION } from '../protocol'
 import { createTestBridge, Inbox, TEST_AGENT_TOKEN } from './bridge-test-harness'
 import type { StandaloneBridgeHandle } from './standalone'
 
@@ -97,6 +97,7 @@ describe('hub upgrade authentication', () => {
       encodeMessage({
         kind: 'app/hello',
         protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
         sessionId,
         app: { name: 'demo' },
         capabilities: [],

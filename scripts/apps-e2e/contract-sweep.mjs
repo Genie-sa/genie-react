@@ -190,6 +190,19 @@ async function optionalFallbacks(contract, args, resolvers) {
   return fallbacks
 }
 
+/** Schema examples are shape templates: an identifier in one names no live object, so each key the app can resolve takes its live value. An example whose tool-scoped identifier has no live object right now cannot be called and yields undefined. */
+async function withLiveIdentifiers(contract, example, resolvers, ownResult) {
+  const live = { ...example }
+  for (const key of Object.keys(example)) {
+    const scoped = resolvers[`${contract.name}.${key}`]
+    const resolver = scoped ?? resolvers[key]
+    const value = typeof resolver === 'function' ? await resolver(ownResult) : resolver
+    if (value !== undefined) live[key] = value
+    else if (scoped !== undefined) return undefined
+  }
+  return live
+}
+
 /** Calls one read-only tool with its required arguments and every schema example; a rejected bare call is retried with resolvable optional inputs and reported as an under-specified schema. */
 async function sweepTool(ctx, contract, resolvers) {
   const name = contract.name
@@ -206,11 +219,22 @@ async function sweepTool(ctx, contract, resolvers) {
     outcomes.push({ tool: name, outcome: `invalid_args(${unresolved.join(',')})` })
     return { failures, outcomes }
   }
-  const variants = [args]
-  for (const example of schemaExamples(contract.inputJsonSchema)) {
-    if (JSON.stringify(example) !== JSON.stringify(args)) variants.push(example)
-  }
-  for (const variant of variants) {
+  const pending = [
+    () => args,
+    ...schemaExamples(contract.inputJsonSchema).map(
+      (example) => () => withLiveIdentifiers(contract, example, resolvers, produced),
+    ),
+  ]
+  const attemptedVariants = new Set()
+  for (const nextVariant of pending) {
+    const variant = await nextVariant()
+    if (variant === undefined) {
+      outcomes.push({ tool: name, outcome: 'no-live-input' })
+      continue
+    }
+    const signature = JSON.stringify(variant)
+    if (attemptedVariants.has(signature)) continue
+    attemptedVariants.add(signature)
     let attempt = await callVariant(ctx, contract, variant)
     const rejectedBare =
       !attempt.ok &&

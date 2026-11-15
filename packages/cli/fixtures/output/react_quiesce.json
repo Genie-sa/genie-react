@@ -1,0 +1,13 @@
+{
+  "argv": ["call", "react_quiesce", "{\"idleMs\":500,\"timeoutMs\":10000}"],
+  "exitCode": 0,
+  "result": {
+    "ok": true,
+    "outcome": "idle",
+    "elapsedMs": 929,
+    "observedCommits": 1,
+    "documentCommitId": 13,
+    "sessionId": "9e2387cb-d702-449d-a760-bce7261948d7",
+    "renderCollection": "available"
+  }
+}

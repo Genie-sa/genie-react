@@ -1,22 +1,18 @@
-import {
-  type Fiber,
-  getLatestFiber,
-  getRDTHook,
-  getRenderer,
-  instrument,
-  type MemoizedState,
-} from 'bippy'
+import { type Fiber, getLatestFiber, getRDTHook, getRenderer, instrument } from 'bippy'
 import { previewValue, type ToolOutput } from '../../protocol'
 import type { reactListOverridesContract, reactResetOverridesContract } from './contracts'
 import {
   classifyHook,
   contextDependencies,
+  contextDisplayName,
+  contextOf,
   findAllCommittedRootFibers,
   findRootFiber,
   type HookKind,
   hookChain,
   isStatefulHook,
   nameOf,
+  nearestContextProvider,
   registerFiber,
 } from './fiber'
 import { safeUnmountHandler } from './safe-instrumentation'
@@ -72,10 +68,14 @@ export function overrideFiberProps(
   partial: Record<string, unknown>,
   renderer: DevRenderer = requireRenderer('overrideProps', fiber),
 ): void {
-  const current = isPlainObject(fiber.memoizedProps) ? fiber.memoizedProps : {}
+  const current = propsOf(fiber)
   renderer.overrideProps?.(fiber, [], { ...current, ...partial })
+  ensureUnmountPruning()
   recordPropsOverride(fiber, partial, current)
 }
+
+const propsOf = (fiber: Fiber): Record<string, unknown> =>
+  isPlainObject(fiber.memoizedProps) ? fiber.memoizedProps : {}
 
 // ── Override registry (list / reset) ─────────────────────────────────────────
 
@@ -86,17 +86,24 @@ type ResetOverridesOutput = ToolOutput<typeof reactResetOverridesContract>
 type OverrideKind = ListOverridesOutput['overrides'][number]['kind']
 type ResetOutcome = ResetOverridesOutput['cleared'][number]['outcome']
 
+/** A prop as it was before the first override: absent props are deleted again on restore rather than set to undefined. */
+type OriginalProp = { present: true; value: unknown } | { present: false }
+
 interface RegistryEntry {
   kind: OverrideKind
   /** Nulled on unmount so a dead subtree is not pinned; the entry stays listed (mounted:false) until reset. */
   fiber: Fiber | null
+  /** Hook entries are keyed per hook slot, so overriding two hooks of one component keeps two restorable entries. */
+  hookIndex?: number
   componentName: string
   detail: string
-  /** Receives the live buffer: an edit applied to the stale alternate is discarded by the next render. */
-  restore?: (renderer: DevRenderer, live: Fiber) => void
-  originals?: Record<string, unknown>
+  /** Receives the live buffer: an edit applied to the stale alternate is discarded by the next render. Reports superseded, without writing, when the app replaced the overridden value since. */
+  restore?: (renderer: DevRenderer, live: Fiber) => 'restored' | 'superseded'
+  originals?: ReadonlyMap<string, OriginalProp>
   latest?: Record<string, unknown>
   prevValue?: unknown
+  originalState?: unknown
+  assignments?: ReadonlyMap<string, string>
 }
 
 const registry: RegistryEntry[] = []
@@ -104,16 +111,23 @@ const registry: RegistryEntry[] = []
 const sameFiber = (a: Fiber, target: Fiber): boolean =>
   a === target || a === target.alternate || a.alternate === target
 
-function findEntry(kind: OverrideKind, fiber: Fiber): RegistryEntry | undefined {
+function findEntry(
+  kind: OverrideKind,
+  fiber: Fiber,
+  hookIndex?: number,
+): RegistryEntry | undefined {
   return registry.find(
     (existing) =>
-      existing.kind === kind && existing.fiber !== null && sameFiber(existing.fiber, fiber),
+      existing.kind === kind &&
+      existing.hookIndex === hookIndex &&
+      existing.fiber !== null &&
+      sameFiber(existing.fiber, fiber),
   )
 }
 
-// The registry stores exactly one entry per (kind, target) so a re-override updates rather than stacks; suspense/error are keyed by boundary, props/hook/context by the edited fiber.
+// The registry stores exactly one entry per (kind, target) so a re-override updates rather than stacks; suspense/error are keyed by boundary, props/context by the edited fiber, hooks by fiber and hook slot.
 function upsertEntry(entry: RegistryEntry): void {
-  const existing = entry.fiber ? findEntry(entry.kind, entry.fiber) : undefined
+  const existing = entry.fiber ? findEntry(entry.kind, entry.fiber, entry.hookIndex) : undefined
   if (existing) registry[registry.indexOf(existing)] = entry
   else registry.push(entry)
 }
@@ -150,13 +164,15 @@ function recordPropsOverride(
 ): void {
   const existing = findEntry('props', fiber)
   // First capture wins per key — a re-override reads already-overridden props, not the app's originals.
-  const originals: Record<string, unknown> = { ...existing?.originals }
+  const originals = new Map(existing?.originals)
   for (const key of Object.keys(partial)) {
-    if (!(key in originals)) originals[key] = currentProps[key]
+    if (!originals.has(key)) originals.set(key, originalProp(currentProps, key))
   }
   const latest: Record<string, unknown> = { ...existing?.latest, ...partial }
   const detail = Object.keys(latest)
-    .map((key) => `${key}=${previewValue(latest[key])} (was ${previewValue(originals[key])})`)
+    .map(
+      (key) => `${key}=${previewValue(latest[key])} (was ${originalPreview(originals.get(key))})`,
+    )
     .join(', ')
   upsertEntry({
     kind: 'props',
@@ -165,21 +181,29 @@ function recordPropsOverride(
     detail,
     originals,
     latest,
-    restore: (renderer, live) => overrideFiberPropsRaw(live, originals, renderer),
+    restore: (renderer, live) => {
+      const props = propsOf(live)
+      // A parent render replaces every overridden prop with its own value; writing the captured originals then would undo the app.
+      if (!Object.keys(latest).every((key) => Object.is(props[key], latest[key]))) {
+        return 'superseded'
+      }
+      const restored = { ...props }
+      for (const [key, original] of originals) {
+        if (original.present) restored[key] = original.value
+        else delete restored[key]
+      }
+      renderer.overrideProps?.(live, [], restored)
+      return 'restored'
+    },
   })
 }
 
-const isIndexable = (value: unknown): value is Record<string | number, unknown> =>
-  typeof value === 'object' && value !== null
+function originalProp(props: Record<string, unknown>, key: string): OriginalProp {
+  return Object.hasOwn(props, key) ? { present: true, value: props[key] } : { present: false }
+}
 
-// Reads the hook's current value at `path` so reset can re-apply it through the same overrideHookState mechanism.
-function hookValueAtPath(hook: MemoizedState, path: Array<string | number>): unknown {
-  let current: unknown = hook.memoizedState
-  for (const key of path) {
-    if (!isIndexable(current)) return undefined
-    current = current[key]
-  }
-  return current
+function originalPreview(original: OriginalProp | undefined): string {
+  return original?.present ? previewValue(original.value) : 'absent'
 }
 
 function recordHookOverride(
@@ -187,20 +211,31 @@ function recordHookOverride(
   flatIndex: number,
   path: Array<string | number>,
   value: unknown,
-  prior: unknown,
+  priorState: unknown,
 ): void {
   // First capture wins — a re-override reads the already-overridden hook value, not the app's original.
-  const existing = findEntry('hook', fiber)
-  const restore =
-    existing?.restore ??
-    ((renderer: DevRenderer, live: Fiber) =>
-      renderer.overrideHookState?.(live, flatIndex, path.map(String), prior))
+  const existing = findEntry('hook', fiber, flatIndex)
+  const originalState = existing ? existing.originalState : priorState
+  const appliedState = hookChain(fiber)[flatIndex]?.memoizedState
+  const assignments = new Map(existing?.assignments)
+  assignments.set(path.map(String).join('.'), previewValue(value))
   upsertEntry({
     kind: 'hook',
     fiber,
+    hookIndex: flatIndex,
     componentName: nameOf(fiber),
-    detail: `hook ${flatIndex} ← ${previewValue(value)}`,
-    restore,
+    detail: [...assignments]
+      .map(([pathKey, preview]) => `hook ${flatIndex}${pathKey ? ` ${pathKey}` : ''} ← ${preview}`)
+      .join(', '),
+    originalState,
+    assignments,
+    restore: (renderer, live) => {
+      const hook = hookChain(live)[flatIndex]
+      // The component's own setState replaced the overridden value; it is app state now.
+      if (!hook || !Object.is(hook.memoizedState, appliedState)) return 'superseded'
+      renderer.overrideHookState?.(live, flatIndex, [], originalState)
+      return 'restored'
+    },
   })
 }
 
@@ -219,7 +254,12 @@ function recordContextOverride(
     componentName: contextName,
     detail: `${contextName} value ← ${previewValue(nextValue)} (was ${previewValue(original)})`,
     prevValue: original,
-    restore: (renderer, live) => overrideFiberPropsRaw(live, { value: original }, renderer),
+    restore: (renderer, live) => {
+      // The Provider's parent re-rendered and passed its own value, which the override no longer shadows.
+      if (!Object.is(propsOf(live).value, nextValue)) return 'superseded'
+      overrideFiberPropsRaw(live, { value: original }, renderer)
+      return 'restored'
+    },
   })
 }
 
@@ -229,8 +269,7 @@ function overrideFiberPropsRaw(
   partial: Record<string, unknown>,
   renderer: DevRenderer,
 ): void {
-  const current = isPlainObject(fiber.memoizedProps) ? fiber.memoizedProps : {}
-  renderer.overrideProps?.(fiber, [], { ...current, ...partial })
+  renderer.overrideProps?.(fiber, [], { ...propsOf(fiber), ...partial })
 }
 
 /** Every override genie has applied and not yet reset, with a live componentId when the target is still mounted (else null + mounted:false). */
@@ -276,9 +315,9 @@ function clearEntry(
   const live = mountedFiber(entry.fiber)
   if (!live || !renderer || !entry.restore)
     return entry.kind === 'hook' ? 'released' : 'skipped-unmounted'
-  entry.restore(renderer, live)
-  scheduleRenderer?.scheduleUpdate?.(live)
-  return 'restored'
+  const outcome = entry.restore(renderer, live)
+  if (outcome === 'restored') scheduleRenderer?.scheduleUpdate?.(live)
+  return outcome
 }
 
 function releaseSuspense(boundary: Fiber, renderer: DevRenderer | null): ResetOutcome {
@@ -559,7 +598,7 @@ export function resolveStatefulTarget(
           ? `${nameOf(fiber)} has no stateful hooks (useState/useReducer) to override — ${enumerated}.`
           : `${nameOf(fiber)} has no stateful hook at stateIndex ${target.stateIndex} (has ${stateful.length}) — ${enumerated}.`,
       )
-    return { flatIndex: match.flatIndex, stateIndex: match.stateIndex }
+    return overridableTarget(fiber, match, enumerated)
   }
 
   const hookIndex = target.hookIndex
@@ -574,12 +613,25 @@ export function resolveStatefulTarget(
         ? `${nameOf(fiber)} has no hooks — pass a function component that uses useState/useReducer. ${enumerated}.`
         : `${nameOf(fiber)} has ${hooks.length} hooks (indices 0–${hooks.length - 1}); hook ${hookIndex} does not exist. ${enumerated}.`,
     )
-  if (!isStatefulHook(hook))
+  const match = stateful.find((h) => h.flatIndex === hookIndex)
+  if (!match)
     throw new Error(
       `Hook ${hookIndex} of ${nameOf(fiber)} is not a stateful hook — only useState/useReducer values can be overridden. ${enumerated} (pass stateIndex to target by stateful ordinal).`,
     )
-  const match = stateful.find((h) => h.flatIndex === hookIndex)
-  return { flatIndex: hookIndex, stateIndex: match ? match.stateIndex : 0 }
+  return overridableTarget(fiber, match, enumerated)
+}
+
+// useOptimistic and useActionState keep dispatch queues that are not plain state: overwriting the action slot would replace the app's action function.
+function overridableTarget(
+  fiber: Fiber,
+  hook: StatefulHook,
+  enumerated: string,
+): ResolvedStatefulTarget {
+  if (hook.kind !== 'state' && hook.kind !== 'reducer')
+    throw new Error(
+      `Hook ${hook.flatIndex} of ${nameOf(fiber)} (stateIndex ${hook.stateIndex}) is internal state of a hook such as useOptimistic or useActionState, not a useState/useReducer value, so it cannot be overridden. ${enumerated}.`,
+    )
+  return { flatIndex: hook.flatIndex, stateIndex: hook.stateIndex }
 }
 
 export function applyHookStateOverride(
@@ -590,12 +642,12 @@ export function applyHookStateOverride(
   renderer: DevRenderer = requireRenderer('overrideHookState', fiber),
 ): ResolvedStatefulTarget {
   const resolved = resolveStatefulTarget(fiber, target)
-  const hook = hookChain(fiber)[resolved.flatIndex]
-  const prior = hook ? hookValueAtPath(hook, path) : undefined
+  const priorState = hookChain(fiber)[resolved.flatIndex]?.memoizedState
   renderer.overrideHookState?.(fiber, resolved.flatIndex, path.map(String), value)
   // Schedule explicitly on the latest mounted fiber: the renderer's own scheduling can land on a stale alternate or bail through a memo boundary, leaving the value changed but never committed.
   renderer.scheduleUpdate?.(mountedFiber(fiber) ?? fiber)
-  recordHookOverride(fiber, resolved.flatIndex, path, value, prior)
+  ensureUnmountPruning()
+  recordHookOverride(fiber, resolved.flatIndex, path, value, priorState)
   return resolved
 }
 
@@ -606,16 +658,9 @@ export interface ProviderMatch {
   contextName: string
 }
 
-const contextNameOf = (context: unknown): string =>
-  (context as { displayName?: string } | null)?.displayName || 'Context'
-
-/** `<Ctx.Provider>` fibers carry the context at `type._context` (React ≤18); `<Ctx>` fibers are the context itself (React 19). */
-const contextOfProviderType = (type: unknown): unknown =>
-  (type as { _context?: unknown } | null)?._context ?? type
-
 export function resolveContextProvider(fiber: Fiber, contextName?: string): ProviderMatch {
   if (isContextProviderFiber(fiber))
-    return { provider: fiber, contextName: contextNameOf(contextOfProviderType(fiber.type)) }
+    return { provider: fiber, contextName: contextDisplayName(contextOf(fiber)) }
 
   const consumed = contextDependencies(fiber)
   const componentName = nameOf(fiber)
@@ -637,12 +682,8 @@ export function resolveContextProvider(fiber: Fiber, contextName?: string): Prov
         : `${componentName} consumes ${consumed.length} contexts (${names}) — pass \`context\` to pick one.`,
     )
 
-  let current: Fiber | null = fiber.return
-  while (current) {
-    if (isContextProviderFiber(current) && contextOfProviderType(current.type) === target.context)
-      return { provider: current, contextName: target.name }
-    current = current.return
-  }
+  const provider = nearestContextProvider(fiber, target.context)
+  if (provider) return { provider, contextName: target.name }
   throw new Error(
     `No Provider for "${target.name}" above ${componentName} — the context is running on its default value, which cannot be overridden live. Render a Provider, or change the default in source.`,
   )
@@ -661,6 +702,7 @@ export function applyContextOverride(
   const nextValue =
     isPlainObject(value) && isPlainObject(currentValue) ? { ...currentValue, ...value } : value
   overrideFiberPropsRaw(match.provider, { value: nextValue }, renderer)
+  ensureUnmountPruning()
   recordContextOverride(match.provider, match.contextName, currentValue, nextValue)
   return match
 }

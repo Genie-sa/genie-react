@@ -1,0 +1,16 @@
+{
+  "name": "@genie-react/react-18-fixture",
+  "private": true,
+  "type": "module",
+  "description": "React 18.3 for tests that need a real React 18 renderer beside the workspace's React 19.",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

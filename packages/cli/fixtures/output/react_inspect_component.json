@@ -1,0 +1,543 @@
+{
+  "argv": ["call", "react_inspect_component", "{\"id\":57}"],
+  "exitCode": 0,
+  "result": {
+    "id": 57,
+    "name": "TaskPanel",
+    "kind": "function",
+    "props": {},
+    "hooks": [
+      { "index": 0, "kind": "state", "stateful": true, "stateIndex": 0, "value": "admin" },
+      { "index": 1, "kind": "state", "stateful": true, "stateIndex": 1, "value": "" },
+      {
+        "index": 2,
+        "kind": "effect",
+        "stateful": false,
+        "customHooks": ["useQuery", "useBaseQuery", "useClearResetErrorBoundary"],
+        "deps": [{ "clearReset": "ƒ clearReset()", "reset": "ƒ reset()", "isReset": "ƒ isReset()" }]
+      },
+      {
+        "index": 3,
+        "kind": "state",
+        "stateful": true,
+        "stateIndex": 2,
+        "customHooks": ["useQuery", "useBaseQuery"],
+        "value": {
+          "listeners": { "__type": "Set", "values": ["ƒ anonymous()"] },
+          "subscribe": "ƒ bound subscribe()",
+          "options": {
+            "queryKey": {
+              "__genie_dehydrated__": true,
+              "kind": "array",
+              "preview": "Array(1)",
+              "path": ["options", "queryKey"],
+              "size": 1
+            },
+            "queryFn": "ƒ list()",
+            "retry": false,
+            "_defaulted": true,
+            "queryHash": "[\"tasks\"]",
+            "refetchOnReconnect": true,
+            "throwOnError": false,
+            "_optimisticResults": "optimistic"
+          },
+          "refetch": "ƒ bound refetch()"
+        }
+      },
+      {
+        "index": 4,
+        "kind": "callback",
+        "stateful": false,
+        "customHooks": ["useQuery", "useBaseQuery"],
+        "value": [
+          "ƒ anonymous()",
+          [
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "QueryObserver {…}",
+              "path": [1, 0]
+            },
+            true
+          ]
+        ]
+      },
+      {
+        "index": 5,
+        "kind": "other",
+        "stateful": false,
+        "customHooks": ["useQuery", "useBaseQuery"],
+        "value": {
+          "status": "success",
+          "fetchStatus": "idle",
+          "isPending": false,
+          "isSuccess": true,
+          "isError": false,
+          "isInitialLoading": false,
+          "isLoading": false,
+          "data": [
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "{…}",
+              "path": ["data", 0]
+            },
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "{…}",
+              "path": ["data", 1]
+            },
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "{…}",
+              "path": ["data", 2]
+            }
+          ],
+          "dataUpdatedAt": 1794700865358,
+          "error": null,
+          "errorUpdatedAt": 0,
+          "failureCount": 0,
+          "failureReason": null,
+          "errorUpdateCount": 0,
+          "isFetched": true,
+          "isFetchedAfterMount": true,
+          "isFetching": false,
+          "isRefetching": false,
+          "isLoadingError": false,
+          "isPaused": false,
+          "isPlaceholderData": false,
+          "isRefetchError": false,
+          "isStale": true,
+          "refetch": "ƒ bound refetch()",
+          "isEnabled": true
+        }
+      },
+      {
+        "index": 6,
+        "kind": "effect",
+        "stateful": false,
+        "customHooks": ["useQuery", "useBaseQuery"],
+        "deps": ["ƒ anonymous()"]
+      },
+      {
+        "index": 7,
+        "kind": "effect",
+        "stateful": false,
+        "customHooks": ["useQuery", "useBaseQuery"],
+        "deps": [
+          {
+            "queryKey": {
+              "__genie_dehydrated__": true,
+              "kind": "array",
+              "preview": "Array(1)",
+              "path": [0, "queryKey"],
+              "size": 1
+            },
+            "queryFn": "ƒ list()",
+            "retry": false,
+            "_defaulted": true,
+            "queryHash": "[\"tasks\"]",
+            "refetchOnReconnect": true,
+            "throwOnError": false,
+            "_optimisticResults": "optimistic"
+          },
+          {
+            "listeners": {
+              "__genie_dehydrated__": true,
+              "kind": "set",
+              "preview": "Set(1)",
+              "path": [1, "listeners"],
+              "size": 1
+            },
+            "subscribe": "ƒ bound subscribe()",
+            "options": {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "{…}",
+              "path": [1, "options"]
+            },
+            "refetch": "ƒ bound refetch()"
+          }
+        ]
+      },
+      {
+        "index": 8,
+        "kind": "state",
+        "stateful": true,
+        "stateIndex": 3,
+        "customHooks": ["useMutation"],
+        "value": {
+          "listeners": { "__type": "Set", "values": ["ƒ anonymous()"] },
+          "subscribe": "ƒ bound subscribe()",
+          "options": {
+            "mutationFn": "ƒ add()",
+            "onSuccess": "ƒ invalidateTasks()",
+            "_defaulted": true
+          },
+          "mutate": "ƒ bound mutate()",
+          "reset": "ƒ bound reset()"
+        }
+      },
+      {
+        "index": 9,
+        "kind": "effect",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "deps": [
+          {
+            "listeners": {
+              "__genie_dehydrated__": true,
+              "kind": "set",
+              "preview": "Set(1)",
+              "path": [0, "listeners"],
+              "size": 1
+            },
+            "subscribe": "ƒ bound subscribe()",
+            "options": {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "{…}",
+              "path": [0, "options"]
+            },
+            "mutate": "ƒ bound mutate()",
+            "reset": "ƒ bound reset()"
+          },
+          { "mutationFn": "ƒ add()", "onSuccess": "ƒ invalidateTasks()" }
+        ]
+      },
+      {
+        "index": 10,
+        "kind": "callback",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "value": [
+          "ƒ anonymous()",
+          [
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "MutationObserver {…}",
+              "path": [1, 0]
+            }
+          ]
+        ]
+      },
+      {
+        "index": 11,
+        "kind": "other",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "value": {
+          "data": { "id": 3, "title": "Write docs", "done": false },
+          "error": null,
+          "failureCount": 0,
+          "failureReason": null,
+          "isPaused": false,
+          "status": "success",
+          "variables": "Write docs",
+          "submittedAt": 1794700865054,
+          "isPending": false,
+          "isSuccess": true,
+          "isError": false,
+          "isIdle": false,
+          "mutate": "ƒ bound mutate()",
+          "reset": "ƒ bound reset()"
+        }
+      },
+      {
+        "index": 12,
+        "kind": "effect",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "deps": ["ƒ anonymous()"]
+      },
+      {
+        "index": 13,
+        "kind": "callback",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "value": [
+          "ƒ anonymous()",
+          [
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "MutationObserver {…}",
+              "path": [1, 0]
+            }
+          ]
+        ]
+      },
+      {
+        "index": 14,
+        "kind": "state",
+        "stateful": true,
+        "stateIndex": 4,
+        "customHooks": ["useMutation"],
+        "value": {
+          "listeners": { "__type": "Set", "values": ["ƒ anonymous()"] },
+          "subscribe": "ƒ bound subscribe()",
+          "options": {
+            "mutationFn": "ƒ toggle()",
+            "onSuccess": "ƒ invalidateTasks()",
+            "_defaulted": true
+          },
+          "mutate": "ƒ bound mutate()",
+          "reset": "ƒ bound reset()"
+        }
+      },
+      {
+        "index": 15,
+        "kind": "effect",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "deps": [
+          {
+            "listeners": {
+              "__genie_dehydrated__": true,
+              "kind": "set",
+              "preview": "Set(1)",
+              "path": [0, "listeners"],
+              "size": 1
+            },
+            "subscribe": "ƒ bound subscribe()",
+            "options": {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "{…}",
+              "path": [0, "options"]
+            },
+            "mutate": "ƒ bound mutate()",
+            "reset": "ƒ bound reset()"
+          },
+          { "mutationFn": "ƒ toggle()", "onSuccess": "ƒ invalidateTasks()" }
+        ]
+      },
+      {
+        "index": 16,
+        "kind": "callback",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "value": [
+          "ƒ anonymous()",
+          [
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "MutationObserver {…}",
+              "path": [1, 0]
+            }
+          ]
+        ]
+      },
+      {
+        "index": 17,
+        "kind": "other",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "value": {
+          "error": null,
+          "failureCount": 0,
+          "failureReason": null,
+          "isPaused": false,
+          "status": "idle",
+          "submittedAt": 0,
+          "isPending": false,
+          "isSuccess": false,
+          "isError": false,
+          "isIdle": true,
+          "mutate": "ƒ bound mutate()",
+          "reset": "ƒ bound reset()"
+        }
+      },
+      {
+        "index": 18,
+        "kind": "effect",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "deps": ["ƒ anonymous()"]
+      },
+      {
+        "index": 19,
+        "kind": "callback",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "value": [
+          "ƒ anonymous()",
+          [
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "MutationObserver {…}",
+              "path": [1, 0]
+            }
+          ]
+        ]
+      },
+      {
+        "index": 20,
+        "kind": "state",
+        "stateful": true,
+        "stateIndex": 5,
+        "customHooks": ["useMutation"],
+        "value": {
+          "listeners": { "__type": "Set", "values": ["ƒ anonymous()"] },
+          "subscribe": "ƒ bound subscribe()",
+          "options": {
+            "mutationFn": "ƒ remove()",
+            "onSuccess": "ƒ invalidateTasks()",
+            "_defaulted": true
+          },
+          "mutate": "ƒ bound mutate()",
+          "reset": "ƒ bound reset()"
+        }
+      },
+      {
+        "index": 21,
+        "kind": "effect",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "deps": [
+          {
+            "listeners": {
+              "__genie_dehydrated__": true,
+              "kind": "set",
+              "preview": "Set(1)",
+              "path": [0, "listeners"],
+              "size": 1
+            },
+            "subscribe": "ƒ bound subscribe()",
+            "options": {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "{…}",
+              "path": [0, "options"]
+            },
+            "mutate": "ƒ bound mutate()",
+            "reset": "ƒ bound reset()"
+          },
+          { "mutationFn": "ƒ remove()", "onSuccess": "ƒ invalidateTasks()" }
+        ]
+      },
+      {
+        "index": 22,
+        "kind": "callback",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "value": [
+          "ƒ anonymous()",
+          [
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "MutationObserver {…}",
+              "path": [1, 0]
+            }
+          ]
+        ]
+      },
+      {
+        "index": 23,
+        "kind": "other",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "value": {
+          "error": null,
+          "failureCount": 0,
+          "failureReason": null,
+          "isPaused": false,
+          "status": "idle",
+          "submittedAt": 0,
+          "isPending": false,
+          "isSuccess": false,
+          "isError": false,
+          "isIdle": true,
+          "mutate": "ƒ bound mutate()",
+          "reset": "ƒ bound reset()"
+        }
+      },
+      {
+        "index": 24,
+        "kind": "effect",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "deps": ["ƒ anonymous()"]
+      },
+      {
+        "index": 25,
+        "kind": "callback",
+        "stateful": false,
+        "customHooks": ["useMutation"],
+        "value": [
+          "ƒ anonymous()",
+          [
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "MutationObserver {…}",
+              "path": [1, 0]
+            }
+          ]
+        ]
+      },
+      {
+        "index": 26,
+        "kind": "ref",
+        "stateful": false,
+        "customHooks": ["useGenieTools"],
+        "value": {
+          "current": [
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "{…}",
+              "path": ["current", 0]
+            },
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "{…}",
+              "path": ["current", 1]
+            },
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "{…}",
+              "path": ["current", 2]
+            },
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "{…}",
+              "path": ["current", 3]
+            },
+            {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "{…}",
+              "path": ["current", 4]
+            }
+          ]
+        }
+      },
+      {
+        "index": 27,
+        "kind": "effect",
+        "stateful": false,
+        "customHooks": ["useGenieTools"],
+        "deps": null
+      },
+      {
+        "index": 28,
+        "kind": "effect",
+        "stateful": false,
+        "customHooks": ["useGenieTools"],
+        "deps": ["app_session app_login_as app_seed_tasks app_reset_tasks app_chaos"]
+      }
+    ],
+    "customHookGrouping": "exact",
+    "wrapperAncestry": []
+  }
+}

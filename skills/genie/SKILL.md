@@ -10,6 +10,8 @@ metadata:
 
 Genie reads runtime evidence from a running app. Use agent-browser (web) or agent-device (native) to drive the UI and check what users see; use Genie to explain what happened underneath.
 
+Commands print compact text that keeps every field of the result under its JSON name. Quoted strings are app data. `each: {…}` holds fields every item below it shares, `← kind evidence name` is one render cause with its evidence grade, and `$ …` is a command to run. Add `--json` only when a script parses the output.
+
 Run commands from the app folder exactly as written. They use this project's package manager; in another project, replace the prefix before `genie-react` with its exec command (`npx`, `pnpm exec`, `yarn`, `yarn --silent` on Yarn 1, or `bunx`).
 
 ## 1. Open the app, then connect
@@ -50,6 +52,7 @@ npx genie-react tools react_render_causes --session my-agent
 | Did Query data reach React? | `query_get`, then `query_notifications` |
 | Did navigation finish? (TanStack Router apps) | `router_get_state` |
 | What is blocking this UI? | `react_error_state` |
+| What is this screen waiting on? | `react_suspense`; check its `capability` first |
 | What state does this component hold? | `react_find_components`, then `react_inspect_component` |
 | Which custom hook owns this hook? | `react_inspect_component`; read each hook's `customHooks` |
 | Is the delay in a request or rendering? | `timeline_start`, `timeline_stop`, `timeline_read` |

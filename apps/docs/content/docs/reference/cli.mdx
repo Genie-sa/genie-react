@@ -4,11 +4,12 @@ description: Setup, discovery, live calls, and machine output.
 icon: Terminal
 ---
 
-These commands use the current JSON output contract. Read the
+These commands use the current output contract. Read the
 [release compatibility note](/docs/getting-started/cli-output) when upgrading an older installation.
 
-The CLI emits compact JSON in terminals, pipes, and CI. `--json` remains a compatibility alias.
-`--help` returns structured command metadata and `--version` returns a version object.
+The CLI prints compact text in terminals, pipes, and CI, with no color or terminal detection. Add
+`--json` for the JSON documents, or set `GENIE_OUTPUT=json` to keep the `0.19` behavior for a whole
+script. `--help` prints help text, and `--help --json` returns structured command metadata.
 
 ## Commands
 
@@ -23,6 +24,7 @@ The CLI emits compact JSON in terminals, pipes, and CI. `--json` remains a compa
 | `call`   | Run one live tool.                                             |
 | `batch`  | Run several calls over one connection.                         |
 | `capture export` | Write a verified capture artifact and return its receipt. |
+| `feedback` | Preview a bug, friction, or idea report for the maintainers; `--submit` files it. |
 
 ## Discover a tool
 
@@ -85,12 +87,13 @@ it to `127.0.0.1` (for example `ssh -L`). `doctor` output never includes the tok
 
 ## Stable failures
 
-Failures keep stdout as valid JSON. They include a stable snake_case `reason`, a `message` built
-from the specifics, `details`, and a safe next command when recovery is known. A failed batch item
-does not stop later items.
+A failure's first line is `error <reason>: <message>`, with a stable snake_case `reason` and a
+`message` built from the specifics, followed by `next: $ <command>` when recovery is known and then
+`details`. With `--json` the same failure is one JSON object. A failed batch item does not stop later
+items.
 
 ```bash
-npx @genie-react/cli call app_set_theme '{"theme":"neon","persist":true}'
+npx @genie-react/cli call app_set_theme '{"theme":"neon","persist":true}' --json
 ```
 
 **Output:**
@@ -136,22 +139,78 @@ arguments and fills each other key in the schema's example with a typed placehol
 `0`, `false`, `[]`, `{}`, or `null`), never the app's value. Replace the placeholders before calling.
 Only the hub can report `hubCode`; the CLI ignores one on an app tool.
 
+## Report a problem to the maintainers
+
+`feedback` turns a Genie bug, a point of friction, an idea, or a docs gap into a GitHub issue on
+`Genie-sa/genie-react`. Without `--submit` nothing leaves the machine: the result shows the exact
+title, body, and destination, saves them as a private draft, and `next` submits that draft unchanged.
+
+```bash
+echo "react_get_tree returned an empty tree after a hot reload" | \
+  npx @genie-react/cli feedback --reason operational_failure --tool react_get_tree --message -
+# After the user approves the preview, submit its data.draft.id.
+npx @genie-react/cli feedback --submit --draft "$DRAFT_ID"
+```
+
+The issue is public and posted from the GitHub account the GitHub CLI (`gh`) is signed in to, so
+agents show the preview and submit only after the user agrees. The report holds the message, the
+title, and these diagnostics only: CLI and `genie-react` versions, Node version, OS and architecture,
+package manager, detected framework, and React version. It never includes source, file contents,
+environment variables, tool results, or app data.
+
+Before anything is shown, the CLI cleans the message and title:
+
+- It replaces the home directory and the project's absolute paths with `<home>` and `<project>`.
+- It removes URL credentials, query strings, and fragments.
+- It redacts emails, private keys, JWTs, bearer tokens, known API key formats, `password=` style
+  assignments, and long random-looking strings. `redactions` counts each rule that fired.
+- It places the message in a code block, so its Markdown, HTML, `@mentions`, and `#123` references
+  do not render, notify, or cross-link. Mentions and references in the title get a zero-width space.
+- It cuts the title at 120 characters and the message at 6,000, and says so in `truncated` and in
+  the issue.
+
+| Option | Meaning |
+| --- | --- |
+| `--message <text>`, `--message -` | Report text, or read it from piped stdin. Required unless `--draft`. |
+| `--title <text>` | Issue title. Defaults to the first line of the message. |
+| `--kind` | `bug` (default), `friction`, `idea`, or `docs`. |
+| `--reason`, `--tool` | The `reason` of the Genie failure and the built-in tool involved, so reports group. App tools (`app_*`) are refused. |
+| `--submit` | File the issue with `gh`, requesting the `agent-feedback` label and filing without it when the label cannot be applied. |
+| `--draft <id>` | With `--submit`, file a saved preview unchanged. |
+| `--allow-duplicate` | With `--submit`, skip the duplicate check. |
+
+With `--reason`, `--submit` first searches open issues for the same failure signature (a hash of
+`reason` and `tool` in the diagnostics table). A match returns `reason:"feedback_duplicate"` with the
+existing issue and files nothing. When `gh` is missing, signed out, offline, or rate limited, the
+command exits 1 with `status:"action_required"`, saves the report to `data.reportPath`, and returns
+`data.newIssueUrl`, a prefilled new-issue link a person can open. A link that would exceed 8,000
+characters is shortened and marked; the saved file keeps the full report.
+
+`operational_failure` results, which point at Genie rather than at how it was called, carry a
+`feedback` command with the reason and any built-in tool already filled in.
+
 ## Output framing and limits
 
-Finite commands return one JSON value, except the JSONL modes below. `call` retains the advertised tool result schema. Setup
-receipts list artifacts and manual actions without dumping source files. Diagnostic records use
-JSONL on stderr; `--verbose` enables connection phases.
+Finite commands print one document: text by default, one JSON value with `--json`. `call` retains
+the advertised tool result fields in both. Setup receipts list artifacts and manual actions without
+dumping source files. Diagnostics go to stderr, one `! reason: message` line each or JSONL with
+`--json`; `--verbose` enables connection phases.
 
-`batch` and `--ndjson` emit one result per line; `batch --json` returns one array. `--fields`
-emits projected JSONL rows and zero bytes for an empty collection. `hub` emits `ready`, `reused`,
-and `stopped` lifecycle records. Process exit is 0 for CLI success and 1 for failure. A wait or quiesce result can report `ok:false`
-with exit 0; add `--fail-on-result-error` to `call` when a failed wait must fail the script.
+| Mode | Text (default) | `--json` |
+| --- | --- | --- |
+| `batch` | one block per result under a `[n/total] tool ok\|error` header | one JSON array; `--ndjson` or `GENIE_OUTPUT=json` gives one result per line |
+| `call --fields` | the projected rows as one text array | JSONL rows |
+| `hub` | one block per `ready`, `reused`, or `stopped` event | JSONL lifecycle records |
 
-Output defaults to 102,400 bytes per JSON document or default JSONL record. An explicit batch
+An empty `--fields` collection prints zero bytes in both formats. Process exit is 0 for CLI success
+and 1 for failure in both formats. A wait or quiesce result can report `ok:false` with exit 0; add
+`--fail-on-result-error` to `call` when a failed wait must fail the script.
+
+Output defaults to 102,400 bytes per document or per batch or hub record. An explicit batch
 `--max-bytes` bounds the whole command. `--max-bytes` accepts 512–50,000,000 bytes. Oversized
 output becomes an explicit `status:"truncated"` envelope with `largestPaths` and runnable
 `suggestions` (summary view, smaller `limit`, `--select` branch, or a raised limit). An oversized
-`call` or `tools` result is also written whole to `outputPath` in a private per-user directory,
+`call` or `tools` result is also written whole, in the output format, to `outputPath` in a private per-user directory,
 `genie-react-<uid>/out` under `$XDG_RUNTIME_DIR` or the OS temp dir, which keeps the newest 20 files. Never treat the envelope itself as complete evidence.
 
 ```bash

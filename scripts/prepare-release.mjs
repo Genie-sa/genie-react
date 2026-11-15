@@ -265,7 +265,7 @@ function verifyCliBin(projectDirectory, cliDirectory, cliManifest) {
   if (typeof binTarget !== 'string') throw new Error('@genie-react/cli has no genie-react bin')
   const expectedBin = resolve(cliDirectory, binTarget)
 
-  const help = runCommand(process.execPath, [expectedBin, '--help'], {
+  const help = runCommand(process.execPath, [expectedBin, '--help', '--json'], {
     cwd: projectDirectory,
     label: 'Installed genie-react --help',
     timeout: 10_000,
@@ -283,8 +283,22 @@ function verifyCliBin(projectDirectory, cliDirectory, cliManifest) {
   ) {
     throw new Error('Installed genie-react --help output does not match its public contract')
   }
+  const textHelp = runCommand(process.execPath, [expectedBin, '--help'], {
+    cwd: projectDirectory,
+    label: 'Installed genie-react --help (text)',
+    timeout: 10_000,
+    maxBuffer: 64_000,
+  })
+  if (
+    textHelp.stderr !== '' ||
+    textHelp.stdout.includes('\u001b') ||
+    !textHelp.stdout.startsWith('genie-react: ') ||
+    !textHelp.stdout.includes('\n  call  ')
+  ) {
+    throw new Error('Installed genie-react --help text does not list its commands')
+  }
 
-  const version = runCommand(process.execPath, [expectedBin, '--version'], {
+  const version = runCommand(process.execPath, [expectedBin, '--version', '--json'], {
     cwd: projectDirectory,
     label: 'Installed genie-react --version',
     timeout: 10_000,
@@ -297,6 +311,17 @@ function verifyCliBin(projectDirectory, cliDirectory, cliManifest) {
   ) {
     throw new Error(
       `Installed genie-react --version must print ${cliManifest.version}, got ${JSON.stringify(version.stdout)}`,
+    )
+  }
+  const textVersion = runCommand(process.execPath, [expectedBin, '--version'], {
+    cwd: projectDirectory,
+    label: 'Installed genie-react --version (text)',
+    timeout: 10_000,
+    maxBuffer: 64_000,
+  })
+  if (textVersion.stderr !== '' || textVersion.stdout !== `${cliManifest.version}\n`) {
+    throw new Error(
+      `Installed genie-react --version must print ${cliManifest.version} as text, got ${JSON.stringify(textVersion.stdout)}`,
     )
   }
 }

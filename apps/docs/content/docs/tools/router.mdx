@@ -25,12 +25,15 @@ npx @genie-react/cli call router_get_state '{}' --json
 {
   "routerId": "router:1",
   "pathname": "/products/42",
+  "resolvedPathname": "/products/42",
   "href": "/products/42?page=2",
   "status": "idle",
   "isLoading": false,
   "isTransitioning": false,
   "matchCount": 3,
   "pendingMatchCount": 0,
+  "settled": true,
+  "pendingWork": [],
   "browserLocation": {
     "href": "https://app.example/products/42?page=2",
     "pathname": "/products/42",
@@ -45,8 +48,17 @@ npx @genie-react/cli call router_get_state '{}' --json
 **Agent use:** Decides whether navigation is settled and whether Router pathname, search, and hash
 agree with the browser before asserting the page.
 
-`locationSync` is `matched`, `mismatched`, or `unavailable`. Treat `mismatched` as inconsistent
-state and `unavailable` as missing browser evidence. This read does not wait for pending matches.
+`settled` is the navigation-finished judgement. It is `true` only when `pendingWork` is empty.
+`pendingWork` names what remains: `navigation-pending`, `loading`, `transitioning`,
+`pending-matches`, `location-unresolved` (the new location has not finished rendering), or
+`match-fetching:<routeId>` for a loader still running. `isLoading` alone turns `false` before a
+stale-while-revalidate loader or the render transition finishes. `resolvedPathname` is the last
+location that finished loading and rendering. A preload does not make the router unsettled.
+
+`locationSync` is `matched`, `mismatched`, or `unavailable`. It compares the browser URL with the
+Router location written through its history, so hash history compares the hash. Treat `mismatched`
+as inconsistent state and `unavailable` as missing browser evidence. A memory history never writes
+the browser URL and reads as `mismatched`. This read does not wait for pending matches.
 
 ## `router_list_matches`
 
@@ -200,11 +212,12 @@ This tool tests one pattern; it does not resolve ambiguity among registered rout
 
 ## `router_navigate`
 
-Runs a client-side navigation and waits for it to resolve.
+Runs a client-side navigation and waits for the router to settle.
 
 **Input:** `to` is a required string. `replace` is optional and defaults to `false`. `params` and
 `search` are optional records with string keys and arbitrary JSON values. `hash` is an optional
-string.
+string. `timeoutMs` is an optional integer from 100 to 15000 and defaults to 5000; it bounds the
+wait for the router to settle.
 
 ```bash
 npx @genie-react/cli call router_navigate \
@@ -214,14 +227,27 @@ npx @genie-react/cli call router_navigate \
 **Output (selected fields):**
 
 ```json
-{ "ok": true, "pathname": "/products/42" }
+{
+  "ok": true,
+  "outcome": "arrived",
+  "requestedHref": "/products/42?tab=reviews",
+  "pathname": "/products/42",
+  "href": "/products/42?tab=reviews",
+  "statusCode": 200,
+  "settled": true,
+  "pendingWork": []
+}
 ```
 
 **Agent use:** Drives the real client Router, then verifies Router, browser URL, loader, Query,
 React, and DOM state end to end.
 
-This changes the visible route and, unless `replace:true`, adds a history entry. The output only
-echoes the resolved pathname. Confirm search and hash with `router_get_state`, then navigate back or
+`ok` is `true` only when the router settled on the requested location. Otherwise `outcome` says
+where it ended: `elsewhere` (a redirect or a newer navigation), `not-found`, `error` (a route match
+failed), `not-started` (no navigation began, because a blocker refused it or is waiting for
+confirmation), or `pending` (still loading at `timeoutMs`; check `pendingWork`).
+
+This changes the visible route and, unless `replace:true`, adds a history entry. Navigate back or
 return to the original location after the check.
 
 ## `router_preload`
@@ -259,7 +285,8 @@ Moves through the Router history adapter.
 
 **Input:** `action` is optional, is `back`, `forward`, or `go`, and defaults to `back`. `delta` is
 an optional integer and defaults to -1; it is used only by `go`, where negative moves back and
-positive moves forward.
+positive moves forward. `timeoutMs` is an optional integer from 100 to 15000 and defaults to 5000;
+it bounds the wait for the router to settle on the new entry.
 
 ```bash
 npx @genie-react/cli call router_history '{"action":"go","delta":-1}' --json
@@ -268,15 +295,27 @@ npx @genie-react/cli call router_history '{"action":"go","delta":-1}' --json
 **Output (selected fields):**
 
 ```json
-{ "ok": true, "pathname": "/products", "canGoBack": true, "length": 5 }
+{
+  "ok": true,
+  "outcome": "moved",
+  "pathname": "/products",
+  "href": "/products",
+  "settled": true,
+  "pendingWork": [],
+  "canGoBack": true,
+  "length": 5
+}
 ```
 
 **Agent use:** Moves the Router history cursor, then checks whether back, forward, or relative-go
 behavior restores the expected route and UI.
 
-**Safety:** The move starts synchronously. Wait for the exact navigation before checking the final
-URL or page; the returned pathname can still be the old location. Apply the inverse move or
-navigate to the original location to clean up.
+The result describes the entry the router settled on after the browser's asynchronous history
+event. `outcome` is `moved`, `unchanged` (no entry there, or a blocker refused it), `no-entry`
+(going back from the first app entry would leave the app, so it was not attempted), or `pending`.
+`canGoBack` and `length` are `null` on Router releases whose history cannot report them.
+
+**Safety:** Apply the inverse move or navigate to the original location to clean up.
 
 ## `router_invalidate`
 
@@ -344,3 +383,5 @@ a cold route.
 
 **Safety:** This is destructive. Current active matches stay in place, but cleared routes reload on
 their next visit. There is no undo; revisit the cleared routes to rebuild their cache.
+
+Router releases without `clearCache()`, such as 1.0, list this tool as unavailable with a reason.

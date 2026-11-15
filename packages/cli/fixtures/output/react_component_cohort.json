@@ -1,0 +1,99 @@
+{
+  "argv": ["call", "react_component_cohort", "{\"component\":\"TaskPanel\"}"],
+  "exitCode": 0,
+  "result": {
+    "attribution": {
+      "status": "current",
+      "startedAtDocumentCommitId": 13,
+      "completedAtDocumentCommitId": 13,
+      "startedAtAnalysisGeneration": 14,
+      "completedAtAnalysisGeneration": 14
+    },
+    "documentCommitId": 13,
+    "ownershipCoverage": {
+      "complete": true,
+      "totalCandidates": 1,
+      "app": 1,
+      "library": 0,
+      "unknown": 0
+    },
+    "observation": { "id": "observation:1", "epoch": 1, "startedAfterDocumentCommitId": 7 },
+    "query": { "component": "TaskPanel", "exact": true },
+    "status": "updated",
+    "matched": 1,
+    "mountedUpdated": 1,
+    "mountedIdle": 0,
+    "mountedUnknown": 0,
+    "unmounted": 0,
+    "returned": 1,
+    "omittedByLimit": 0,
+    "instances": [
+      {
+        "renderingState": "mounted-rendering",
+        "reactVisibility": "not-hidden",
+        "componentName": "TaskPanel",
+        "status": "mounted-updated",
+        "instance": {
+          "fiberId": 57,
+          "mountId": "mount:9",
+          "key": null,
+          "siblingIndex": 4,
+          "parent": { "fiberId": 4, "name": "App", "key": null },
+          "keyedParent": null,
+          "logicalPath": "QueryClientProvider[index=0] > App[index=0] > TaskPanel[index=4]",
+          "logicalIdentityEvidence": "positional",
+          "mountGeneration": 1,
+          "mountGenerationEvidence": "exact",
+          "hostSelector": "#tasks"
+        },
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "sourceProvenance": {
+          "definitionSource": null,
+          "allocationCallsite": null,
+          "hookDefinitionOwner": null,
+          "hookCallsite": null,
+          "package": null,
+          "sourceMapConfidence": "mapped",
+          "failureReason": "definition-and-allocation-not-distinguished",
+          "usageOrDefinitionFallback": {
+            "file": "App.tsx",
+            "line": 234,
+            "column": 6,
+            "functionName": "App",
+            "sourceMapConfidence": "mapped"
+          }
+        }
+      }
+    ],
+    "coverage": {
+      "complete": true,
+      "freezeDetection": "disabled",
+      "scannedFibers": 110,
+      "scanLimit": 20000,
+      "scanTruncated": false,
+      "rootAvailable": true,
+      "rootCount": 1,
+      "scannedRootCount": 1,
+      "rootLimit": 100,
+      "rootScope": "committed",
+      "rootScopeComplete": true,
+      "rootScopeTruncated": false,
+      "inputAttributionComplete": true,
+      "skippedCommitFibers": 0,
+      "droppedUnmountFibers": 0,
+      "analysisFailedFibers": 0,
+      "truncatedInputFibers": 0,
+      "propsNotEnumeratedFibers": 0,
+      "budgetExhaustedCommits": 0,
+      "budgetExhaustedSubsystems": [],
+      "generationHistoryEvictions": 0
+    }
+  }
+}

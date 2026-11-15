@@ -4,7 +4,7 @@ description: Inputs, outputs, limits, and agent use for every live Genie tool.
 icon: Blocks
 ---
 
-The built-in collectors expose 80 tools. The active app may expose fewer, and can add its own under
+The built-in collectors expose 82 tools. The active app may expose fewer, and can add its own under
 the `app` group ([App tools](/docs/tools/app-tools)). Run `status` to see its domains, then discover
 one exact contract:
 
@@ -22,7 +22,7 @@ Every entry includes the exact input, a call, selected output fields, and the de
 enables. The examples come from live demo runs, source tests, or the validated contract. IDs, counts,
 paths, and times change with the app.
 
-Commands return JSON by default. Existing `--json` examples remain valid. Use the live contract
+Commands print compact text by default; add `--json` to parse a result. Use the live contract
 above as the source for your installed version, and read [CLI output](/docs/getting-started/cli-output)
 when parsing, projecting, or saving results. A successful process exit alone does not prove a wait
 condition was met; use `--fail-on-result-error` with `devtools_wait` and `react_quiesce` in scripts.

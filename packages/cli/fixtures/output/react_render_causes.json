@@ -1,0 +1,102 @@
+{
+  "argv": ["call", "react_render_causes", "{\"component\":\"TaskPanel\",\"limit\":20}"],
+  "exitCode": 0,
+  "result": {
+    "tracking": true,
+    "commits": 6,
+    "documentCommitId": 13,
+    "observation": { "id": "observation:1", "epoch": 1, "startedAfterDocumentCommitId": 7 },
+    "attribution": {
+      "status": "current",
+      "startedAtDocumentCommitId": 13,
+      "completedAtDocumentCommitId": 13,
+      "startedAtAnalysisGeneration": 14,
+      "completedAtAnalysisGeneration": 14
+    },
+    "view": "summary",
+    "events": [
+      {
+        "renderEventId": "render:13:184",
+        "documentCommitId": 13,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "causes": [
+          {
+            "kind": "query",
+            "evidence": "exact",
+            "name": "[\"tasks\"]",
+            "reason": "query-notification-delivered",
+            "changedResultFields": ["data", "dataUpdatedAt"]
+          },
+          { "kind": "external-store", "evidence": "inferred", "name": "tanstack-mutation-observer" }
+        ],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:234:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:12:174",
+        "documentCommitId": 12,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "causes": [
+          { "kind": "state", "evidence": "exact", "name": "state[1]" },
+          { "kind": "external-store", "evidence": "inferred", "name": "tanstack-mutation-observer" }
+        ],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:234:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:11:164",
+        "documentCommitId": 11,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "causes": [{ "kind": "state", "evidence": "exact", "name": "state[1]" }],
+        "inputEvidence": "changed",
+        "source": { "location": "App.tsx:234:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:10:149",
+        "documentCommitId": 10,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:234:6", "ownership": "app" }
+      },
+      {
+        "renderEventId": "render:8:119",
+        "documentCommitId": 8,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "causes": [{ "kind": "parent", "evidence": "inferred", "name": "App" }],
+        "inputEvidence": "none-observed",
+        "source": { "location": "App.tsx:234:6", "ownership": "app" }
+      }
+    ],
+    "omittedByLimit": 0,
+    "renderEventRetention": {
+      "evictedEvents": 0,
+      "earliestDocumentCommitId": 8,
+      "latestDocumentCommitId": 13
+    },
+    "coverage": {
+      "skippedCommitFibers": 0,
+      "droppedUnmountFibers": 0,
+      "analysisFailedFibers": 0,
+      "truncatedInputFibers": 0,
+      "propsNotEnumeratedFibers": 0,
+      "budgetExhaustedCommits": 0,
+      "budgetExhaustedSubsystems": [],
+      "complete": true,
+      "inputAttributionComplete": true,
+      "semantics": "exact",
+      "coverageDomain": "render-causality",
+      "droppedRenderEvents": 0
+    }
+  }
+}

@@ -281,15 +281,13 @@ export default {
             },
           }),
         )
-        await ctx.knownDefect('KD-3', async () => {
-          await throwForReal(ctx)
-          const after = await ctx.call('react_error_state', { appOnly: false })
-          check(
-            after.caughtErrors.length === 1 && after.caughtErrors[0].message === 'boom from /error',
-            'a real error caught after a released forced error must report its own message',
-            after.caughtErrors.map(({ message, forced }) => ({ message, forced })),
-          )
-        })
+        await throwForReal(ctx)
+        const after = await ctx.call('react_error_state', { appOnly: false })
+        check(
+          after.caughtErrors.length === 1 && after.caughtErrors[0].message === 'boom from /error',
+          'a real error caught after a released forced error must report its own message',
+          after.caughtErrors.map(({ message, forced }) => ({ message, forced })),
+        )
         await ctx.open('/')
         await waitForText(ctx.page, '[data-testid=query-data]', 'hello from queryFn')
       },

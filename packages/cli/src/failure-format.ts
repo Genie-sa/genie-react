@@ -23,7 +23,15 @@ export function formatAgentFailure(
   message: string,
   options: FailureOptions = {},
 ): string {
-  return JSON.stringify({
+  return JSON.stringify(agentFailure(reason, message, options))
+}
+
+export function agentFailure(
+  reason: FailureReason,
+  message: string,
+  options: FailureOptions = {},
+): Record<string, unknown> {
+  return {
     schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
     status: 'error',
     reason,
@@ -32,10 +40,11 @@ export function formatAgentFailure(
     errorCode: options.errorCode ?? DEFAULT_ERROR_CODES[reason],
     ...(options.retryInMs === undefined ? {} : { retryInMs: options.retryInMs }),
     ...(options.next === undefined ? {} : { next: options.next }),
+    ...(options.feedback === undefined ? {} : { feedback: options.feedback }),
     ...(options.correctedExample === undefined
       ? {}
       : { correctedExample: options.correctedExample }),
     ...(options.busyTelemetry === undefined ? {} : { busyTelemetry: options.busyTelemetry }),
     ...(options.details === undefined ? {} : { details: options.details }),
-  })
+  }
 }

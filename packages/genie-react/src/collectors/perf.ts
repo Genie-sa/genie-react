@@ -210,11 +210,21 @@ export function sampleFps(durationMs: number): Promise<FpsReport> {
     let last = 0
     let hidden = false
     const startedHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
+    // A tab can hide and return between two frames; only the event sees that.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') hidden = true
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange)
+    }
     let done = false
     const finish = (elapsedMs: number) => {
       if (done) return
       done = true
       clearTimeout(bail)
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange)
+      }
       const endedHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
       resolve(
         buildFpsReport(deltas, elapsedMs, {

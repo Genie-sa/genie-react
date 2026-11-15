@@ -9,7 +9,7 @@ import {
   renderSkillFiles,
   SKILL_PATH_CONFLICT,
 } from './agent-skill'
-import { writeDiagnostic, writeJson } from './cli-output'
+import { writeDiagnostic, writeEnvelope } from './cli-output'
 import { genieCommand } from './package-manager'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 
@@ -32,7 +32,7 @@ export function runLink(opts: LinkOptions = {}): number {
   let changesMayHaveApplied = false
   const packages: { name: string; path: string; target: string }[] = []
   const fail = (reason: string, message: string): number => {
-    writeJson(
+    writeEnvelope(
       {
         schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: 'error',
@@ -77,7 +77,7 @@ export function runLink(opts: LinkOptions = {}): number {
       writeDiagnostic('build_required', 'Build the packages in the Genie checkout.', {
         next: { command: 'pnpm -r build', argv: ['pnpm', '-r', 'build'], cwd: genieRoot },
       })
-    writeJson(
+    writeEnvelope(
       {
         schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: 'ok',

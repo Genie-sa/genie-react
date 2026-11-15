@@ -96,6 +96,7 @@ function createContext({ spec, cli, page, errors, defects, log, started, session
       ...spec.sweepArgs,
       id: () => ctx.probeComponentId,
       queryKey: () => produced.query_list?.queries?.[0]?.queryKey,
+      'react_suspense.id': (own) => own?.boundaries?.[0]?.id,
       'timeline_read.id': () => produced.timeline_start?.id,
       'timeline_stop.id': () => produced.timeline_start?.id,
       'mutation_get.mutationId': () => produced.query_list_mutations?.mutations?.[0]?.mutationId,

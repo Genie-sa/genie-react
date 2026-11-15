@@ -27,29 +27,18 @@ const KNOWN_DEFECTS = {
     repro:
       'cd apps/demo && vite dev --port <free>; open /?_genie=x; genie-react status --session x --json lists no router domain',
   },
-  'KD-3': {
-    apps: ['router-demo'],
-    severity: 'high',
-    tool: 'react_error_state',
-    expected:
-      'After a forced error is released, a real error caught by the same boundary is reported with its own message.',
-    actual:
-      'It is reported as "Simulated error coming from DevTools" with forced:false: getErrorState pairs each boundary with the oldest unconsumed console log of that boundary name, which is the forced one (packages/genie-react/src/collectors/react/error-tracker.ts:181).',
-    repro:
-      'router-demo /error: call react_force_error_boundary {"id":<Bomb id>}, then react_reset_overrides, click Throw, then call react_error_state --json',
-  },
   'KD-4': {
     severity: 'medium',
     tool: 'source resolution behind react_find_components, react_get_renders and related tools',
     expected:
       'Resolving component sources only requests URLs the page can load, so the app console stays clean.',
     actual:
-      "sourceMapFor (packages/genie-react/src/collectors/react/source.ts:727, via bippy getSourceMap) fetches whatever path a stack frame or source map names. Under TanStack Start it requests /src/StartClient.tsx, /index.tsx and /node_modules/.pnpm/... (Vite serves them only under /@fs/), under esbuild /src/lab.tsx, each a 404; under Next.js it calls fetch() on about://React/Server/file:///… and file:///… URLs, which the browser refuses. Every miss is a console error in the developer's app: dozens per session, 255 in one next-demo run.",
+      "Source resolution (packages/genie-react/src/collectors/react/source.ts, via bippy getSourceMap) fetches whatever path a stack frame or source map names. Under Next.js it calls fetch() on about://React/Server/file:///… and file:///… URLs, which the browser refuses. Every miss is a console error in the developer's app: dozens per session, 255 in one next-demo run. The TanStack Start and esbuild cases no longer reproduce.",
     repro:
-      'cd apps/demo && vite dev --port <free>; open /?_genie=x; genie-react call react_get_renders \'{"appOnly":true}\' --session x; read the browser console',
+      'cd apps/next-demo && next dev --port <free>; open /?_genie=x; genie-react call react_get_renders \'{"appOnly":true}\' --session x; read the browser console',
     claim: {
       kind: 'genie-resource-failure',
-      sites: [{ tool: 'source-map resolution', apps: ['demo', 'plain-demo', 'next-demo'] }],
+      sites: [{ tool: 'source-map resolution', apps: ['next-demo'] }],
     },
   },
   'KD-5': {

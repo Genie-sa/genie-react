@@ -49,7 +49,7 @@ export default {
     const hub = processes.start(
       'genie-react hub',
       process.execPath,
-      [CLI_ENTRY, 'hub', '--port', String(hubPort)],
+      [CLI_ENTRY, 'hub', '--port', String(hubPort), '--json'],
       {
         cwd: appDir,
       },

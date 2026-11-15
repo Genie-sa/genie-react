@@ -1,0 +1,34 @@
+{
+  "argv": ["tools", "app_login_as"],
+  "exitCode": 0,
+  "result": {
+    "name": "app_login_as",
+    "title": "Login as",
+    "description": "Switches the demo session role and re-gates the task UI instantly — no login form to drive. Use before testing role-restricted interactions.",
+    "group": "app",
+    "inputJsonSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": { "role": { "type": "string", "enum": ["guest", "member", "admin"] } },
+      "required": ["role"]
+    },
+    "annotations": { "readOnlyHint": false, "idempotentHint": true },
+    "output": {
+      "kind": "outline",
+      "fields": {},
+      "next": {
+        "command": "pnpm exec genie-react tools app_login_as --output-schema --session measure",
+        "argv": [
+          "pnpm",
+          "exec",
+          "genie-react",
+          "tools",
+          "app_login_as",
+          "--output-schema",
+          "--session",
+          "measure"
+        ]
+      }
+    }
+  }
+}
