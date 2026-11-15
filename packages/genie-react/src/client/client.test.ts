@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { defineAgentToolContract } from '../protocol'
-import { FakeSocket, type Frame } from '../test-support/fake-socket'
+import { FakeSocket, type Frame, lastHello, lastResponse } from '../test-support/fake-socket'
 import { createGenieClient } from './client'
 import { type CollectorContext, defineCollector, defineCollectorTool } from './collector'
 
@@ -179,7 +179,7 @@ describe('GenieClient', () => {
     expect(echo.annotations.readOnlyHint).toBe(true)
   })
 
-  it('keeps the initial document title as the app name across later hellos', () => {
+  it('keeps the initial document title as the app name across later hellos', async () => {
     vi.stubGlobal('document', { title: 'Stable app name' })
     try {
       const socket = new FakeSocket()
@@ -191,6 +191,7 @@ describe('GenieClient', () => {
       client.registerCollector(
         defineCollector({ meta: { id: 'late', title: 'Late collector' }, capabilities: ['late'] }),
       )
+      await flush()
 
       const hellos = socket.decoded().filter((message) => message.kind === 'app/hello')
       expect(hellos).toHaveLength(2)
@@ -199,6 +200,85 @@ describe('GenieClient', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+
+  it('announces collectors registered in one task with one hello that lists all of them', async () => {
+    const socket = new FakeSocket()
+    const client = createGenieClient({ collectors: [], socketFactory: () => socket })
+    client.start()
+    socket.open()
+
+    const refreshes: CollectorContext[] = []
+    for (const id of ['first', 'second', 'third'])
+      client.registerCollector(
+        defineCollector({
+          meta: { id, title: id },
+          capabilities: [id],
+          start: (context) => {
+            refreshes.push(context)
+          },
+        }),
+      )
+    for (const context of refreshes) context.refreshTools()
+    await flush()
+
+    const hellos = socket.decoded().filter((frame) => frame.kind === 'app/hello')
+    expect(hellos).toHaveLength(2)
+    expect(hellos[1].capabilities).toEqual(['first', 'second', 'third'])
+    client.stop()
+  })
+
+  it('answers calls to a late collector before its re-hello goes out', async () => {
+    const socket = new FakeSocket()
+    const client = createGenieClient({ collectors: [], socketFactory: () => socket })
+    client.start()
+    socket.open()
+
+    client.registerCollector(
+      defineCollector({
+        meta: { id: 'late', title: 'Late' },
+        tools: [
+          defineCollectorTool({
+            contract: echoContract,
+            handler: ({ message }) => ({ echoed: message }),
+          }),
+        ],
+      }),
+    )
+    socket.receive({ kind: 'bridge/request', id: 'early', tool: 'echo', args: { message: 'hi' } })
+    await flush()
+
+    expect(lastResponse(socket, 'early')).toMatchObject({ ok: true, result: { echoed: 'hi' } })
+    expect(lastHello(socket).tools.map((tool: Frame) => tool.name)).toEqual(['echo'])
+    client.stop()
+  })
+
+  it('drops a pending re-hello once a reconnect has announced the current catalog', async () => {
+    const sockets: FakeSocket[] = []
+    const client = createGenieClient({
+      collectors: [],
+      socketFactory: () => {
+        const socket = new FakeSocket()
+        sockets.push(socket)
+        return socket
+      },
+      reconnectDelayMs: 0,
+    })
+    client.start()
+    sockets[0]?.open()
+    client.registerCollector(
+      defineCollector({ meta: { id: 'late', title: 'Late' }, capabilities: ['late'] }),
+    )
+    sockets[0]?.close()
+    await flush()
+    sockets[1]?.open()
+    await flush()
+
+    expect(sockets[0]?.decoded().map((frame) => frame.kind)).toEqual(['app/hello', 'app/ready'])
+    const reconnected = sockets[1]?.decoded() ?? []
+    expect(reconnected.map((frame) => frame.kind)).toEqual(['app/hello', 'app/ready'])
+    expect(reconnected[0].capabilities).toEqual(['late'])
+    client.stop()
   })
 
   it('replaces a collector with the same id without leaving stale tools or subscriptions', async () => {

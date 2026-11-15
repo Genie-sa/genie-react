@@ -236,33 +236,42 @@ export function discardExcludedInstanceUnmount(
   excludedLifecycleFibers += 1
 }
 
-/** Count the components a commit nothing observes mounted, without describing them or giving them Bippy ids, so a window opened later still numbers a remount at the same position. React bubbles Placement, or Hydrating for a hydrated tree, from the top of every new subtree into its ancestors' subtreeFlags and gives a bailed-out Fiber only static flags, so the walk enters only subtrees this commit completed that can hold a new Fiber, and every Fiber there without an alternate is new. A walk the budget cuts short loses counts and is recorded as a history eviction. */
+/** Count the components a commit nothing observes mounted, without describing them or giving them Bippy ids, so a window opened later still numbers a remount at the same position. React bubbles Placement, or Hydrating for a hydrated tree, from the top of every new subtree into its ancestors' subtreeFlags and gives a bailed-out Fiber only static flags, so the walk enters only subtrees this commit completed that can hold a new Fiber, and every Fiber there without an alternate is new. The walk descends from the root, so each position is folded onto its parent's as it goes rather than walked back up per mount. A walk the budget cuts short loses counts and is recorded as a history eviction. */
 export function noteUnobservedMounts(hostRoot: Fiber): void {
   if (((hostRoot.flags | hostRoot.subtreeFlags) & MOUNT_FLAGS) === 0) return
   const budget = createCommitWorkBudget(UNOBSERVED_MOUNT_BUDGET)
-  const stack: Fiber[] = [hostRoot]
+  const stack: UnobservedDescent[] = [
+    { fiber: hostRoot, above: null, index: 0, uniqueKey: false, detached: false },
+  ]
   while (stack.length > 0) {
-    const fiber = stack.pop() as Fiber
-    const mounted = fiber.alternate === null
-    if (
-      !consumeCommitWork(budget, 'unobserved-mounts') ||
-      (mounted && isCompositeFiber(fiber) && !countUnobservedMount(fiber, budget))
-    ) {
+    const descent = stack.pop() as UnobservedDescent
+    const { fiber } = descent
+    if (!consumeCommitWork(budget, 'unobserved-mounts')) {
       generationHistoryEvictions += 1
       return
     }
+    const mounted = fiber.alternate === null
     if (!mounted && (fiber.subtreeFlags & MOUNT_FLAGS) === 0) continue
-    for (let child = fiber.child; child; child = child.sibling) stack.push(child)
+    const own = descendPrefix(descent)
+    if (mounted && isCompositeFiber(fiber) && !countUnobservedMount(fiber, own, budget)) {
+      generationHistoryEvictions += 1
+      return
+    }
+    pushChildDescents(stack, fiber, own)
   }
 }
 
 /** False when the budget ran out before the mount's position was resolved. */
-function countUnobservedMount(fiber: Fiber, budget: CommitWorkBudget): boolean {
-  const lineage =
-    (reuseCommitLineage ? lineageFromCommitPrefix(fiber, budget) : null) ??
-    walkLineage(fiber, budget)
+function countUnobservedMount(
+  fiber: Fiber,
+  own: DescentPrefix | null,
+  budget: CommitWorkBudget,
+): boolean {
+  const key =
+    reuseCommitLineage && own && own.nodes < ANCESTRY_LIMIT
+      ? pathHashKey(own.hash)
+      : historyKeyOf(walkLineage(fiber, budget))
   if (budget.exhaustedLimit !== null) return false
-  const key = historyKeyOf(lineage)
   const previousGeneration = generationsByPath.get(key)
   const evicting =
     previousGeneration === undefined && generationsByPath.size >= GENERATION_HISTORY_LIMIT
@@ -475,9 +484,10 @@ const appendSegmentHash = (hash: PathHash, segment: string, first: boolean): Pat
 
 /** 53 bits, so the key is an exact integer; ten thousand positions collide with odds near one in a hundred million. */
 function historyKeyOf(lineage: ResolvedLineage): number {
-  const { high, low } = lineage.hash ?? foldPathHash(EMPTY_PATH_HASH, lineage.path)
-  return (high >>> 11) * 0x1_0000_0000 + (low >>> 0)
+  return pathHashKey(lineage.hash ?? foldPathHash(EMPTY_PATH_HASH, lineage.path))
 }
+
+const pathHashKey = ({ high, low }: PathHash): number => (high >>> 11) * 0x1_0000_0000 + (low >>> 0)
 
 interface ResolvedLineage {
   path: string
@@ -507,6 +517,70 @@ export function setCommitLineageReuseForTests(enabled: boolean): void {
 }
 
 const isLineageNode = (fiber: Fiber): boolean => isCompositeFiber(fiber) || isHostFiber(fiber)
+
+/** The path hash from the root through a Fiber's nearest lineage node, as the unobserved-mount walk descends; `null` above the first lineage node. */
+interface DescentPrefix {
+  hash: PathHash
+  nodes: number
+}
+
+/** A Fiber the walk will visit, with what `walkLineage` would resolve for its segment: its place in its parent's child list and whether its key is unique there. `detached` marks a Fiber whose `return` link disagrees with the child link the walk followed, where only a walk up gives the path a later read computes. */
+interface UnobservedDescent {
+  fiber: Fiber
+  above: DescentPrefix | null
+  index: number | null
+  uniqueKey: boolean
+  detached: boolean
+}
+
+/** A prefix the descent cannot extend, past ANCESTRY_LIMIT nodes or below a detached link; mounts under it resolve their path with a walk up. */
+const UNRESOLVED_PREFIX: DescentPrefix = { hash: EMPTY_PATH_HASH, nodes: ANCESTRY_LIMIT }
+
+function descendPrefix({
+  fiber,
+  above,
+  index,
+  uniqueKey,
+  detached,
+}: UnobservedDescent): DescentPrefix | null {
+  if (detached || (above?.nodes ?? 0) >= ANCESTRY_LIMIT) return UNRESOLVED_PREFIX
+  if (!isLineageNode(fiber)) return above
+  const segment = uniqueKey
+    ? `${identityName(fiber)}[key=${JSON.stringify(fiber.key)}]`
+    : `${identityName(fiber)}[index=${index ?? '?'}]`
+  return {
+    hash: appendSegmentHash(above?.hash ?? EMPTY_PATH_HASH, segment, above === null),
+    nodes: (above?.nodes ?? 0) + 1,
+  }
+}
+
+/** Positions and key counts follow `commitSiblingScan`: the first SIBLING_SCAN_LIMIT siblings get an index, and a key is unique only in a list that ends within that limit. */
+function pushChildDescents(
+  stack: UnobservedDescent[],
+  parent: Fiber,
+  above: DescentPrefix | null,
+): void {
+  let count = 0
+  let keyCounts: Map<string, number> | null = null
+  for (let child = parent.child; child; child = child.sibling) {
+    count += 1
+    if (typeof child.key === 'string') {
+      keyCounts ??= new Map()
+      keyCounts.set(child.key, (keyCounts.get(child.key) ?? 0) + 1)
+    }
+  }
+  const complete = count <= SIBLING_SCAN_LIMIT
+  let index = 0
+  for (let child = parent.child; child; child = child.sibling, index += 1) {
+    stack.push({
+      fiber: child,
+      above,
+      index: index < SIBLING_SCAN_LIMIT ? index : null,
+      uniqueKey: complete && typeof child.key === 'string' && keyCounts?.get(child.key) === 1,
+      detached: child.return !== parent,
+    })
+  }
+}
 
 interface ResolvedSegment {
   segment: string

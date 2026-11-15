@@ -1,9 +1,11 @@
-import type { Fiber } from 'bippy'
+import { type Fiber, getFiberId } from 'bippy'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type CommitWorkBudget, createCommitWorkBudget } from './commit-budget'
 import {
   clearInstanceIdentityForTests,
   instanceForMountedFiber,
+  noteUnobservedMounts,
+  releaseInstance,
   setCommitLineageReuseForTests,
 } from './instance-identity'
 
@@ -193,5 +195,89 @@ describe('commit-scoped lineage reuse', () => {
 
     expect(before.logicalPath).toContain('<li>[index=1]')
     expect(after.logicalPath).toContain('<li>[index=0]')
+  })
+})
+
+describe('mounts counted while nothing observes', () => {
+  const PLACEMENT = 0b10
+
+  /** A committed root over `branches`, each mounted in this commit. */
+  function committedRoot(branches: TestFiber[]): TestFiber {
+    const root = node(HOST_ROOT, null, null)
+    Object.assign(root, { alternate: {}, flags: 0, subtreeFlags: PLACEMENT })
+    attach(root, branches)
+    return root
+  }
+
+  /** Count the commit's mounts, then unmount and remount each component in place and read the generation a window opened afterwards reports. */
+  function remountGenerations(root: TestFiber, components: TestFiber[], reuse: boolean) {
+    clearInstanceIdentityForTests()
+    setCommitLineageReuseForTests(reuse)
+    noteUnobservedMounts(asFiber(root))
+    return components.map((component) => {
+      const fiber = asFiber(component)
+      releaseInstance(fiber, getFiberId(fiber))
+      const { logicalPath, mountGeneration, mountGenerationEvidence } =
+        instanceForMountedFiber(fiber)
+      return { logicalPath, mountGeneration, mountGenerationEvidence }
+    })
+  }
+
+  function expectSameAsWalkingUp(root: TestFiber, components: TestFiber[], label: string): void {
+    const walked = remountGenerations(root, components, false)
+    const descended = remountGenerations(root, components, true)
+
+    expect(descended, label).toEqual(walked)
+    expect(walked.filter((remount) => remount.mountGeneration === 2).length).toBeGreaterThan(
+      components.length / 2,
+    )
+  }
+
+  it('numbers every remount as a walk up from each mount would', () => {
+    for (let seed = 1; seed <= 60; seed += 1) {
+      const { root: tree, components } = randomTree(seededRandom(seed))
+      expectSameAsWalkingUp(committedRoot([tree]), components, `seed ${seed}`)
+    }
+  })
+
+  it('numbers rows past the sibling scan limit as a walk up would', () => {
+    const list = node(COMPONENT, componentTypes[3], null)
+    const rows = Array.from({ length: 2_005 }, (_, index) =>
+      node(COMPONENT, componentTypes[0], index % 700 === 0 ? 'duplicate' : `row-${index}`),
+    )
+    attach(list, rows)
+    expectSameAsWalkingUp(committedRoot([list]), [list, ...rows], 'wide list')
+  })
+
+  it('numbers mounts deeper than the lineage bound as a walk up would', () => {
+    const chain = Array.from({ length: 70 }, (_, depth) =>
+      node(depth % 2 === 0 ? COMPONENT : HOST, depth % 2 === 0 ? componentTypes[2] : 'div', null),
+    )
+    chain.forEach((fiber, depth) => {
+      const next = chain[depth + 1]
+      if (next) attach(fiber, [next, node(COMPONENT, componentTypes[1], null)])
+    })
+    const components = chain.flatMap((fiber) => [fiber, fiber.child?.sibling ?? fiber])
+    expectSameAsWalkingUp(
+      committedRoot([chain[0] as TestFiber]),
+      components.filter((fiber) => fiber.tag === COMPONENT),
+      'deep chain',
+    )
+  })
+
+  it('numbers a mount below a stale return link as a walk up would', () => {
+    const wrapper = node(HOST, 'section', null)
+    const panel = node(COMPONENT, componentTypes[2], null)
+    const cell = node(COMPONENT, componentTypes[1], null)
+    const leaf = node(COMPONENT, componentTypes[0], null)
+    attach(wrapper, [node(HOST, 'h2', null), panel])
+    attach(panel, [cell])
+    attach(cell, [leaf])
+    cell.return = { ...panel, sibling: null }
+    const root = committedRoot([wrapper])
+    const [walkedCell, walkedLeaf] = remountGenerations(root, [cell, leaf], false)
+
+    expect(walkedCell?.logicalPath).toContain('[index=?]')
+    expect(remountGenerations(root, [cell, leaf], true)).toEqual([walkedCell, walkedLeaf])
   })
 })
