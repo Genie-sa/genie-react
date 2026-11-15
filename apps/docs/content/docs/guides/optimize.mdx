@@ -94,9 +94,9 @@ npx @genie-react/cli call timeline_read --session my-agent "{\"id\":\"$id\"}" --
 
 ```text
 [3]:
-  - {domain:react,type:commit,atMs:30.5,details:{rendererId:0,renderDurationMs:1.7,documentCommitId:106}}
+  - {domain:react,type:commit,atMs:30.5,details:{rendererId:0,renderDurationMs:1.7,renderDurationUnavailable:null,documentCommitId:106}}
   - {domain:query,type:updated,atMs:313.6,details:{queryHash:"[\"greeting\"]",action:success,status:success,fetchStatus:idle}}
-  - {domain:react,type:commit,atMs:316.1,details:{rendererId:0,renderDurationMs:1.8,documentCommitId:107}}
+  - {domain:react,type:commit,atMs:316.1,details:{rendererId:0,renderDurationMs:1.8,renderDurationUnavailable:null,documentCommitId:107}}
 ```
 
 The 300 ms went to the mutation; React needed under 2 ms per commit. Events line up by time only,

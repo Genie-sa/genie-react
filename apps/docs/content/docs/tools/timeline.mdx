@@ -76,7 +76,9 @@ npx @genie-react/cli call timeline_read \
       "atMs": 125.1,
       "details": {
         "rendererId": 1,
-        "renderDurationMs": 100.2
+        "renderDurationMs": 100.2,
+        "renderDurationUnavailable": null,
+        "documentCommitId": 42
       }
     }
   ],
@@ -90,7 +92,11 @@ Query/navigation events. Use `nextOffset` with the same filter for subsequent pa
 
 **Limits:** Events are ordered by observation time and sequence. Resource `startMs`, `endMs`, and
 `durationMs` are separate from asynchronous observation time. React `renderDurationMs` is root
-render work when known, not commit wall time or native UI time. An active report can append events;
+render work when known, not commit wall time or native UI time. When it is `null`,
+`renderDurationUnavailable` says why: `below-clock-resolution` (the render took less than the page
+clock's resolution, which browsers coarsen to 0.1 ms or more) or `no-profiler-timing` (the React
+build reports no durations). Every commit has its own `documentCommitId`; a Fast Refresh commit has
+one too, but Genie does not analyze it, so no render events join it. An active report can append events;
 `nextOffset: null` means caught up now. A replaced recording or a previous document's ID errors.
 Each report includes coverage and truncation; absent events do not prove absent work.
 
@@ -104,7 +110,9 @@ recording; its `outcome` then comes from timing alone: `no-response` or `unknown
 `load`). `responseReceived` is `false` when a same-origin request got no response; its `durationMs`
 runs until the failure. `null` means cross-origin timing without `Timing-Allow-Origin` hides it. A
 redirect chain is one event under the requested URL, timed across every hop, with the final
-`responseStatus`. Navigation `pathChanged` and `hrefChanged` are `null` when the Router release does
+`responseStatus`. Requests Genie makes for itself, such as reading app source files and source maps
+to locate components, are left out so the lane shows only app traffic; `genieRequestsExcluded`
+counts them. The app's own requests to the same files are kept. Navigation `pathChanged` and `hrefChanged` are `null` when the Router release does
 not report them.
 
 For requests to the same method and path that overlap in time, `overlappingSameEndpoint` counts the
@@ -169,7 +177,7 @@ text is fixed for each code, so read and stop responses lose nothing by omitting
 | `no-resource-timing` | request | Browser Resource Timing is unavailable; native requests are not observed. |
 | `query-cache` | query | QueryCache add, remove, and update notifications; no prior snapshot, mutation cache, payloads, or request links. |
 | `no-query-client` | query | No QueryClient was supplied. |
-| `react-root-commits` | react | Development React root commits with root `actualDuration`; not commit wall time, effects, or component attribution. |
+| `react-root-commits` | react | Development React root commits with root `actualDuration`, or `renderDurationUnavailable` when there is none; not commit wall time, effects, or component attribution. |
 | `no-react-renderer` | react | No supported development React renderer or hook; load Genie before React. |
 | `tanstack-router` | navigation | TanStack Router lifecycle notifications with pathnames only. |
 | `no-tanstack-router` | navigation | No TanStack Router was supplied; other routers and native navigation are not observed. |

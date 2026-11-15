@@ -525,9 +525,7 @@ function invalidArgsFailure(
       ? details.interactionId
       : undefined
   const blockingVerificationId =
-    hubCode === 'VERIFICATION_ACTIVE' && VERIFICATION_ID.test(details.verificationId ?? '')
-      ? details.verificationId
-      : undefined
+    hubCode === 'VERIFICATION_ACTIVE' ? blockingVerification(details) : undefined
   const hubNext = blockingInteractionId
     ? nextCommand(
         'call',
@@ -787,8 +785,25 @@ async function routingFailure(
   }
 }
 
+/** The hub-minted ID of the verification whose document lock refused the call. */
+function blockingVerification(details: ToolErrorDetails): string | undefined {
+  return VERIFICATION_ID.test(details.verificationId ?? '') ? details.verificationId : undefined
+}
+
 /** Only the hub sends `conflict`, and an app cannot, so its hub code is trusted for every tool. */
 function conflictFailure(details: ToolErrorDetails, context: FailureContext): Failure {
+  if (details.hubCode === 'VERIFICATION_ACTIVE') {
+    const verificationId = blockingVerification(details)
+    return {
+      reason: 'conflict',
+      message: HUB_GUIDANCE.VERIFICATION_ACTIVE.message,
+      userActionRequired: true,
+      ...(verificationId === undefined
+        ? {}
+        : { next: withSession(nextCommand('verify', 'end', verificationId), context.session) }),
+      details: present({ hubCode: 'VERIFICATION_ACTIVE', verificationId }),
+    }
+  }
   const hubCode =
     details.hubCode === 'OBSERVATION_SUPERSEDED' || details.hubCode === 'STATE_HELD'
       ? details.hubCode

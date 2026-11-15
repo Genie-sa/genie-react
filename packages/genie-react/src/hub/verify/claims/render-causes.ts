@@ -1,4 +1,4 @@
-import type { VerifyCause, VerifyClaim } from '../../../protocol'
+import { formatVerifyCauseLabel, type VerifyCause, type VerifyClaim } from '../../../protocol'
 import type {
   RenderCause,
   RenderEventRecord,
@@ -32,7 +32,7 @@ function causeAllowed(cause: RenderCause, allow: readonly VerifyCause[]): boolea
 }
 
 function causeLabel(cause: RenderCause): string {
-  return cause.name === null ? cause.kind : `${cause.kind}.${cause.name}`
+  return formatVerifyCauseLabel(cause.kind, cause.name)
 }
 
 function eventItem(event: RenderEventRecord): Record<string, unknown> {

@@ -30,14 +30,18 @@ try {
   await writeFile(
     join(fixture, 'main.js'),
     `
-import { createElement as h } from 'react'
+import { createElement as h, lazy, Suspense, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { createRouter, createRootRoute, createRoute, RouterProvider, Outlet, useSearch } from '@tanstack/react-router'
 import { Genie } from 'genie-react'
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } })
+const LatePanel = lazy(() => import('./late.js'))
 function Layout() {
+  const [late, setLate] = useState(false)
   return h('main', null,
+    h('button', { onClick: () => setLate(true) }, 'Load late panel'),
+    late && h(Suspense, { fallback: null }, h(LatePanel)),
     h('button', { onClick: () => router.navigate({ to: '/result', search: { mode: 'network' } }) }, 'Slow network'),
     h('button', { onClick: () => router.navigate({ to: '/result', search: { mode: 'render' } }) }, 'Slow render'),
     h(Outlet), h(Genie, { router, queryClient }))
@@ -59,6 +63,15 @@ const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', com
 const resultRoute = createRoute({ getParentRoute: () => rootRoute, path: '/result', component: Result })
 const router = createRouter({ routeTree: rootRoute.addChildren([indexRoute, resultRoute]) })
 createRoot(document.getElementById('root')).render(h(QueryClientProvider, { client: queryClient }, h(RouterProvider, { router })))
+`,
+  )
+  await writeFile(
+    join(fixture, 'late.js'),
+    `
+import { createElement as h } from 'react'
+export default function LatePanel() {
+  return h('p', null, 'Late panel')
+}
 `,
   )
   await writeFile(
@@ -273,6 +286,7 @@ createRoot(document.getElementById('root')).render(h(App))
     'only the aborted and reset requests lack a response',
   )
   await checkRequestEvidence(page, call)
+  await checkGenieRequestsExcluded(page, call)
   await page.close()
   hub = createStandaloneBridge({
     clientBundlePath: join(root, 'packages/genie-react/dist/client.global.iife.js'),
@@ -391,4 +405,24 @@ async function checkRequestEvidence(page, call) {
     .map((event) => event.details.query)
     .sort()
   assert.deepEqual(plainRaces, ['?range=7d&ms=20', '?range=90d&ms=300'])
+}
+
+/** Source lookups Genie makes for itself stay out of the request lane, and the app's own fetch of the same file stays in it. */
+async function checkGenieRequestsExcluded(page, call) {
+  const recording = await call('timeline_start', { name: 'genie-requests' })
+  await page.getByRole('button', { name: 'Load late panel' }).click()
+  await page.getByText('Late panel', { exact: true }).waitFor()
+  await page.evaluate(() => fetch('/late.js?raw').then((response) => response.text()))
+  await call('react_find_components', { component: 'LatePanel' })
+  await call('timeline_stop', { id: recording.id })
+  const report = await call('timeline_read', { id: recording.id, domains: ['request'] })
+  const lateRequests = report.events
+    .filter((event) => event.details.url.endsWith('/late.js'))
+    .map((event) => [event.details.method, event.details.query])
+  assert.deepEqual(
+    lateRequests,
+    [['GET', '?raw']],
+    "only the app's fetch of late.js is app traffic",
+  )
+  assert.ok(report.genieRequestsExcluded > 0, JSON.stringify(report))
 }

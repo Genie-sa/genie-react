@@ -43,6 +43,7 @@ vi.mock('bippy/source', () => ({
 
 import { noteCommittedRoot } from './fiber'
 import { getInstanceTombstones } from './instance-identity'
+import { getDocumentCommitId } from './observation'
 import { getRenderCohort } from './render-cohort'
 import {
   clearRenders,
@@ -97,6 +98,17 @@ beforeEach(() => {
 afterEach(() => disposeRenderTracking())
 
 describe('excluded commit traversal baselines', () => {
+  it('gives each Fast Refresh commit its own document commit ID without analyzing it', async () => {
+    const root = rootWithComponent('RefreshedCounter')
+    const before = getDocumentCommitId()
+    harness.refresh = true
+    harness.options?.onCommitFiberRoot?.(1, root)
+    harness.options?.onCommitFiberRoot?.(1, root)
+
+    expect(getDocumentCommitId()).toBe(before + 2)
+    expect(await getRenders({ sort: 'renders', limit: 10 })).toEqual([])
+  })
+
   it('advances a paused commit without publishing it, then records only the next commit', async () => {
     const root = rootWithComponent('PausedCounter')
     stopRenderTracking()

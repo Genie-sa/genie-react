@@ -1,3 +1,5 @@
+import { absoluteHref, isGenieFetchCall } from '../genie-fetch'
+
 /** What a recording learns by observing fetch and XMLHttpRequest calls the app makes while it records. */
 export interface RequestRecord {
   id: number
@@ -18,14 +20,6 @@ type FetchFunction = typeof fetch
 
 const BODY_READERS = ['json', 'text', 'arrayBuffer', 'blob', 'formData', 'bytes'] as const
 
-function absoluteHref(value: string): string {
-  try {
-    return new URL(value, globalThis.location?.href).href
-  } catch {
-    return value
-  }
-}
-
 function fetchTarget(
   input: unknown,
   init: RequestInit | undefined,
@@ -41,7 +35,7 @@ function signalOf(input: unknown, init: RequestInit | undefined): AbortSignal | 
   return typeof Request === 'function' && input instanceof Request ? input.signal : null
 }
 
-/** Observes the app's fetch and XMLHttpRequest calls until the returned function runs. A wrapper another script installed over Genie's stays in place and simply passes through once recording stops. */
+/** Observes the app's fetch and XMLHttpRequest calls until the returned function runs; Genie's own `genieFetch` calls pass through unrecorded. A wrapper another script installed over Genie's stays in place and simply passes through once recording stops. */
 export function observeRequests(onStart: (record: RequestRecord) => void): () => void {
   const now = () => performance.now()
   let active = true
@@ -113,7 +107,7 @@ export function observeRequests(onStart: (record: RequestRecord) => void): () =>
       }
     }
     const wrapped = function fetch(this: unknown, ...args: Parameters<FetchFunction>) {
-      if (!active) return Reflect.apply(originalFetch, this, args)
+      if (!active || isGenieFetchCall()) return Reflect.apply(originalFetch, this, args)
       const [input, init] = args
       const { method, href } = fetchTarget(input, init)
       const record = begin('fetch', method, href)
