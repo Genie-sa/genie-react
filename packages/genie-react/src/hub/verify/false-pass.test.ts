@@ -7,6 +7,7 @@ import {
   events,
   guardInputs,
   instance,
+  mixedPageGuards,
   renderEvent,
   rendered,
   SETTLED,
@@ -176,15 +177,10 @@ const rows: Row[] = [
   },
   {
     row: 11,
-    name: 'a production React copy strips the development data counts depend on',
+    name: 'a production React copy hosting the target strips the development data counts depend on',
     claims: [max0],
-    protectedGuards: guardInputs({
-      begin: {
-        ...guardInputs().begin,
-        render: { ...guardInputs().preFreeze, bundle: 'mixed' } as GuardInputs['preFreeze'],
-      },
-    }),
-    unprotectedGuards: guardInputs(),
+    protectedGuards: mixedPageGuards(['production']),
+    unprotectedGuards: mixedPageGuards(['development']),
     expected: { verdict: 'refused', reason: 'unsupported_environment' },
   },
   {

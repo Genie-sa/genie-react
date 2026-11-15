@@ -7,6 +7,7 @@ import {
   events,
   guardInputs,
   instance,
+  mixedPageGuards,
   renderEvent,
   rendered,
   SETTLED,
@@ -563,6 +564,28 @@ describe('window guards', () => {
     ],
   ] as const)('refuses every claim on %s', (reason, inputs) => {
     expect(reasons(inputs)).toEqual([reason, reason, reason])
+  })
+
+  describe('on a page that also runs production React', () => {
+    it.each([
+      ['development renderers host every target', ['development']],
+      ['a target is mounted nowhere', [null]],
+    ] as const)('decides the claims as on a development page when %s', (_, bundles) => {
+      expect(reasons(mixedPageGuards([...bundles]))).toEqual(['pass', 'fail', 'pass'])
+      expect(reasons(mixedPageGuards([...bundles]))).toEqual(reasons())
+    })
+
+    it.each([
+      ['a production renderer hosts a target at begin', ['production'], ['development']],
+      ['a target mounts in a production renderer during the window', ['development'], ['mixed']],
+      ['the renderer hosting a target is unknown', ['development'], ['unknown']],
+    ] as const)('refuses every claim when %s', (_, begin, end) => {
+      expect(reasons(mixedPageGuards([...begin], [...end]))).toEqual([
+        'unsupported_environment',
+        'unsupported_environment',
+        'unsupported_environment',
+      ])
+    })
   })
 
   it('refuses only absence claims without activity, and keeps a failing positive control', () => {

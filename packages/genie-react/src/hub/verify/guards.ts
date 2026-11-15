@@ -1,5 +1,5 @@
 import type { RefusalReason, VerifyGuard, VerifyGuardName } from '../../protocol'
-import type { RenderProbe, VisibilityRead } from './evidence'
+import type { RendererBundle, RenderProbe, VisibilityRead } from './evidence'
 
 /** What the window looked like at `begin` and at `end`; every guard is decided from these raw values alone. */
 export interface GuardInputs {
@@ -26,6 +26,8 @@ export interface GuardInputs {
 
 export interface Snapshot {
   render: RenderProbe | null
+  /** The build of the renderers hosting each claim target, from its cohort read; `unknown` where the read failed. */
+  targetBundles: (RendererBundle | null)[]
   overrides: { total: number; kinds: string[] } | null
   simulatedQueries: string[] | null
   refreshSequence: number | null
@@ -35,6 +37,23 @@ export interface Snapshot {
 /** The rule settle uses: degraded collection missed only commits before the hook installed. */
 export const ACCEPTED_COLLECTION = (status: string | undefined): boolean =>
   status === 'available' || (status?.startsWith('degraded (') ?? false)
+
+/** Why the React build cannot back the claims, or null. A page may mix builds, since frameworks bundle production React for their own UI (the Next.js dev overlay); only the renderers hosting a target decide, because Genie analyzes no other. */
+export function environmentProblem(
+  snapshot: Pick<Snapshot, 'render' | 'targetBundles'>,
+): string | null {
+  const page = snapshot.render?.bundle ?? 'unknown'
+  if (page === 'development') return null
+  if (page !== 'mixed')
+    return `The app runs a ${page} React bundle; verify needs the development build.`
+  const hosting = snapshot.targetBundles.find(
+    (bundle) => bundle !== null && bundle !== 'development',
+  )
+  if (hosting === undefined) return null
+  return hosting === 'unknown'
+    ? 'The page mixes React builds and the renderer hosting a claim target could not be identified; verify needs the development build.'
+    : 'A claim target is mounted in a production React renderer; verify needs the development build.'
+}
 
 function guard(
   name: VerifyGuardName,
@@ -57,7 +76,7 @@ export function evaluateGuards(input: GuardInputs): VerifyGuard[] {
     input.preFreeze.observation?.id === input.observationId &&
     input.freezeObservationId === input.observationId &&
     readsBound
-  const bundles = [begin.render?.bundle ?? 'unknown', end.render?.bundle ?? 'unknown']
+  const environment = environmentProblem(begin) ?? environmentProblem(end)
   const collections = [begin.render?.renderCollection, end.render?.renderCollection]
   const refreshKnown = begin.refreshSequence !== null && end.refreshSequence !== null
   const refreshed =
@@ -104,13 +123,12 @@ export function evaluateGuards(input: GuardInputs): VerifyGuard[] {
     ),
     guard(
       'development-bundle',
-      bundles.every((bundle) => bundle === 'development')
-        ? false
-        : {
-            reason: 'unsupported_environment',
-            message: `The app runs a ${bundles.find((bundle) => bundle !== 'development')} React bundle; verify needs the development build.`,
-          },
-      { begin: bundles[0], end: bundles[1] },
+      environment ? { reason: 'unsupported_environment', message: environment } : false,
+      {
+        begin: begin.render?.bundle ?? 'unknown',
+        end: end.render?.bundle ?? 'unknown',
+        targetBundles: { begin: begin.targetBundles, end: end.targetBundles },
+      },
     ),
     guard(
       'render-collection',

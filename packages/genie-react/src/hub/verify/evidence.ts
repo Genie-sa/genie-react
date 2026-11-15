@@ -65,10 +65,12 @@ const freezeSchema = z.object({
   coverage: coverageSnapshotSchema,
 })
 
+const bundleSchema = z.enum(['development', 'production', 'mixed', 'unknown'])
+
 const renderProbeSchema = z.object({
   tracking: z.boolean(),
   renderCollection: z.string(),
-  bundle: z.enum(['development', 'production', 'mixed', 'unknown']).catch('unknown'),
+  bundle: bundleSchema.catch('unknown'),
   documentCommitId: z.number().int().nonnegative(),
   observation: observationRef,
 })
@@ -166,6 +168,7 @@ const effectAuditSchema = z.object({
 const cohortSchema = z.object({
   observation: observationRef,
   omittedByLimit: z.number(),
+  rendererBundle: bundleSchema.nullable().catch('unknown'),
   instances: z.array(
     z.object({
       componentName: z.string(),
@@ -238,6 +241,7 @@ const clearSchema = z.object({
 })
 
 export type CoverageSnapshot = z.infer<typeof coverageSnapshotSchema>
+export type RendererBundle = z.infer<typeof bundleSchema>
 export type RenderProbe = z.infer<typeof renderProbeSchema>
 export type VisibilityRead = z.infer<typeof visibilitySchema>
 export type ClearRead = z.infer<typeof clearSchema>
@@ -341,6 +345,8 @@ export interface CohortRead {
   instances: CohortRecord[]
   omittedByLimit: number
   observationId: string | null
+  /** The build of the renderers hosting the mounted instances; null when none is mounted. */
+  rendererBundle: RendererBundle | null
 }
 
 export function readCohort(tool: RetainedTool | undefined, component: string): CohortRead | null {
@@ -357,6 +363,7 @@ export function readCohort(tool: RetainedTool | undefined, component: string): C
       })),
     omittedByLimit: cohort.omittedByLimit,
     observationId: cohort.observation?.id ?? null,
+    rendererBundle: cohort.rendererBundle,
   }
 }
 

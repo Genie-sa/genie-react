@@ -85,9 +85,10 @@ let captureInstalled = false
 let originalConsoleError: typeof console.error | null = null
 let captureConsoleError: typeof console.error | null = null
 
-/** A new observation drops unclaimed logs only: a boundary in its error state or a showing fallback is current UI state, not window evidence. */
+/** A new observation drops unclaimed logs only: a boundary in its error state or a showing fallback is current UI state, not window evidence. Unanalyzed commits so far precede the window, even those at its starting commit ID. */
 export function clearErrorState(): void {
   errorLog.length = 0
+  latestUnscannedCommit = Math.min(latestUnscannedCommit, getDocumentCommitId())
 }
 
 export function resetErrorStateForTests(): void {
@@ -166,7 +167,12 @@ export function recordBoundaryCatch(fiber: Fiber): void {
 
 /** A commit whose rendered fibers could not be walked may have hidden a catch. */
 export function noteUnscannedCommit(): void {
-  latestUnscannedCommit = getDocumentCommitId()
+  latestUnscannedCommit = Math.max(latestUnscannedCommit, getDocumentCommitId())
+}
+
+/** A commit from a renderer Genie does not analyze takes no document commit ID, so it counts against a window that started at the current ID, until the next observation places it before its start. */
+export function noteUnanalyzedRendererCommit(): void {
+  latestUnscannedCommit = Math.max(latestUnscannedCommit, getDocumentCommitId() + 1)
 }
 
 /** Catches committed after `afterDocumentCommitId`; complete only when none was evicted and every commit since was scanned. */

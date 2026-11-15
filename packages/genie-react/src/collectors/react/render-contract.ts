@@ -1026,6 +1026,11 @@ export const reactComponentCohortContract = defineAgentToolContract({
     unmounted: z.number().int().nonnegative(),
     returned: z.number().int().nonnegative(),
     omittedByLimit: z.number().int().nonnegative(),
+    rendererBundle: renderMeasurementEnvironmentSchema.shape.bundle
+      .nullable()
+      .describe(
+        'Bundle types of the React renderers hosting the mounted matches, so a framework overlay running production React does not speak for app components; null when none is mounted. Genie never analyzes a production renderer, so an instance it hosts has no render evidence.',
+      ),
     instances: z.array(
       z.object({
         componentName: z.string(),

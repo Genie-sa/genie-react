@@ -34,6 +34,7 @@ import {
 import {
   clearErrorState,
   hasCapturedError,
+  noteUnanalyzedRendererCommit,
   noteUnscannedCommit,
   recordBoundaryCatch,
   recordErrorState,
@@ -305,7 +306,7 @@ export function startRenderTracking(): boolean {
         noteCommittedRoot(root)
         if (!isSafeRenderer(rendererId)) {
           markMeasurementCollectionGap()
-          noteUnscannedCommit()
+          noteUnanalyzedRendererCommit()
           if (getActiveObservation()) analysisFailedFibers += 1
           return
         }

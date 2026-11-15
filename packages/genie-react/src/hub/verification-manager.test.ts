@@ -17,6 +17,7 @@ import {
   type VerifyClaimResult,
   verificationSchema,
 } from '../protocol'
+import { loadReact18 } from '../test-support/react-18'
 import { act, byText, click, mount, unmountAll } from '../test-support/react-app'
 import { type VerifyHarnessOptions, verifyHarness } from '../test-support/verify-harness'
 
@@ -64,11 +65,38 @@ function start(options?: VerifyHarnessOptions) {
   return harness
 }
 
+const productionRoots: { unmount: () => void; container: HTMLElement }[] = []
+
 afterEach(async () => {
   harness?.stop()
   harness = undefined
   await unmountAll()
+  for (const root of productionRoots.splice(0)) {
+    await loadReact18('production').act(() => root.unmount())
+    root.container.remove()
+  }
 })
+
+/** A second React copy in its production build, as Next.js bundles one for its dev overlay. */
+async function mountProduction(
+  render: (React: ReturnType<typeof loadReact18>['React']) => ReactNode,
+): Promise<HTMLElement> {
+  const production = loadReact18('production')
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = production.createRoot(container)
+  productionRoots.push({ unmount: () => root.unmount(), container })
+  await production.act(() => root.render(render(production.React)))
+  return container
+}
+
+function productionOverlay(React: ReturnType<typeof loadReact18>['React']): ReactNode {
+  function DevOverlay(): ReactNode {
+    const [issues] = React.useState(0)
+    return React.createElement('nextjs-portal', null, `${issues} issues`)
+  }
+  return React.createElement(DevOverlay)
+}
 
 async function begin(claims: VerifyClaimInput[], extra: Record<string, unknown> = {}) {
   if (!harness) throw new Error('start the harness first')
@@ -569,5 +597,94 @@ describe('verify on a real React tree', () => {
     expect(verdict.verdict).toBe('pass')
     expect(verdict.ledger).toMatchObject({ attempt: 3, failsOnSameCode: 2 })
     expect(verdict.caveats).toContain('passed-after-failures-on-same-code')
+  })
+})
+
+describe('verify on a page that mixes React builds', () => {
+  it('passes when a production renderer on the page hosts none of the targets, as the Next.js dev overlay does', async () => {
+    const app = await mount(createElement(SearchScreen, { fixed: true }))
+    await mountProduction(productionOverlay)
+    start()
+    const began = await begin(badgeClaims)
+    expect(began.state).toBe('recording')
+    await typeTwice(app.container)
+    const verdict = await end(began.verificationId)
+
+    expect(verdict.verdict).toBe('pass')
+    expect(verdict.claims[0]?.observed).toMatchObject({ renders: 0, semantics: 'exact' })
+  })
+
+  it('refuses at begin when a production renderer hosts a claim target', async () => {
+    await mount(createElement(SearchScreen, { fixed: true }))
+    await mountProduction((React) =>
+      React.createElement(function StatusBadge(): ReactNode {
+        return React.createElement('span', null, 'Pager on call')
+      }),
+    )
+    start()
+    const began = await begin(badgeClaims)
+
+    expect(began.verdict).toBe('refused')
+    expect(began.claims.map((claim) => claim.refusal?.reason)).toEqual([
+      'unsupported_environment',
+      'unsupported_environment',
+      'unsupported_environment',
+    ])
+  })
+
+  it('refuses even a satisfied lower bound when a production renderer mounts the target during the window', async () => {
+    const app = await mount(createElement(SearchScreen, { fixed: false }))
+    start()
+    const began = await begin([{ kind: 'renders', target: { component: 'StatusBadge' }, min: 1 }])
+    await typeTwice(app.container)
+    await mountProduction((React) =>
+      React.createElement(function StatusBadge(): ReactNode {
+        return React.createElement('span', null, 'Pager on call')
+      }),
+    )
+    const verdict = await end(began.verificationId)
+
+    expect(verdict.verdict).toBe('refused')
+    expect(verdict.window.refusals).toEqual([
+      expect.objectContaining({
+        guard: 'development-bundle',
+        refusal: expect.objectContaining({ reason: 'unsupported_environment' }),
+      }),
+    ])
+  })
+
+  it('does not pass boundaries clean when a production renderer commits in the window before the app does', async () => {
+    let setBroken: (broken: boolean) => void = () => {}
+    await mountProduction((React) => {
+      function Thrower({ broken }: { broken: boolean }): ReactNode {
+        if (broken) throw new Error('overlay failed')
+        return React.createElement('span', null, 'ok')
+      }
+      class Boundary extends React.Component<{ children: ReactNode }, { failed: boolean }> {
+        override state = { failed: false }
+        static getDerivedStateFromError() {
+          return { failed: true }
+        }
+        override render(): ReactNode {
+          return this.state.failed ? 'caught' : this.props.children
+        }
+      }
+      function Widget(): ReactNode {
+        const [broken, update] = React.useState(false)
+        setBroken = update
+        return React.createElement(Boundary, null, React.createElement(Thrower, { broken }))
+      }
+      return React.createElement(Widget)
+    })
+    const app = await mount(createElement(SearchScreen, { fixed: true }))
+    start()
+    const began = await begin([{ kind: 'boundaries-clean' }])
+    await loadReact18('production').act(() => setBroken(true))
+    await typeTwice(app.container)
+    const verdict = await end(began.verificationId)
+
+    expect(verdict.claims.map((claim) => [claim.verdict, claim.refusal?.reason])).toEqual([
+      ['refused', 'coverage_incomplete'],
+    ])
   })
 })

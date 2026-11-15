@@ -63,6 +63,7 @@ import {
 } from './verify/evidence'
 import {
   ACCEPTED_COLLECTION,
+  environmentProblem,
   evaluateGuards,
   type GuardInputs,
   type Snapshot,
@@ -279,7 +280,6 @@ export class VerificationManager<TSession extends VerificationSession> {
       input.claims.flatMap(toolsFor).filter((tool) => !hasTool(session, tool)),
     )
     const render = readRenderProbe(await capture('react_get_renders', RENDER_PROBE_ARGS))
-    const snapshot = await this.snapshot(session, capture, render)
     const targets = distinctTargets(input.claims)
     const resolutions = new Map<string, TargetResolution>()
     for (const target of targets) {
@@ -291,6 +291,12 @@ export class VerificationManager<TSession extends VerificationSession> {
         ),
       )
     }
+    const snapshot = await this.snapshot(
+      session,
+      capture,
+      render,
+      [...resolutions.values()].map((resolution) => (resolution.listed ? resolution.begin : null)),
+    )
     const refusals = beginRefusals(input, missing, snapshot, resolutions)
     if (refusals.some((refusal) => refusal !== null)) {
       return this.refuseAtBegin({
@@ -389,6 +395,7 @@ export class VerificationManager<TSession extends VerificationSession> {
     session: TSession,
     capture: (tool: string, args: unknown) => Promise<RetainedTool>,
     render: Snapshot['render'],
+    targetCohorts: (CohortRead | null)[],
   ): Promise<Snapshot> {
     const overrides = readOverrides(await capture('react_list_overrides', {}))
     const simulated = hasTool(session, 'query_is_fetching')
@@ -396,6 +403,9 @@ export class VerificationManager<TSession extends VerificationSession> {
       : { simulatedQueries: [] }
     return {
       render,
+      targetBundles: targetCohorts.map((cohort) =>
+        cohort === null ? 'unknown' : cohort.rendererBundle,
+      ),
       overrides: overrides
         ? {
             total: overrides.total,
@@ -592,7 +602,12 @@ export class VerificationManager<TSession extends VerificationSession> {
           through,
         )
       : null
-    const endSnapshot = await this.snapshot(session, capture, preFreeze)
+    const endSnapshot = await this.snapshot(
+      session,
+      capture,
+      preFreeze,
+      [...targets.values()].map((target) => target.end),
+    )
     const current = this.options.isCurrentSession(session)
     const settleOutcome = {
       outcome: settle.ok
@@ -600,7 +615,9 @@ export class VerificationManager<TSession extends VerificationSession> {
         : settle.reason === 'timeout'
           ? ('timed-out' as const)
           : ('failed' as const),
-      ...(settle.reason === undefined ? {} : { reason: settle.reason }),
+      ...(settle.reason === undefined
+        ? {}
+        : { reason: settle.reason === 'timeout' ? (settle.blocking ?? 'timeout') : settle.reason }),
       waitedMs: settle.waitedMs,
     }
     const guardInputs: GuardInputs = {
@@ -986,6 +1003,7 @@ function beginRefusals(
   snapshot: Snapshot,
   resolutions: Map<string, TargetResolution>,
 ): (VerifyRefusal | null)[] {
+  const environmentMessage = environmentProblem(snapshot)
   const environment =
     snapshot.render === null
       ? refuse(
@@ -994,11 +1012,11 @@ function beginRefusals(
           {},
           { action: 'check-setup' },
         )
-      : snapshot.render.bundle !== 'development'
+      : environmentMessage
         ? refuse(
             'unsupported_environment',
-            `The app runs a ${snapshot.render.bundle} React bundle; verify needs the development build.`,
-            { bundle: snapshot.render.bundle },
+            environmentMessage,
+            { bundle: snapshot.render.bundle, targetBundles: snapshot.targetBundles },
             { action: 'check-setup' },
           )
         : !ACCEPTED_COLLECTION(snapshot.render.renderCollection)
@@ -1068,7 +1086,12 @@ function beginRefusals(
 }
 
 function resolveTarget(target: VerifyTarget, cohort: CohortRead | null): TargetResolution {
-  const begin = cohort ?? { instances: [], omittedByLimit: 0, observationId: null }
+  const begin = cohort ?? {
+    instances: [],
+    omittedByLimit: 0,
+    observationId: null,
+    rendererBundle: null,
+  }
   const named = begin.instances.filter(
     (instance) => target.key === undefined || instance.key === target.key,
   )

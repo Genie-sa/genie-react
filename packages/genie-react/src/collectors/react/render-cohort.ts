@@ -10,6 +10,7 @@ import {
   wasInstanceObserved,
   wasInstanceRenderUnanalyzed,
 } from './instance-identity'
+import { type RendererBundle, rendererBundleOf } from './measurement-environment'
 import { getActiveObservation, type ObservationWindow } from './observation'
 import { captureReportEpoch, reportAttribution, reportStateMatches } from './report-attribution'
 import {
@@ -62,6 +63,7 @@ export interface RenderCohort {
   unmounted: number
   returned: number
   omittedByLimit: number
+  rendererBundle: RendererBundle | null
   instances: CohortInstance[]
   coverage: {
     complete: boolean
@@ -353,6 +355,7 @@ export async function getRenderCohort(
     unmounted: unmounted.length,
     returned: instances.length,
     omittedByLimit: Math.max(0, matched - instances.length),
+    rendererBundle: rendererBundleOf(mountedCandidates.map((entry) => entry.fiber)),
     instances,
     coverage: {
       complete: complete && current && (!query.appOnly || ownership.complete),

@@ -1,4 +1,5 @@
 import type {
+  CohortRead,
   CohortRecord,
   EffectEventRecord,
   EffectsRead,
@@ -107,6 +108,15 @@ export function effects(
   }
 }
 
+function cohortRead(instances: CohortRecord[]): CohortRead {
+  return {
+    instances,
+    omittedByLimit: 0,
+    observationId: OBSERVATION,
+    rendererBundle: instances.length > 0 ? 'development' : null,
+  }
+}
+
 export interface TargetSpec {
   target?: VerifyTarget
   records?: InstanceRecord[]
@@ -129,7 +139,7 @@ export function targetEvidence(spec: TargetSpec = {}): TargetEvidence {
       sourceFile: begin[0]?.sourceFile ?? null,
       candidates: [],
       unresolvedSources: 0,
-      begin: { instances: begin, omittedByLimit: 0, observationId: OBSERVATION },
+      begin: cohortRead(begin),
       listed: true,
     },
     renders: {
@@ -140,7 +150,7 @@ export function targetEvidence(spec: TargetSpec = {}): TargetEvidence {
     },
     events: spec.events === undefined ? events([]) : spec.events,
     effects: spec.effects === undefined ? effects([]) : spec.effects,
-    end: { instances: spec.end ?? begin, omittedByLimit: 0, observationId: OBSERVATION },
+    end: cohortRead(spec.end ?? begin),
   }
 }
 
@@ -193,6 +203,7 @@ const probe = {
 
 const snapshot = {
   render: probe,
+  targetBundles: ['development' as const],
   overrides: { total: 0, kinds: [] },
   simulatedQueries: [],
   refreshSequence: 3,
@@ -216,4 +227,16 @@ export function guardInputs(overrides: Partial<GuardInputs> = {}): GuardInputs {
     effectRefreshCommitsExcluded: 0,
     ...overrides,
   }
+}
+
+/** The same window on a page that also runs production React, as `next dev` does for its overlay; only the renderers hosting the targets vary. */
+export function mixedPageGuards(
+  begin: GuardInputs['begin']['targetBundles'],
+  end: GuardInputs['end']['targetBundles'] = begin,
+): GuardInputs {
+  const render = { ...probe, bundle: 'mixed' as const }
+  return guardInputs({
+    begin: { ...snapshot, render, targetBundles: begin },
+    end: { ...snapshot, render, targetBundles: end },
+  })
 }
