@@ -4,6 +4,7 @@ import { getDocumentCommitId } from './observation'
 import { emptyCauseCounts } from './render-causes'
 import type { RenderRecord } from './render-model'
 import { buildRendersMeasurementReport, type RenderQuery } from './render-reports'
+import { membershipUnresolved } from './render-snapshots'
 import { captureReportEpoch, reportStateMatches } from './report-attribution'
 
 const MAX_SPANS = 20
@@ -184,7 +185,13 @@ export async function readMeasurementSpan(handle: string, close: boolean, query:
     query,
     { isCurrent: () => reportStateMatches(epoch) },
   )
-  const complete = !incomplete && (!query.appOnly || report.sourceClassification.complete)
+  const membershipOpen = membershipUnresolved(report.sourceClassification)
+  const complete = !incomplete && !membershipOpen
+  const semantics = complete
+    ? ('exact' as const)
+    : membershipOpen
+      ? ('unknown' as const)
+      : ('lower-bound' as const)
   return {
     ...header,
     ...measurementEnvironment,
@@ -194,14 +201,13 @@ export async function readMeasurementSpan(handle: string, close: boolean, query:
     ...report,
     summary: {
       ...report.summary,
-      semantics: complete
-        ? ('exact' as const)
-        : report.summary.totalRenders > 0
-          ? ('lower-bound' as const)
-          : ('unknown' as const),
+      semantics:
+        semantics === 'lower-bound' && report.summary.totalRenders === 0
+          ? ('unknown' as const)
+          : semantics,
       coverageDomain: 'render-measurement' as const,
     },
-    coverage: { complete, semantics: complete ? ('exact' as const) : ('lower-bound' as const) },
+    coverage: { complete, semantics },
     limitation:
       'Exclusive temporal capture, not causal attribution. Background work can be included; commits owned by newer spans are explicitly excluded.',
   }

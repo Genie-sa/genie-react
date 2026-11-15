@@ -1,4 +1,5 @@
 import { roundMilliseconds } from '../../protocol'
+import { resolveClassUpdateCallers } from './class-updates'
 import {
   type ComponentMatch,
   type ComponentNameSelector,
@@ -57,8 +58,12 @@ export interface ReportAttributionGuard {
   isCurrent: () => boolean
 }
 
+/** `result` when appOnly decides membership, so an unresolved candidate may be library code it would hide; `ownership-labels` when every candidate is kept and only its label is unresolved. */
+export type SourceClassificationEffect = 'result' | 'ownership-labels'
+
 export interface SourceClassificationCoverage {
   complete: boolean
+  affects: SourceClassificationEffect
   totalCandidates: number
   evaluated: number
   app: number
@@ -155,34 +160,44 @@ function selectClassifiedRecords(
   libraryHidden: number
   sourceClassification: SourceClassificationCoverage
 } {
-  const list = classified
+  const sourceClassification = countClassification(classified, query.appOnly)
+  if (query.appOnly !== true) return { kept: classified, libraryHidden: 0, sourceClassification }
+  const kept = classified.filter((entry) => !entry.libraryOnly)
+  return { kept, libraryHidden: classified.length - kept.length, sourceClassification }
+}
+
+function countClassification(
+  entries: readonly Pick<ClassifiedRecord, 'evaluated' | 'appOwned' | 'libraryOnly'>[],
+  appOnly: boolean | undefined,
+): SourceClassificationCoverage {
   let app = 0
   let library = 0
   let evaluated = 0
-  for (const entry of list) {
+  for (const entry of entries) {
     if (entry.appOwned) app += 1
-    if (entry.libraryOnly) library += 1
+    else if (entry.libraryOnly) library += 1
     if (entry.evaluated) evaluated += 1
   }
-  const unknown = list.length - app - library
-  const sourceClassification = {
+  const unknown = entries.length - app - library
+  return {
     complete: unknown === 0,
-    totalCandidates: list.length,
+    affects: appOnly === true ? 'result' : 'ownership-labels',
+    totalCandidates: entries.length,
     evaluated,
     app,
     library,
     unknown,
   }
-  if (query.appOnly !== true) return { kept: list, libraryHidden: 0, sourceClassification }
-  const kept = list.filter((entry) => !entry.libraryOnly)
-  return { kept, libraryHidden: list.length - kept.length, sourceClassification }
 }
 
 async function classifyRecordReports(
   list: RenderRecord[],
   guard?: ReportAttributionGuard,
 ): Promise<ClassifiedRecord[]> {
-  const resolvedEvidence = await recordSourceEvidence(list)
+  const [resolvedEvidence] = await Promise.all([
+    recordSourceEvidence(list),
+    resolveClassUpdateCallers(list.map((record) => record.causes)),
+  ])
   const evidence =
     guard?.isCurrent() === false ? list.map(() => staleRecordSourceEvidence()) : resolvedEvidence
   return list.map((record, index): ClassifiedRecord => {
@@ -357,6 +372,7 @@ export async function buildRenderCauseEventsReport(
   libraryHidden: number
   omittedByLimit: number
   componentMatch: ComponentMatch | undefined
+  sourceClassification: SourceClassificationCoverage
 }> {
   const named = componentNameMatcher(query)
   const inRange = recentEvents
@@ -373,7 +389,10 @@ export async function buildRenderCauseEventsReport(
         .map((record) => [record.id, record]),
     ).values(),
   ]
-  const resolvedEvidence = await recordSourceEvidence(liveRecords)
+  const [resolvedEvidence] = await Promise.all([
+    recordSourceEvidence(liveRecords),
+    resolveClassUpdateCallers(matching.map((event) => event.causes)),
+  ])
   const attributionCurrent = guard?.isCurrent() !== false
   const evidence = attributionCurrent
     ? resolvedEvidence
@@ -420,6 +439,7 @@ export async function buildRenderCauseEventsReport(
     }
     return {
       event: reported,
+      evaluated: sameInstance && classification.evaluated,
       libraryOnly: sameInstance ? classification.libraryOnly : false,
       appOwned: sameInstance ? classification.appOwned : false,
     }
@@ -428,6 +448,7 @@ export async function buildRenderCauseEventsReport(
     query.appOnly !== true ? classified : classified.filter(({ libraryOnly }) => !libraryOnly)
   const libraryHidden = classified.length - visible.length
   return {
+    sourceClassification: countClassification(classified, query.appOnly),
     componentMatch: describeComponentMatch(
       query,
       inRange.map((event) => event.componentName),
@@ -578,22 +599,10 @@ export async function buildCurrentAggregateMeasurement(
       unstableRenders: record.unstableRenders,
     })
   })
-  const sourceClassification = {
-    complete: true,
-    totalCandidates: list.length,
-    evaluated: 0,
-    app: 0,
-    library: 0,
-    unknown: 0,
+  return {
+    components: [...aggregates.values()],
+    sourceClassification: countClassification(evidence, appOnly),
   }
-  for (const entry of evidence) {
-    if (entry.evaluated) sourceClassification.evaluated += 1
-    if (entry.appOwned) sourceClassification.app += 1
-    else if (entry.libraryOnly) sourceClassification.library += 1
-    else sourceClassification.unknown += 1
-  }
-  sourceClassification.complete = sourceClassification.unknown === 0
-  return { components: [...aggregates.values()], sourceClassification }
 }
 
 const componentDefinitionIds = new WeakMap<object, number>()

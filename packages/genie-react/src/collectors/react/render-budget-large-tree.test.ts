@@ -91,7 +91,7 @@ beforeEach(() => {
 
 async function rerenderAndReadCauses(): Promise<CausesResult> {
   await act(async () => rerenderEveryRow())
-  return call<CausesResult>('react_render_causes', { limit: 1 })
+  return call<CausesResult>('react_render_causes', { limit: 1, appOnly: false })
 }
 
 describe('render budget on a tree larger than the default fiber limit', () => {

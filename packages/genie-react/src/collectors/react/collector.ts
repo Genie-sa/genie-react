@@ -82,8 +82,10 @@ import {
 } from './render-contract'
 import {
   buildRenderTrackingCoverage,
+  membershipUnresolved,
   renderEvidenceComparability,
   renderSummarySemantics,
+  withMembershipCoverage,
 } from './render-snapshots'
 import { summarizeRenderCauseEvent, summarizeRenderComponent } from './render-summary'
 import {
@@ -579,7 +581,7 @@ export function reactCollector(): GenieCollector {
           })
           const { summary, components, libraryHidden, omittedByLimit, sourceClassification } =
             report
-          const classificationIncomplete = report.appOnly && !sourceClassification.complete
+          const classificationIncomplete = membershipUnresolved(sourceClassification)
           const filteredNote = report.appOnly
             ? appOnlyFilteredNote(
                 components.length,
@@ -601,7 +603,10 @@ export function reactCollector(): GenieCollector {
             budgetAdvice: report.budgetAdvice,
             gaps: report.coverageGaps,
           }
-          const coverage = buildRenderTrackingCoverage(coverageInput, 'causal')
+          const coverage = withMembershipCoverage(
+            buildRenderTrackingCoverage(coverageInput, 'causal'),
+            sourceClassification,
+          )
           const measurementCoverage = buildRenderTrackingCoverage(coverageInput, 'measurement')
           const comparability = renderEvidenceComparability(coverage, report.attribution.status)
           if (classificationIncomplete) {
@@ -656,7 +661,7 @@ export function reactCollector(): GenieCollector {
             limit,
             appOnly,
           })
-          const { events, libraryHidden, omittedByLimit } = report
+          const { events, libraryHidden, omittedByLimit, sourceClassification } = report
           const coverage = buildRenderTrackingCoverage(
             {
               skippedCommitFibers: report.skippedCommitFibers,
@@ -688,16 +693,20 @@ export function reactCollector(): GenieCollector {
                   ),
                 }),
             omittedByLimit,
+            sourceClassification,
             renderEventRetention: report.renderEventRetention,
-            coverage: {
-              ...coverage,
-              complete: coverage.complete && report.renderEventRetention.evictedEvents === 0,
-              semantics:
-                coverage.complete && report.renderEventRetention.evictedEvents === 0
-                  ? ('exact' as const)
-                  : ('lower-bound' as const),
-              droppedRenderEvents: report.renderEventRetention.evictedEvents,
-            },
+            coverage: withMembershipCoverage(
+              {
+                ...coverage,
+                complete: coverage.complete && report.renderEventRetention.evictedEvents === 0,
+                semantics:
+                  coverage.complete && report.renderEventRetention.evictedEvents === 0
+                    ? ('exact' as const)
+                    : ('lower-bound' as const),
+                droppedRenderEvents: report.renderEventRetention.evictedEvents,
+              },
+              sourceClassification,
+            ),
             filteredNote: appOnly
               ? appOnlyFilteredNote(
                   events.length,

@@ -192,8 +192,9 @@ it('keeps source incompleteness on filtered leaderboards and both sides of profi
   ])
   expect(board.coverage).toMatchObject({
     complete: false,
-    semantics: 'lower-bound',
-    sourceClassification: { app: 1, library: 1, unknown: 1 },
+    semantics: 'unknown',
+    incompleteBecause: [{ reason: 'source-classification-incomplete', fibers: 1 }],
+    sourceClassification: { app: 1, library: 1, unknown: 1, affects: 'result' },
   })
   const snapshot = await takeSnapshot('ownership', true)
   expect(snapshot.components).toBe(2)

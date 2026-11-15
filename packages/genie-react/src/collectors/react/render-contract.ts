@@ -7,6 +7,7 @@ import {
   ownershipCoverageSchema,
   sourceProvenanceSchema,
   sourceSchema,
+  stackFrameSchema,
   wrapperFrameSchema,
 } from './contract-schemas'
 
@@ -116,6 +117,51 @@ const renderHookStateChangeSchema = renderStateChangeBase.extend({
     kind: z.enum(['state', 'reducer']),
   }),
 })
+
+const classUpdateSchema = z.object({
+  method: z.enum(['setState', 'forceUpdate']),
+  phase: z
+    .enum(['lifecycle', 'react-work', 'event', 'callback'])
+    .describe(
+      'Where the call ran. lifecycle: inside the named lifecycle method of a class Genie wrapped (exact); render is not wrapped. react-work: while React rendered or committed, in code Genie did not wrap, such as render, an effect or a ref callback (inferred). event: while a DOM event was dispatched, typically its handler (inferred). callback: none of these, such as a timer, promise or subscription callback (unknown); caller names the function.',
+    ),
+  evidence: z.enum(['exact', 'inferred', 'unknown']),
+  lifecycle: z
+    .string()
+    .optional()
+    .describe('The lifecycle method that was running, such as componentDidUpdate.'),
+  component: z
+    .string()
+    .optional()
+    .describe(
+      'The class whose lifecycle was running; another component when it updated this one through a ref.',
+    ),
+  eventType: z.string().optional().describe('The DOM event being dispatched, such as click.'),
+  fields: z
+    .array(z.string())
+    .nullable()
+    .describe(
+      'Top-level keys of the object passed to setState; null for an updater function or forceUpdate.',
+    ),
+  caller: stackFrameSchema
+    .nullable()
+    .describe('The function that called setState or forceUpdate; null when the stack was empty.'),
+})
+
+const classUpdatesShape = {
+  classUpdates: z
+    .array(classUpdateSchema)
+    .optional()
+    .describe(
+      'The setState and forceUpdate calls on this class instance that this render applied, in call order. Recorded in development builds while an observation window is open; absent when none was recorded, including calls made before Genie first saw the class.',
+    ),
+  classUpdatesOmitted: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Earlier calls dropped because the instance queued more than 32 between renders.'),
+}
 
 const renderClassStateChangeSchema = renderStateChangeBase.extend({
   name: z.literal('class state'),
@@ -312,6 +358,7 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
     after: appValueSchema('Depth- and size-bounded value after this commit.'),
     deepDiff: deepDiffSchema,
     hook: renderHookStateChangeSchema.shape.hook.optional(),
+    ...classUpdatesShape,
   }),
   z.object({ kind: z.literal('children'), evidence: z.literal('exact') }),
   z.object({
@@ -452,6 +499,7 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
       .nonnegative()
       .optional()
       .describe('Position of the changed hook for unclassified-hook-changed.'),
+    ...classUpdatesShape,
   }),
 ])
 
@@ -532,6 +580,19 @@ const compactCauseSchema = z.object({
     .optional()
     .describe(
       'For a parent cause, the ancestor whose own update started the cascade, when it is not the parent itself. Fix the render there.',
+    ),
+  classUpdates: z
+    .array(
+      classUpdateSchema.omit({ fields: true, caller: true }).extend({
+        at: z
+          .string()
+          .nullable()
+          .describe('The caller as "function file:line:column", or null without a stack.'),
+      }),
+    )
+    .optional()
+    .describe(
+      'For class state or forceUpdate, the calls this render applied and where each ran; view:"full" adds fields and the full caller frame.',
     ),
 })
 
@@ -728,15 +789,28 @@ const renderBudgetLimitSchema = z.enum([
   'targetTimeReserveMs',
 ])
 
+const sourceClassificationEffectSchema = z
+  .enum(['result', 'ownership-labels'])
+  .describe(
+    'result: appOnly decides which candidates are kept, so an unresolved candidate may be library code it would hide, and coverage is incomplete until ownership resolves. ownership-labels: every candidate is kept whatever its ownership, so unresolved ownership leaves only sourceOwnership labels unknown and never changes rows, counts or coverage.',
+  )
+
 export const renderCoverageSchema = z.object({
   sourceClassification: ownershipCoverageSchema
-    .extend({ evaluated: z.number().int().nonnegative() })
+    .extend({
+      evaluated: z.number().int().nonnegative(),
+      affects: sourceClassificationEffectSchema,
+    })
     .optional(),
   complete: z.boolean().describe("Completeness for this tool's primary result."),
   inputAttributionComplete: z
     .boolean()
     .describe('Whether causal input attribution is complete for every captured render.'),
-  semantics: z.enum(['exact', 'lower-bound']),
+  semantics: z
+    .enum(['exact', 'lower-bound', 'unknown'])
+    .describe(
+      'exact: every count is complete. lower-bound: work was missed, so counts can only grow. unknown: appOnly kept components whose ownership is unresolved, so counts may include library work and can shrink once it resolves.',
+    ),
   coverageDomain: z.enum(['render-measurement', 'render-causality']),
   skippedCommitFibers: z.number().int().nonnegative(),
   droppedUnmountFibers: z.number().int().nonnegative(),
@@ -782,6 +856,7 @@ export const renderCoverageSchema = z.object({
           'analysis-failed',
           'inputs-truncated',
           'props-not-enumerated',
+          'source-classification-incomplete',
         ]),
         fibers: z.number().int().nonnegative(),
         components: z
@@ -895,6 +970,7 @@ export const renderMeasurementEnvironmentSchema = z.object({
 
 const renderSourceClassificationSchema = z.object({
   complete: z.boolean().describe('All matching candidates have app or library ownership evidence.'),
+  affects: sourceClassificationEffectSchema,
   totalCandidates: z
     .number()
     .int()
@@ -1010,7 +1086,7 @@ export const reactGetRendersContract = defineAgentToolContract({
         .boolean()
         .default(true)
         .describe(
-          'Show only records with app source evidence. Unknown ownership is excluded instead of being attributed to the app; an exact app hook callsite keeps a framework-wrapped record visible.',
+          'Hide records known to be library code. Records whose ownership is unresolved stay, marked "unknown", and coverage stays incomplete until they resolve; an exact app hook callsite keeps a framework-wrapped record visible.',
         ),
       view: outputViewSchema('every component field, including legacy aliases'),
     })
@@ -1093,6 +1169,9 @@ const renderCauseReportBaseSchema = z.object({
   observation: observationSchema.nullable(),
   attribution: reportAttributionSchema,
   omittedByLimit: z.number().int().nonnegative(),
+  sourceClassification: renderSourceClassificationSchema.describe(
+    'Ownership of the matching events before appOnly and limit, one candidate per event.',
+  ),
   coverage: renderCoverageSchema.extend({
     droppedRenderEvents: z.number().int().nonnegative(),
   }),
@@ -1153,7 +1232,7 @@ export const reactRenderCausesContract = defineAgentToolContract({
 const cohortReportSchema = z.object({
   attribution: reportAttributionSchema,
   documentCommitId: z.number().int().nonnegative(),
-  ownershipCoverage: ownershipCoverageSchema,
+  ownershipCoverage: ownershipCoverageSchema.extend({ affects: sourceClassificationEffectSchema }),
   observation: observationSchema.nullable(),
   query: z.object({ component: z.string(), exact: z.boolean() }),
   componentMatch: componentMatchSchema,
@@ -1360,7 +1439,7 @@ export const reactRendersSinceContract = defineAgentToolContract({
       .boolean()
       .default(true)
       .describe(
-        'Only source-proven app components; unknown ownership is excluded and coverage becomes incomplete.',
+        'Hide components known to be library code. Components whose ownership is unresolved stay, marked "unknown", and coverage stays incomplete until they resolve.',
       ),
     limit: z.number().int().min(1).max(200).default(40),
   }),
@@ -1375,7 +1454,10 @@ export const reactRendersSinceContract = defineAgentToolContract({
     sourceClassification: renderSourceClassificationSchema,
     libraryHidden: z.number().int().nonnegative(),
     omittedByLimit: z.number().int().nonnegative(),
-    coverage: z.object({ complete: z.boolean(), semantics: z.enum(['exact', 'lower-bound']) }),
+    coverage: z.object({
+      complete: z.boolean(),
+      semantics: renderCoverageSchema.shape.semantics,
+    }),
     limitation: z.string(),
   }),
 })
