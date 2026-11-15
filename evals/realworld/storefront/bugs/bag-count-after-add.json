@@ -1,0 +1,20 @@
+{
+  "id": "bag-count-after-add",
+  "kind": "bug",
+  "category": "fix",
+  "prompt": "After I press \"Add to bag\" on a product page I get \"Added to your bag\", but the Bag counter in the header stays at 0 until I navigate somewhere else or reload. Fix it so the header is right immediately.",
+  "truth": {
+    "components": ["addToCart", "SiteHeader", "CartButton"],
+    "files": ["lib/actions/cart.ts"],
+    "cause": "The addToCart server action mutates the cart but never revalidates, so Next.js does not re-render the layout whose SiteHeader passes the count to CartButton.",
+    "summary": "Call revalidatePath('/', 'layout') after a successful add, as updateLineQuantity already does."
+  },
+  "referenceFix": [
+    {
+      "file": "lib/actions/cart.ts",
+      "find": "  const cartId = await requireCartId()\n  return addCartLine(cartId, variantId, quantity)\n",
+      "replace": "  const cartId = await requireCartId()\n  const result = await addCartLine(cartId, variantId, quantity)\n  if (result.ok) revalidatePath('/', 'layout')\n  return result\n"
+    }
+  ],
+  "probe": { "module": "probes/bag-count-after-add.mjs" }
+}

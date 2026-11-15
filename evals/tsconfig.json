@@ -8,5 +8,5 @@
     "checkJs": true,
     "types": ["node"]
   },
-  "include": ["run.mjs", "lib/**/*.mjs", "lib/**/*.ts"]
+  "include": ["run.mjs", "lib/**/*.mjs", "lib/**/*.ts", "realworld/**/*.mjs"]
 }

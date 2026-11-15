@@ -1,0 +1,25 @@
+{
+  "id": "orders-filter-race",
+  "kind": "bug",
+  "category": "fix",
+  "prompt": "In Account → Orders, if I click the \"Shipped\" tab right after the page opens, the tab shows as selected but the table lists every order, including delivered and cancelled ones. Clicking it again later works. Fix the order list so it always matches the selected tab.",
+  "truth": {
+    "components": ["OrderHistory"],
+    "files": ["components/account/order-history.tsx"],
+    "cause": "The orders effect fetches without ignoring or aborting stale responses. The \"all\" request is slower than the \"shipped\" one, so it resolves last and overwrites the shipped results.",
+    "summary": "Ignore (or abort) the response of an effect run that has been cleaned up, so only the latest filter's response can set state."
+  },
+  "referenceFix": [
+    {
+      "file": "components/account/order-history.tsx",
+      "find": "  useEffect(() => {\n    setFailed(false)\n    fetch(`/api/orders?status=${filter}`)\n",
+      "replace": "  useEffect(() => {\n    let ignore = false\n    setFailed(false)\n    fetch(`/api/orders?status=${filter}`)\n"
+    },
+    {
+      "file": "components/account/order-history.tsx",
+      "find": "        setOrders(body.orders)\n      })\n      .catch(() => setFailed(true))\n  }, [filter])\n",
+      "replace": "        if (!ignore) setOrders(body.orders)\n      })\n      .catch(() => {\n        if (!ignore) setFailed(true)\n      })\n    return () => {\n      ignore = true\n    }\n  }, [filter])\n"
+    }
+  ],
+  "probe": { "module": "probes/orders-filter-race.mjs" }
+}

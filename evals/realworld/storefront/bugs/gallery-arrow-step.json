@@ -1,0 +1,20 @@
+{
+  "id": "gallery-arrow-step",
+  "kind": "bug",
+  "category": "fix",
+  "prompt": "On product pages, the left and right arrow keys skip images in the gallery: one press jumps two pictures, and after switching colours a few times it jumps even more. Fix the keyboard navigation.",
+  "truth": {
+    "components": ["ProductGallery"],
+    "files": ["components/product/product-gallery.tsx"],
+    "cause": "The keydown listener is added with { capture: true } but removed without the capture flag, so removeEventListener never matches and every effect run (Strict Mode replay, each colour change) leaks another live listener that also advances the index.",
+    "summary": "Remove the listener with the same capture option it was added with, so cleanup actually detaches it."
+  },
+  "referenceFix": [
+    {
+      "file": "components/product/product-gallery.tsx",
+      "find": "    return () => window.removeEventListener('keydown', onKeyDown)\n",
+      "replace": "    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })\n"
+    }
+  ],
+  "probe": { "module": "probes/gallery-arrow-step.mjs" }
+}

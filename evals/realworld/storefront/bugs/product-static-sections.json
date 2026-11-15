@@ -1,0 +1,40 @@
+{
+  "id": "product-static-sections",
+  "kind": "bug",
+  "category": "optimise",
+  "prompt": "The product page ships more JavaScript than it should: the description, specification table and care notes never change after load, yet they hydrate on the client. Find what pulls them into the client bundle and keep them as server components without changing the page.",
+  "truth": {
+    "components": ["ProductDetails", "ProductInfo"],
+    "files": ["components/product/product-details.tsx", "app/(shop)/product/[slug]/page.tsx"],
+    "cause": "ProductDetails is a 'use client' component (it owns the selected colour) and imports ProductInfo directly, so ProductInfo, ProductDescription, SpecificationTable and CareInstructions become client components.",
+    "summary": "Pass the static sections from the server page into the client component as a ReactNode prop (the composition pattern) so they render on the server."
+  },
+  "referenceFix": [
+    {
+      "file": "components/product/product-details.tsx",
+      "find": "import { ProductInfo } from './product-info'\n",
+      "replace": ""
+    },
+    {
+      "file": "components/product/product-details.tsx",
+      "find": "  ratings,\n}: {\n  product: Product\n  inventory: Inventory\n  ratings: RatingSummary\n}): ReactNode {",
+      "replace": "  ratings,\n  info,\n}: {\n  product: Product\n  inventory: Inventory\n  ratings: RatingSummary\n  info: ReactNode\n}): ReactNode {"
+    },
+    {
+      "file": "components/product/product-details.tsx",
+      "find": "        <ProductInfo product={product} />\n",
+      "replace": "        {info}\n"
+    },
+    {
+      "file": "app/(shop)/product/[slug]/page.tsx",
+      "find": "import { ProductDetails } from '../../../../components/product/product-details'\n",
+      "replace": "import { ProductDetails } from '../../../../components/product/product-details'\nimport { ProductInfo } from '../../../../components/product/product-info'\n"
+    },
+    {
+      "file": "app/(shop)/product/[slug]/page.tsx",
+      "find": "      <ProductDetails product={product} inventory={inventory} ratings={ratings} />\n",
+      "replace": "      <ProductDetails\n        product={product}\n        inventory={inventory}\n        ratings={ratings}\n        info={<ProductInfo product={product} />}\n      />\n"
+    }
+  ],
+  "probe": { "module": "probes/product-static-sections.mjs" }
+}

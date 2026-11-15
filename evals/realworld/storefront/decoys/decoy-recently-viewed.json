@@ -1,0 +1,11 @@
+{
+  "id": "decoy-recently-viewed",
+  "kind": "decoy",
+  "looksLike": "RecentlyViewed renders nothing on the server, then reads localStorage in a mount effect and immediately sets state, an extra render that looks like a hydration workaround or a wasted commit.",
+  "whyCorrect": "localStorage only exists in the browser, so reading it after mount is the hydration-safe way to show per-visitor content; the second render carries new ids and the third the fetched products, so each update has a real input change.",
+  "truth": {
+    "components": ["RecentlyViewed"],
+    "files": ["components/home/recently-viewed.tsx"]
+  },
+  "probe": { "module": "probes/decoy-recently-viewed.mjs" }
+}

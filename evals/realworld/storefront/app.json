@@ -1,0 +1,18 @@
+{
+  "appDir": "apps/realworld-storefront",
+  "dev": {
+    "command": "node_modules/.bin/next",
+    "args": ["dev", "--port", "{port}"],
+    "bundlers": { "turbopack": [], "webpack": ["--webpack"] },
+    "env": { "GENIE_HUB_PORT": "{hubPort}", "STOREFRONT_LATENCY_SCALE": "1" }
+  },
+  "warmup": [
+    "/",
+    "/category/outerwear",
+    "/product/lark-rain-shell-2",
+    "/search",
+    "/cart",
+    "/login",
+    "/account/orders"
+  ]
+}

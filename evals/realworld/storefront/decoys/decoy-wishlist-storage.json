@@ -1,0 +1,11 @@
+{
+  "id": "decoy-wishlist-storage",
+  "kind": "decoy",
+  "looksLike": "WishlistProvider writes to localStorage from a useEffect and sets state from another mount effect, a pattern often flagged as effect misuse.",
+  "whyCorrect": "Syncing to an external system (localStorage) is what effects are for. The write effect depends on the ids array, which changes only when the wishlist does, and the restore effect runs once after hydration so the server and client markup match.",
+  "truth": {
+    "components": ["WishlistProvider"],
+    "files": ["components/providers/wishlist-provider.tsx"]
+  },
+  "probe": { "module": "probes/decoy-wishlist-storage.mjs" }
+}
