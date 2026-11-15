@@ -1,6 +1,6 @@
 export const appName = 'Genie React'
 export const appDescription =
-  'Live React and TanStack DevTools for AI coding agents. Find performance problems, test app states, and verify fixes end to end.'
+  'Let your coding agent see inside a running React or React Native app and prove that a fix worked.'
 export const siteUrl = 'https://genie-react.com'
 export const docsRoute = '/docs'
 

@@ -1,109 +1,55 @@
 ---
 title: Troubleshooting
-description: Fix connection, readiness, targeting, and incomplete-result problems.
+description: Fix connection, targeting and empty-result problems.
 icon: CircleQuestionMark
 ---
 
-## No bridge found
-
-Run the command from the app folder:
-
-```bash
-npx @genie-react/cli doctor --json \
-  | jq '{ok, bridgeCandidates, remediation}'
-```
-
-Follow the returned `remediation` entries. Start the dev server or standalone hub, then inspect the
-status connection phases separately:
+Start with `doctor` from the app folder. With `--live` it also checks the running hub and app, and
+prints a fix for each failure:
 
 ```bash
-npx @genie-react/cli status --verbose
+npx @genie-react/cli doctor --live
 ```
 
-Use `status --verbose` for connection diagnostics; `doctor` accepts `--live` for stack probes.
+## The tab never becomes ready
+
+```bash
+npx @genie-react/cli status --session my-agent --wait 15000
+```
+
+`not_connected` with `registeredTabs: 0` means no tab reached the hub. Check that the page loads
+Genie (the Vite plugin, `<GenieScript />` or the client script), then reload it. Run the CLI from the
+app folder so it finds the right hub.
 
 ## The hub refuses the connection
 
-A refused agent connection fails with a message about the agent token. The hub restarted, a
-different hub answered, or `genie-react` and `@genie-react/cli` are different versions. Run the
-command from the app folder so the CLI rediscovers the hub. With `--url` or `GENIE_BRIDGE_URL` for a
-hub outside this folder tree, set `GENIE_BRIDGE_TOKEN` and use the hub's IP address, such as
-`ws://127.0.0.1:4390/__genie/ws`. The CLI does not send the token to a `localhost` name it cannot
-match to a discovered hub, and writes an `insecure-bridge-url` diagnostic instead.
+`bridge_rejected` means the hub refused the agent token: it restarted, another hub answered, or the
+CLI is older than `genie-react`. Run from the app folder with matching versions.
 
-Agents must run on the same machine as the hub. The hub refuses agent connections from other
-machines even when they present the right token.
+The hub accepts pages only from the dev server's origin and loopback. Allow a tunnel or custom host
+with `genie({ allowedOrigins: [...] })` on Vite, `registerGenie({ allowedOrigins: [...] })` on
+Next.js, or `GENIE_ALLOWED_ORIGINS` for `genie-react hub`.
 
-### An older CLI against a newer hub
+## Commands land on the wrong tab
 
-A `@genie-react/cli` release older than the app's `genie-react` cannot authenticate. Its commands
-retry for 11 to 14 seconds and then report `No app is connected` even though the app is open.
-The dev server log shows `[genie:warn] rejected connection: missing agent token`. Update
-`@genie-react/cli` to the same version as `genie-react`.
-
-The reverse, a newer CLI against an older hub, still works. The CLI then writes an
-`unauthenticated-bridge` diagnostic because that hub accepts any local page as an agent; update
-`genie-react`.
-
-### Browser pages
-
-The hub also refuses browser pages from other origins. The Vite bridge accepts pages from the dev
-server's own origin, including its IP address with `vite --host`. The standalone hub used by
-Next.js accepts loopback pages on the Next.js port. `genie-react hub` accepts loopback pages
-(`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`) on any port and marks those sessions with
-`originUnverified` in `status`. Other hostnames, such as a tunnel or a custom local domain, need an
-allowed origin:
-
-- Vite: `genie({ allowedOrigins: ['https://app.example.test'] })`, or the host in Vite's
-  `server.allowedHosts`.
-- Next.js: `registerGenie({ allowedOrigins: ['https://app.example.test'] })`.
-- `genie-react hub`: `GENIE_ALLOWED_ORIGINS=https://app.example.test` (comma-separated).
-
-The Vite dev server log shows each refusal as `[genie:warn] rejected connection: …`.
-
-## More than one bridge matches
-
-Move into the correct app folder or pass `--url`. Genie stops on ambiguity instead of guessing.
-
-## No ready session
-
-Open the app in a browser, then wait:
-
-```bash
-npx @genie-react/cli call devtools_wait \
-  '{"condition":"ready","timeoutMs":10000}'
-```
-
-## More than one tab matches
-
-Name the tab with `?_genie=my-agent`, then pass `--session my-agent` to every command.
+`SESSION_AMBIGUOUS` means several tabs match, and `SESSION_CLAIMED` means another agent uses them.
+Open your own tab with `agent-browser --session <name> open <url>` and pass `--session <name>`.
 
 ## Query or Router tools are missing
 
-Render `<Genie />` near the matching provider. Pass `queryClient` or `router` directly if automatic
-discovery cannot see it.
+Render `<Genie />` inside the providers, or pass it `queryClient` and `router`. On Next.js, register
+the Query collector as [install](/docs/getting-started/install#nextjs) shows.
 
-## React tools are missing
+## Renders are always empty
 
-The hook must load before React. Check the Vite plugin or make the manual client script the first
-script in the document head.
-
-## JSON parsing fails
-
-The CLI prints text by default since `0.20.0`. Add `--json` to the command you parse, or set
-`GENIE_OUTPUT=json` to keep the `0.19` output for a whole script; see
-[CLI release compatibility](/docs/getting-started/cli-output). With `--json`, parse `batch --ndjson`
-and `call --fields` as JSONL, and read verbose diagnostics from stderr separately.
+Open a window before the action; otherwise reads report `commits-not-observed`. If they stay empty
+with a window open, the DevTools hook loaded after React. Use the Vite plugin, or import
+`genie-react/hook` before React.
 
 ## A result is incomplete
 
-Read its limit, truncation, and coverage fields. Use a smaller flow, a component filter, `rootId`, a
-larger allowed limit, or a focused package filter.
+Each `coverage.incompleteBecause` entry names the gap and the next step.
 
-## A Query wait is ambiguous
+## A script cannot parse the output
 
-Use the exact `queryHash` or structured `queryKey` returned by `query_list`.
-
-## The app is busy
-
-Wait for the returned retry delay. A blocked main thread cannot answer a runtime tool safely.
+Add `--json`, or set `GENIE_OUTPUT=json` for the whole script.

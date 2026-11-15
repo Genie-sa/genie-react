@@ -2,14 +2,12 @@
   "title": "Genie React",
   "pages": [
     "index",
-    "---Start---",
-    "getting-started",
-    "setup",
-    "---Workflows---",
-    "workflows",
-    "case-studies",
+    "---Get started---",
+    "...getting-started",
+    "---Guides---",
+    "...guides",
     "---Reference---",
     "tools",
-    "reference"
+    "...reference"
   ]
 }

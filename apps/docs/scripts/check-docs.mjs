@@ -205,8 +205,9 @@ function validateNavigation(directory) {
   )
   const listed = new Set()
 
-  for (const page of meta.pages) {
-    if (/^---.+---$/.test(page)) continue
+  for (const entry of meta.pages) {
+    if (/^---.+---$/.test(entry)) continue
+    const page = entry.startsWith('...') ? entry.slice(3) : entry
     if (!page.trim()) {
       addError(metaPath, '"pages" cannot contain an empty entry')
       continue
@@ -409,6 +410,30 @@ for (const path of mdxFiles) {
     else if (!routes.has(route)) {
       addError(path, `line ${link.line} links to missing docs route "${route}"`)
     }
+  }
+}
+
+function headingAnchors(source) {
+  const anchors = new Set()
+  for (const match of maskCode(source, { inline: false }).matchAll(/^#{2,6}\s+(.+?)\s*$/gm)) {
+    anchors.add(
+      match[1]
+        .toLowerCase()
+        .replace(/[^a-z0-9 _-]/g, '')
+        .replaceAll(' ', '-'),
+    )
+  }
+  return anchors
+}
+
+const movedPagesPath = resolve(docsRoot, 'src/lib/moved-pages.json')
+for (const [from, to] of Object.entries(JSON.parse(readFileSync(movedPagesPath, 'utf8')))) {
+  if (routes.has(from)) addError(movedPagesPath, `"${from}" redirects away from a page that exists`)
+  const [route, anchor] = to.split('#')
+  const target = routes.get(route)
+  if (!target) addError(movedPagesPath, `"${from}" redirects to missing docs route "${route}"`)
+  else if (anchor && !headingAnchors(readFileSync(target, 'utf8')).has(anchor)) {
+    addError(movedPagesPath, `"${from}" redirects to missing heading "#${anchor}" on ${route}`)
   }
 }
 

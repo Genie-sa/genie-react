@@ -5,7 +5,7 @@ import type { BridgeDiscovery } from './discovery'
 import { isRecord } from './guards'
 import { genieCommand, packageManagerCommands } from './package-manager'
 
-export const OTHER_WEB_GUIDE = 'https://genie-react.com/docs/setup/other-web'
+export const OTHER_WEB_GUIDE = 'https://genie-react.com/docs/getting-started/install#other-bundlers'
 export const HOOK_MODULE = 'genie-react/hook'
 export const CLIENT_MODULE = 'genie-react/client'
 

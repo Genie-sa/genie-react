@@ -1,0 +1,86 @@
+---
+title: Query and Router
+description: Read the TanStack Query cache, follow data to the screen, and check navigation.
+icon: Database
+---
+
+Every example ran against `apps/router-demo`, opened with
+`agent-browser --session router-check open http://localhost:3030/`.
+
+## Query
+
+List the cache and pick an exact key:
+
+```bash
+npx @genie-react/cli call query_list --session router-check '{}' \
+  --fields queryHash,status,fetchStatus,observerCount
+```
+
+```text
+[1]:
+  - {queryHash:"[\"greeting\"]",status:success,fetchStatus:idle,observerCount:1}
+```
+
+Wait for a query instead of sleeping:
+
+```bash
+npx @genie-react/cli call devtools_wait --session router-check \
+  '{"condition":"query-settled","queryKey":["greeting"],"timeoutMs":10000}'
+```
+
+`query_get` returns one entry with its data, status and observers.
+
+## Follow data to the screen
+
+When the cache has the right data but the screen does not, check each step. Open a window, write to
+the cache, and read what the observer delivered:
+
+```bash
+npx @genie-react/cli call react_clear_renders --session router-check '{}'
+npx @genie-react/cli call query_set_data --session router-check \
+  '{"queryKey":["greeting"],"data":{"greeting":"cache probe","fetchCount":0}}'
+agent-browser --session router-check get text '[data-testid="query-data"]'
+npx @genie-react/cli call query_notifications --session router-check '{"limit":1}' \
+  --fields changedResultFields,deliveryReason,renderEventIds
+```
+
+```text
+cache probe (fetch #0)
+[1]:
+  - {changedResultFields:[data,dataUpdatedAt],deliveryReason:tracked-field-changed:data,renderEventIds:[render:5:3]}
+```
+
+The observer tracked `data`, the write changed it, and React rendered event `render:5:3`. If
+`renderEventIds` is empty, the component never re-rendered. If no notification arrived, the
+component does not track the field you changed. Restore the real data with `query_refetch`.
+
+`query_simulate_state` holds a query in `pending` or `error`. See
+[validate UI states](/docs/guides/validate-ui-states#loading-and-error).
+
+## Router
+
+Navigate the way the app does, then check that Router and the browser agree:
+
+```bash
+npx @genie-react/cli call router_navigate --session router-check \
+  '{"to":"/suspense","search":{"source":"docs"}}'
+npx @genie-react/cli call router_get_state --session router-check '{}' --json \
+  | jq -c '{pathname,searchStr,status,locationSync}'
+agent-browser --session router-check get url
+```
+
+```text
+ok: true
+outcome: arrived
+requestedHref: "/suspense?source=docs"
+pathname: /suspense
+href: "/suspense?source=docs"
+settled: true
+pendingWork: []
+{"pathname":"/suspense","searchStr":"?source=docs","status":"idle","locationSync":"matched"}
+http://localhost:3030/suspense?source=docs
+```
+
+`router_navigate` returns once the navigation settles. `locationSync: "matched"` means Router state
+and browser history agree. A mismatch means they did not. `router_build_location` resolves a
+destination without navigating, and `router_list_matches` shows the matched routes and loaders.

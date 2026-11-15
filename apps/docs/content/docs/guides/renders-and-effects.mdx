@@ -1,0 +1,78 @@
+---
+title: Debug renders and effects
+description: Find why a component rendered and why an effect keeps running.
+icon: Repeat2
+---
+
+Every example ran against `apps/vite-demo`.
+
+## Open a window first
+
+Genie analyzes renders and effects only while a window is open. A read without one says so:
+
+```bash
+npx @genie-react/cli call react_get_renders --session my-agent '{"component":"App"}' --select /coverage
+```
+
+```text
+  unobservedCommits: 3
+  incompleteBecause[1]:
+    - {reason:commits-not-observed,…,next:"Open a window with react_clear_renders (or devtools_interaction_begin), repeat the interaction, then read again. …"}
+  complete: false
+```
+
+So start every investigation with `react_clear_renders`, then do the action. To observe the page
+load itself, open the page with `_genie_observe` in its URL.
+
+## Why did it render
+
+```bash
+npx @genie-react/cli call react_clear_renders --session my-agent '{}'
+agent-browser --session my-agent click button.counter
+npx @genie-react/cli call react_render_causes --session my-agent '{"component":"App","limit":1}'
+```
+
+```text
+events[1] (componentName #componentId {fields}, then ← kind evidence name {fields} per cause):
+  App #15782176096260 {renderEventId:render:5:3,…,necessity:necessary,necessityReason:dom-changed,…}
+    ← state exact "state[0]"
+```
+
+The click changed `App`'s first `useState`. Each cause has a kind (`props`, `state`, `context`,
+`query`, `router`, `external-store`, `children`, `mount`) and an evidence grade. Act on `exact`.
+Confirm `inferred` with another check. [Read evidence](/docs/reference/evidence) explains the grades
+and coverage fields.
+
+For a list, `react_component_cohort` tells you which instances updated, stayed idle or unmounted.
+
+## Effects that keep running
+
+An effect is hot when it re-runs while none of its dependencies changed value. Toggle the theme
+four times, then audit:
+
+```bash
+npx @genie-react/cli call react_clear_renders --session my-agent '{}'
+for i in 1 2 3 4; do agent-browser --session my-agent find text 'toggle theme label' click; done
+npx @genie-react/cli call react_effect_audit --session my-agent \
+  '{"component":"HotEffectProbe","onlyHot":true}' --json \
+  | jq '.components[0].effects[0] | {hookIndex, scheduled, note, hotness: .hotness.label, line: .source.line}'
+```
+
+```json
+{
+  "hookIndex": 1,
+  "scheduled": 4,
+  "note": "re-ran 4 times when no dependency changed value — dependency [0] is a new reference with equal contents; trace its producer and stabilize it or depend on its primitive fields",
+  "hotness": "hot",
+  "line": 58
+}
+```
+
+`source` points at the `useEffect` call. `react_effect_timeline` lists each run with the dependency
+slots that changed. Prove the fix with `verify` and a claim such as `effect HotEffectProbe max 1`.
+
+## Join one interaction
+
+`devtools_interaction_begin` and `devtools_interaction_stop` wrap one action and return its renders,
+causes, effects and coverage in one result, under one ID. Use them when you want everything from a
+single action without separate reads. See [sessions and captures](/docs/tools/sessions-and-captures).
