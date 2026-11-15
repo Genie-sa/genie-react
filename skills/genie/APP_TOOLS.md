@@ -127,9 +127,11 @@ Check all of the following:
 
 The custom-tool change is complete only when every modified tool passes these checks.
 
-## 6. Recipe: prove what a Redux store did
+## 6. Redux: use the collector, keep this recipe as the fallback
 
-Genie has no Redux collector. React tools can show that a connected component did or did not render, but not which action ran, what it carried, or what the reducers made of it. Add a development-only recorder middleware and two query tools, `app_redux_actions` and `app_redux_state`, so an agent can prove which actions were dispatched, with which arguments, and the state they left. `apps/realworld-legacy` runs this recipe as written, and its probes test it.
+For a Redux or Redux Toolkit store, register Genie's Redux collector instead of writing tools: `reduxCollector(store)` from `genie-react/collectors/redux`, called where the store is created (setup docs: Redux). It adds `redux_actions` and `redux_state`, records each thunk with the actions it dispatches, flags a reducer that changes existing state in place (`mutation.status: "detected"`), and names the action behind each store-driven render on the `external-store` cause from `react_render_causes`. `apps/realworld-legacy` uses it, and its store-driven probes test it.
+
+Use the recipe below only for a store the collector cannot wrap: a `dispatch` that is read-only, or actions that reach the reducers without passing through the store's `dispatch` or a thunk's, as with sagas, epics or middleware that dispatches on its own. A recorder middleware placed last sees those. It adds `app_redux_actions` and `app_redux_state`, so an agent can prove which actions were dispatched, with which arguments, and the state they left. It cannot detect mutation or join an action to a render.
 
 `redux-recorder.ts` keeps the last 500 plain actions in a ring buffer. Each entry has a sequence number, a bounded copy of the action taken at dispatch, and the top-level slices whose reference changed:
 

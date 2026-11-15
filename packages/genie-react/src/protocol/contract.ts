@@ -13,6 +13,7 @@ export type BuiltInToolGroup =
   | 'react.profile'
   | 'query'
   | 'router'
+  | 'redux'
   | 'plugin'
   | 'memory'
   | 'perf'

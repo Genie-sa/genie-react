@@ -789,8 +789,11 @@ export interface ResolvedStackFrame {
 
 const STACK_FRAME_RESOLVE_LIMIT = 20
 
-/** Parses an Error stack and source-maps each frame where the served module carries a map; frames no map explains keep their served position and say so. */
-export async function resolveStackFrames(stack: string): Promise<ResolvedStackFrame[]> {
+/** Parses an Error stack and source-maps each frame where the served module carries a map; frames no map explains keep their served position and say so. Frames `isOwnFrame` claims are Genie's and are dropped before any lookup. */
+export async function resolveStackFrames(
+  stack: string,
+  isOwnFrame: (frame: StackFrame) => boolean = () => false,
+): Promise<ResolvedStackFrame[]> {
   let frames: ReturnType<typeof parseStack>
   try {
     frames = parseStack(stack)
@@ -800,23 +803,36 @@ export async function resolveStackFrames(stack: string): Promise<ResolvedStackFr
   return Promise.all(
     frames
       .filter((frame) => typeof frame.fileName === 'string' && frame.fileName.length > 0)
+      .filter((frame) => !isOwnFrame(frame))
       .slice(0, STACK_FRAME_RESOLVE_LIMIT)
-      .map(async (frame): Promise<ResolvedStackFrame> => {
-        const servedUrl = frame.fileName ?? ''
-        const mapped = METRO_BUNDLE_URL_RE.test(servedUrl)
-          ? undefined
-          : await mapFrame(frame, servedUrl).catch(() => undefined)
-        const file = normalizeServedFileName(mapped?.fileName ?? servedUrl)
-        return {
-          functionName: mapped?.functionName ?? frame.functionName ?? null,
-          file,
-          line: (mapped ?? frame).lineNumber ?? null,
-          column: (mapped ?? frame).columnNumber ?? null,
-          isLibrary: isLibraryFile(file),
-          mapping: frameMappingOf(file, mapped !== undefined),
-        }
-      }),
+      .map(resolveStackFrame),
   )
+}
+
+/** One parsed frame, source-mapped when its served module carries a map. */
+export async function resolveStackFrame(frame: StackFrame): Promise<ResolvedStackFrame> {
+  const servedUrl = frame.fileName ?? ''
+  const mapped = METRO_BUNDLE_URL_RE.test(servedUrl)
+    ? undefined
+    : await mapFrame(frame, servedUrl).catch(() => undefined)
+  return stackFrameAt(mapped ?? frame, mapped !== undefined)
+}
+
+/** One parsed frame at the position the dev server served, without a source map lookup. */
+export function servedStackFrame(frame: StackFrame): ResolvedStackFrame {
+  return stackFrameAt(frame, false)
+}
+
+function stackFrameAt(frame: StackFrame, mapped: boolean): ResolvedStackFrame {
+  const file = normalizeServedFileName(frame.fileName ?? '')
+  return {
+    functionName: frame.functionName ?? null,
+    file,
+    line: frame.lineNumber ?? null,
+    column: frame.columnNumber ?? null,
+    isLibrary: isLibraryFile(file),
+    mapping: frameMappingOf(file, mapped),
+  }
 }
 
 export function frameMappingOf(file: string, mapped: boolean): FrameMapping {

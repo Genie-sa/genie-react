@@ -106,6 +106,7 @@ describe('app source classification coverage', () => {
     const filtered = await read(true)
     expect(filtered.sourceClassification).toEqual({
       complete: false,
+      affects: 'result',
       totalCandidates: 1,
       evaluated: 1,
       app: 0,
@@ -117,6 +118,7 @@ describe('app source classification coverage', () => {
     expect(filtered.comparable).toBe(false)
     expect(filtered.notComparableReasons).toContain('app-source-classification-incomplete')
     expect(filtered.summary.semantics).toBe('unknown')
+    expect(filtered.coverage).toMatchObject({ complete: false, semantics: 'unknown' })
     expect(filtered.components).toHaveLength(1)
     expect(filtered.filteredNote).toBe(
       '1 components shown; 1 shown with ownership "unknown" because their source is unresolved',
@@ -125,6 +127,8 @@ describe('app source classification coverage', () => {
     const unfiltered = await read(false)
     expect(unfiltered.summary.totalRenders).toBe(1)
     expect(unfiltered.summary.semantics).toBe('exact')
+    expect(unfiltered.sourceClassification.affects).toBe('ownership-labels')
+    expect(unfiltered.coverage).toMatchObject({ complete: true, semantics: 'exact' })
     expect(unfiltered.notComparableReasons).not.toContain('app-source-classification-incomplete')
     if (unfiltered.view !== 'summary') throw new Error('expected the default summary view')
     expect(unfiltered.components[0]?.source).toEqual({ location: null, ownership: 'unknown' })

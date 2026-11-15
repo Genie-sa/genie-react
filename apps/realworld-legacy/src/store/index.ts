@@ -1,7 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit'
 import { service } from '../api/service'
 import reportsReducer from '../features/reports/state/reducer'
-import { actionRecorder } from './redux-recorder'
 import board from './board'
 import issues from './issues'
 import notifications from './notifications'
@@ -28,7 +27,6 @@ export const store = configureStore({
     // Both checks walk the 3k-issue state on every dispatch, which made development builds unusable.
     getDefaultMiddleware({ immutableCheck: false, serializableCheck: false }).concat(
       service.middleware,
-      actionRecorder,
     ),
 })
 

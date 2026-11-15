@@ -43,6 +43,6 @@
   },
   "genieEvidence": {
     "observability": "full",
-    "notes": "The timeline request lane shows GET /api/reports/throughput?range=90d starting first and finishing after the newer ?range=7d request (finishedAfterNewer, bodyReadLast). The network lane cannot say which result the app applied, so the probe reads ThroughputWidget's report.range prop with react_inspect_component, which stays '90d' after choosing 7 days. The reference fix keeps the race but ignores the stale response."
+    "notes": "The timeline request lane shows GET /api/reports/throughput?range=90d starting first and finishing after the newer ?range=7d request (finishedAfterNewer, bodyReadLast). redux_actions shows which result the app applied: each reports/RECEIVED names the thunk that dispatched it (parentActionId), and that thunk's REQUESTED carries its range, so the last RECEIVED comes from the 90d thunk while the store's range is 7d. ThroughputWidget's report.range prop, read with react_inspect_component, stays '90d' after choosing 7 days. The reference fix keeps the race but ignores the stale response."
   }
 }

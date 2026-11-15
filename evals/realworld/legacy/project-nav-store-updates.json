@@ -43,6 +43,6 @@
   },
   "genieEvidence": {
     "observability": "full",
-    "notes": "Connect(ProjectNav) reports an external-store cause with subscriptionFired true, changedFields ['projects'] and a reference-only deepDiff at /projects, and grades the render unnecessary (inputs-unchanged). Its wraps field carries the inner ProjectNav's exact cause (prop 'projects' changed by reference only), so the default appOnly view answers the question even though the inner class has ownership 'unknown' and stays hidden there. The dispatched action is still not named, and the wrapper's source points at side-nav.tsx (the JSX call site), not project-nav.tsx."
+    "notes": "Connect(ProjectNav) reports an external-store cause with subscriptionFired true, changedFields ['projects'] and a reference-only deepDiff at /projects, and grades the render unnecessary (inputs-unchanged). Its wraps field carries the inner ProjectNav's exact cause (prop 'projects' changed by reference only), so the default appOnly view answers the question even though the inner class has ownership 'unknown' and stays hidden there. The wrapper's external-store cause names the store change behind each render: an unrecorded change to the service slice, dispatched by RTK Query's own middleware, which Genie sees without its type; redux_actions shows it never touched projects. The wrapper's source points at side-nav.tsx (the JSX call site), not project-nav.tsx."
   }
 }

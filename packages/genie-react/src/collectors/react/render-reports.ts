@@ -1,4 +1,5 @@
 import { roundMilliseconds } from '../../protocol'
+import { resolveClassUpdateCallers } from './class-updates'
 import {
   type ComponentMatch,
   type ComponentNameSelector,
@@ -58,8 +59,12 @@ export interface ReportAttributionGuard {
   isCurrent: () => boolean
 }
 
+/** `result` when appOnly decides membership, so an unresolved candidate may be library code it would hide; `ownership-labels` when every candidate is kept and only its label is unresolved. */
+export type SourceClassificationEffect = 'result' | 'ownership-labels'
+
 export interface SourceClassificationCoverage {
   complete: boolean
+  affects: SourceClassificationEffect
   totalCandidates: number
   evaluated: number
   app: number
@@ -160,6 +165,7 @@ function selectClassifiedRecords(
 } {
   const sourceClassification = summarizeOwnership(
     classified.map((entry) => ({ ...entry, name: entry.report.name, source: entry.report.source })),
+    query.appOnly,
   )
   if (query.appOnly !== true) return { kept: classified, libraryHidden: 0, sourceClassification }
   const kept = classified.filter((entry) => !entry.libraryOnly)
@@ -175,7 +181,10 @@ interface OwnershipEvidence {
 }
 
 /** Ownership counts plus the distinct unknown-ownership components, named with the file that renders them, so two cohorts can be checked for counting the same ones. */
-function summarizeOwnership(entries: OwnershipEvidence[]): SourceClassificationCoverage {
+function summarizeOwnership(
+  entries: OwnershipEvidence[],
+  appOnly: boolean | undefined,
+): SourceClassificationCoverage {
   let app = 0
   let library = 0
   let evaluated = 0
@@ -190,6 +199,7 @@ function summarizeOwnership(entries: OwnershipEvidence[]): SourceClassificationC
   const unknownComponents = [...unknownLabels].sort()
   return {
     complete: unknown === 0,
+    affects: appOnly === true ? 'result' : 'ownership-labels',
     totalCandidates: entries.length,
     evaluated,
     app,
@@ -204,7 +214,10 @@ async function classifyRecordReports(
   list: RenderRecord[],
   guard?: ReportAttributionGuard,
 ): Promise<ClassifiedRecord[]> {
-  const resolvedEvidence = await recordSourceEvidence(list)
+  const [resolvedEvidence] = await Promise.all([
+    recordSourceEvidence(list),
+    resolveClassUpdateCallers(list.map((record) => record.causes)),
+  ])
   const evidence =
     guard?.isCurrent() === false ? list.map(() => staleRecordSourceEvidence()) : resolvedEvidence
   return list.map((record, index): ClassifiedRecord => {
@@ -379,6 +392,7 @@ export async function buildRenderCauseEventsReport(
   libraryHidden: number
   omittedByLimit: number
   componentMatch: ComponentMatch | undefined
+  sourceClassification: SourceClassificationCoverage
 }> {
   const named = componentNameMatcher(query)
   const inRange = recentEvents
@@ -395,7 +409,10 @@ export async function buildRenderCauseEventsReport(
         .map((record) => [record.id, record]),
     ).values(),
   ]
-  const resolvedEvidence = await recordSourceEvidence(liveRecords)
+  const [resolvedEvidence] = await Promise.all([
+    recordSourceEvidence(liveRecords),
+    resolveClassUpdateCallers(matching.map((event) => event.causes)),
+  ])
   const attributionCurrent = guard?.isCurrent() !== false
   const evidence = attributionCurrent
     ? resolvedEvidence
@@ -442,6 +459,7 @@ export async function buildRenderCauseEventsReport(
     }
     return {
       event: reported,
+      evaluated: sameInstance && classification.evaluated,
       libraryOnly: sameInstance ? classification.libraryOnly : false,
       appOwned: sameInstance ? classification.appOwned : false,
     }
@@ -450,6 +468,10 @@ export async function buildRenderCauseEventsReport(
     query.appOnly !== true ? classified : classified.filter(({ libraryOnly }) => !libraryOnly)
   const libraryHidden = classified.length - visible.length
   return {
+    sourceClassification: summarizeOwnership(
+      classified.map((entry) => ({ ...entry, name: entry.event.componentName, source: null })),
+      query.appOnly,
+    ),
     componentMatch: describeComponentMatch(
       query,
       inRange.map((event) => event.componentName),
@@ -607,6 +629,7 @@ export async function buildCurrentAggregateMeasurement(
         record.name === 'Anonymous' ? (sourceLabel(entry.source) ?? record.name) : record.name
       return { ...entry, name }
     }),
+    appOnly,
   )
   return { components: [...aggregates.values()], sourceClassification }
 }

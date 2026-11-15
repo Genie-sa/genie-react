@@ -8,23 +8,32 @@ import { cleanEnv, defaultCli, median, probed, root, timed } from './cli-bench-s
 
 const RUNS = 9
 const KiB = 1024
+/** zod 4.6's core (571 KiB), plus the tab targeting every hub command runs to resolve agent-browser sessions (583 KiB); the agent-browser client and ref lookup load only when a command uses them. */
+const CALL_PATH_BYTES = 590 * KiB
 const BATCH = JSON.stringify([{ tool: 'app_echo' }, { tool: 'app_echo', args: { n: 2 } }])
 
 // Budgets sit just above the current build: a new eagerly loaded dependency or an unbundled package trips the file or byte limit, a new handshake trips the round-trip count.
 const COMMANDS = [
   { name: '--version', argv: ['--version'], files: 4, bytes: 80 * KiB, roundTrips: 0, floors: 3 },
   { name: '--help', argv: ['--help'], files: 4, bytes: 80 * KiB, roundTrips: 0, floors: 3 },
-  { name: 'status', argv: ['status'], files: 6, bytes: 580 * KiB, roundTrips: 1, floors: 7 },
-  { name: 'tools', argv: ['tools'], files: 6, bytes: 580 * KiB, roundTrips: 0, floors: 7 },
+  { name: 'status', argv: ['status'], files: 6, bytes: CALL_PATH_BYTES, roundTrips: 1, floors: 7 },
+  { name: 'tools', argv: ['tools'], files: 6, bytes: CALL_PATH_BYTES, roundTrips: 0, floors: 7 },
   {
     name: 'call',
     argv: ['call', 'app_echo', '{}'],
     files: 6,
-    bytes: 580 * KiB,
+    bytes: CALL_PATH_BYTES,
     roundTrips: 1,
     floors: 7,
   },
-  { name: 'batch', argv: ['batch', BATCH], files: 6, bytes: 580 * KiB, roundTrips: 2, floors: 7 },
+  {
+    name: 'batch',
+    argv: ['batch', BATCH],
+    files: 6,
+    bytes: CALL_PATH_BYTES,
+    roundTrips: 2,
+    floors: 7,
+  },
 ]
 const EXIT_LAG_MS = 50
 const CEILING_MARGIN_MS = 100

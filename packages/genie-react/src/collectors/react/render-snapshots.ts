@@ -38,7 +38,8 @@ export interface RenderTrackingCoverage {
   sourceClassification?: SourceClassificationCoverage
   complete: boolean
   inputAttributionComplete: boolean
-  semantics: 'exact' | 'lower-bound'
+  /** `unknown` when appOnly membership is unresolved: kept rows may be library code, so counts are neither exact nor a lower bound. */
+  semantics: 'exact' | 'lower-bound' | 'unknown'
   coverageDomain: 'render-measurement' | 'render-causality'
   skippedCommitFibers: number
   droppedUnmountFibers: number
@@ -88,6 +89,7 @@ export interface IncompleteCoverageReason {
     | AnalysisFailureReason
     | 'inputs-truncated'
     | 'props-not-enumerated'
+    | 'source-classification-incomplete'
   fibers: number
   components?: string[]
   detail: string
@@ -364,19 +366,35 @@ export function clearSnapshots(): void {
   snapshots.clear()
 }
 
+/** Whether appOnly membership is still open: some kept candidate may be library code that a resolved classification would hide. */
+export const membershipUnresolved = (classification: SourceClassificationCoverage): boolean =>
+  classification.affects === 'result' && !classification.complete
+
+/** Coverage that cannot call a result complete while appOnly membership is unresolved; input attribution of the rows themselves is unaffected. */
+export function withMembershipCoverage<T extends RenderTrackingCoverage>(
+  coverage: T,
+  classification: SourceClassificationCoverage,
+): T {
+  if (!membershipUnresolved(classification)) return coverage
+  return {
+    ...coverage,
+    complete: false,
+    semantics: 'unknown',
+    incompleteBecause: [
+      ...(coverage.incompleteBecause ?? []),
+      {
+        reason: 'source-classification-incomplete',
+        fibers: classification.unknown,
+        detail: `${classification.unknown} of ${classification.totalCandidates} candidates have unresolved ownership. appOnly keeps them, but any of them may be library code it would hide, so rows and counts can change once ownership resolves.`,
+        next: 'Pass appOnly:false for counts that do not depend on ownership, or read again shortly: ownership keeps resolving in the background, though a component React rendered without an owner stack stays unknown.',
+      },
+    ],
+  }
+}
+
 export function withSourceCoverage(
   coverage: RenderTrackingCoverage,
   sourceClassification: SourceClassificationCoverage,
-  appOnly: boolean,
 ): RenderTrackingCoverage {
-  if (appOnly && !sourceClassification.complete) {
-    return {
-      ...coverage,
-      sourceClassification,
-      complete: false,
-      inputAttributionComplete: false,
-      semantics: 'lower-bound',
-    }
-  }
-  return { ...coverage, sourceClassification }
+  return { ...withMembershipCoverage(coverage, sourceClassification), sourceClassification }
 }

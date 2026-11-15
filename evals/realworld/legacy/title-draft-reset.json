@@ -38,6 +38,6 @@
   },
   "genieEvidence": {
     "observability": "full",
-    "notes": "react_inspect_component shows the class state { isEditing: true, draft: <original title> } after the refetch. react_render_causes (appOnly:false) shows the class rendering for prop 'issue' (exact) and then for 'class state' (exact) in the next commit. It does not name the state field or link the update to componentDidUpdate. The connect(null, ...) wrapper is also given an external-store cause even though it never subscribes to the store."
+    "notes": "react_inspect_component shows the class state { isEditing: true, draft: <original title> } after the refetch. react_render_causes (appOnly:false, view:full) shows the class rendering for prop 'issue' (exact) and then for 'this.state.draft' in the next commit, whose classUpdates entry is a setState with fields ['draft'] recorded inside IssueTitleEditor's componentDidUpdate (phase lifecycle, evidence exact) with the caller's file and line. The typed edit before it is a setState from the input event (inferred)."
   }
 }

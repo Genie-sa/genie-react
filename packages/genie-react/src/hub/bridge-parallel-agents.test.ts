@@ -499,6 +499,29 @@ describe('GenieBridge with several agents on one hub', () => {
       expect((await stranger('react_get_renders')).ok).toBe(true)
     })
 
+    it('marks a tab another agent claimed in the status each agent reads, and not for the agents that used it', async () => {
+      await start()
+      await openTab('busy-tab', 'checkout')
+      await openTab('free-tab')
+      const owner = await agent('owner')
+      await owner('react_get_renders', {}, 'checkout')
+      const stranger = await agent('stranger')
+      const claimed = async (ask: Awaited<ReturnType<typeof agent>>) =>
+        Object.fromEntries(
+          (await ask('devtools_status', {})).result.sessions.map(
+            (session: { sessionId: string; claimedByOthers?: true }) => [
+              session.sessionId,
+              session.claimedByOthers ?? false,
+            ],
+          ),
+        )
+
+      expect(await claimed(stranger)).toEqual({ 'busy-tab': true, 'free-tab': false })
+      expect(await claimed(owner)).toEqual({ 'busy-tab': false, 'free-tab': false })
+      await stranger('react_get_renders', {}, 'checkout')
+      expect(await claimed(stranger)).toEqual({ 'busy-tab': false, 'free-tab': false })
+    })
+
     it('reports the app ready to an agent whose only tab another agent claimed, so its own targeted call can run', async () => {
       await start()
       await openTab('busy-tab', 'checkout')

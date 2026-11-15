@@ -6,47 +6,57 @@ export default async function probe({ session, page }) {
   await session.open('/reports')
   await page.locator('.bar-chart').waitFor()
   await session.quiesce()
-  await session.clearRenders(['ReportNotesList'])
-  const { latestSequence } = await session.reduxActions({ limit: 1 })
+  await session.clearRenders(['ReportNotesList', 'Connect(ReportNotesList)'])
+  const since = await session.reduxLatestSequence()
   await page.locator('input[aria-label="Report note"]').fill(NOTE)
   await page.getByRole('button', { name: 'Add note' }).click()
   await session.quiesce()
-  const notes = await session.reduxState('reports.notes')
-  const { actions, missed } = await session.reduxActions({
-    sinceSequence: latestSequence,
-    typePrefix: 'reports/NOTE_ADDED',
-  })
-  const added = actions.at(-1)
-  const later = await session.reduxActions({
-    sinceSequence: added?.sequence ?? latestSequence,
+  const { records, coverage } = await session.reduxActions({
+    afterSequence: since,
     typePrefix: 'reports/',
+    view: 'full',
   })
-  const { updates } = await session.renderUpdates('ReportNotesList', [
-    'ReportNotesList',
-    'Connect(ReportNotesList)',
-  ])
+  const added = records.filter((record) => record.type === 'reports/NOTE_ADDED')
+  const note = added.at(-1)
+  const notes = await session.reduxState(['reports', 'notes'])
+  const { events } = await session.call('react_render_causes', {
+    component: 'ReportNotesList',
+    view: 'full',
+  })
+  const links = events.flatMap(
+    (event) =>
+      event.wrappedBy?.causes.flatMap((cause) =>
+        cause.kind === 'external-store' && cause.redux ? [cause.redux] : [],
+      ) ?? [],
+  )
+  const named = links.find((link) => link.actions.includes('reports/NOTE_ADDED'))
   const shown = await page.locator('.report-note').count()
   return [
     check(
       'redux.dispatched',
-      missed === 0 && actions.length === 1 && added?.action.note?.text === NOTE,
-      `NOTE_ADDED dispatched ${actions.length} time(s) with ${JSON.stringify(added?.action.note)}`,
+      coverage.evictedRecords === 0 && added.length === 1 && note?.payload?.note?.text === NOTE,
+      `NOTE_ADDED dispatched ${added.length} time(s) with ${JSON.stringify(note?.payload?.note)}`,
     ),
     check(
-      'redux.notes',
-      notes.asOfSequence >= (added?.sequence ?? Infinity) &&
-        later.actions.length === 0 &&
-        Array.isArray(notes.value) &&
-        notes.value.length === 1 &&
-        notes.value[0].text === NOTE,
-      `as of action ${notes.asOfSequence}, with ${later.actions.length} reports action(s) after NOTE_ADDED, the store holds ${JSON.stringify(notes.value)}`,
+      'redux.stored',
+      notes.found && Array.isArray(notes.value) && notes.value.at(-1)?.text === NOTE,
+      `as of action ${notes.asOfSequence} the store holds ${JSON.stringify(notes.value)}`,
     ),
     check(
-      'redux.changedSlices',
-      added?.changedSlices.includes('reports'),
-      `NOTE_ADDED changed ${JSON.stringify(added?.changedSlices)}`,
+      'redux.immutableUpdate',
+      note?.mutation.status === 'none-detected',
+      `NOTE_ADDED mutation check ${note?.mutation.status}: ${JSON.stringify(note?.mutation.findings)}`,
     ),
-    check('renders.ReportNotesList', updates > 0, `ReportNotesList updates=${updates}`),
+    check(
+      'redux.rootStateChanged',
+      note?.rootStateChanged === true && note.changedSlices.includes('reports'),
+      `NOTE_ADDED rootStateChanged=${note?.rootStateChanged}, changedSlices ${JSON.stringify(note?.changedSlices)}`,
+    ),
+    check(
+      'renders.namedAction',
+      named !== undefined,
+      `${events.length} ReportNotesList render events; the connect() wrapper's store cause names ${JSON.stringify(links)}`,
+    ),
     check('dom.notes', shown === 1, `${shown} notes on screen`),
   ]
 }

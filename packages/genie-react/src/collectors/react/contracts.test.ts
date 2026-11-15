@@ -20,6 +20,7 @@ describe('react_get_renders output contract', () => {
       countsScope: 'observed-run',
       sourceClassification: {
         complete: false,
+        affects: 'result',
         totalCandidates: 1,
         evaluated: 1,
         app: 0,
@@ -305,6 +306,17 @@ describe('react_render_causes contract', () => {
       },
       events: [],
       omittedByLimit: 4,
+      sourceClassification: {
+        complete: true,
+        affects: 'result',
+        totalCandidates: 0,
+        evaluated: 0,
+        app: 0,
+        library: 0,
+        unknown: 0,
+        unknownComponents: [],
+        unknownComponentsOmitted: 0,
+      },
       coverage: {
         complete: true,
         inputAttributionComplete: true,

@@ -99,7 +99,8 @@ async function selectNextRowAndReadCoverage(): Promise<Coverage> {
   const row = nextRow
   nextRow += 1
   await act(async () => selectRow(row))
-  return (await call<{ coverage: Coverage }>('react_render_causes', { limit: 1 })).coverage
+  return (await call<{ coverage: Coverage }>('react_render_causes', { limit: 1, appOnly: false }))
+    .coverage
 }
 
 describe('render budget on a deep tree', () => {

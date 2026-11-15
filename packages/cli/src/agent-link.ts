@@ -35,6 +35,8 @@ export interface GenieAgentLinkOptions {
   reconnectDelayMs?: number
   /** Target a specific app session when several tabs are connected (default: the only or already-targeted tab). */
   sessionId?: string
+  /** Picks the target once the hub has greeted, for a selector only the hub's session list can settle; replaces `sessionId`. */
+  target?: () => Promise<string | undefined>
   /** Reject at once when nothing listens at the URL instead of retrying until `connectTimeoutMs`; for guessed URLs. */
   failFastOnRefused?: boolean
   /** This client's release; a hub from another release line, or one that does not report its version, is refused. */
@@ -203,7 +205,7 @@ export class GenieAgentLink {
   private readonly connectTimeoutMs: number
   private readonly invokeTimeoutMs: number
   private readonly reconnectDelayMs: number
-  private readonly sessionId: string | undefined
+  private readonly target: () => Promise<string | undefined>
   private readonly failFastOnRefused: boolean
   private readonly clientVersion: string | undefined
   private readonly toolCatalog: boolean
@@ -229,7 +231,8 @@ export class GenieAgentLink {
     this.connectTimeoutMs = options.connectTimeoutMs ?? 5_000
     this.invokeTimeoutMs = options.invokeTimeoutMs ?? 30_000
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1_000
-    this.sessionId = options.sessionId
+    const { sessionId, target } = options
+    this.target = target ?? (() => Promise.resolve(sessionId))
     this.failFastOnRefused = options.failFastOnRefused ?? false
     this.clientVersion = options.clientVersion
     this.toolCatalog = options.toolCatalog ?? true
@@ -269,7 +272,7 @@ export class GenieAgentLink {
   async invoke(
     toolOrContract: string | AgentToolContract,
     args: unknown,
-    sessionId: string | null | undefined = this.sessionId,
+    sessionId?: string | null,
     options: InvokeOptions = {},
   ): Promise<unknown> {
     const tool = typeof toolOrContract === 'string' ? toolOrContract : toolOrContract.name
@@ -280,9 +283,10 @@ export class GenieAgentLink {
   async invokeAnswered(
     tool: string,
     args: unknown,
-    sessionId: string | null | undefined = this.sessionId,
+    sessionId?: string | null,
     options: InvokeOptions = {},
   ): Promise<AnsweredResult> {
+    const target = sessionId === undefined ? await this.target() : sessionId
     const ws = await this.ensureConnection()
     const id = newId()
     const localTimeoutMs = localInvokeTimeoutMs(tool, args, options, this.invokeTimeoutMs)
@@ -302,7 +306,7 @@ export class GenieAgentLink {
           id,
           tool,
           args,
-          sessionId: sessionId ?? undefined,
+          sessionId: target ?? undefined,
           timeoutMs: options.timeoutMs,
           ...(this.caller === undefined ? {} : { caller: this.caller }),
         }),

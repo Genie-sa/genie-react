@@ -8,11 +8,13 @@ import { fileURLToPath } from 'node:url'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const REACT_VERSIONS = ['18.0.0', '18.3.1']
 const CORPORA = [
+  'packages/genie-react/src/collectors/react/class-update-corpus.test.ts',
   'packages/genie-react/src/collectors/react/effect-corpus.test.ts',
   'packages/genie-react/src/collectors/react/error-corpus.test.ts',
   'packages/genie-react/src/collectors/react/refresh-corpus.test.ts',
   'packages/genie-react/src/collectors/react/render-necessity-corpus.test.ts',
   'packages/genie-react/src/collectors/react/render-wrapper-corpus.test.ts',
+  'packages/genie-react/src/collectors/redux/redux-render-join.test.ts',
 ]
 
 function run(command, args, options) {
@@ -37,6 +39,8 @@ for (const version of REACT_VERSIONS) {
         '--package-lock=false',
         `react@${version}`,
         `react-dom@${version}`,
+        'react-redux@8.1.3',
+        'react-redux-9@npm:react-redux@9.3.1',
       ],
       { cwd: reactDirectory },
     )
