@@ -213,7 +213,7 @@ async function initializeTrialWorkspace(dir, agent, consumer) {
   await git(dir, ['add', '-A'])
   await git(dir, ['commit', '-qm', 'fixture'])
 
-  const init = await run(process.execPath, [consumer.cliEntry, 'init', '--yes'], {
+  const init = await run(process.execPath, [consumer.cliEntry, 'init', '--yes', '--json'], {
     cwd: dir,
     timeoutMs: 60_000,
   })

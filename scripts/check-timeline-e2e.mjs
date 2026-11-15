@@ -123,12 +123,16 @@ createRoot(document.getElementById('root')).render(h(App))
     GENIE_SESSION: 'timeline-e2e',
   }
   const cli = async (args) => {
-    const result = await run(process.execPath, [join(root, 'packages/cli/dist/cli.js'), ...args], {
-      cwd: fixture,
-      env,
-      timeout: 20000,
-      maxBuffer: 2_000_000,
-    })
+    const result = await run(
+      process.execPath,
+      [join(root, 'packages/cli/dist/cli.js'), ...args, '--json'],
+      {
+        cwd: fixture,
+        env,
+        timeout: 20000,
+        maxBuffer: 2_000_000,
+      },
+    )
     return JSON.parse(result.stdout)
   }
   const call = (name, args) => cli(['call', name, JSON.stringify(args), '--json'])

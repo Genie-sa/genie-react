@@ -1,19 +1,15 @@
-import { lstatSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import {
-  ensurePrivateDirectory,
-  genieUserDirectory,
-  isOwnedByCurrentUser,
-} from 'genie-react/hub/token'
+import { ensurePrivateDirectory, genieUserDirectory } from 'genie-react/hub/token'
 import { genieCommand } from './package-manager'
+import { pruneOwnFiles } from './private-files'
 import type { OutputSuggestion, Overflow, OverflowRecovery } from './result-selection'
 
-const RETAINED_SPILLS = 20
 const MAX_SUGGESTED_BYTES = 50_000_000
 const MIN_SUGGESTED_BRANCH_BYTES = 1_024
 const MAX_SUGGESTED_PATH_LENGTH = 200
 const PRIVATE_FILE_MODE = 0o600
-const SPILL_NAME = /^[a-zA-Z0-9_.-]{1,80}-\d{13}-\d+\.json$/
+const SPILL_NAME = /^[a-zA-Z0-9_.-]{1,80}-\d{13}-\d+\.(?:json|txt)$/
 
 export interface CallInvocation {
   /** CLI words before the tool arguments, e.g. `['call', 'react_get_renders']`. */
@@ -34,7 +30,7 @@ export function recoverOverflow(
   { label, maxBytes }: { label: string; maxBytes: number },
 ): OverflowRecovery {
   return {
-    outputPath: spillOutput(label, overflow.serialized),
+    outputPath: spillOutput(label, overflow.serialized, overflow.extension),
     suggestions: overflowSuggestions(overflow, invocation, maxBytes),
   }
 }
@@ -134,10 +130,14 @@ export function spillDirectory(): string {
   return join(genieUserDirectory(), 'out')
 }
 
-function spillOutput(label: string, serialized: string): string | undefined {
+function spillOutput(
+  label: string,
+  serialized: string,
+  extension: Overflow['extension'],
+): string | undefined {
   const directory = spillDirectory()
   const safeLabel = label.replace(/[^a-zA-Z0-9_.-]+/g, '-').slice(0, 80)
-  const path = join(directory, `${safeLabel}-${Date.now()}-${process.pid}.json`)
+  const path = join(directory, `${safeLabel}-${Date.now()}-${process.pid}.${extension}`)
   try {
     ensurePrivateDirectory(dirname(directory))
     ensurePrivateDirectory(directory)
@@ -149,33 +149,6 @@ function spillOutput(label: string, serialized: string): string | undefined {
   } catch {
     return undefined
   }
-  pruneSpills(directory)
+  pruneOwnFiles(directory, SPILL_NAME)
   return path
-}
-
-/** Removes only our own regular spill files beyond the newest few; anything else in the directory is left alone. */
-function pruneSpills(directory: string): void {
-  let names: string[]
-  try {
-    names = readdirSync(directory).filter((name) => SPILL_NAME.test(name))
-  } catch {
-    return
-  }
-  const spills = names.flatMap((name) => {
-    const path = join(directory, name)
-    try {
-      const info = lstatSync(path)
-      return info.isFile() && isOwnedByCurrentUser(info.uid)
-        ? [{ path, modified: info.mtimeMs }]
-        : []
-    } catch {
-      return []
-    }
-  })
-  spills.sort((left, right) => right.modified - left.modified)
-  for (const stale of spills.slice(RETAINED_SPILLS)) {
-    try {
-      rmSync(stale.path)
-    } catch {}
-  }
 }

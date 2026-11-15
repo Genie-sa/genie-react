@@ -29,6 +29,7 @@ const overflow: Overflow = {
     { path: '/coverage', bytes: 5_000 },
     { path: '/summary', bytes: 300 },
   ],
+  extension: 'json',
 }
 
 const invocation = {
@@ -151,6 +152,42 @@ describe('overflow spill', () => {
       expect(statSync(directory).mode & 0o777).toBe(0o700)
       expect(statSync(outputPath ?? '').mode & 0o777).toBe(0o600)
     }
+  })
+
+  it('keeps a spill another agent was just told to read while parallel agents keep spilling', () => {
+    const mine = spill()
+    const directory = dirname(mine ?? '')
+    for (let index = 0; index < 60; index += 1) {
+      writeFileSync(join(directory, `other-${Date.now()}-${10_000 + index}.json`), '{}')
+      spill()
+    }
+    expect(mine && existsSync(mine)).toBe(true)
+  })
+
+  it('bounds young spills at a hard cap so sustained load cannot fill the disk', () => {
+    const directory = dirname(spill() ?? '')
+    for (let index = 0; index < 250; index += 1) {
+      writeFileSync(join(directory, `burst-${Date.now()}-${index}.json`), '{}')
+    }
+    spill()
+    expect(readdirSync(directory).filter((name) => name.endsWith('.json'))).toHaveLength(200)
+  })
+
+  it('keeps a text result as .txt and prunes old text spills with the JSON ones', () => {
+    const text = { ...overflow, serialized: 'components: []', extension: 'txt' as const }
+    const directory = dirname(spill() ?? '')
+    for (let index = 0; index < 25; index += 1) {
+      const stale = join(directory, `stale-${String(index).padStart(13, '0')}-1.txt`)
+      writeFileSync(stale, 'x')
+      utimesSync(stale, new Date(0), new Date(index * 1_000))
+    }
+    const outputPath = recoverOverflow(text, invocation, {
+      label: 'call',
+      maxBytes: 100_000,
+    }).outputPath
+    expect(outputPath?.endsWith('.txt')).toBe(true)
+    expect(readFileSync(outputPath ?? '', 'utf8')).toBe('components: []\n')
+    expect(readdirSync(directory).filter((name) => name.startsWith('stale-'))).toHaveLength(18)
   })
 
   it('prunes only old regular spill files and leaves other files and symlinks alone', () => {

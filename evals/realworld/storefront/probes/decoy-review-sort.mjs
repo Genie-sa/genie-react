@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 import { describeVerdicts, isClean, verdicts } from './support.mjs'
 
-/** @param {import('../../run-probes.mjs').ProbeContext} ctx */
+/** @param {import('../../run-storefront-probes.mjs').ProbeContext} ctx */
 export async function probe(ctx) {
   const page = await ctx.open('/product/lark-rain-shell-2')
   await page.locator('#reviews').scrollIntoViewIfNeeded()

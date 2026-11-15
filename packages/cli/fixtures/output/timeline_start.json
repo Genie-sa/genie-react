@@ -1,0 +1,40 @@
+{
+  "argv": ["call", "timeline_start", "{\"name\":\"mutation\"}"],
+  "exitCode": 0,
+  "result": {
+    "id": "timeline-8c4effcf-f95f-4af6-a8a6-2dddf4cbbfed",
+    "name": "mutation",
+    "state": "recording",
+    "stopReason": null,
+    "durationMs": 0.1,
+    "maxEvents": 1000,
+    "maxDurationMs": 30000,
+    "eventCount": 0,
+    "truncated": false,
+    "correlation": "temporal-only",
+    "clock": "performance.now",
+    "ordering": "observation-time-then-sequence",
+    "coverage": {
+      "request": {
+        "status": "available",
+        "code": "resource-timing",
+        "detail": "Completed fetch/XHR Resource Timing only; observation time includes delivery delay. Requests started before recording may appear. Failed, unfinished, worker and non-fetch/XHR requests may be absent. Cross-origin detailed timing requires Timing-Allow-Origin. URLs omit credentials, queries and fragments; paths remain."
+      },
+      "query": {
+        "status": "available",
+        "code": "query-cache",
+        "detail": "Supplied QueryCache add/remove/update notifications; no pre-existing snapshot, mutation cache, payloads or inferred request links. Query hashes are bounded but may contain key values."
+      },
+      "react": {
+        "status": "available",
+        "code": "react-root-commits",
+        "detail": "Supported development React root commits; hook must precede React. renderDurationMs is root actualDuration when positive, otherwise unknown; not commit wall time, native UI timing, effects or component attribution. No Fiber tree traversal."
+      },
+      "navigation": {
+        "status": "unavailable",
+        "code": "no-tanstack-router",
+        "detail": "No TanStack Router supplied; other routers and native navigation are not observed."
+      }
+    }
+  }
+}

@@ -9,6 +9,9 @@ export const GENIE_GLOBAL_KEY = '__GENIE_REACT_AGENT__'
 /** Discovery file the Vite plugin writes so the genie CLI can find the hub URL. */
 export const GENIE_DISCOVERY_FILE = '.genie/bridge.json'
 
+/** Upgrade header an agent connection names its caller with, so the hub's status frames show that caller's default tab. */
+export const GENIE_CALLER_HEADER = 'x-genie-caller'
+
 /** Default port for the standalone hub (`genie hub`, Next.js instrumentation). */
 export const GENIE_DEFAULT_HUB_PORT = 4390
 
@@ -30,6 +33,8 @@ export const DEFAULT_MAX_ENTRIES = 100
 
 export type ConnectionRole = 'app' | 'agent'
 export const ROLE_QUERY_PARAM = 'role'
+/** An agent that connects with `tools=none` gets `bridge/status` frames with an empty `tools` list; one-shot CLI commands skip decoding a catalog they never read. */
+export const AGENT_TOOLS_QUERY_PARAM = 'tools'
 
 export const RENDER_INPUT_SCAN_TRUNCATED = 'render-input-scan-truncated'
 export const RENDER_PROPS_NOT_ENUMERATED = 'render-props-not-enumerated'

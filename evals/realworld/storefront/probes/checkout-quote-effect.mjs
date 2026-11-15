@@ -1,4 +1,4 @@
-/** @param {import('../../run-probes.mjs').ProbeContext} ctx */
+/** @param {import('../../run-storefront-probes.mjs').ProbeContext} ctx */
 export async function probe(ctx) {
   const page = await ctx.open('/cart')
   await ctx.call('app_reset')

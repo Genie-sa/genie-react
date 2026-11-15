@@ -1,0 +1,26 @@
+{
+  "id": "related-account-shows-previous-notes",
+  "kind": "bug",
+  "category": "fix",
+  "symptom": "On a customer page, clicking one of the Related accounts loads the other customer, but the Account notes box still shows the previous customer's notes. Saving would overwrite the new customer's notes with them.",
+  "truth": {
+    "components": ["CustomerNotes", "CustomerDetailPage"],
+    "files": [
+      "src/features/customers/customer-notes.tsx",
+      "src/features/customers/customer-detail-page.tsx"
+    ],
+    "cause": "CustomerNotes copies customer.notes into useState once. Navigating between customers keeps the same route component mounted, so the draft state survives with the old notes instead of resetting for the new customer."
+  },
+  "referenceFix": [
+    {
+      "file": "src/features/customers/customer-detail-page.tsx",
+      "find": "            <CustomerNotes customer={customer} />",
+      "replace": "            <CustomerNotes key={customer.id} customer={customer} />"
+    }
+  ],
+  "probe": {
+    "script": "probes/related-account-notes.mjs",
+    "genie": "observable",
+    "evidence": ["react_inspect_component", "query_get"]
+  }
+}

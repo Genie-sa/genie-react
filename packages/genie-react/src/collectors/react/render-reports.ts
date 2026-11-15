@@ -1,4 +1,10 @@
 import { roundMilliseconds } from '../../protocol'
+import {
+  type ComponentMatch,
+  type ComponentNameSelector,
+  componentNameMatcher,
+  describeComponentMatch,
+} from './component-name'
 import { wrapperAncestryOf } from './fiber'
 import { countExternalStoreHooks, type RenderCauseEvent } from './render-causes'
 import {
@@ -31,8 +37,7 @@ const UNCLASSIFIED_FIBER: FiberClassification = {
   isLibrary: false,
 }
 
-export interface RenderQuery {
-  component?: string
+export interface RenderQuery extends ComponentNameSelector {
   nameFilter?: string
   excludeNames?: string[]
   minUpdates?: number
@@ -41,10 +46,9 @@ export interface RenderQuery {
   appOnly?: boolean
 }
 
-export interface RenderCauseQuery {
+export interface RenderCauseQuery extends ComponentNameSelector {
   commit?: number
   afterCommit?: number
-  component?: string
   limit: number
   appOnly?: boolean
 }
@@ -102,14 +106,25 @@ function matchesNamePattern(name: string, pattern: string): boolean {
   return patternIndex === pattern.length
 }
 
+export function describeRecordMatch(
+  records: Map<number, RenderRecord>,
+  selector: ComponentNameSelector,
+): ComponentMatch | undefined {
+  if (selector.component === undefined) return undefined
+  return describeComponentMatch(
+    selector,
+    [...records.values()].map((record) => record.name),
+  )
+}
+
 export function renderRecordFilter(query: RenderQuery): (record: RenderRecord) => boolean {
-  const component = query.component?.toLowerCase()
+  const component = componentNameMatcher(query)
   const pattern = query.nameFilter?.toLowerCase()
   const exclusions = query.excludeNames?.map((name) => name.toLowerCase()) ?? []
   return (record) => {
     const name = record.name.toLowerCase()
     return (
-      (!component || name.includes(component)) &&
+      component(record.name) &&
       (!pattern || matchesNamePattern(name, pattern)) &&
       !exclusions.some((exclusion) => matchesNamePattern(name, exclusion)) &&
       record.updates >= (query.minUpdates ?? 0)
@@ -310,6 +325,7 @@ export async function buildRendersMeasurementReport(
   components: RenderReport[]
   libraryHidden: number
   omittedByLimit: number
+  componentMatch: ComponentMatch | undefined
 }> {
   const classified = await classifyRecordReports(
     [...records.values()].filter(renderRecordFilter(query)),
@@ -317,6 +333,7 @@ export async function buildRendersMeasurementReport(
   )
   const { kept, libraryHidden, sourceClassification } = selectClassifiedRecords(classified, query)
   return {
+    componentMatch: describeRecordMatch(records, query),
     sourceClassification,
     summary: summarizeRecords(
       kept.map((entry) => entry.record),
@@ -335,14 +352,19 @@ export async function buildRenderCauseEventsReport(
   recentEvents: readonly RetainedRenderCauseEvent[],
   query: RenderCauseQuery,
   guard?: ReportAttributionGuard,
-): Promise<{ events: RenderCauseEvent[]; libraryHidden: number; omittedByLimit: number }> {
-  const needle = query.component?.toLowerCase()
-  const matching = recentEvents
+): Promise<{
+  events: RenderCauseEvent[]
+  libraryHidden: number
+  omittedByLimit: number
+  componentMatch: ComponentMatch | undefined
+}> {
+  const named = componentNameMatcher(query)
+  const inRange = recentEvents
     .filter((event) => query.commit === undefined || event.documentCommitId === query.commit)
     .filter(
       (event) => query.afterCommit === undefined || event.documentCommitId > query.afterCommit,
     )
-    .filter((event) => !needle || event.componentName.toLowerCase().includes(needle))
+  const matching = inRange.filter((event) => named(event.componentName))
   const liveRecords = [
     ...new Map(
       matching
@@ -407,6 +429,10 @@ export async function buildRenderCauseEventsReport(
   const libraryHidden =
     query.appOnly !== true ? 0 : classified.filter(({ appOwned }) => !appOwned).length
   return {
+    componentMatch: describeComponentMatch(
+      query,
+      inRange.map((event) => event.componentName),
+    ),
     events: visible.slice(0, query.limit).map(({ event }) => event),
     libraryHidden,
     omittedByLimit: Math.max(0, visible.length - query.limit),
@@ -417,8 +443,9 @@ export async function buildRendersLeaderboards(
   records: Map<number, RenderRecord>,
   limit: number,
   guard?: ReportAttributionGuard,
-  selection: Pick<RenderQuery, 'component' | 'appOnly'> = {},
+  selection: Pick<RenderQuery, 'component' | 'exact' | 'appOnly'> = {},
 ): Promise<{
+  componentMatch: ComponentMatch | undefined
   sourceClassification: SourceClassificationCoverage
   slowest: RenderReport[]
   mostRerendered: RenderReport[]
@@ -435,6 +462,7 @@ export async function buildRendersLeaderboards(
       .slice(0, limit)
       .map((entry) => entry.report)
   return {
+    componentMatch: describeRecordMatch(records, selection),
     sourceClassification,
     slowest: top('selfTime'),
     mostRerendered: top('renders'),

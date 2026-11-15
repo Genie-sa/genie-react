@@ -1,0 +1,18 @@
+{
+  "id": "decoy-missing-issue",
+  "kind": "decoy",
+  "category": "decoy",
+  "prompt": "Opening a link to a deleted issue shows \"Issue not found\". Is an error boundary swallowing a crash?",
+  "truth": {
+    "components": ["IssueDetailPage"],
+    "files": ["src/features/issue-detail/issue-detail-page.tsx"],
+    "summary": "The 404 is handled as data: RTK Query returns isError and the page renders an empty state. Nothing throws."
+  },
+  "flaggedWhen": "Genie reports a caught render error or a blank tree.",
+  "probe": {
+    "script": "probes/decoy-missing-issue.mjs"
+  },
+  "genieEvidence": {
+    "notes": "react_error_state reports no caught errors and no blank tree hint."
+  }
+}

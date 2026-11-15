@@ -1,4 +1,6 @@
 import { isRecord } from './guards'
+import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
+import { encodeText, fieldsWithLayout, flowText, scalarText } from './text-output'
 
 export function summarizeStatus(
   result: unknown,
@@ -89,3 +91,25 @@ export function summarizeSessionsOnly(
 }
 
 const num = (value: unknown): number => (typeof value === 'number' ? value : 0)
+
+/** `status` and `devtools_status`: the CLI's schemaVersion dropped, then one `sessionId {fields}` line per session. */
+export function renderStatusText(value: unknown): string {
+  if (!isRecord(value)) return encodeText(value)
+  const { schemaVersion, ...rest } = value
+  const fields = schemaVersion === CLI_OUTPUT_SCHEMA_VERSION ? rest : value
+  return fieldsWithLayout(fields, 'sessions', (sessions) =>
+    Array.isArray(sessions) && sessions.every(hasSessionId)
+      ? [
+          `sessions[${sessions.length}] (sessionId {fields}):`,
+          ...sessions.map(({ sessionId, ...session }) => {
+            const extra = Object.keys(session).length === 0 ? '' : ` ${flowText(session)}`
+            return `  ${scalarText(sessionId)}${extra}`
+          }),
+        ]
+      : null,
+  ).join('\n')
+}
+
+function hasSessionId(value: unknown): value is Record<string, unknown> & { sessionId: string } {
+  return isRecord(value) && typeof value.sessionId === 'string'
+}

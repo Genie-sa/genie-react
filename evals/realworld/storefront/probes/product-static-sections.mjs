@@ -7,7 +7,7 @@ const STATIC_SECTIONS = [
   'CareInstructions',
 ]
 
-/** @param {import('../../run-probes.mjs').ProbeContext} ctx */
+/** @param {import('../../run-storefront-probes.mjs').ProbeContext} ctx */
 export async function probe(ctx) {
   await ctx.open('/product/lark-rain-shell-2')
   await ctx.page.locator('.spec-table').waitFor()

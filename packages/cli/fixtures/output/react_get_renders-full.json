@@ -1,0 +1,1710 @@
+{
+  "argv": ["call", "react_get_renders", "{\"view\":\"full\",\"limit\":20}"],
+  "exitCode": 0,
+  "result": {
+    "tracking": true,
+    "renderCollection": "available",
+    "bundle": "development",
+    "timingsBundleDependent": true,
+    "countsScope": "observed-run",
+    "commits": 6,
+    "documentCommitId": 13,
+    "observation": { "id": "observation:1", "epoch": 1, "startedAfterDocumentCommitId": 7 },
+    "attribution": {
+      "status": "current",
+      "startedAtDocumentCommitId": 13,
+      "completedAtDocumentCommitId": 13,
+      "startedAtAnalysisGeneration": 14,
+      "completedAtAnalysisGeneration": 14
+    },
+    "view": "full",
+    "summary": {
+      "commits": 6,
+      "trackedComponents": 12,
+      "totalRenders": 28,
+      "totalUpdates": 28,
+      "unstableComponents": 1,
+      "referenceOnlyPropComponents": 1,
+      "unnecessaryComponents": 9,
+      "noObservedInputChangeComponents": 9,
+      "topUnstableProps": [{ "name": "badge", "count": 1 }, { "name": "onReset", "count": 1 }],
+      "topReferenceOnlyProps": [{ "name": "badge", "count": 1 }],
+      "semantics": "exact",
+      "coverageDomain": "render-measurement"
+    },
+    "components": [
+      {
+        "id": 57,
+        "name": "TaskPanel",
+        "instance": {
+          "fiberId": 57,
+          "mountId": "mount:9",
+          "key": null,
+          "siblingIndex": 4,
+          "parent": { "fiberId": 4, "name": "App", "key": null },
+          "keyedParent": null,
+          "logicalPath": "QueryClientProvider[index=0] > App[index=0] > TaskPanel[index=4]",
+          "logicalIdentityEvidence": "positional",
+          "mountGeneration": 1,
+          "mountGenerationEvidence": "exact",
+          "hostSelector": null
+        },
+        "renders": 5,
+        "mounts": 0,
+        "updates": 5,
+        "unnecessary": 2,
+        "referenceOnlyPropRenders": 0,
+        "unstableRenders": 0,
+        "functionIdentityPropRenders": 0,
+        "undeterminedReferencePropRenders": 0,
+        "forget": false,
+        "selfTime": 1.2,
+        "totalTime": 1.2,
+        "cumulativeSelfTime": 4.5,
+        "cumulativeTotalTime": 4.6,
+        "changes": [],
+        "latestCommitId": 6,
+        "latestDocumentCommitId": 13,
+        "causes": [
+          {
+            "kind": "query",
+            "evidence": "exact",
+            "reason": "query-notification-delivered",
+            "hookIndex": 5,
+            "externalStoreIndex": 0,
+            "subscriberId": "subscriber:mount:9:0",
+            "selectionEqual": false,
+            "before": {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "[object fields not inspected]",
+              "path": []
+            },
+            "after": {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "[object fields not inspected]",
+              "path": []
+            },
+            "changedFields": ["data", "dataUpdatedAt"],
+            "deepDiff": {
+              "changes": [{ "kind": "identity-changed-uninspected", "path": "" }],
+              "visited": 1,
+              "truncated": true
+            },
+            "observerId": "query-observer:2",
+            "queryHash": "[\"tasks\"]",
+            "identityStatus": "current",
+            "notificationPolicy": { "mode": "auto-tracked", "trackedFieldsAvailable": false },
+            "hasSelect": false,
+            "notificationId": "query-notification:3",
+            "notification": {
+              "trackedFields": ["isError", "isPending", "data"],
+              "trackedFieldsCoverage": "exact",
+              "changedResultFields": ["data", "dataUpdatedAt"],
+              "deliveryReason": "tracked-field-changed:data",
+              "fanout": 1,
+              "structuralSharing": {
+                "reusedFields": [
+                  "status",
+                  "fetchStatus",
+                  "isPending",
+                  "isSuccess",
+                  "isError",
+                  "isInitialLoading",
+                  "isLoading",
+                  "error",
+                  "errorUpdatedAt",
+                  "failureCount",
+                  "failureReason",
+                  "errorUpdateCount",
+                  "isFetched",
+                  "isFetchedAfterMount",
+                  "isFetching",
+                  "isRefetching",
+                  "isLoadingError",
+                  "isPaused",
+                  "isPlaceholderData",
+                  "isRefetchError",
+                  "isStale",
+                  "refetch",
+                  "isEnabled"
+                ],
+                "changedFields": ["data", "dataUpdatedAt"],
+                "truncated": false
+              }
+            },
+            "hookProvenance": {
+              "status": "unavailable",
+              "evidence": "unknown",
+              "reason": "shadow-render-disabled"
+            }
+          },
+          {
+            "kind": "external-store",
+            "evidence": "inferred",
+            "reason": "external-store-snapshot-changed",
+            "hookIndex": 11,
+            "externalStoreIndex": 1,
+            "subscriberId": "subscriber:mount:9:1",
+            "selectionEqual": false,
+            "before": {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "[object fields not inspected]",
+              "path": []
+            },
+            "after": {
+              "__genie_dehydrated__": true,
+              "kind": "object",
+              "preview": "[object fields not inspected]",
+              "path": []
+            },
+            "changedFields": ["$value"],
+            "deepDiff": {
+              "changes": [{ "kind": "identity-changed-uninspected", "path": "" }],
+              "visited": 1,
+              "truncated": true
+            },
+            "storeId": "external-store:2",
+            "storeLabel": "tanstack-mutation-observer",
+            "selector": null,
+            "equality": "object-is",
+            "fanout": null,
+            "notificationId": null,
+            "competingCandidates": ["external-store-snapshot-identity-changed"],
+            "hookProvenance": {
+              "status": "unavailable",
+              "evidence": "unknown",
+              "reason": "shadow-render-disabled"
+            }
+          }
+        ],
+        "causeCounts": {
+          "mount": 0,
+          "props": 0,
+          "state": 2,
+          "children": 0,
+          "context": 0,
+          "external-store": 2,
+          "query": 1,
+          "router": 0,
+          "parent": 2,
+          "unknown": 0
+        },
+        "necessity": "necessary",
+        "assessment": {
+          "inputEvidence": "changed",
+          "observedInputKinds": ["query"],
+          "behaviorEvidence": {
+            "subtreeHostMutations": {
+              "status": "observed",
+              "count": 15,
+              "pendingSubtrees": 0,
+              "omittedByLimit": 0
+            },
+            "scheduledEffects": { "status": "observed", "count": 9 },
+            "unobservedDomains": [
+              "focus",
+              "url",
+              "network",
+              "transition",
+              "freshness",
+              "effect-execution"
+            ]
+          },
+          "optimizationSafety": "not-proven-safe",
+          "requiredValidation": ["dom", "aria", "focus", "url", "network", "transition"]
+        },
+        "inputCoverage": {
+          "complete": true,
+          "omittedInputs": 0,
+          "scanTruncated": false,
+          "propsNotEnumerated": false
+        },
+        "noObservedInputChange": 2,
+        "compiler": {
+          "memoCacheObserved": false,
+          "evidence": "exact",
+          "compilationStatus": "unknown",
+          "limitation": "runtime-memo-cache-presence-only"
+        },
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "sourceAttribution": { "role": "usage-or-definition-fallback", "evidence": "inferred" },
+        "sourceProvenance": {
+          "definitionSource": null,
+          "allocationCallsite": null,
+          "hookDefinitionOwner": null,
+          "hookCallsite": null,
+          "package": null,
+          "sourceMapConfidence": "mapped",
+          "failureReason": "definition-and-allocation-not-distinguished",
+          "usageOrDefinitionFallback": {
+            "file": "App.tsx",
+            "line": 234,
+            "column": 6,
+            "functionName": "App",
+            "sourceMapConfidence": "mapped"
+          }
+        },
+        "sourceOwnership": "app",
+        "isLibrary": false,
+        "wrapperAncestry": []
+      },
+      {
+        "id": 82,
+        "name": "PricingCard",
+        "instance": {
+          "fiberId": 82,
+          "mountId": "mount:11",
+          "key": null,
+          "siblingIndex": 8,
+          "parent": { "fiberId": 4, "name": "App", "key": null },
+          "keyedParent": null,
+          "logicalPath": "QueryClientProvider[index=0] > App[index=0] > PricingCard[index=8]",
+          "logicalIdentityEvidence": "positional",
+          "mountGeneration": 1,
+          "mountGenerationEvidence": "exact",
+          "hostSelector": null
+        },
+        "renders": 3,
+        "mounts": 0,
+        "updates": 3,
+        "unnecessary": 2,
+        "referenceOnlyPropRenders": 0,
+        "unstableRenders": 0,
+        "functionIdentityPropRenders": 0,
+        "undeterminedReferencePropRenders": 0,
+        "forget": false,
+        "selfTime": 0.2,
+        "totalTime": 0.2,
+        "cumulativeSelfTime": 0.5,
+        "cumulativeTotalTime": 0.5,
+        "changes": [],
+        "latestCommitId": 3,
+        "latestDocumentCommitId": 10,
+        "causes": [
+          {
+            "kind": "parent",
+            "evidence": "inferred",
+            "parentId": 4,
+            "parentName": "App",
+            "reason": "nearest-rendered-ancestor"
+          }
+        ],
+        "causeCounts": {
+          "mount": 0,
+          "props": 0,
+          "state": 1,
+          "children": 0,
+          "context": 0,
+          "external-store": 0,
+          "query": 0,
+          "router": 0,
+          "parent": 2,
+          "unknown": 0
+        },
+        "necessity": "unknown",
+        "assessment": {
+          "inputEvidence": "none-observed",
+          "observedInputKinds": [],
+          "behaviorEvidence": {
+            "subtreeHostMutations": {
+              "status": "observed",
+              "count": 8,
+              "pendingSubtrees": 0,
+              "omittedByLimit": 0
+            },
+            "scheduledEffects": { "status": "none-observed", "count": 0 },
+            "unobservedDomains": [
+              "focus",
+              "url",
+              "network",
+              "transition",
+              "freshness",
+              "effect-execution"
+            ]
+          },
+          "optimizationSafety": "not-proven-safe",
+          "requiredValidation": ["dom", "aria", "focus", "url", "network", "transition"]
+        },
+        "inputCoverage": {
+          "complete": true,
+          "omittedInputs": 0,
+          "scanTruncated": false,
+          "propsNotEnumerated": false
+        },
+        "noObservedInputChange": 2,
+        "compiler": {
+          "memoCacheObserved": false,
+          "evidence": "exact",
+          "compilationStatus": "unknown",
+          "limitation": "runtime-memo-cache-presence-only"
+        },
+        "source": {
+          "file": "App.tsx",
+          "line": 242,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "sourceAttribution": { "role": "usage-or-definition-fallback", "evidence": "inferred" },
+        "sourceProvenance": {
+          "definitionSource": null,
+          "allocationCallsite": null,
+          "hookDefinitionOwner": null,
+          "hookCallsite": null,
+          "package": null,
+          "sourceMapConfidence": "mapped",
+          "failureReason": "definition-and-allocation-not-distinguished",
+          "usageOrDefinitionFallback": {
+            "file": "App.tsx",
+            "line": 242,
+            "column": 6,
+            "functionName": "App",
+            "sourceMapConfidence": "mapped"
+          }
+        },
+        "sourceOwnership": "app",
+        "isLibrary": false,
+        "wrapperAncestry": []
+      },
+      {
+        "id": 4,
+        "name": "App",
+        "instance": {
+          "fiberId": 4,
+          "mountId": "mount:2",
+          "key": null,
+          "siblingIndex": 0,
+          "parent": { "fiberId": 2, "name": "QueryClientProvider", "key": null },
+          "keyedParent": null,
+          "logicalPath": "QueryClientProvider[index=0] > App[index=0]",
+          "logicalIdentityEvidence": "positional",
+          "mountGeneration": 1,
+          "mountGenerationEvidence": "exact",
+          "hostSelector": null
+        },
+        "renders": 2,
+        "mounts": 0,
+        "updates": 2,
+        "unnecessary": 0,
+        "referenceOnlyPropRenders": 0,
+        "unstableRenders": 0,
+        "functionIdentityPropRenders": 0,
+        "undeterminedReferencePropRenders": 0,
+        "forget": false,
+        "selfTime": 0.7,
+        "totalTime": 2.2,
+        "cumulativeSelfTime": 1.3,
+        "cumulativeTotalTime": 4.3,
+        "changes": [
+          {
+            "name": "state[3]",
+            "kind": "state",
+            "unstable": false,
+            "hook": { "index": 3, "stateIndex": 3, "kind": "state" },
+            "before": "lab",
+            "after": "dark",
+            "deepDiff": {
+              "changes": [{ "kind": "value", "path": "", "before": "lab", "after": "dark" }],
+              "visited": 1,
+              "truncated": false
+            }
+          }
+        ],
+        "latestCommitId": 3,
+        "latestDocumentCommitId": 10,
+        "causes": [
+          {
+            "kind": "state",
+            "evidence": "exact",
+            "name": "state[3]",
+            "before": "lab",
+            "after": "dark",
+            "deepDiff": {
+              "changes": [{ "kind": "value", "path": "", "before": "lab", "after": "dark" }],
+              "visited": 1,
+              "truncated": false
+            },
+            "hook": { "index": 3, "stateIndex": 3, "kind": "state" }
+          }
+        ],
+        "causeCounts": {
+          "mount": 0,
+          "props": 0,
+          "state": 2,
+          "children": 0,
+          "context": 0,
+          "external-store": 0,
+          "query": 0,
+          "router": 0,
+          "parent": 0,
+          "unknown": 0
+        },
+        "necessity": "necessary",
+        "assessment": {
+          "inputEvidence": "changed",
+          "observedInputKinds": ["state"],
+          "behaviorEvidence": {
+            "subtreeHostMutations": {
+              "status": "observed",
+              "count": 63,
+              "pendingSubtrees": 0,
+              "omittedByLimit": 0
+            },
+            "scheduledEffects": { "status": "observed", "count": 4 },
+            "unobservedDomains": [
+              "focus",
+              "url",
+              "network",
+              "transition",
+              "freshness",
+              "effect-execution"
+            ]
+          },
+          "optimizationSafety": "not-proven-safe",
+          "requiredValidation": ["dom", "aria", "focus", "url", "network", "transition"]
+        },
+        "inputCoverage": {
+          "complete": true,
+          "omittedInputs": 0,
+          "scanTruncated": false,
+          "propsNotEnumerated": false
+        },
+        "noObservedInputChange": 0,
+        "compiler": {
+          "memoCacheObserved": false,
+          "evidence": "exact",
+          "compilationStatus": "unknown",
+          "limitation": "runtime-memo-cache-presence-only"
+        },
+        "source": {
+          "file": "App.tsx",
+          "line": 168,
+          "column": 4,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "sourceAttribution": { "role": "usage-or-definition-fallback", "evidence": "inferred" },
+        "sourceProvenance": {
+          "definitionSource": null,
+          "allocationCallsite": null,
+          "hookDefinitionOwner": null,
+          "hookCallsite": null,
+          "package": null,
+          "sourceMapConfidence": "mapped",
+          "failureReason": "definition-and-allocation-not-distinguished",
+          "usageOrDefinitionFallback": {
+            "file": "App.tsx",
+            "line": 168,
+            "column": 4,
+            "functionName": "App",
+            "sourceMapConfidence": "mapped"
+          }
+        },
+        "sourceOwnership": "app",
+        "isLibrary": false,
+        "wrapperAncestry": []
+      },
+      {
+        "id": 24,
+        "name": "MemoChild",
+        "instance": {
+          "fiberId": 24,
+          "mountId": "mount:3",
+          "key": null,
+          "siblingIndex": 1,
+          "parent": { "fiberId": 4, "name": "App", "key": null },
+          "keyedParent": null,
+          "logicalPath": "QueryClientProvider[index=0] > App[index=0] > <section>[index=2] > MemoChild[index=1]",
+          "logicalIdentityEvidence": "positional",
+          "mountGeneration": 1,
+          "mountGenerationEvidence": "exact",
+          "hostSelector": null
+        },
+        "renders": 2,
+        "mounts": 0,
+        "updates": 2,
+        "unnecessary": 0,
+        "referenceOnlyPropRenders": 2,
+        "unstableRenders": 2,
+        "functionIdentityPropRenders": 0,
+        "undeterminedReferencePropRenders": 0,
+        "forget": false,
+        "selfTime": 0.1,
+        "totalTime": 0.1,
+        "cumulativeSelfTime": 0.2,
+        "cumulativeTotalTime": 0.2,
+        "changes": [
+          {
+            "name": "badge",
+            "kind": "props",
+            "referenceChanged": true,
+            "referenceOnly": true,
+            "unstable": true,
+            "beforePresent": true,
+            "afterPresent": true,
+            "before": { "text": "lab" },
+            "after": { "text": "lab" },
+            "deepDiff": {
+              "changes": [{ "kind": "reference-only", "path": "" }],
+              "visited": 2,
+              "truncated": false
+            }
+          }
+        ],
+        "latestCommitId": 3,
+        "latestDocumentCommitId": 10,
+        "causes": [
+          {
+            "kind": "props",
+            "evidence": "exact",
+            "name": "badge",
+            "referenceChanged": true,
+            "referenceOnly": true,
+            "unstable": true,
+            "beforePresent": true,
+            "afterPresent": true,
+            "before": { "text": "lab" },
+            "after": { "text": "lab" },
+            "deepDiff": {
+              "changes": [{ "kind": "reference-only", "path": "" }],
+              "visited": 2,
+              "truncated": false
+            },
+            "producerCandidate": {
+              "source": {
+                "file": "App.tsx",
+                "line": 194,
+                "column": 8,
+                "functionName": "App",
+                "sourceMapConfidence": "mapped"
+              },
+              "evidence": "inferred",
+              "reason": "component-jsx-usage-or-definition-fallback"
+            }
+          }
+        ],
+        "causeCounts": {
+          "mount": 0,
+          "props": 2,
+          "state": 0,
+          "children": 0,
+          "context": 0,
+          "external-store": 0,
+          "query": 0,
+          "router": 0,
+          "parent": 0,
+          "unknown": 0
+        },
+        "necessity": "unknown",
+        "assessment": {
+          "inputEvidence": "changed",
+          "observedInputKinds": ["props"],
+          "behaviorEvidence": {
+            "subtreeHostMutations": {
+              "status": "observed",
+              "count": 1,
+              "pendingSubtrees": 0,
+              "omittedByLimit": 0
+            },
+            "scheduledEffects": { "status": "none-observed", "count": 0 },
+            "unobservedDomains": [
+              "focus",
+              "url",
+              "network",
+              "transition",
+              "freshness",
+              "effect-execution"
+            ]
+          },
+          "optimizationSafety": "not-proven-safe",
+          "requiredValidation": ["dom", "aria", "focus", "url", "network", "transition"]
+        },
+        "inputCoverage": {
+          "complete": true,
+          "omittedInputs": 0,
+          "scanTruncated": false,
+          "propsNotEnumerated": false
+        },
+        "noObservedInputChange": 0,
+        "compiler": {
+          "memoCacheObserved": false,
+          "evidence": "exact",
+          "compilationStatus": "unknown",
+          "limitation": "runtime-memo-cache-presence-only"
+        },
+        "source": {
+          "file": "App.tsx",
+          "line": 194,
+          "column": 8,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "sourceAttribution": { "role": "usage-or-definition-fallback", "evidence": "inferred" },
+        "sourceProvenance": {
+          "definitionSource": null,
+          "allocationCallsite": null,
+          "hookDefinitionOwner": null,
+          "hookCallsite": null,
+          "package": null,
+          "sourceMapConfidence": "mapped",
+          "failureReason": "definition-and-allocation-not-distinguished",
+          "usageOrDefinitionFallback": {
+            "file": "App.tsx",
+            "line": 194,
+            "column": 8,
+            "functionName": "App",
+            "sourceMapConfidence": "mapped"
+          }
+        },
+        "sourceOwnership": "app",
+        "isLibrary": false,
+        "wrapperAncestry": [{ "kind": "memo", "name": "MemoChild" }]
+      },
+      {
+        "id": 28,
+        "name": "HotEffectProbe",
+        "instance": {
+          "fiberId": 28,
+          "mountId": "mount:4",
+          "key": null,
+          "siblingIndex": 2,
+          "parent": { "fiberId": 4, "name": "App", "key": null },
+          "keyedParent": null,
+          "logicalPath": "QueryClientProvider[index=0] > App[index=0] > <section>[index=2] > HotEffectProbe[index=2]",
+          "logicalIdentityEvidence": "positional",
+          "mountGeneration": 1,
+          "mountGenerationEvidence": "exact",
+          "hostSelector": null
+        },
+        "renders": 2,
+        "mounts": 0,
+        "updates": 2,
+        "unnecessary": 1,
+        "referenceOnlyPropRenders": 0,
+        "unstableRenders": 0,
+        "functionIdentityPropRenders": 0,
+        "undeterminedReferencePropRenders": 0,
+        "forget": false,
+        "selfTime": 0,
+        "totalTime": 0,
+        "cumulativeSelfTime": 0,
+        "cumulativeTotalTime": 0,
+        "changes": [],
+        "latestCommitId": 3,
+        "latestDocumentCommitId": 10,
+        "causes": [
+          {
+            "kind": "parent",
+            "evidence": "inferred",
+            "parentId": 4,
+            "parentName": "App",
+            "reason": "nearest-rendered-ancestor"
+          }
+        ],
+        "causeCounts": {
+          "mount": 0,
+          "props": 1,
+          "state": 0,
+          "children": 0,
+          "context": 0,
+          "external-store": 0,
+          "query": 0,
+          "router": 0,
+          "parent": 2,
+          "unknown": 0
+        },
+        "necessity": "unknown",
+        "assessment": {
+          "inputEvidence": "none-observed",
+          "observedInputKinds": [],
+          "behaviorEvidence": {
+            "subtreeHostMutations": {
+              "status": "observed",
+              "count": 1,
+              "pendingSubtrees": 0,
+              "omittedByLimit": 0
+            },
+            "scheduledEffects": { "status": "observed", "count": 1 },
+            "unobservedDomains": [
+              "focus",
+              "url",
+              "network",
+              "transition",
+              "freshness",
+              "effect-execution"
+            ]
+          },
+          "optimizationSafety": "not-proven-safe",
+          "requiredValidation": ["dom", "aria", "focus", "url", "network", "transition"]
+        },
+        "inputCoverage": {
+          "complete": true,
+          "omittedInputs": 0,
+          "scanTruncated": false,
+          "propsNotEnumerated": false
+        },
+        "noObservedInputChange": 1,
+        "compiler": {
+          "memoCacheObserved": false,
+          "evidence": "exact",
+          "compilationStatus": "unknown",
+          "limitation": "runtime-memo-cache-presence-only"
+        },
+        "source": {
+          "file": "App.tsx",
+          "line": 195,
+          "column": 8,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "sourceAttribution": { "role": "usage-or-definition-fallback", "evidence": "inferred" },
+        "sourceProvenance": {
+          "definitionSource": null,
+          "allocationCallsite": null,
+          "hookDefinitionOwner": null,
+          "hookCallsite": null,
+          "package": null,
+          "sourceMapConfidence": "mapped",
+          "failureReason": "definition-and-allocation-not-distinguished",
+          "usageOrDefinitionFallback": {
+            "file": "App.tsx",
+            "line": 195,
+            "column": 8,
+            "functionName": "App",
+            "sourceMapConfidence": "mapped"
+          }
+        },
+        "sourceOwnership": "app",
+        "isLibrary": false,
+        "wrapperAncestry": []
+      },
+      {
+        "id": 32,
+        "name": "ThemeReadout",
+        "instance": {
+          "fiberId": 32,
+          "mountId": "mount:5",
+          "key": null,
+          "siblingIndex": 3,
+          "parent": { "fiberId": 4, "name": "App", "key": null },
+          "keyedParent": null,
+          "logicalPath": "QueryClientProvider[index=0] > App[index=0] > <section>[index=2] > ThemeReadout[index=3]",
+          "logicalIdentityEvidence": "positional",
+          "mountGeneration": 1,
+          "mountGenerationEvidence": "exact",
+          "hostSelector": null
+        },
+        "renders": 2,
+        "mounts": 0,
+        "updates": 2,
+        "unnecessary": 1,
+        "referenceOnlyPropRenders": 0,
+        "unstableRenders": 0,
+        "functionIdentityPropRenders": 0,
+        "undeterminedReferencePropRenders": 0,
+        "forget": false,
+        "selfTime": 0.1,
+        "totalTime": 0.1,
+        "cumulativeSelfTime": 0.1,
+        "cumulativeTotalTime": 0.1,
+        "changes": [],
+        "latestCommitId": 3,
+        "latestDocumentCommitId": 10,
+        "causes": [
+          {
+            "kind": "context",
+            "evidence": "exact",
+            "contextIndex": 0,
+            "name": "ThemeContext",
+            "before": { "label": "lab", "accent": "#646cff" },
+            "after": { "label": "dark", "accent": "#646cff" },
+            "deepDiff": {
+              "changes": [{ "kind": "value", "path": "/label", "before": "lab", "after": "dark" }],
+              "visited": 3,
+              "truncated": false
+            }
+          }
+        ],
+        "causeCounts": {
+          "mount": 0,
+          "props": 0,
+          "state": 0,
+          "children": 0,
+          "context": 2,
+          "external-store": 0,
+          "query": 0,
+          "router": 0,
+          "parent": 0,
+          "unknown": 0
+        },
+        "necessity": "necessary",
+        "assessment": {
+          "inputEvidence": "changed",
+          "observedInputKinds": ["context"],
+          "behaviorEvidence": {
+            "subtreeHostMutations": {
+              "status": "observed",
+              "count": 2,
+              "pendingSubtrees": 0,
+              "omittedByLimit": 0
+            },
+            "scheduledEffects": { "status": "none-observed", "count": 0 },
+            "unobservedDomains": [
+              "focus",
+              "url",
+              "network",
+              "transition",
+              "freshness",
+              "effect-execution"
+            ]
+          },
+          "optimizationSafety": "not-proven-safe",
+          "requiredValidation": ["dom", "aria", "focus", "url", "network", "transition"]
+        },
+        "inputCoverage": {
+          "complete": true,
+          "omittedInputs": 0,
+          "scanTruncated": false,
+          "propsNotEnumerated": false
+        },
+        "noObservedInputChange": 1,
+        "compiler": {
+          "memoCacheObserved": false,
+          "evidence": "exact",
+          "compilationStatus": "unknown",
+          "limitation": "runtime-memo-cache-presence-only"
+        },
+        "source": {
+          "file": "App.tsx",
+          "line": 196,
+          "column": 8,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "sourceAttribution": { "role": "usage-or-definition-fallback", "evidence": "inferred" },
+        "sourceProvenance": {
+          "definitionSource": null,
+          "allocationCallsite": null,
+          "hookDefinitionOwner": null,
+          "hookCallsite": null,
+          "package": null,
+          "sourceMapConfidence": "mapped",
+          "failureReason": "definition-and-allocation-not-distinguished",
+          "usageOrDefinitionFallback": {
+            "file": "App.tsx",
+            "line": 196,
+            "column": 8,
+            "functionName": "App",
+            "sourceMapConfidence": "mapped"
+          }
+        },
+        "sourceOwnership": "app",
+        "isLibrary": false,
+        "wrapperAncestry": []
+      },
+      {
+        "id": 47,
+        "name": "LabErrorBoundary",
+        "instance": {
+          "fiberId": 47,
+          "mountId": "mount:6",
+          "key": null,
+          "siblingIndex": 8,
+          "parent": { "fiberId": 4, "name": "App", "key": null },
+          "keyedParent": null,
+          "logicalPath": "QueryClientProvider[index=0] > App[index=0] > <section>[index=2] > LabErrorBoundary[index=8]",
+          "logicalIdentityEvidence": "positional",
+          "mountGeneration": 1,
+          "mountGenerationEvidence": "exact",
+          "hostSelector": null
+        },
+        "renders": 2,
+        "mounts": 0,
+        "updates": 2,
+        "unnecessary": 0,
+        "referenceOnlyPropRenders": 0,
+        "unstableRenders": 0,
+        "functionIdentityPropRenders": 0,
+        "undeterminedReferencePropRenders": 0,
+        "forget": false,
+        "selfTime": 0.1,
+        "totalTime": 0.1,
+        "cumulativeSelfTime": 0.1,
+        "cumulativeTotalTime": 0.1,
+        "changes": [
+          {
+            "name": "onReset",
+            "kind": "props",
+            "referenceChanged": true,
+            "referenceOnly": false,
+            "unstable": true,
+            "beforePresent": true,
+            "afterPresent": true,
+            "before": {
+              "__genie_dehydrated__": true,
+              "kind": "function",
+              "preview": "ƒ onReset()",
+              "path": []
+            },
+            "after": {
+              "__genie_dehydrated__": true,
+              "kind": "function",
+              "preview": "ƒ onReset()",
+              "path": []
+            },
+            "deepDiff": {
+              "changes": [{ "kind": "identity-changed-uninspected", "path": "" }],
+              "visited": 1,
+              "truncated": true
+            }
+          }
+        ],
+        "latestCommitId": 3,
+        "latestDocumentCommitId": 10,
+        "causes": [
+          {
+            "kind": "parent",
+            "evidence": "inferred",
+            "parentId": 4,
+            "parentName": "App",
+            "reason": "nearest-rendered-ancestor"
+          },
+          {
+            "kind": "props",
+            "evidence": "exact",
+            "name": "onReset",
+            "referenceChanged": true,
+            "referenceOnly": false,
+            "unstable": true,
+            "beforePresent": true,
+            "afterPresent": true,
+            "before": {
+              "__genie_dehydrated__": true,
+              "kind": "function",
+              "preview": "ƒ onReset()",
+              "path": []
+            },
+            "after": {
+              "__genie_dehydrated__": true,
+              "kind": "function",
+              "preview": "ƒ onReset()",
+              "path": []
+            },
+            "deepDiff": {
+              "changes": [{ "kind": "identity-changed-uninspected", "path": "" }],
+              "visited": 1,
+              "truncated": true
+            }
+          },
+          { "kind": "children", "evidence": "exact" }
+        ],
+        "causeCounts": {
+          "mount": 0,
+          "props": 2,
+          "state": 0,
+          "children": 2,
+          "context": 0,
+          "external-store": 0,
+          "query": 0,
+          "router": 0,
+          "parent": 2,
+          "unknown": 0
+        },
+        "necessity": "unknown",
+        "assessment": {
+          "inputEvidence": "changed",
+          "observedInputKinds": ["props", "children"],
+          "behaviorEvidence": {
+            "subtreeHostMutations": {
+              "status": "observed",
+              "count": 1,
+              "pendingSubtrees": 0,
+              "omittedByLimit": 0
+            },
+            "scheduledEffects": { "status": "none-observed", "count": 0 },
+            "unobservedDomains": [
+              "focus",
+              "url",
+              "network",
+              "transition",
+              "freshness",
+              "effect-execution"
+            ]
+          },
+          "optimizationSafety": "not-proven-safe",
+          "requiredValidation": ["dom", "aria", "focus", "url", "network", "transition"]
+        },
+        "inputCoverage": {
+          "complete": true,
+          "omittedInputs": 0,
+          "scanTruncated": false,
+          "propsNotEnumerated": false
+        },
+        "noObservedInputChange": 0,
+        "compiler": {
+          "memoCacheObserved": false,
+          "evidence": "exact",
+          "compilationStatus": "unknown",
+          "limitation": "runtime-memo-cache-presence-only"
+        },
+        "source": {
+          "file": "App.tsx",
+          "line": 215,
+          "column": 8,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "sourceAttribution": { "role": "usage-or-definition-fallback", "evidence": "inferred" },
+        "sourceProvenance": {
+          "definitionSource": null,
+          "allocationCallsite": null,
+          "hookDefinitionOwner": null,
+          "hookCallsite": null,
+          "package": null,
+          "sourceMapConfidence": "mapped",
+          "failureReason": "definition-and-allocation-not-distinguished",
+          "usageOrDefinitionFallback": {
+            "file": "App.tsx",
+            "line": 215,
+            "column": 8,
+            "functionName": "App",
+            "sourceMapConfidence": "mapped"
+          }
+        },
+        "sourceOwnership": "app",
+        "isLibrary": false,
+        "wrapperAncestry": []
+      },
+      {
+        "id": 48,
+        "name": "Bomb",
+        "instance": {
+          "fiberId": 48,
+          "mountId": "mount:7",
+          "key": null,
+          "siblingIndex": 0,
+          "parent": { "fiberId": 47, "name": "LabErrorBoundary", "key": null },
+          "keyedParent": null,
+          "logicalPath": "QueryClientProvider[index=0] > App[index=0] > <section>[index=2] > LabErrorBoundary[index=8] > Bomb[index=0]",
+          "logicalIdentityEvidence": "positional",
+          "mountGeneration": 1,
+          "mountGenerationEvidence": "exact",
+          "hostSelector": null
+        },
+        "renders": 2,
+        "mounts": 0,
+        "updates": 2,
+        "unnecessary": 2,
+        "referenceOnlyPropRenders": 0,
+        "unstableRenders": 0,
+        "functionIdentityPropRenders": 0,
+        "undeterminedReferencePropRenders": 0,
+        "forget": false,
+        "selfTime": 0,
+        "totalTime": 0,
+        "cumulativeSelfTime": 0,
+        "cumulativeTotalTime": 0,
+        "changes": [],
+        "latestCommitId": 3,
+        "latestDocumentCommitId": 10,
+        "causes": [
+          {
+            "kind": "parent",
+            "evidence": "inferred",
+            "parentId": 47,
+            "parentName": "LabErrorBoundary",
+            "reason": "nearest-rendered-ancestor"
+          }
+        ],
+        "causeCounts": {
+          "mount": 0,
+          "props": 0,
+          "state": 0,
+          "children": 0,
+          "context": 0,
+          "external-store": 0,
+          "query": 0,
+          "router": 0,
+          "parent": 2,
+          "unknown": 0
+        },
+        "necessity": "unknown",
+        "assessment": {
+          "inputEvidence": "none-observed",
+          "observedInputKinds": [],
+          "behaviorEvidence": {
+            "subtreeHostMutations": {
+              "status": "observed",
+              "count": 1,
+              "pendingSubtrees": 0,
+              "omittedByLimit": 0
+            },
+            "scheduledEffects": { "status": "none-observed", "count": 0 },
+            "unobservedDomains": [
+              "focus",
+              "url",
+              "network",
+              "transition",
+              "freshness",
+              "effect-execution"
+            ]
+          },
+          "optimizationSafety": "not-proven-safe",
+          "requiredValidation": ["dom", "aria", "focus", "url", "network", "transition"]
+        },
+        "inputCoverage": {
+          "complete": true,
+          "omittedInputs": 0,
+          "scanTruncated": false,
+          "propsNotEnumerated": false
+        },
+        "noObservedInputChange": 2,
+        "compiler": {
+          "memoCacheObserved": false,
+          "evidence": "exact",
+          "compilationStatus": "unknown",
+          "limitation": "runtime-memo-cache-presence-only"
+        },
+        "source": {
+          "file": "App.tsx",
+          "line": 216,
+          "column": 10,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "sourceAttribution": { "role": "usage-or-definition-fallback", "evidence": "inferred" },
+        "sourceProvenance": {
+          "definitionSource": null,
+          "allocationCallsite": null,
+          "hookDefinitionOwner": null,
+          "hookCallsite": null,
+          "package": null,
+          "sourceMapConfidence": "mapped",
+          "failureReason": "definition-and-allocation-not-distinguished",
+          "usageOrDefinitionFallback": {
+            "file": "App.tsx",
+            "line": 216,
+            "column": 10,
+            "functionName": "App",
+            "sourceMapConfidence": "mapped"
+          }
+        },
+        "sourceOwnership": "app",
+        "isLibrary": false,
+        "wrapperAncestry": []
+      },
+      {
+        "id": 107,
+        "name": "LoadedSlowChild",
+        "instance": {
+          "fiberId": 107,
+          "mountId": "mount:14",
+          "key": null,
+          "siblingIndex": 0,
+          "parent": { "fiberId": 4, "name": "App", "key": null },
+          "keyedParent": null,
+          "logicalPath": "QueryClientProvider[index=0] > App[index=0] > <section>[index=2] > LoadedSlowChild[index=0]",
+          "logicalIdentityEvidence": "positional",
+          "mountGeneration": 1,
+          "mountGenerationEvidence": "exact",
+          "hostSelector": null
+        },
+        "renders": 2,
+        "mounts": 0,
+        "updates": 2,
+        "unnecessary": 2,
+        "referenceOnlyPropRenders": 0,
+        "unstableRenders": 0,
+        "functionIdentityPropRenders": 0,
+        "undeterminedReferencePropRenders": 0,
+        "forget": false,
+        "selfTime": 0,
+        "totalTime": 0,
+        "cumulativeSelfTime": 0,
+        "cumulativeTotalTime": 0,
+        "changes": [],
+        "latestCommitId": 3,
+        "latestDocumentCommitId": 10,
+        "causes": [
+          {
+            "kind": "parent",
+            "evidence": "inferred",
+            "parentId": 4,
+            "parentName": "App",
+            "reason": "nearest-rendered-ancestor"
+          }
+        ],
+        "causeCounts": {
+          "mount": 0,
+          "props": 0,
+          "state": 0,
+          "children": 0,
+          "context": 0,
+          "external-store": 0,
+          "query": 0,
+          "router": 0,
+          "parent": 2,
+          "unknown": 0
+        },
+        "necessity": "unknown",
+        "assessment": {
+          "inputEvidence": "none-observed",
+          "observedInputKinds": [],
+          "behaviorEvidence": {
+            "subtreeHostMutations": {
+              "status": "observed",
+              "count": 1,
+              "pendingSubtrees": 0,
+              "omittedByLimit": 0
+            },
+            "scheduledEffects": { "status": "none-observed", "count": 0 },
+            "unobservedDomains": [
+              "focus",
+              "url",
+              "network",
+              "transition",
+              "freshness",
+              "effect-execution"
+            ]
+          },
+          "optimizationSafety": "not-proven-safe",
+          "requiredValidation": ["dom", "aria", "focus", "url", "network", "transition"]
+        },
+        "inputCoverage": {
+          "complete": true,
+          "omittedInputs": 0,
+          "scanTruncated": false,
+          "propsNotEnumerated": false
+        },
+        "noObservedInputChange": 2,
+        "compiler": {
+          "memoCacheObserved": false,
+          "evidence": "exact",
+          "compilationStatus": "unknown",
+          "limitation": "runtime-memo-cache-presence-only"
+        },
+        "source": {
+          "file": "App.tsx",
+          "line": 223,
+          "column": 10,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "sourceAttribution": { "role": "usage-or-definition-fallback", "evidence": "inferred" },
+        "sourceProvenance": {
+          "definitionSource": null,
+          "allocationCallsite": null,
+          "hookDefinitionOwner": null,
+          "hookCallsite": null,
+          "package": null,
+          "sourceMapConfidence": "mapped",
+          "failureReason": "definition-and-allocation-not-distinguished",
+          "usageOrDefinitionFallback": {
+            "file": "App.tsx",
+            "line": 223,
+            "column": 10,
+            "functionName": "App",
+            "sourceMapConfidence": "mapped"
+          }
+        },
+        "sourceOwnership": "app",
+        "isLibrary": false,
+        "wrapperAncestry": [{ "kind": "lazy", "name": "LoadedSlowChild" }]
+      },
+      {
+        "id": 54,
+        "name": "Unmountable",
+        "instance": {
+          "fiberId": 54,
+          "mountId": "mount:8",
+          "key": null,
+          "siblingIndex": 12,
+          "parent": { "fiberId": 4, "name": "App", "key": null },
+          "keyedParent": null,
+          "logicalPath": "QueryClientProvider[index=0] > App[index=0] > <section>[index=2] > Unmountable[index=12]",
+          "logicalIdentityEvidence": "positional",
+          "mountGeneration": 1,
+          "mountGenerationEvidence": "exact",
+          "hostSelector": null
+        },
+        "renders": 2,
+        "mounts": 0,
+        "updates": 2,
+        "unnecessary": 2,
+        "referenceOnlyPropRenders": 0,
+        "unstableRenders": 0,
+        "functionIdentityPropRenders": 0,
+        "undeterminedReferencePropRenders": 0,
+        "forget": false,
+        "selfTime": 0,
+        "totalTime": 0,
+        "cumulativeSelfTime": 0,
+        "cumulativeTotalTime": 0,
+        "changes": [],
+        "latestCommitId": 3,
+        "latestDocumentCommitId": 10,
+        "causes": [
+          {
+            "kind": "parent",
+            "evidence": "inferred",
+            "parentId": 4,
+            "parentName": "App",
+            "reason": "nearest-rendered-ancestor"
+          }
+        ],
+        "causeCounts": {
+          "mount": 0,
+          "props": 0,
+          "state": 0,
+          "children": 0,
+          "context": 0,
+          "external-store": 0,
+          "query": 0,
+          "router": 0,
+          "parent": 2,
+          "unknown": 0
+        },
+        "necessity": "unknown",
+        "assessment": {
+          "inputEvidence": "none-observed",
+          "observedInputKinds": [],
+          "behaviorEvidence": {
+            "subtreeHostMutations": {
+              "status": "observed",
+              "count": 1,
+              "pendingSubtrees": 0,
+              "omittedByLimit": 0
+            },
+            "scheduledEffects": { "status": "observed", "count": 1 },
+            "unobservedDomains": [
+              "focus",
+              "url",
+              "network",
+              "transition",
+              "freshness",
+              "effect-execution"
+            ]
+          },
+          "optimizationSafety": "not-proven-safe",
+          "requiredValidation": ["dom", "aria", "focus", "url", "network", "transition"]
+        },
+        "inputCoverage": {
+          "complete": true,
+          "omittedInputs": 0,
+          "scanTruncated": false,
+          "propsNotEnumerated": false
+        },
+        "noObservedInputChange": 2,
+        "compiler": {
+          "memoCacheObserved": false,
+          "evidence": "exact",
+          "compilationStatus": "unknown",
+          "limitation": "runtime-memo-cache-presence-only"
+        },
+        "source": {
+          "file": "App.tsx",
+          "line": 229,
+          "column": 28,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "sourceAttribution": { "role": "usage-or-definition-fallback", "evidence": "inferred" },
+        "sourceProvenance": {
+          "definitionSource": null,
+          "allocationCallsite": null,
+          "hookDefinitionOwner": null,
+          "hookCallsite": null,
+          "package": null,
+          "sourceMapConfidence": "mapped",
+          "failureReason": "definition-and-allocation-not-distinguished",
+          "usageOrDefinitionFallback": {
+            "file": "App.tsx",
+            "line": 229,
+            "column": 28,
+            "functionName": "App",
+            "sourceMapConfidence": "mapped"
+          }
+        },
+        "sourceOwnership": "app",
+        "isLibrary": false,
+        "wrapperAncestry": []
+      },
+      {
+        "id": 69,
+        "name": "FlagsPanel",
+        "instance": {
+          "fiberId": 69,
+          "mountId": "mount:10",
+          "key": null,
+          "siblingIndex": 6,
+          "parent": { "fiberId": 4, "name": "App", "key": null },
+          "keyedParent": null,
+          "logicalPath": "QueryClientProvider[index=0] > App[index=0] > FlagsPanel[index=6]",
+          "logicalIdentityEvidence": "positional",
+          "mountGeneration": 1,
+          "mountGenerationEvidence": "exact",
+          "hostSelector": null
+        },
+        "renders": 2,
+        "mounts": 0,
+        "updates": 2,
+        "unnecessary": 2,
+        "referenceOnlyPropRenders": 0,
+        "unstableRenders": 0,
+        "functionIdentityPropRenders": 0,
+        "undeterminedReferencePropRenders": 0,
+        "forget": false,
+        "selfTime": 0.3,
+        "totalTime": 0.3,
+        "cumulativeSelfTime": 0.5,
+        "cumulativeTotalTime": 0.6,
+        "changes": [],
+        "latestCommitId": 3,
+        "latestDocumentCommitId": 10,
+        "causes": [
+          {
+            "kind": "parent",
+            "evidence": "inferred",
+            "parentId": 4,
+            "parentName": "App",
+            "reason": "nearest-rendered-ancestor"
+          }
+        ],
+        "causeCounts": {
+          "mount": 0,
+          "props": 0,
+          "state": 0,
+          "children": 0,
+          "context": 0,
+          "external-store": 0,
+          "query": 0,
+          "router": 0,
+          "parent": 2,
+          "unknown": 0
+        },
+        "necessity": "unknown",
+        "assessment": {
+          "inputEvidence": "none-observed",
+          "observedInputKinds": [],
+          "behaviorEvidence": {
+            "subtreeHostMutations": {
+              "status": "observed",
+              "count": 9,
+              "pendingSubtrees": 0,
+              "omittedByLimit": 0
+            },
+            "scheduledEffects": { "status": "observed", "count": 2 },
+            "unobservedDomains": [
+              "focus",
+              "url",
+              "network",
+              "transition",
+              "freshness",
+              "effect-execution"
+            ]
+          },
+          "optimizationSafety": "not-proven-safe",
+          "requiredValidation": ["dom", "aria", "focus", "url", "network", "transition"]
+        },
+        "inputCoverage": {
+          "complete": true,
+          "omittedInputs": 0,
+          "scanTruncated": false,
+          "propsNotEnumerated": false
+        },
+        "noObservedInputChange": 2,
+        "compiler": {
+          "memoCacheObserved": false,
+          "evidence": "exact",
+          "compilationStatus": "unknown",
+          "limitation": "runtime-memo-cache-presence-only"
+        },
+        "source": {
+          "file": "App.tsx",
+          "line": 238,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "sourceAttribution": { "role": "usage-or-definition-fallback", "evidence": "inferred" },
+        "sourceProvenance": {
+          "definitionSource": null,
+          "allocationCallsite": null,
+          "hookDefinitionOwner": null,
+          "hookCallsite": null,
+          "package": null,
+          "sourceMapConfidence": "mapped",
+          "failureReason": "definition-and-allocation-not-distinguished",
+          "usageOrDefinitionFallback": {
+            "file": "App.tsx",
+            "line": 238,
+            "column": 6,
+            "functionName": "App",
+            "sourceMapConfidence": "mapped"
+          }
+        },
+        "sourceOwnership": "app",
+        "isLibrary": false,
+        "wrapperAncestry": []
+      },
+      {
+        "id": 92,
+        "name": "StressGrid",
+        "instance": {
+          "fiberId": 92,
+          "mountId": "mount:12",
+          "key": null,
+          "siblingIndex": 10,
+          "parent": { "fiberId": 4, "name": "App", "key": null },
+          "keyedParent": null,
+          "logicalPath": "QueryClientProvider[index=0] > App[index=0] > StressGrid[index=10]",
+          "logicalIdentityEvidence": "positional",
+          "mountGeneration": 1,
+          "mountGenerationEvidence": "exact",
+          "hostSelector": null
+        },
+        "renders": 2,
+        "mounts": 0,
+        "updates": 2,
+        "unnecessary": 2,
+        "referenceOnlyPropRenders": 0,
+        "unstableRenders": 0,
+        "functionIdentityPropRenders": 0,
+        "undeterminedReferencePropRenders": 0,
+        "forget": false,
+        "selfTime": 0.1,
+        "totalTime": 0.1,
+        "cumulativeSelfTime": 0.1,
+        "cumulativeTotalTime": 0.1,
+        "changes": [],
+        "latestCommitId": 3,
+        "latestDocumentCommitId": 10,
+        "causes": [
+          {
+            "kind": "parent",
+            "evidence": "inferred",
+            "parentId": 4,
+            "parentName": "App",
+            "reason": "nearest-rendered-ancestor"
+          }
+        ],
+        "causeCounts": {
+          "mount": 0,
+          "props": 0,
+          "state": 0,
+          "children": 0,
+          "context": 0,
+          "external-store": 0,
+          "query": 0,
+          "router": 0,
+          "parent": 2,
+          "unknown": 0
+        },
+        "necessity": "unknown",
+        "assessment": {
+          "inputEvidence": "none-observed",
+          "observedInputKinds": [],
+          "behaviorEvidence": {
+            "subtreeHostMutations": {
+              "status": "none-observed",
+              "count": 0,
+              "pendingSubtrees": 0,
+              "omittedByLimit": 0
+            },
+            "scheduledEffects": { "status": "none-observed", "count": 0 },
+            "unobservedDomains": [
+              "focus",
+              "url",
+              "network",
+              "transition",
+              "freshness",
+              "effect-execution"
+            ]
+          },
+          "optimizationSafety": "not-proven-safe",
+          "requiredValidation": ["dom", "aria", "focus", "url", "network", "transition"]
+        },
+        "inputCoverage": {
+          "complete": true,
+          "omittedInputs": 0,
+          "scanTruncated": false,
+          "propsNotEnumerated": false
+        },
+        "noObservedInputChange": 2,
+        "compiler": {
+          "memoCacheObserved": false,
+          "evidence": "exact",
+          "compilationStatus": "unknown",
+          "limitation": "runtime-memo-cache-presence-only"
+        },
+        "source": {
+          "file": "App.tsx",
+          "line": 245,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "sourceAttribution": { "role": "usage-or-definition-fallback", "evidence": "inferred" },
+        "sourceProvenance": {
+          "definitionSource": null,
+          "allocationCallsite": null,
+          "hookDefinitionOwner": null,
+          "hookCallsite": null,
+          "package": null,
+          "sourceMapConfidence": "mapped",
+          "failureReason": "definition-and-allocation-not-distinguished",
+          "usageOrDefinitionFallback": {
+            "file": "App.tsx",
+            "line": 245,
+            "column": 6,
+            "functionName": "App",
+            "sourceMapConfidence": "mapped"
+          }
+        },
+        "sourceOwnership": "app",
+        "isLibrary": false,
+        "wrapperAncestry": []
+      }
+    ],
+    "sourceClassification": {
+      "complete": true,
+      "totalCandidates": 12,
+      "evaluated": 12,
+      "app": 12,
+      "library": 0,
+      "unknown": 0
+    },
+    "omittedByLimit": 0,
+    "nextCursor": null,
+    "pagination": {
+      "snapshotId": "e1eefc8f-ad8b-4c3b-9e1c-49074daee8df",
+      "offset": 0,
+      "totalComponents": 12,
+      "expiresAt": 1794701166340
+    },
+    "comparable": true,
+    "notComparableReasons": [],
+    "coverage": {
+      "skippedCommitFibers": 0,
+      "droppedUnmountFibers": 0,
+      "analysisFailedFibers": 0,
+      "truncatedInputFibers": 0,
+      "propsNotEnumeratedFibers": 0,
+      "budgetExhaustedCommits": 0,
+      "budgetExhaustedSubsystems": [],
+      "complete": true,
+      "inputAttributionComplete": true,
+      "semantics": "exact",
+      "coverageDomain": "render-causality"
+    }
+  }
+}

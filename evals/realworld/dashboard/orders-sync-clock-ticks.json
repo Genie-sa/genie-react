@@ -1,0 +1,17 @@
+{
+  "id": "orders-sync-clock-ticks",
+  "kind": "decoy",
+  "category": "optimise",
+  "symptom": "The \"Updated N seconds ago\" label on Orders re-renders every second. Looks wasteful?",
+  "truth": {
+    "components": ["SyncStatus"],
+    "files": ["src/components/data/sync-status.tsx"],
+    "cause": "Intentional: SyncStatus owns a one-second clock (useNow) so the relative time stays current. Only SyncStatus re-renders; the table does not."
+  },
+  "probe": {
+    "script": "probes/sync-status-tick.mjs",
+    "genie": "observable",
+    "evidence": ["react_render_causes"]
+  },
+  "expectation": "not-flagged"
+}

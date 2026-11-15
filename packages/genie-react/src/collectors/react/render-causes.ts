@@ -1,6 +1,6 @@
 import type { ContextDependency, Fiber, MemoizedState } from 'bippy'
 import type { z } from 'zod'
-import { dehydrate } from '../../protocol'
+import { dehydrate, encodeAppObject } from '../../protocol'
 import {
   externalStoreId,
   isRegisteredQueryObserver,
@@ -131,18 +131,12 @@ export function stateValue(
   plainObjectDepth = 0,
 ): unknown {
   if (evidence && !scanInputEvidence(evidence, 'dehydrate')) {
-    return { __genie_dehydrated__: true, preview: '[omitted: commit budget]' }
+    return dehydratedValue('truncated', '[omitted: commit budget]', [])
   }
   try {
-    const bounded = boundedStateValue(value, 0, [], new WeakSet(), evidence, plainObjectDepth)
-    // The bounded value already caps depth; the extra levels keep its placeholders and their paths intact.
-    return dehydrate(bounded, {
-      depth: Math.max(STATE_VALUE_DEPTH, plainObjectDepth) + 2,
-      maxEntries: STATE_VALUE_MAX_ENTRIES,
-      maxStringLength: STATE_VALUE_MAX_STRING_LENGTH,
-    })
+    return boundedStateValue(value, 0, [], new WeakSet(), evidence, plainObjectDepth)
   } catch {
-    return { __genie_dehydrated__: true, preview: '[unavailable]' }
+    return dehydratedValue('object', '[unavailable]', [])
   }
 }
 
@@ -183,7 +177,10 @@ function boundedStateValue(
   }
   if (value === null || typeof value !== 'object') {
     if (typeof value === 'symbol') return dehydratedValue('symbol', value.toString(), path)
-    return value
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      return dehydratedValue('number', String(value), path)
+    }
+    return dehydrate(value, { maxStringLength: STATE_VALUE_MAX_STRING_LENGTH })
   }
   if (evidence && !scanInputEvidence(evidence, 'dehydrate')) {
     return dehydratedValue('truncated', '[omitted: commit budget]', path)
@@ -234,25 +231,28 @@ function boundedPlainObjectValue(
       keys.length,
     )
   }
-  const result: Record<string, unknown> = {}
+  const entries: Array<[string, unknown]> = []
   for (const key of keys) {
     if (evidence && !scanInputEvidence(evidence, 'dehydrate')) {
-      result[key] = dehydratedValue('truncated', '[omitted: commit budget]', [...path, key])
+      entries.push([key, dehydratedValue('truncated', '[omitted: commit budget]', [...path, key])])
       break
     }
     const descriptor = safeOwnPropertyDescriptor(value, key)
-    result[key] = isDataDescriptor(descriptor)
-      ? boundedStateValue(
-          descriptor.value,
-          depth + 1,
-          [...path, key],
-          seen,
-          evidence,
-          plainObjectDepth,
-        )
-      : dehydratedValue('getter-error', '[getter not invoked]', [...path, key])
+    entries.push([
+      key,
+      isDataDescriptor(descriptor)
+        ? boundedStateValue(
+            descriptor.value,
+            depth + 1,
+            [...path, key],
+            seen,
+            evidence,
+            plainObjectDepth,
+          )
+        : dehydratedValue('getter-error', '[getter not invoked]', [...path, key]),
+    ])
   }
-  return result
+  return encodeAppObject(entries)
 }
 
 function boundedArrayValue(

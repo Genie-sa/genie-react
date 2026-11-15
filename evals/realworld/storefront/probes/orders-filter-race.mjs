@@ -2,7 +2,7 @@ import { hookState } from './support.mjs'
 
 const SLOWEST_ORDERS_RESPONSE_MS = 2_000
 
-/** @param {import('../../run-probes.mjs').ProbeContext} ctx */
+/** @param {import('../../run-storefront-probes.mjs').ProbeContext} ctx */
 export async function probe(ctx) {
   const page = await ctx.open('/login')
   await ctx.call('app_reset')

@@ -1,6 +1,6 @@
 import { renderRows, total } from './support.mjs'
 
-/** @param {import('../../run-probes.mjs').ProbeContext} ctx */
+/** @param {import('../../run-storefront-probes.mjs').ProbeContext} ctx */
 export async function probe(ctx) {
   const page = await ctx.open('/category/outerwear')
   await page.locator('.product-card').first().waitFor()

@@ -101,7 +101,7 @@ pin subsequent calls to the one ready `Expo demo` session:
 export GENIE_BRIDGE_URL='ws://127.0.0.1:4390/__genie/ws'
 
 status_json="$(
-  pnpm --filter @genie-react/expo-demo exec genie-react status
+  pnpm --filter @genie-react/expo-demo exec genie-react status --json
 )"
 jq '{
   connected,
@@ -131,7 +131,7 @@ session_id="$(
 )"
 
 pnpm --filter @genie-react/expo-demo exec genie-react call \
-  react_find_components '{"query":"App","exact":true}' --session "$session_id" \
+  react_find_components '{"query":"App","exact":true}' --session "$session_id" --json \
   | jq '{matches}'
 
 pnpm --filter @genie-react/expo-demo exec genie-react tools --session "$session_id"

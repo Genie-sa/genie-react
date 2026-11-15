@@ -2,7 +2,7 @@ import { serverAwaits } from './support.mjs'
 
 const FEATURED_BUDGET_MS = 600
 
-/** @param {import('../../run-probes.mjs').ProbeContext} ctx */
+/** @param {import('../../run-storefront-probes.mjs').ProbeContext} ctx */
 export async function probe(ctx) {
   await ctx.open('/')
   await ctx.page.getByTestId('featured').waitFor()

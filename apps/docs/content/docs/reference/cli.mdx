@@ -4,11 +4,12 @@ description: Setup, discovery, live calls, and machine output.
 icon: Terminal
 ---
 
-These commands use the current JSON output contract. Read the
+These commands use the current output contract. Read the
 [release compatibility note](/docs/getting-started/cli-output) when upgrading an older installation.
 
-The CLI emits compact JSON in terminals, pipes, and CI. `--json` remains a compatibility alias.
-`--help` returns structured command metadata and `--version` returns a version object.
+The CLI prints compact text in terminals, pipes, and CI, with no color or terminal detection. Add
+`--json` for the JSON documents, or set `GENIE_OUTPUT=json` to keep the `0.19` behavior for a whole
+script. `--help` prints help text, and `--help --json` returns structured command metadata.
 
 ## Commands
 
@@ -86,12 +87,13 @@ it to `127.0.0.1` (for example `ssh -L`). `doctor` output never includes the tok
 
 ## Stable failures
 
-Failures keep stdout as valid JSON. They include a stable snake_case `reason`, a `message` built
-from the specifics, `details`, and a safe next command when recovery is known. A failed batch item
-does not stop later items.
+A failure's first line is `error <reason>: <message>`, with a stable snake_case `reason` and a
+`message` built from the specifics, followed by `next: $ <command>` when recovery is known and then
+`details`. With `--json` the same failure is one JSON object. A failed batch item does not stop later
+items.
 
 ```bash
-npx @genie-react/cli call app_set_theme '{"theme":"neon","persist":true}'
+npx @genie-react/cli call app_set_theme '{"theme":"neon","persist":true}' --json
 ```
 
 **Output:**
@@ -189,21 +191,27 @@ characters is shortened and marked; the saved file keeps the full report.
 
 ## Output framing and limits
 
-Finite commands return one JSON value, except the JSONL modes below. `call` retains the advertised tool result schema. Setup
-receipts list artifacts and manual actions without dumping source files. Diagnostic records use
-JSONL on stderr; `--verbose` enables connection phases.
+Finite commands print one document: text by default, one JSON value with `--json`. `call` retains
+the advertised tool result fields in both. Setup receipts list artifacts and manual actions without
+dumping source files. Diagnostics go to stderr, one `! reason: message` line each or JSONL with
+`--json`; `--verbose` enables connection phases.
 
-`batch` and `--ndjson` emit one result per line; `batch --json` returns one array. `--fields`
-emits projected JSONL rows and zero bytes for an empty collection. `hub` emits `ready`, `reused`,
-and `stopped` lifecycle records. Process exit is 0 for CLI success and 1 for failure. A wait or quiesce result can report `ok:false`
-with exit 0; add `--fail-on-result-error` to `call` when a failed wait must fail the script.
+| Mode | Text (default) | `--json` |
+| --- | --- | --- |
+| `batch` | one block per result under a `[n/total] tool ok\|error` header | one JSON array; `--ndjson` or `GENIE_OUTPUT=json` gives one result per line |
+| `call --fields` | the projected rows as one text array | JSONL rows |
+| `hub` | one block per `ready`, `reused`, or `stopped` event | JSONL lifecycle records |
 
-Output defaults to 102,400 bytes per JSON document or default JSONL record. An explicit batch
+An empty `--fields` collection prints zero bytes in both formats. Process exit is 0 for CLI success
+and 1 for failure in both formats. A wait or quiesce result can report `ok:false` with exit 0; add
+`--fail-on-result-error` to `call` when a failed wait must fail the script.
+
+Output defaults to 102,400 bytes per document or per batch or hub record. An explicit batch
 `--max-bytes` bounds the whole command. `--max-bytes` accepts 512–50,000,000 bytes. Oversized
 output becomes an explicit `status:"truncated"` envelope with `largestPaths` and runnable
 `suggestions` (summary view, smaller `limit`, `--select` branch, or a raised limit). An oversized
-`call` or `tools` result is also written whole to `outputPath` in a private per-user directory,
-`genie-react-<uid>/out` under `$XDG_RUNTIME_DIR` or the OS temp dir, which keeps the newest 20 files. Never treat the envelope itself as complete evidence.
+`call` or `tools` result is also written whole, in the output format, to `outputPath` in a private per-user directory,
+`genie-react-<uid>/out` under `$XDG_RUNTIME_DIR` or the OS temp dir, which keeps every file for at least an hour, so another agent's output cannot evict one you were just told to read. Never treat the envelope itself as complete evidence.
 
 ```bash
 npx @genie-react/cli call --help

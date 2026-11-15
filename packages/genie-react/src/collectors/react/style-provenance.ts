@@ -24,6 +24,8 @@ export interface StyleDeclaration {
   className: string
   /** CSS custom properties the value reads via var() — StyleX tokens — with their current computed values. */
   tokens: StyleToken[]
+  /** True when the element's inline style sets the same property, which beats any class rule that is not !important. */
+  overriddenByInline: boolean
 }
 
 export interface StyleToken {
@@ -36,11 +38,19 @@ export interface DynamicStyleValue {
   value: string
 }
 
+export interface InlineDeclaration {
+  property: string
+  value: string
+  important: boolean
+}
+
 export interface ElementStyleInfo {
   styleObjects: StyleObjectRef[]
   declarations: StyleDeclaration[]
   /** Runtime values StyleX style functions write to the inline style attribute as custom properties. */
   dynamic: DynamicStyleValue[]
+  /** Ordinary properties set in the inline style attribute (a React `style` prop), which take precedence over class rules. */
+  inline: InlineDeclaration[]
   /** Class names that matched no stylesheet rule and are not StyleX markers — external CSS, utilities, or a stylesheet we cannot read. */
   unresolvedClasses: string[]
 }
@@ -267,8 +277,11 @@ function authoredDeclarations(cssText: string): Array<[string, string]> {
   return declarations
 }
 
-function dynamicValues(el: Element): DynamicStyleValue[] {
-  const inline = (el as HTMLElement).style
+function inlineStyleOf(el: Element): CSSStyleDeclaration | null {
+  return (el as HTMLElement).style ?? null
+}
+
+function dynamicValues(inline: CSSStyleDeclaration | null): DynamicStyleValue[] {
   if (!inline) return []
   const values: DynamicStyleValue[] = []
   for (let i = 0; i < inline.length; i++) {
@@ -278,6 +291,29 @@ function dynamicValues(el: Element): DynamicStyleValue[] {
     }
   }
   return values
+}
+
+const IMPORTANT = /\s*!important\s*$/i
+
+// Read from the authored cssText so a shorthand stays one entry, like class declarations.
+function inlineDeclarations(inline: CSSStyleDeclaration | null): InlineDeclaration[] {
+  if (!inline) return []
+  return authoredDeclarations(inline.cssText)
+    .filter(([property]) => !property.startsWith('--'))
+    .map(([property, value]) => {
+      const important = IMPORTANT.test(value)
+      return { property, value: value.replace(IMPORTANT, '').trim(), important }
+    })
+}
+
+// An inline shorthand also sets the longhands a class declares, which getPropertyValue reports.
+function overriddenByInline(
+  inline: CSSStyleDeclaration | null,
+  property: string,
+  value: string,
+): boolean {
+  if (!inline || inline.getPropertyValue(property) === '') return false
+  return !IMPORTANT.test(value) || inline.getPropertyPriority(property) === 'important'
 }
 
 /** Everything the DOM knows about one element's styling: which style objects, from where, and what CSS won. */
@@ -290,6 +326,7 @@ export function describeElementStyles(
   const sources = parseStyleSources(el.getAttribute?.('data-style-src') ?? null)
   const markers = styleMarkerClasses(classes, sources.length > 0)
   const markerSet = new Set(markers)
+  const inline = inlineStyleOf(el)
   let computed: CSSStyleDeclaration | null | undefined
   const computedStyle = (): CSSStyleDeclaration | null => {
     if (computed === undefined) {
@@ -322,6 +359,7 @@ export function describeElementStyles(
           condition: entry.condition,
           className,
           tokens: tokensIn(value, computedStyle),
+          overriddenByInline: overriddenByInline(inline, property, value),
         })
       }
     }
@@ -330,7 +368,8 @@ export function describeElementStyles(
   return {
     styleObjects: styleObjectsFor(markers, sources),
     declarations,
-    dynamic: dynamicValues(el),
+    dynamic: dynamicValues(inline),
+    inline: inlineDeclarations(inline),
     unresolvedClasses,
   }
 }

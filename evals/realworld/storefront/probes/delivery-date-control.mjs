@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 export const options = { locale: 'de-DE' }
 
-/** @param {import('../../run-probes.mjs').ProbeContext} ctx */
+/** @param {import('../../run-storefront-probes.mjs').ProbeContext} ctx */
 export async function probe(ctx) {
   const page = await ctx.open('/')
   await page.addInitScript(() => {

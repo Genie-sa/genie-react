@@ -1,6 +1,6 @@
 const RELATED_STREAM_SETTLE_MS = 1_000
 
-/** @param {import('../../run-probes.mjs').ProbeContext} ctx */
+/** @param {import('../../run-storefront-probes.mjs').ProbeContext} ctx */
 export async function probe(ctx) {
   const page = await ctx.open('/product/harbor-weekender-1')
   await page.locator('.purchase-panel h1').waitFor()

@@ -1,0 +1,5 @@
+{
+  "argv": ["call", "app_login_as", "{\"role\":\"admin\"}"],
+  "exitCode": 0,
+  "result": { "role": "admin", "canAdd": true, "canDelete": true }
+}

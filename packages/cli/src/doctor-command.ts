@@ -1,7 +1,9 @@
-import { DEFAULT_MAX_BYTES } from './cli-output'
-import { describeFailure, formatAgentFailure } from './failure'
+import { DEFAULT_MAX_BYTES, renderEnvelopeText, renderFailure, renderOutput } from './cli-output'
+import { renderDoctorText } from './doctor-output'
+import { describeFailure } from './failure'
+import { agentFailure } from './failure-format'
 import { runDoctor, runLiveDoctor } from './index'
-import { renderBoundedJson, renderBoundedText, selectResult } from './result-selection'
+import { selectResult } from './result-selection'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 
 export interface DoctorCommandOptions {
@@ -12,7 +14,7 @@ export interface DoctorCommandOptions {
   maxBytes?: number
 }
 
-/** `genie-react doctor`: setup checks as one JSON result; a bad --select is reported like any other command's. */
+/** `genie-react doctor`: setup checks as one result; a bad --select is reported like any other command's. */
 export async function runDoctorCommand(options: DoctorCommandOptions): Promise<number> {
   const logger = { info: () => undefined, error: () => undefined }
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES
@@ -30,14 +32,19 @@ export async function runDoctorCommand(options: DoctorCommandOptions): Promise<n
         : 'Setup checks failed. Follow the reported remediation steps.',
       userActionRequired: !result.ok,
     }
-    const selected =
-      options.select === undefined ? envelope : selectResult(envelope, options.select)
-    process.stdout.write(`${renderBoundedJson(selected, maxBytes)}\n`)
+    const output =
+      options.select === undefined
+        ? renderOutput(envelope, { maxBytes, text: renderDoctorText })
+        : renderOutput(selectResult(envelope, options.select), {
+            maxBytes,
+            text: renderEnvelopeText,
+          })
+    process.stdout.write(`${output}\n`)
     return result.ok ? 0 : 1
   } catch (error) {
     const { reason, message, ...failure } = await describeFailure(error, {})
     process.stdout.write(
-      `${renderBoundedText(formatAgentFailure(reason, `Doctor failed. ${message}`, failure), maxBytes)}\n`,
+      `${renderFailure(agentFailure(reason, `Doctor failed. ${message}`, failure), maxBytes)}\n`,
     )
     return 1
   }

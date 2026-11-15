@@ -1,0 +1,23 @@
+{
+  "id": "order-activity-listener-leak",
+  "kind": "bug",
+  "category": "fix",
+  "symptom": "After browsing a few orders and their Activity tabs, the app keeps polling and refetching orders I have already left, and it gets slower the longer I use it.",
+  "truth": {
+    "components": ["OrderActivityTab"],
+    "files": ["src/features/orders/order-activity-tab.tsx"],
+    "cause": "OrderActivityTab subscribes to liveUpdates in an effect but drops the unsubscribe function subscribe returns, so every visit (twice under StrictMode) leaves a listener behind that keeps invalidating the old order."
+  },
+  "referenceFix": [
+    {
+      "file": "src/features/orders/order-activity-tab.tsx",
+      "find": "  useEffect(() => {\n    liveUpdates.subscribe(`order:${orderId}`, () => {\n      void queryClient.invalidateQueries({ queryKey: orderKeys.detail(orderId) })\n    })\n  }, [orderId, queryClient])",
+      "replace": "  useEffect(\n    () =>\n      liveUpdates.subscribe(`order:${orderId}`, () => {\n        void queryClient.invalidateQueries({ queryKey: orderKeys.detail(orderId) })\n      }),\n    [orderId, queryClient],\n  )"
+    }
+  ],
+  "probe": {
+    "script": "probes/activity-subscription.mjs",
+    "genie": "observable",
+    "evidence": ["react_effect_timeline", "react_inspect_component", "app_live_updates"]
+  }
+}

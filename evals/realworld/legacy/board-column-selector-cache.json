@@ -1,0 +1,58 @@
+{
+  "id": "board-column-selector-cache",
+  "kind": "bug",
+  "category": "optimise",
+  "prompt": "Toggling the sidebar or opening any menu makes the board stutter. All five columns seem to redraw even though no card changed.",
+  "truth": {
+    "components": ["BoardColumn", "selectCardsForColumn"],
+    "files": ["src/store/board-selectors.ts", "src/features/board/board-column.tsx"],
+    "causePatterns": ["selector|reselect|createSelector", "cache|memo|argument|status|instance"],
+    "summary": "selectCardsForColumn is one createSelector instance shared by five columns with a per-column status argument. Its single-entry cache is overwritten by each column in turn, so every store update recomputes and returns a new array for every column."
+  },
+  "referenceAnswer": {
+    "component": "BoardColumn",
+    "cause": "All columns share one createSelector with a status argument; the one-entry cache thrashes between columns, so each store update returns a new cards array and re-renders every column.",
+    "file": "src/store/board-selectors.ts"
+  },
+  "decoyAnswers": [
+    {
+      "component": "BoardCard",
+      "cause": "BoardCard is not memoized.",
+      "file": "src/features/board/board-card.tsx"
+    },
+    {
+      "component": "BoardColumn",
+      "cause": "The openIssue callback is recreated on every render.",
+      "file": "src/features/board/board-column.tsx"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/store/board-selectors.ts",
+      "find": "export const selectCardsForColumn = createSelector(\n  [selectBoardIssues, (_state: RootState, status: IssueStatus) => status],\n  (issues, status) => issues.filter((issue) => issue.status === status),\n)\n",
+      "replace": "export const makeSelectCardsForColumn = () =>\n  createSelector(\n    [selectBoardIssues, (_state: RootState, status: IssueStatus) => status],\n    (issues, status) => issues.filter((issue) => issue.status === status),\n  )\n"
+    },
+    {
+      "file": "src/features/board/board-column.tsx",
+      "find": "import { useCallback } from 'react'\n",
+      "replace": "import { useCallback, useMemo } from 'react'\n"
+    },
+    {
+      "file": "src/features/board/board-column.tsx",
+      "find": "import { selectCardsForColumn } from '../../store/board-selectors'\n",
+      "replace": "import { makeSelectCardsForColumn } from '../../store/board-selectors'\n"
+    },
+    {
+      "file": "src/features/board/board-column.tsx",
+      "find": "  const cards = useAppSelector((state) => selectCardsForColumn(state, status))\n",
+      "replace": "  const selectCards = useMemo(makeSelectCardsForColumn, [])\n  const cards = useAppSelector((state) => selectCards(state, status))\n"
+    }
+  ],
+  "probe": {
+    "script": "probes/board-column-selector-cache.mjs"
+  },
+  "genieEvidence": {
+    "observability": "partial",
+    "notes": "react_get_renders shows each BoardColumn update with cause external-store, evidence inferred, name 'anonymous-external-store'. Genie cannot show the selector's cache misses or which argument thrashed it; the agent must read the selector to connect the two."
+  }
+}

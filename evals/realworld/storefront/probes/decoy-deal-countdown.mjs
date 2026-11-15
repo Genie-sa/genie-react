@@ -2,7 +2,7 @@ import { describeVerdicts, isClean, verdicts } from './support.mjs'
 
 const OBSERVED_TICKS_MS = 3_300
 
-/** @param {import('../../run-probes.mjs').ProbeContext} ctx */
+/** @param {import('../../run-storefront-probes.mjs').ProbeContext} ctx */
 export async function probe(ctx) {
   const page = await ctx.open('/')
   await page.getByTestId('deals').waitFor()

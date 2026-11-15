@@ -32,7 +32,7 @@ for (const entry of readdirSync(toolsRoot, { withFileTypes: true })) {
 }
 
 function runCli(...args) {
-  const output = execFileSync(process.execPath, [cliPath, ...args], {
+  const output = execFileSync(process.execPath, [cliPath, ...args, '--json'], {
     encoding: 'utf8',
     env: process.env,
   })

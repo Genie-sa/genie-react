@@ -1,6 +1,6 @@
 import { hookState } from './support.mjs'
 
-/** @param {import('../../run-probes.mjs').ProbeContext} ctx */
+/** @param {import('../../run-storefront-probes.mjs').ProbeContext} ctx */
 export async function probe(ctx) {
   const page = await ctx.open('/category/outerwear')
   await page.getByRole('button', { name: /^Show all \d+ colours$/ }).click()

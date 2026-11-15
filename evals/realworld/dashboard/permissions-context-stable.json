@@ -1,0 +1,17 @@
+{
+  "id": "permissions-context-stable",
+  "kind": "decoy",
+  "category": "optimise",
+  "symptom": "PermissionsProvider wraps the whole authenticated app. Does every permission check re-render when the shell re-renders?",
+  "truth": {
+    "components": ["PermissionsProvider", "PermissionGate"],
+    "files": ["src/app/permissions.tsx"],
+    "cause": "Correct: the provider memoises its value on role, so shell re-renders such as collapsing the sidebar do not reach PermissionGate consumers."
+  },
+  "probe": {
+    "script": "probes/permissions-stable.mjs",
+    "genie": "observable",
+    "evidence": ["react_get_renders"]
+  },
+  "expectation": "not-flagged"
+}

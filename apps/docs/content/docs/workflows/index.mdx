@@ -10,8 +10,8 @@ and a visible success condition, such as loaded results or the expected route.
 For every workflow, use agent-browser or agent-device to perform the action and verify the visible
 result. Use Genie to inspect runtime evidence. Examples with component IDs, routes, or query keys
 require values from your app; the [case studies](/docs/case-studies) include runnable demo setup.
-Commands return JSON by default. Scripts that depend on a successful wait should add
-`--fail-on-result-error` and check the process exit code.
+Commands print compact text by default; scripts that parse a result add `--json`. Scripts that
+depend on a successful wait should add `--fail-on-result-error` and check the process exit code.
 
 | Goal                     | Start with                                              |
 | ------------------------ | ------------------------------------------------------- |

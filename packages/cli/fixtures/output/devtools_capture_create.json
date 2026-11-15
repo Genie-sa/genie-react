@@ -1,0 +1,54 @@
+{
+  "argv": ["call", "devtools_capture_create", "{\"name\":\"baseline-0\"}"],
+  "exitCode": 0,
+  "result": {
+    "schemaVersion": "1.0",
+    "captureId": "cap_ef330f9e-71a4-4a70-94e4-f5e398c5288a",
+    "name": "baseline-0",
+    "createdAt": "2026-11-15T00:01:10.249Z",
+    "session": {
+      "sessionId": "9e2387cb-d702-449d-a760-bce7261948d7",
+      "logicalSessionId": "5a2f472a-b7c1-4757-b9a7-16a9d9229887",
+      "documentGeneration": 2,
+      "sessionName": "measure",
+      "app": {
+        "name": "vite-demo",
+        "url": "http://127.0.0.1:52053/?_genie=measure",
+        "reactVersion": "19.2.7"
+      }
+    },
+    "include": ["react", "effects", "query", "memory"],
+    "consistency": {
+      "kind": "react-commit-stable",
+      "attempts": 1,
+      "reactCommit": 21,
+      "reason": "React document commit markers matched before, during, and after all captured sections."
+    },
+    "complete": true,
+    "sizeBytes": 33252,
+    "pinned": false,
+    "summary": {
+      "sectionStatus": { "react": "ok", "effects": "ok", "query": "ok", "memory": "ok" },
+      "metrics": {
+        "react.commits": 3,
+        "react.renders": 3,
+        "query.pending": 0,
+        "memory.usedHeapBytes": 68000000,
+        "performance.avgFps": null
+      },
+      "warningCount": 0
+    },
+    "integrity": {
+      "algorithm": "sha256",
+      "scope": "capture-content-v1",
+      "digest": "9aeff1bc9bf9aa893aa100d079551a442db0ef88fce34880c9cd8813cbb092c5"
+    },
+    "warnings": [],
+    "availableSections": ["react", "effects", "query", "memory"],
+    "renders": {
+      "comparable": true,
+      "notComparableReasons": [],
+      "coverage": { "complete": true, "semantics": "exact" }
+    }
+  }
+}

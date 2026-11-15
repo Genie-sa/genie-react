@@ -1,0 +1,28 @@
+{
+  "id": "new-order-notes-typing-lag",
+  "kind": "bug",
+  "category": "optimise",
+  "symptom": "Typing in the Notes field on New order lags badly; each keystroke takes a visible moment to appear.",
+  "truth": {
+    "components": ["ProductPicker", "CreateOrderPage"],
+    "files": ["src/features/orders/product-picker.tsx"],
+    "cause": "ProductPicker rebuilds its trigram and typo-tolerant search index over all 2,400 products during every render. CreateOrderPage calls form.watch() and re-renders on each keystroke in any field, so every keystroke pays for a full index rebuild."
+  },
+  "referenceFix": [
+    {
+      "file": "src/features/orders/product-picker.tsx",
+      "find": "import { useState } from 'react'",
+      "replace": "import { useMemo, useState } from 'react'"
+    },
+    {
+      "file": "src/features/orders/product-picker.tsx",
+      "find": "  const index = buildProductIndex(products)",
+      "replace": "  const index = useMemo(() => buildProductIndex(products), [products])"
+    }
+  ],
+  "probe": {
+    "script": "probes/product-picker-typing.mjs",
+    "genie": "observable",
+    "evidence": ["react_clear_renders", "react_get_renders"]
+  }
+}

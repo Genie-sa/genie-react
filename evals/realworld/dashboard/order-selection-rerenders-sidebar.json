@@ -1,0 +1,23 @@
+{
+  "id": "order-selection-rerenders-sidebar",
+  "kind": "bug",
+  "category": "optimise",
+  "symptom": "Ticking order checkboxes on the Orders page re-renders the sidebar navigation every time, even though the sidebar shows nothing about the selection.",
+  "truth": {
+    "components": ["SidebarNav"],
+    "files": ["src/layout/sidebar-nav.tsx"],
+    "cause": "SidebarNav calls useWorkspaceStore() without a selector and destructures recentlyViewed, so it subscribes to the whole zustand store and re-renders on every selection change."
+  },
+  "referenceFix": [
+    {
+      "file": "src/layout/sidebar-nav.tsx",
+      "find": "  const { recentlyViewed } = useWorkspaceStore()",
+      "replace": "  const recentlyViewed = useWorkspaceStore((state) => state.recentlyViewed)"
+    }
+  ],
+  "probe": {
+    "script": "probes/selection-sidebar.mjs",
+    "genie": "observable",
+    "evidence": ["react_clear_renders", "react_get_renders", "react_render_causes"]
+  }
+}

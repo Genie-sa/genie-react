@@ -1,0 +1,32 @@
+{
+  "argv": ["call", "react_find_components", "{\"component\":\"Task\"}"],
+  "exitCode": 0,
+  "result": {
+    "matches": [
+      {
+        "id": 57,
+        "name": "TaskPanel",
+        "path": "QueryClientProvider > App > TaskPanel",
+        "kind": "function",
+        "props": {},
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "isLibrary": false
+      }
+    ],
+    "ownershipCoverage": {
+      "complete": true,
+      "totalCandidates": 1,
+      "app": 1,
+      "library": 0,
+      "unknown": 0
+    },
+    "omittedByLimit": 0,
+    "scanTruncated": false
+  }
+}

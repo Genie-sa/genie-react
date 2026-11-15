@@ -17,10 +17,13 @@ describe('runLink', () => {
     target = await mkdtemp(join(tmpdir(), 'genie-link-'))
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    const bundled = await readFile(join(process.cwd(), 'packages/cli/skill/SKILL.md'), 'utf8')
-    const bundledAppTools = await readFile(
-      join(process.cwd(), 'packages/cli/skill/APP_TOOLS.md'),
-      'utf8',
+    const callsLinkedBinary = (markdown: string) =>
+      markdown.replaceAll('npx genie-react', 'node_modules/.bin/genie-react')
+    const bundled = callsLinkedBinary(
+      await readFile(join(process.cwd(), 'packages/cli/skill/SKILL.md'), 'utf8'),
+    )
+    const bundledAppTools = callsLinkedBinary(
+      await readFile(join(process.cwd(), 'packages/cli/skill/APP_TOOLS.md'), 'utf8'),
     )
     const activePath = join(target, '.agents/skills/genie/SKILL.md')
     const activeAppToolsPath = join(target, '.agents/skills/genie/APP_TOOLS.md')

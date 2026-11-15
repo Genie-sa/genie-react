@@ -6,7 +6,6 @@ const getSource = vi.fn(async (fiber: { _debugSource?: unknown }) => fiber._debu
 const getFiberHooks = vi.fn<(fiber: unknown) => HooksNode[]>(() => [])
 const formatOwnerStack = vi.fn((stack: string) => stack)
 const parseStack = vi.fn<(stack: string) => unknown[]>(() => [])
-const symbolicateStack = vi.fn<(frames: unknown[]) => Promise<unknown[]>>(async (frames) => frames)
 // Mirrors bippy's contract — fetch via the caller's fetchFn and decode the inline map — so tests drive lookups through the fetch mock.
 const decodeInlineSourceMap = async (
   url: string,
@@ -49,7 +48,6 @@ vi.mock('bippy/source', () => ({
     !file.includes('/.next/'),
   normalizeFileName: normalize,
   getFiberHooks: (fiber: unknown) => getFiberHooks(fiber),
-  symbolicateStack: (frames: unknown[]) => symbolicateStack(frames),
   getSourceMap: (url: string, useCache?: boolean, fetchFn?: never) =>
     getSourceMap(url, useCache, fetchFn),
   getSourceFromSourceMap: (map: object, line: number, column: number) =>
@@ -98,7 +96,6 @@ beforeEach(() => {
   getFiberHooks.mockReset().mockReturnValue([])
   formatOwnerStack.mockReset().mockImplementation((stack) => stack)
   parseStack.mockReset().mockReturnValue([])
-  symbolicateStack.mockReset().mockImplementation(async (frames) => frames)
   getSourceMap.mockReset().mockImplementation(decodeInlineSourceMap)
   getSourceFromSourceMap.mockReset().mockReturnValue(null)
   // No network in unit tests: inline-map lookup fails → resolveHookSource keeps served coordinates.
@@ -206,7 +203,7 @@ describe('classifyFiber', () => {
     expect(source).toMatchObject({
       file: '/apps/demo/app/components/counter.tsx',
       line: 12,
-      column: 4,
+      column: 5,
     })
     expect(isLibrary).toBe(false)
   })
@@ -1059,10 +1056,6 @@ describe('resolveSource caching', () => {
         functionName: 'App',
       },
     ])
-    symbolicateStack.mockImplementation(async (frames) => {
-      await fetch(bundle)
-      return frames
-    })
     const fetchMock = vi.fn(async (_url: string, init?: { method?: string }) =>
       init?.method === 'POST'
         ? {
@@ -1108,20 +1101,73 @@ describe('resolveSource caching', () => {
         functionName: 'App',
       },
     ])
-    symbolicateStack.mockResolvedValue([
-      {
-        fileName: '/src/App.tsx',
-        lineNumber: 17,
-        columnNumber: 5,
-        functionName: 'App',
-      },
-    ])
+    getSourceMap.mockResolvedValue({ version: 3 })
+    getSourceFromSourceMap.mockReturnValue({
+      fileName: '/src/App.tsx',
+      lineNumber: 17,
+      columnNumber: 4,
+    })
 
     await expect(resolveSource(asFiber({ _debugStack: debugStack }))).resolves.toMatchObject({
       file: '/src/App.tsx',
       line: 17,
       column: 5,
       sourceMapConfidence: 'mapped',
+    })
+    // bippy's lookup is 0-based on both sides of the map; the frame's column counts from 1.
+    expect(getSourceFromSourceMap).toHaveBeenCalledWith({ version: 3 }, 200, 10)
+  })
+
+  describe('a Vite module frame mapped by its source map', () => {
+    const moduleUrl = 'http://127.0.0.1:5173/src/App.jsx?t=1'
+    const frameOf = (component: string) => {
+      const debugStack = new Error('captured')
+      Object.defineProperty(debugStack, 'stack', {
+        value: `Error: react-stack-top-frame\n    at App (${moduleUrl}:26:20)`,
+      })
+      parseStack.mockReturnValue([
+        { fileName: moduleUrl, lineNumber: 26, columnNumber: 20, functionName: 'App' },
+      ])
+      return asFiber({
+        _debugStack: debugStack,
+        type: Object.assign(() => null, { displayName: component }),
+      })
+    }
+    const onDisk = (lines: string[]) =>
+      vi.fn(async (url: string) =>
+        url === 'http://127.0.0.1:5173/src/App.jsx?raw'
+          ? new Response(`export default ${JSON.stringify(lines.join('\n'))}`)
+          : new Response('', { status: 404 }),
+      )
+
+    beforeEach(() => {
+      getSourceMap.mockResolvedValue({ version: 3 })
+      getSourceFromSourceMap.mockReturnValue({
+        fileName: 'App.jsx',
+        lineNumber: 2,
+        columnNumber: 4,
+      })
+    })
+
+    it('resolves the map source relative to the module and keeps a line the file shows', async () => {
+      vi.stubGlobal('fetch', onDisk(['function App() {', '    <Summary />', '}']))
+      await expect(resolveSource(frameOf('Summary'))).resolves.toMatchObject({
+        file: '/src/App.jsx',
+        line: 2,
+        column: 5,
+        role: 'element-callsite',
+        sourceMapConfidence: 'mapped',
+      })
+    })
+
+    it('withholds a mapped line the file on disk contradicts', async () => {
+      vi.stubGlobal('fetch', onDisk(['function App() {', '  return (', '    <Summary />']))
+      await expect(resolveSource(frameOf('Summary'))).resolves.toMatchObject({
+        file: '/src/App.jsx',
+        line: null,
+        column: null,
+        role: 'element-callsite',
+      })
     })
   })
 
@@ -1317,7 +1363,7 @@ describe('resolveEffectSources', () => {
     expect(resolution.callsites?.[0]?.source).toMatchObject({
       file: '/src/lab.tsx',
       line: 39,
-      column: 4,
+      column: 5,
     })
   })
 

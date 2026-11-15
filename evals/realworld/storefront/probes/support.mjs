@@ -1,6 +1,6 @@
 /**
  * Shared readers for Genie evidence used by the storefront probes.
- * @typedef {import('../../run-probes.mjs').ProbeContext} ProbeContext
+ * @typedef {import('../../run-storefront-probes.mjs').ProbeContext} ProbeContext
  * @typedef {{ boundaryId: number, awaitedBy: string | null, startMs: number, endMs: number, durationMs: number, functions: string[] }} ServerAwait
  * @typedef {{ name: string, renders: number, updates: number, noObservedInputChange: number, functionIdentityPropRenders: number, referenceOnlyPropRenders: number, necessity: string, causeCounts?: Record<string, number> }} RenderRow
  */

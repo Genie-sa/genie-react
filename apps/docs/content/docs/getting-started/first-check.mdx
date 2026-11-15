@@ -29,7 +29,7 @@ session=first-check
 export GENIE_BRIDGE_URL='ws://127.0.0.1:4390/__genie/ws'
 export APP_URL='http://127.0.0.1:3050/?_genie=first-check'
 genie() {
-  pnpm --filter @genie-react/plain-demo exec genie-react "$@"
+  pnpm --filter @genie-react/plain-demo exec genie-react "$@" --json
 }
 
 agent-browser --session "$session" open "$APP_URL"

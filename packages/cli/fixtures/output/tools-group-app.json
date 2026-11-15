@@ -1,0 +1,30 @@
+{
+  "argv": ["tools", "app"],
+  "exitCode": 0,
+  "result": [
+    { "name": "app_unmountable_ping", "title": "Unmountable ping", "params": "(no args)" },
+    { "name": "app_session", "title": "Session", "params": "(no args)" },
+    {
+      "name": "app_login_as",
+      "title": "Login as",
+      "params": "role: \"guest\" | \"member\" | \"admin\""
+    },
+    {
+      "name": "app_seed_tasks",
+      "title": "Seed tasks",
+      "params": "count?: integer [1..25] (default 3), done?: boolean (default false)"
+    },
+    { "name": "app_reset_tasks", "title": "Reset tasks", "params": "(no args)" },
+    {
+      "name": "app_chaos",
+      "title": "Chaos",
+      "params": "failNextRequests?: integer [0..10], latencyMs?: integer [0..5000]"
+    },
+    { "name": "app_flags", "title": "Flags", "params": "(no args)" },
+    {
+      "name": "app_set_flag",
+      "title": "Set flag",
+      "params": "flag: \"beta_banner\" | \"compact_mode\", value: boolean"
+    }
+  ]
+}
