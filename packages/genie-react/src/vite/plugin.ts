@@ -1,13 +1,22 @@
+import { existsSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import type { AddressInfo } from 'node:net'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { type Plugin, type Rollup, searchForWorkspaceRoot, type ViteDevServer } from 'vite'
+import {
+  normalizePath,
+  type Plugin,
+  type Rollup,
+  searchForWorkspaceRoot,
+  type ViteDevServer,
+  version as viteVersion,
+} from 'vite'
 import {
   bridgeUrlFor,
   GenieBridge,
   removeDiscoveryFile,
+  removeDiscoveryOnExit,
   startGenieHub,
   writeDiscoveryFile,
 } from '../hub'
@@ -100,7 +109,7 @@ function denyGenieState(
 const VIRTUAL_ID = 'virtual:genie-client'
 const RESOLVED_VIRTUAL_ID = `\0${VIRTUAL_ID}`
 
-// Optional peers of <Genie />: each resolves to a no-op stub when absent so neither dev nor `vite build` fails on the import.
+// Optional peers of <Genie />: each resolves to a no-op stub when the app does not install it, so neither dev nor `vite build` fails on the import.
 const OPTIONAL_PEER_STUBS: ReadonlyMap<string, { id: string; code: string }> = new Map([
   [
     '@tanstack/react-router',
@@ -114,8 +123,12 @@ const OPTIONAL_PEER_STUBS: ReadonlyMap<string, { id: string; code: string }> = n
     },
   ],
 ])
-// Vite resolves an absent *optional* peer to this synthetic throwing placeholder (not null), so it must count as "not installed".
-const VITE_OPTIONAL_PEER_PREFIX = '__vite-optional-peer-dep:'
+const OPTIONAL_PEERS = [...OPTIONAL_PEER_STUBS.keys()]
+const GENIE_PACKAGE_DIR = normalizePath(
+  dirname(createRequire(import.meta.url).resolve('genie-react/package.json')),
+)
+// Vite 5 has no configEnvironment hook, so its client pre-bundle list can only come from the top-level config.
+const HAS_ENVIRONMENT_HOOKS = Number(viteVersion.split('.')[0]) >= 6
 
 // `genie-react > dep` form: these are genie-react's own deps, so a bare name can't resolve from the app root under pnpm; bare `react` covers apps without @vitejs/plugin-react, which would otherwise discover it late through the excluded chunks.
 const NESTED_OPTIMIZED_DEPS = [
@@ -221,18 +234,22 @@ function removeProductionHelperCalls(code: string, program: AstNode): string {
   return transformed
 }
 
-/** Installed TanStack peers reached through the excluded genie-react must be pre-bundled too, or their CJS use-sync-external-store shim hits the app graph un-interop'd (blank page in linked/workspace setups); absent peers stay out so the stubs keep applying. */
-function installedTanstackIncludes(root: string): string[] {
-  const appRequire = createRequire(join(root, 'package.json'))
-  return ['@tanstack/react-router', '@tanstack/react-query']
-    .filter((name) => {
-      try {
-        appRequire.resolve(`${name}/package.json`)
-        return true
-      } catch {
-        return false
-      }
-    })
+/** The optional peers the app installs, found the way Vite's resolver finds them: through the node_modules hierarchy above the app root. Node's own resolution also reads NODE_PATH, which pnpm's bin shims point at the hidden hoist directory holding every package in the install, so it answers differently under `pnpm dev` than under a direct `vite` start. Asking from genie-react's directory is wrong too: a workspace or linked checkout carries the peers as devDependencies. */
+function appInstalledPeers(root: string): Set<string> {
+  return new Set(OPTIONAL_PEERS.filter((name) => nodeModulesHas(root, name)))
+}
+
+function nodeModulesHas(root: string, name: string): boolean {
+  for (let directory = resolve(root); ; directory = dirname(directory)) {
+    if (existsSync(join(directory, 'node_modules', name, 'package.json'))) return true
+    if (dirname(directory) === directory) return false
+  }
+}
+
+/** Installed peers reached through the excluded genie-react are pre-bundled so their CommonJS use-sync-external-store shim is interop'd. A peer the environment excludes (TanStack Start serves the router as raw ESM) stays out, or the page would load a second module instance with its own router context. */
+function nestedPeerIncludes(installed: ReadonlySet<string>, excluded: readonly string[] = []) {
+  return [...installed]
+    .filter((name) => !excluded.includes(name))
     .map((name) => `genie-react > ${name}`)
 }
 
@@ -244,6 +261,7 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
   let warnedMissingHook = false
   let cloudflare = false
   let hubWsUrl: string | null = null
+  let installedPeers: ReadonlySet<string> = new Set()
 
   async function resolveHook(ctx: Rollup.PluginContext): Promise<boolean> {
     if ((await ctx.resolve(HOOK_MODULE)) != null) return true
@@ -264,6 +282,7 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
       // fs.allow serves a linked checkout (`genie link`); setting it drops Vite's workspace-root default, so re-include that.
       const genieRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
       const root = userConfig.root ? resolve(userConfig.root) : process.cwd()
+      installedPeers = appInstalledPeers(root)
       return {
         // Dedupe to one React copy: a `genie link` checkout otherwise gets two Reacts and an "invalid hook call".
         resolve: {
@@ -272,7 +291,12 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
         // esbuild pre-bundling bypasses the peer stubs (black-screening TanStack-less apps), so genie-react must stay excluded; pre-listing its nested deps keeps the first post-install boot from a mid-run re-optimize (stale 504s).
         optimizeDeps: {
           exclude: ['genie-react', 'genie-react/tools'],
-          include: [...NESTED_OPTIMIZED_DEPS, ...installedTanstackIncludes(root)],
+          include: HAS_ENVIRONMENT_HOOKS
+            ? NESTED_OPTIMIZED_DEPS
+            : [
+                ...NESTED_OPTIMIZED_DEPS,
+                ...nestedPeerIncludes(installedPeers, userConfig.optimizeDeps?.exclude),
+              ],
         },
         server: {
           fs: {
@@ -284,6 +308,17 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
           },
         },
       }
+    },
+
+    // Post order: it must see the exclusions other plugins add per environment.
+    configEnvironment: {
+      order: 'post',
+      handler(name, environment) {
+        const isClient = (environment.consumer ?? (name === 'client' && 'client')) === 'client'
+        if (!enabled || !isClient) return undefined
+        const include = nestedPeerIncludes(installedPeers, environment.optimizeDeps?.exclude)
+        return include.length > 0 ? { optimizeDeps: { include } } : undefined
+      },
     },
 
     resolveId(id) {
@@ -347,14 +382,20 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
       httpServer.on('upgrade', (request, socket, head) => {
         bridge?.handleUpgrade(request, socket, head)
       })
+      let stopExitCleanup: (() => void) | null = null
       httpServer.once('listening', () => {
-        writeDiscovery(server, httpServer.address(), currentBridge.agentToken).catch((error) => {
-          server.config.logger.error(
-            `[genie] could not publish the bridge for the genie CLI: ${error instanceof Error ? error.message : String(error)}`,
-          )
-        })
+        writeDiscovery(server, httpServer.address(), currentBridge.agentToken)
+          .then((published) => {
+            if (published) stopExitCleanup = removeDiscoveryOnExit(server.config.root)
+          })
+          .catch((error) => {
+            server.config.logger.error(
+              `[genie] could not publish the bridge for the genie CLI: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          })
       })
       httpServer.once('close', () => {
+        stopExitCleanup?.()
         bridge?.close()
         void removeDiscovery(server)
       })
@@ -466,20 +507,26 @@ function productionToolStripPlugin(): Plugin {
 // No `apply` on purpose: unlike the serve-only genie plugin, the peer stubs must also run during `vite build`.
 function optionalPeersPlugin(): Plugin {
   const byId = new Map([...OPTIONAL_PEER_STUBS.values()].map((stub) => [stub.id, stub.code]))
+  let installed: ReadonlySet<string> = new Set()
   return {
     name: 'genie:optional-peers',
     enforce: 'pre',
-    async resolveId(source, importer, options) {
+    configResolved(config) {
+      installed = appInstalledPeers(config.root)
+    },
+    resolveId(source, importer) {
       const stub = OPTIONAL_PEER_STUBS.get(source)
-      if (!stub) return null
-      const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
-      const installed = resolved != null && !resolved.id.startsWith(VITE_OPTIONAL_PEER_PREFIX)
-      return installed ? null : stub.id
+      if (!stub || installed.has(source) || !isGenieModule(importer)) return null
+      return stub.id
     },
     load(id) {
       return byId.get(id) ?? null
     },
   }
+}
+
+function isGenieModule(importer: string | undefined): boolean {
+  return importer !== undefined && normalizePath(importer).startsWith(`${GENIE_PACKAGE_DIR}/`)
 }
 
 function generateClientModule(
@@ -515,8 +562,8 @@ async function writeDiscovery(
   server: ViteDevServer,
   address: string | AddressInfo | null,
   token: string,
-): Promise<void> {
-  if (!address || typeof address === 'string') return
+): Promise<boolean> {
+  if (!address || typeof address === 'string') return false
   const url = bridgeUrlFor(address.address, address.port)
   const published = await writeDiscoveryFile(server.config.root, { url, port: address.port, token })
   if (published) server.config.logger.info(`[genie] bridge ready at ${url}`)
@@ -524,6 +571,7 @@ async function writeDiscovery(
     server.config.logger.warn(
       `[genie] another running dev server or hub already publishes this project, so the genie CLI reaches that one, not ${url}. Stop it, or pass --url ${url} to the CLI.`,
     )
+  return published !== null
 }
 
 async function removeDiscovery(server: ViteDevServer): Promise<void> {

@@ -132,6 +132,42 @@ describe('routerCollector', () => {
     expect(routerNotificationFor(stub.store, afterStop)).toBeNull()
   })
 
+  describe('router_get_state isTransitioning on routers that no longer carry the flag', () => {
+    type TransitionState = { isTransitioning: boolean }
+    function currentRouter(state: Record<string, unknown>) {
+      const stub = makeRouter()
+      const routerState = stub.router.state as unknown as Record<string, unknown>
+      delete routerState.isTransitioning
+      Object.assign(routerState, state)
+      return routerCollector(stub.router)
+    }
+    const resolved = { pathname: '/', href: '/', searchStr: '', hash: '' }
+
+    it('is false and present once the location has resolved', async () => {
+      const state = (await call(
+        currentRouter({ resolvedLocation: resolved }),
+        'router_get_state',
+        {},
+      )) as TransitionState
+      expect(JSON.parse(JSON.stringify(state))).toHaveProperty('isTransitioning', false)
+    })
+
+    it('is true while the router reports pending', async () => {
+      const collector = currentRouter({ status: 'pending', resolvedLocation: resolved })
+      const state = (await call(collector, 'router_get_state', {})) as TransitionState
+      expect(state.isTransitioning).toBe(true)
+    })
+
+    it('is true while the location has not resolved to where the router is going', async () => {
+      const collector = currentRouter({
+        location: { pathname: '/about', href: '/about', searchStr: '', hash: '' },
+        resolvedLocation: resolved,
+      })
+      const state = (await call(collector, 'router_get_state', {})) as TransitionState
+      expect(state.isTransitioning).toBe(true)
+    })
+  })
+
   it('router_get_state exposes browser and Router disagreement in one snapshot', async () => {
     vi.stubGlobal('location', {
       href: 'https://example.test/browser?tab=one#details',

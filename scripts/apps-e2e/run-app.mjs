@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { isGenieResourceFailure, openSession } from './browser.mjs'
 import { contractSweep, outlineViolations } from './contract-sweep.mjs'
@@ -7,7 +8,6 @@ import { discoverySnapshot } from './servers.mjs'
 
 const READY_WAIT_MS = 45_000
 const GENIE_RESOURCE_LOADS = 'source-map resolution'
-const STALE_DISCOVERY_DEFECT = 'KD-8'
 const GLOBAL_EXCLUSIONS = {
   query_clear: 'wipes every cached query, which would invalidate the checks that follow',
   query_reset:
@@ -158,29 +158,24 @@ export async function runApp(spec, { browser, defects, log, production }) {
   const session = sessionName(spec.name)
   let browserContext
   let started
-  if (spec.preflight) {
-    const preflightProcesses = new ProcessGroup()
-    try {
-      await spec.preflight({
-        processes: preflightProcesses,
-        appDir,
-        browser,
-        log,
-        knownDefect: (id, probe) => defects.expect(id, spec.name, probe),
-      })
-    } finally {
-      await preflightProcesses.stopAll()
-    }
-  }
+  let tokenFile
   try {
     log(`starting ${spec.name} (${spec.hub})`)
     started = await spec.start({ processes, appDir })
+    tokenFile = JSON.parse((await discoverySnapshot(appDir)) ?? '{}').tokenFile
+    check(typeof tokenFile === 'string', 'the discovery file names its agent-token file')
     const cli = new Cli({ cwd: appDir, session })
     const opened = await openSession(browser, started.url, session)
     browserContext = opened.context
     const ctx = createContext({ spec, cli, ...opened, defects, log, started, session, browser })
     await waitForSession(cli, spec, session)
     await spec.ready(ctx)
+    const rendered = await cli.status()
+    check(
+      rendered.warnings.length === 0,
+      'status of the rendered app must carry no warnings',
+      rendered.warnings,
+    )
     ctx.probeComponentId = (
       await cli.call('react_find_components', {
         component: spec.probeComponent,
@@ -217,16 +212,12 @@ export async function runApp(spec, { browser, defects, log, production }) {
     await processes.stopAll()
     await started?.cleanup?.()
   }
-  const noDiscoveryLeft = async () => {
-    check(
-      (await discoverySnapshot(appDir)) === null,
-      'the stopped dev server left .genie/bridge.json',
-    )
-  }
-  if (defects.registered(STALE_DISCOVERY_DEFECT, spec.name)) {
-    await defects.expect(STALE_DISCOVERY_DEFECT, spec.name, noDiscoveryLeft)
-  } else {
-    await noDiscoveryLeft()
+  check(
+    (await discoverySnapshot(appDir)) === null,
+    'the stopped dev server left .genie/bridge.json',
+  )
+  if (tokenFile !== undefined) {
+    check(!existsSync(tokenFile), 'the stopped dev server left its agent-token file', tokenFile)
   }
   if (production && spec.production) {
     log(`production build: ${spec.name}`)

@@ -76,11 +76,12 @@ export function createStandaloneBridge(options?: StandaloneBridgeOptions): Stand
   }
 }
 
-// Bundlers (Next/Turbopack) inline this module and snapshot URL assets, so prefer the installed package's live dist.
+const CLIENT_BUNDLE_FILE = 'client.global.iife.js'
+
+/** Prefers the installed package's live dist, since bundlers (Next/Turbopack) inline this module. The sibling path is joined at runtime, never written as `new URL('./…', import.meta.url)`: bundlers treat that form as an asset and copy the whole browser client into production output. */
 function defaultClientBundlePath(): string {
   return (
-    installedClientBundlePath() ??
-    fileURLToPath(new URL('./client.global.iife.js', import.meta.url))
+    installedClientBundlePath() ?? join(dirname(fileURLToPath(import.meta.url)), CLIENT_BUNDLE_FILE)
   )
 }
 
@@ -88,7 +89,7 @@ function installedClientBundlePath(): string | null {
   try {
     const require = createRequire(join(process.cwd(), 'package.json'))
     const packageJson = require.resolve('genie-react/package.json')
-    const candidate = join(dirname(packageJson), 'dist', 'client.global.iife.js')
+    const candidate = join(dirname(packageJson), 'dist', CLIENT_BUNDLE_FILE)
     return existsSync(candidate) ? candidate : null
   } catch {
     return null

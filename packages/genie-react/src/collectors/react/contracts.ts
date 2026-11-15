@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { defineAgentToolContract } from '../../protocol'
+import { appValueSchema, defineAgentToolContract, requiresOneOf } from '../../protocol'
 import { componentMatchSchema, componentSelectorInputShape } from './component-name'
 import {
   appOnlySchema,
@@ -209,7 +209,7 @@ export const reactFindComponentsContract = defineAgentToolContract({
       (input) => !input.component || !input.query || input.component === input.query,
       'component and legacy query must match when both are provided.',
     )
-    .meta({ examples: [{ component: 'App' }] }),
+    .meta({ examples: [{ component: 'App' }], ...requiresOneOf('component', 'query', 'cursor') }),
   output: z.object({
     ownershipCoverage: ownershipCoverageSchema,
     omittedByLimit: z
@@ -235,9 +235,9 @@ export const reactFindComponentsContract = defineAgentToolContract({
         name: z.string(),
         path: z.string(),
         kind: z.string(),
-        props: z
-          .unknown()
-          .describe('Shallow (depth-1) props preview; hydrate deeper via react_inspect_component.'),
+        props: appValueSchema(
+          'Shallow (depth-1) props preview; hydrate deeper via react_inspect_component.',
+        ),
         source: sourceSchema,
         isLibrary: z.boolean(),
       }),
@@ -322,7 +322,7 @@ export const reactInspectComponentContract = defineAgentToolContract({
     id: z.number(),
     name: z.string(),
     kind: z.string(),
-    props: z.unknown(),
+    props: appValueSchema('Depth-bounded props.'),
     state: z.unknown().optional(),
     hooks: z.array(hookEntrySchema),
     customHookGrouping: customHookGroupingSchema.optional(),
@@ -430,7 +430,7 @@ export const reactComponentForDomContract = defineAgentToolContract({
         name: z.string(),
         kind: z.string(),
         tag: z.string().describe('Tag of the matched DOM element.'),
-        props: z.unknown(),
+        props: appValueSchema('Depth-bounded props.'),
         source: sourceSchema,
         isLibrary: z.boolean(),
         styleSources: styleSourcesSchema,
@@ -451,13 +451,19 @@ export const stylexInspectContract = defineAgentToolContract({
   description:
     'For apps styled with StyleX (dev mode with `debug: true`): explain how elements are styled from the running page. Reports the applied stylex.create() objects by name and source file:line in application order (later wins conflicts), the CSS each atomic class resolves to (property, value, pseudo/media condition), the defineVars tokens read (CSS variables with current values), runtime values from dynamic style functions, and class names no readable stylesheet explains. Target a CSS `selector` (elements a browser tool found) or a component `id` (every styled host element it renders, nested ones included). `status.hint` names the StyleX plugin option to enable when nothing is found. Use it to go from "this looks wrong" straight to the style object and line that owns the value: the last entry in `styleObjects` wins each conflict, so edit that definition.',
   group: 'react.inspect',
-  input: z.object({
-    selector: z.string().optional().describe('CSS selector; each matched element is described.'),
-    id: nodeIdSchema
-      .optional()
-      .describe('Component id; describes the styled host elements in its rendered subtree.'),
-    limit: z.number().int().min(1).max(20).default(5).describe('Max elements to describe.'),
-  }),
+  input: z
+    .object({
+      selector: z.string().optional().describe('CSS selector; each matched element is described.'),
+      id: nodeIdSchema
+        .optional()
+        .describe('Component id; describes the styled host elements in its rendered subtree.'),
+      limit: z.number().int().min(1).max(20).default(5).describe('Max elements to describe.'),
+    })
+    .refine(
+      (input) => input.selector !== undefined || input.id !== undefined,
+      'Pass a CSS `selector` or a component `id`.',
+    )
+    .meta(requiresOneOf('selector', 'id')),
   output: z.object({
     target: z.string().describe('The selector, or `#<id> <ComponentName>`.'),
     matched: z.number().describe('Elements found before limit.'),
@@ -540,7 +546,7 @@ export const reactInspectContextContract = defineAgentToolContract({
     contexts: z.array(
       z.object({
         name: z.string().describe('The context displayName, or "Context" when unnamed.'),
-        value: z.unknown(),
+        value: appValueSchema('Depth-bounded value the component reads from this context.'),
         provider: z
           .object({ id: z.number(), name: z.string() })
           .nullable()

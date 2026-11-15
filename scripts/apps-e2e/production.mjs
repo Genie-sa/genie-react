@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { extname, join, relative } from 'node:path'
 import { PageErrors } from './browser.mjs'
@@ -133,91 +133,45 @@ export async function assertViteProductionExcludesGenie(
   }
 }
 
-const NEXT_BUILD_COPY = ['app', 'instrumentation.ts', 'package.json', 'tsconfig.json']
-
-/** A copy of the Next app beside the original whose config extends the app's own and skips type-checking, which never changes emitted JavaScript; Next reads that flag only from its config file. */
-async function nextBuildCopy(appDir) {
-  const copyDir = join(appDir, `.genie-apps-e2e-build-${process.pid}`)
-  await rm(copyDir, { recursive: true, force: true })
-  await mkdir(copyDir)
-  for (const entry of NEXT_BUILD_COPY)
-    await cp(join(appDir, entry), join(copyDir, entry), { recursive: true })
-  await symlink(join(appDir, 'node_modules'), join(copyDir, 'node_modules'), 'dir')
-  await writeFile(
-    join(copyDir, 'next.config.ts'),
-    `import type { NextConfig } from 'next'
-import base from '../next.config'
-
-const config: NextConfig = { ...base, typescript: { ...base.typescript, ignoreBuildErrors: true } }
-
-export default config
-`,
-  )
-  return { copyDir, remove: () => rm(copyDir, { recursive: true, force: true }) }
-}
-
+/** Source maps are excluded: they carry the app's own source, whose `import('genie-react/next')` lines are not shipped code. */
 export async function assertNextProductionExcludesGenie(
-  { processes, appDir, browser, log, knownDefect },
+  { processes, appDir, browser, log },
   { readySelector },
 ) {
-  await knownDefect('KD-10', () =>
-    runToCompletion(
-      'tsc --noEmit',
-      process.execPath,
-      [binary(appDir, 'typescript', 'bin/tsc'), '--noEmit', '-p', '.'],
-      {
-        cwd: appDir,
-        timeoutMs: BUILD_TIMEOUT_MS,
-      },
-    ),
+  await runToCompletion(
+    'tsc --noEmit',
+    process.execPath,
+    [binary(appDir, 'typescript', 'bin/tsc'), '--noEmit', '-p', '.'],
+    { cwd: appDir, timeoutMs: BUILD_TIMEOUT_MS },
   )
-  const { copyDir, remove } = await nextBuildCopy(appDir)
-  try {
-    const next = binary(appDir, 'next', 'dist/bin/next')
-    const env = { NODE_ENV: 'production', NEXT_TELEMETRY_DISABLED: '1' }
-    await runToCompletion('next build', process.execPath, [next, 'build'], {
-      cwd: copyDir,
-      env,
-      timeoutMs: BUILD_TIMEOUT_MS,
-    })
-    const { scanned, hits } = await runtimeMarkers(join(copyDir, '.next/static'))
-    const discovery = await discoverySnapshot(appDir)
-    const port = await freePort()
-    const server = processes.start(
-      'next start',
-      process.execPath,
-      [next, 'start', '--hostname', '127.0.0.1', '--port', String(port)],
-      { cwd: copyDir, env },
-    )
-    const url = `http://127.0.0.1:${port}/`
-    await waitForHttp(server, url)
-    const requests = await assertPageExcludesGenie(browser, url, readySelector)
-    await knownDefect('KD-11', async () => {
-      const files = [...new Set(hits.map((hit) => hit.file))]
-      const served = await Promise.all(
-        files.map(
-          async (file) =>
-            `${file} → HTTP ${(await fetch(new URL(`_next/static/${file}`, url))).status}`,
-        ),
-      )
-      check(
-        hits.length === 0,
-        `the Next production output ships Genie runtime code: ${served.join('; ')}`,
-      )
-    })
-    check(
-      !server.output.includes('[genie]'),
-      'next start logged Genie hub activity',
-      server.output.slice(-2_000),
-    )
-    await assertDiscoveryUntouched(appDir, discovery)
-    check(
-      (await discoverySnapshot(copyDir)) === null,
-      'next start published a Genie hub discovery file',
-    )
-    await processes.stop(server)
-    log(`  ✓ production: ${scanned} client assets scanned; ${requests} requests, none to a hub`)
-  } finally {
-    await remove()
-  }
+  const next = binary(appDir, 'next', 'dist/bin/next')
+  const env = { NODE_ENV: 'production', NEXT_TELEMETRY_DISABLED: '1' }
+  await runToCompletion('next build', process.execPath, [next, 'build'], {
+    cwd: appDir,
+    env,
+    timeoutMs: BUILD_TIMEOUT_MS,
+  })
+  const client = await assertNoRuntimeMarkers(join(appDir, '.next/static'))
+  const server = await assertNoRuntimeMarkers(join(appDir, '.next/server'))
+  const discovery = await discoverySnapshot(appDir)
+  const port = await freePort()
+  const started = processes.start(
+    'next start',
+    process.execPath,
+    [next, 'start', '--hostname', '127.0.0.1', '--port', String(port)],
+    { cwd: appDir, env },
+  )
+  const url = `http://127.0.0.1:${port}/`
+  await waitForHttp(started, url)
+  const requests = await assertPageExcludesGenie(browser, url, readySelector)
+  check(
+    !started.output.includes('[genie]'),
+    'next start logged Genie hub activity',
+    started.output.slice(-2_000),
+  )
+  await processes.stop(started)
+  await assertDiscoveryUntouched(appDir, discovery)
+  log(
+    `  ✓ production: type-checks; ${client} client and ${server} server assets carry no runtime marker; ${requests} requests, none to a hub`,
+  )
 }

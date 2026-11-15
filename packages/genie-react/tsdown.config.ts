@@ -31,6 +31,7 @@ export default defineConfig([
       production: 'src/production.ts',
       script: 'src/script.ts',
       next: 'src/next/index.ts',
+      'next-production': 'src/next/production.ts',
       protocol: 'src/protocol/index.ts',
     },
     platform: 'neutral',

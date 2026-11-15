@@ -13,13 +13,13 @@ It needs `pnpm build` and `pnpm exec playwright install chromium`. Every server 
 ## What each app run checks
 
 1. The dev server and its hub start on free ports, and the discovery file names that hub.
-2. `status --session <name> --wait` reports the opened tab ready, and the app advertises its expected domains.
+2. `status --session <name> --wait` reports the opened tab ready, the app advertises its expected domains, and once the app has rendered its status carries no warnings (a page that failed before React mounted is flagged).
 3. Contract sweep: every advertised tool's `tools <name>` contract is well formed. Every read-only tool is called with its required arguments (live values where the schema has none) and each schema example. A result must match the tool's output outline. A failure must be a typed CLI envelope; `tool_unavailable` passes only with a stated reason. A hang, malformed JSON or an untyped error fails the run.
 4. Ground truth: Playwright drives interactions whose outcome the app source fixes, and the evidence must match an independent oracle (the DOM, `document.title`, the source file's line). Mutating tools run in round trips that restore state and assert the restore.
 5. Coverage: every advertised tool, including tools that appear after navigation, has been called successfully or has a recorded reason for exclusion.
 6. No unexpected page error or console error, with Genie-initiated failed requests attributed through each request's initiator stack.
-7. Stopping the dev server leaves no discovery file.
-8. Production (vite-demo, router-demo, next-demo): the build output carries no Genie runtime marker, and the production page requests nothing from a hub, opens no WebSocket and installs no Genie global or DevTools hook.
+7. Stopping the dev server with SIGTERM leaves neither the discovery file nor its agent-token file.
+8. Production (vite-demo, router-demo, next-demo): next-demo type-checks and builds as shipped; the build output (for Next.js, both `.next/static` and `.next/server`) carries no Genie runtime marker, and the production page requests nothing from a hub, opens no WebSocket and installs no Genie global or DevTools hook.
 
 | App | Hub | Ground truths |
 | --- | --- | --- |
@@ -27,16 +27,11 @@ It needs `pnpm build` and `pnpm exec playwright install chromium`. Every server 
 | `router-demo` | `genie()` Vite plugin | render causes; effect dependency slots; JSX callsites; Query refetch counters; simulated states; Router navigation against the URL; route-scoped app tools; every override kind; error boundary; plugin bus |
 | `demo` | `genie()` under TanStack Start SSR | app name; Query and keyed mutation; render causes by value and by reference; effect runs; cohort of 50 rows filtered to 5; DevTools plugin events; Suspense and error state; every override kind |
 | `plain-demo` | standalone `genie-react hub`, `<script>` tag and manual `createGenieClient` | render causes; both effects; unmount tombstone; esbuild source maps; Suspense lifecycle; every override kind; two tabs with separate sessions |
-| `next-demo` | `registerGenie()` in `instrumentation.ts` | render causes; memo reference-only props; effect cleanup order; JSX callsite (mapped, or a served position that really renders the component); Query against the DOM; Suspense and error state; every override kind |
+| `next-demo` | `registerGenie()` in `instrumentation.ts` | render causes; memo reference-only props; effect cleanup order; a server component's JSX callsite mapped through the Next.js source-map endpoint; Query against the DOM; Suspense and error state; every override kind |
 
 ## Known defects
 
 `scripts/apps-e2e/known-defects.mjs` lists product defects the matrix reproduces on every run, each with severity, expected and actual behaviour, and a repro command. The run prints them loudly and passes only because they are listed. When a fix lands, the probe starts passing and the run fails until the entry, or the app in it, is removed. A defect listed but not reproduced also fails the run, so the list stays accurate and can be driven to empty.
-
-Two workarounds keep apps covered while a defect is open. Each is tied to a defect the run still proves:
-
-- vite-demo starts with `genie-react > @tanstack/react-router` pre-bundled. A preflight run against the unmodified config reproduces KD-1.
-- next-demo's production build runs from a throwaway copy whose config extends the app's own with `typescript.ignoreBuildErrors`, because the app does not type-check in this workspace (KD-10). Type-checking does not change the emitted JavaScript.
 
 ## Not covered
 
