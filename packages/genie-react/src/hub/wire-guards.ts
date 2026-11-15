@@ -26,6 +26,24 @@ export function routerStateOf(result: unknown): Record<string, unknown> | undefi
   return isRecord(result) ? result : undefined
 }
 
+/** Whether the router finished navigating. `isLoading` turns false before stale-while-revalidate loaders and the render transition finish, so it decides only for a runtime that predates `settled`, and `settlement` says so. */
+export function routerSettlement(state: Record<string, unknown>): {
+  settled: boolean
+  observed: Record<string, unknown>
+} {
+  const reported = typeof state.settled === 'boolean'
+  return {
+    settled: reported ? state.settled === true : state.isLoading === false,
+    observed: {
+      pathname: state.pathname ?? null,
+      isLoading: state.isLoading ?? null,
+      settled: reported ? state.settled : null,
+      pendingWork: Array.isArray(state.pendingWork) ? state.pendingWork : null,
+      settlement: reported ? 'router-settled' : 'is-loading-only',
+    },
+  }
+}
+
 export function recordOf(value: unknown): Record<string, unknown> | null {
   return isRecord(value) ? value : null
 }

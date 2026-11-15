@@ -1,9 +1,9 @@
-import { _fiberRoots, type Fiber, getFiberId } from 'bippy'
+import { _fiberRoots, getFiberId } from 'bippy'
 import { MAX_PENDING_WORK_BOUNDARIES, type PendingReactWork } from '../../protocol'
 import { nameOf } from './fiber'
 import { getDocumentCommitId } from './observation'
 import { forcedSuspenseBoundaries } from './overrides'
-import { isSuspenseFiber } from './work-tags'
+import { forEachVisibleSuspenseBoundary } from './suspense-state'
 
 const MAX_SCANNED_FIBERS = 50_000
 
@@ -12,41 +12,32 @@ function pendingLanesOf(root: unknown): number {
   return typeof lanes === 'number' ? lanes : 0
 }
 
-/** Reads the committed tree only: a boundary's fallback is visible in `memoizedState`, a suspended transition only in its root's lanes. */
+/** Reads the committed tree only: a boundary's fallback or unhydrated server HTML is visible in `memoizedState`, a suspended transition only in its root's lanes. */
 export function getPendingReactWork(): PendingReactWork {
   const forced = new Set(forcedSuspenseBoundaries().map(getFiberId))
+  const roots = [..._fiberRoots]
   const boundaries: PendingReactWork['boundaries'] = []
-  let scheduledRoots = 0
   let suspendedBoundaries = 0
-  let scanned = 0
-  let scanTruncated = false
-  for (const root of _fiberRoots) {
-    if (pendingLanesOf(root) !== 0) scheduledRoots += 1
-    const stack: Fiber[] = [root.current]
-    while (stack.length > 0) {
-      const fiber = stack.pop() as Fiber
-      if (++scanned > MAX_SCANNED_FIBERS) {
-        scanTruncated = true
-        break
+  let dehydratedBoundaries = 0
+  const { scanTruncated } = forEachVisibleSuspenseBoundary(
+    roots.map((root) => root.current),
+    MAX_SCANNED_FIBERS,
+    (fiber, state) => {
+      if (state === null) return
+      const boundaryId = getFiberId(fiber)
+      if (forced.has(boundaryId)) return
+      if (state === 'fallback') suspendedBoundaries += 1
+      else dehydratedBoundaries += 1
+      if (boundaries.length < MAX_PENDING_WORK_BOUNDARIES) {
+        boundaries.push({ boundaryId, boundaryName: nameOf(fiber), state })
       }
-      if (isSuspenseFiber(fiber) && fiber.memoizedState != null) {
-        const boundaryId = getFiberId(fiber)
-        if (!forced.has(boundaryId)) {
-          suspendedBoundaries += 1
-          if (boundaries.length < MAX_PENDING_WORK_BOUNDARIES) {
-            boundaries.push({ boundaryId, boundaryName: nameOf(fiber) })
-          }
-        }
-      }
-      if (fiber.sibling) stack.push(fiber.sibling)
-      if (fiber.child) stack.push(fiber.child)
-    }
-    if (scanTruncated) break
-  }
+    },
+  )
   return {
     documentCommitId: getDocumentCommitId(),
-    scheduledRoots,
+    scheduledRoots: roots.filter((root) => pendingLanesOf(root) !== 0).length,
     suspendedBoundaries,
+    dehydratedBoundaries,
     boundaries,
     scanTruncated,
   }

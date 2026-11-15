@@ -56,6 +56,12 @@ as a widget that bundles its own React (Clerk) or a separate `createRoot` island
 the app root. Those roots are listed in `otherRoots` as `{ "rootId", "name" }`, one per root's top
 component; the field is absent when the page has one root.
 
+A node's `kind` is `component`, `host`, or `suspense` for a Suspense boundary. Error boundaries are
+`component` nodes with `errorBoundary: true`. The `boundaryId` that `react_error_state` and the `id`
+that `react_suspense` report are these node ids, so a boundary can be passed to
+`react_inspect_component`, found with `react_find_components` (`"component":"Suspense"`), and read as
+`rootId`.
+
 **Agent use:** Use `rootId` to inspect the returned instance, or raise `depth` or `maxNodes` when
 `omitted` shows that the tree is incomplete. Pass an `otherRoots` entry's `rootId` to read that
 root's tree.
@@ -64,7 +70,7 @@ root's tree.
 
 Reports wrapper ancestry, source roles, ownership, and source-map health for mounted components.
 
-**Input:** `component` is an optional component-name substring. `limit` is an integer from 1 to 500
+**Input:** `component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. `limit` is an integer from 1 to 500
 and defaults to 200. `appOnly` defaults to `false`; `true` keeps only records with resolved app
 ownership.
 
@@ -220,6 +226,13 @@ hook inspector, the same re-render React DevTools runs when you select a compone
 | `exact`       | Every hook carries its custom-hook chain.                                                                 |
 | `partial`     | Hooks with `customHooks: null` were hidden from the inspector (`useEffectEvent`); the rest are exact.     |
 | `unavailable` | The re-render threw or called different hooks than the mounted render, so no hook carries `customHooks`. |
+
+Values past `depth` or the size limits are placeholders with `__genie_dehydrated__: true`, a `kind`,
+a `preview`, and the `path` to re-request. Maps, Sets, Errors, and typed arrays are objects tagged with
+`__type`. An object in the app's own data that has a `__genie_dehydrated__`, `__type`, or `…` key is
+shown as `{"__type":"Object","entries":[[key, value], …]}`, so those keys always mean Genie's encoding.
+`stateIndex` numbers the same hooks in `react_render_causes`, `react_get_renders`, and
+`react_override_hook_state`.
 
 **Agent use:** Use the returned `stateIndex` and current value to decide whether a hook override is
 needed and which nested `path` to change. Use `customHooks` to find the hook to edit: the last entry is

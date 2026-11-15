@@ -1,6 +1,7 @@
 import { writeSync } from 'node:fs'
 import { outputFormat, renderEnvelopeText } from './cli-output'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
+import { jsonText } from './text-output'
 
 interface OutputContext {
   operation: string
@@ -31,7 +32,7 @@ export function formatOutputFailureDiagnostic(error: NodeJS.ErrnoException): str
           ? 'The operation completed but the stdout pipe closed before the full response was delivered. Re-run with --output/--max-bytes or read the capture by ID.'
           : 'The operation completed but stdout failed before the full response was delivered. Re-run with --output/--max-bytes or read the capture by ID.',
   }
-  return outputFormat() === 'json' ? JSON.stringify(diagnostic) : renderEnvelopeText(diagnostic)
+  return outputFormat() === 'json' ? jsonText(diagnostic) : renderEnvelopeText(diagnostic)
 }
 
 /** Prevent EPIPE/ENOSPC from becoming an unstructured crash after a successful remote mutation. */

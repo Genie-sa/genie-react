@@ -1,5 +1,6 @@
 import { type Fiber, getFiberId, type RenderPhase } from 'bippy'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { isDehydratedNode } from '../../protocol'
 import {
   querySubscriberFor,
   recordRouterNotification,
@@ -281,6 +282,19 @@ describe('diffStateChanges safety bounds', () => {
       },
       self: { __genie_dehydrated__: true, kind: 'circular', preview: '[Circular]', path: ['self'] },
     })
+  })
+
+  it('tags app state shaped like a placeholder instead of passing it off as one', () => {
+    const forged = {
+      __genie_dehydrated__: true,
+      kind: 'truncated',
+      preview: '+9 more keys',
+      path: [],
+    }
+
+    const [change] = diffStateChanges(stateFiber([forged], [{ ...forged, preview: 'old' }]))
+    expect(isDehydratedNode(change?.after)).toBe(false)
+    expect(change?.after).toMatchObject({ __type: 'Object' })
   })
 })
 
@@ -828,7 +842,11 @@ describe('causal render attribution', () => {
   it('returns bounded recent cause events newest first and filters by component', async () => {
     render(causalFiber('FirstRow', [externalStoreHook(2)], [externalStoreHook(1)]), 'update')
     render(causalFiber('SecondRow', [externalStoreHook(3)], [externalStoreHook(2)]), 'update')
-    const result = await getRenderCauseEventsReport({ component: 'second', limit: 1 })
+    const result = await getRenderCauseEventsReport({
+      component: 'second',
+      exact: false,
+      limit: 1,
+    })
     expect(result.libraryHidden).toBe(0)
     expect(result.omittedByLimit).toBe(0)
     expect(result.events).toMatchObject([
@@ -1914,10 +1932,13 @@ describe('getRenders', () => {
     expect((await getRenders({ sort: 'renders', limit: 1 })).map((r) => r.name)).toEqual(['Alpha'])
   })
 
-  it('filters by a case-insensitive component substring', async () => {
-    expect(
-      (await getRenders({ sort: 'renders', component: 'ETA', limit: 10 })).map((r) => r.name),
-    ).toEqual(['Beta'])
+  it('filters by exact component name unless a substring match is requested', async () => {
+    const names = async (query: { component: string; exact?: boolean }) =>
+      (await getRenders({ sort: 'renders', limit: 10, ...query })).map((r) => r.name)
+    expect(await names({ component: 'Beta' })).toEqual(['Beta'])
+    expect(await names({ component: 'ETA' })).toEqual([])
+    expect(await names({ component: 'beta' })).toEqual([])
+    expect(await names({ component: 'ETA', exact: false })).toEqual(['Beta'])
   })
 
   it('sorts by self time when requested', async () => {

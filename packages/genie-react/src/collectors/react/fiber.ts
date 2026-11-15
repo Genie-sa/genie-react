@@ -19,6 +19,12 @@ import { dehydrate, isDehydratedNode } from '../../protocol'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 import { getNearestHostFibers } from './bippy-compat'
 import {
+  type ComponentMatch,
+  type ComponentNameSelector,
+  componentNameMatcher,
+  describeComponentMatch,
+} from './component-name'
+import {
   type customHookGroupingSchema,
   type hookEntrySchema,
   type hookKindSchema,
@@ -37,6 +43,7 @@ import {
   sourceProvenanceForSource,
 } from './source'
 import { isGeneratedClass, parseStyleSources, type StyleSourceRef } from './style-provenance'
+import { isClassComponentFiber, isSuspenseFiber } from './work-tags'
 
 type HookEntry = z.infer<typeof hookEntrySchema>
 
@@ -61,7 +68,8 @@ export interface TreeNode {
   parentId: NodeId | null
   name: string
   key: string | null
-  kind: 'component' | 'host'
+  kind: 'component' | 'host' | 'suspense'
+  errorBoundary?: true
   source?: ResolvedSource | null
   isLibrary?: boolean
   ownership?: FiberClassification['ownership']
@@ -81,6 +89,7 @@ export interface TreeResult {
 }
 
 export interface ProvenanceReport {
+  componentMatch?: ComponentMatch
   records: {
     id: NodeId
     name: string
@@ -439,8 +448,40 @@ function fiberKind(fiber: Fiber): string {
     case tags.MemoComponent:
     case tags.SimpleMemoComponent:
       return 'memo'
+    case tags.SuspenseComponent:
+      return 'suspense'
     default:
       return isHostFiber(fiber) ? 'host' : 'other'
+  }
+}
+
+/** Components and Suspense boundaries: the fibers the tree lists and search finds, so every boundaryId react_suspense and react_error_state report is a node. */
+function isTreeEntryFiber(fiber: Fiber): boolean {
+  return isCompositeFiber(fiber) || isSuspenseFiber(fiber)
+}
+
+/** A class component React treats as an error boundary: it defines getDerivedStateFromError or componentDidCatch. */
+export function isErrorBoundaryFiber(fiber: Fiber): boolean {
+  if (!isClassComponentFiber(fiber)) return false
+  const type = fiber.type as { getDerivedStateFromError?: unknown; prototype?: unknown } | null
+  const prototype = type?.prototype as { componentDidCatch?: unknown } | undefined
+  return (
+    typeof type?.getDerivedStateFromError === 'function' ||
+    typeof prototype?.componentDidCatch === 'function'
+  )
+}
+
+function treeNodeFor(fiber: Fiber, id: NodeId, parentId: NodeId | null): TreeNode {
+  const composite = isCompositeFiber(fiber)
+  const wrapperAncestry = composite ? wrapperAncestryOf(fiber) : []
+  return {
+    id,
+    parentId,
+    name: nameOf(fiber),
+    key: fiber.key,
+    kind: composite ? 'component' : isSuspenseFiber(fiber) ? 'suspense' : 'host',
+    ...(isErrorBoundaryFiber(fiber) ? { errorBoundary: true as const } : {}),
+    ...(wrapperAncestry.length > 0 ? { wrapperAncestry } : {}),
   }
 }
 
@@ -521,7 +562,7 @@ export async function buildTree(
     let counted = 0
     let child: Fiber | null = fiber.child
     while (child) {
-      if (isCompositeFiber(child) || (options.includeHost && isHostFiber(child))) {
+      if (isTreeEntryFiber(child) || (options.includeHost && isHostFiber(child))) {
         total += 1
         counted += 1
       }
@@ -541,27 +582,14 @@ export async function buildTree(
   const visit = (fiber: Fiber, parentId: NodeId | null, depth: number): void => {
     let child: Fiber | null = fiber.child
     while (child) {
-      const composite = isCompositeFiber(child)
-      const keep = composite || (options.includeHost && isHostFiber(child))
+      const keep = isTreeEntryFiber(child) || (options.includeHost && isHostFiber(child))
       if (keep) {
         total += 1
         if (entries.length >= candidateLimit) {
           omittedByMaxNodes += 1 + countOnly(child)
         } else {
           const id = registerFiber(child)
-          entries.push({
-            node: {
-              id,
-              parentId,
-              name: nameOf(child),
-              key: child.key,
-              kind: composite ? 'component' : 'host',
-              ...(composite && wrapperAncestryOf(child).length > 0
-                ? { wrapperAncestry: wrapperAncestryOf(child) }
-                : {}),
-            },
-            fiber: child,
-          })
+          entries.push({ node: treeNodeFor(child, id, parentId), fiber: child })
           if (depth > 0) visit(child, id, depth - 1)
           else clipAtDepth(entries[entries.length - 1]?.node, child)
         }
@@ -574,21 +602,8 @@ export async function buildTree(
 
   if (options.includeRoot) {
     const id = registerFiber(root)
-    const composite = isCompositeFiber(root)
     total += 1
-    entries.push({
-      node: {
-        id,
-        parentId: null,
-        name: nameOf(root),
-        key: root.key,
-        kind: composite ? 'component' : 'host',
-        ...(composite && wrapperAncestryOf(root).length > 0
-          ? { wrapperAncestry: wrapperAncestryOf(root) }
-          : {}),
-      },
-      fiber: root,
-    })
+    entries.push({ node: treeNodeFor(root, id, null), fiber: root })
     if (options.depth > 0) visit(root, id, options.depth - 1)
     else clipAtDepth(entries[0]?.node, root)
   } else {
@@ -639,12 +654,13 @@ const PROVENANCE_SCAN_LIMIT = 5_000
 
 export async function buildProvenanceReport(
   roots: readonly Fiber[],
-  options: { component?: string; limit: number; appOnly: boolean },
+  options: ComponentNameSelector & { limit: number; appOnly: boolean },
 ): Promise<ProvenanceReport> {
   const candidates: Fiber[] = []
   let scanned = 0
   let scanTruncated = false
-  const needle = options.component?.toLowerCase()
+  const named = componentNameMatcher(options)
+  const seenNames = new Set<string>()
   const stack: Fiber[] = [...roots].reverse()
   while (stack.length > 0) {
     const fiber = stack.pop()
@@ -657,7 +673,8 @@ export async function buildProvenanceReport(
     if (fiber.child) stack.push(fiber.child)
     if (!isCompositeFiber(fiber)) continue
     const name = nameOf(fiber)
-    if (needle && !name.toLowerCase().includes(needle)) continue
+    if (options.component !== undefined) seenNames.add(name)
+    if (!named(name)) continue
     scanned += 1
     candidates.push(fiber)
   }
@@ -695,7 +712,9 @@ export async function buildProvenanceReport(
       : unresolved > 0 || sourceMaps.served > 0 || partial
         ? 'degraded'
         : 'healthy'
+  const componentMatch = describeComponentMatch(options, seenNames)
   return {
+    ...(componentMatch === undefined ? {} : { componentMatch }),
     records,
     summary: {
       scanned,
@@ -793,7 +812,7 @@ export function findByName(root: Fiber, query: string, exact: boolean, limit: nu
     let child: Fiber | null = fiber.child
     while (child) {
       if (matches.length >= limit) return
-      if (isCompositeFiber(child)) {
+      if (isTreeEntryFiber(child)) {
         const name = nameOf(child)
         const hit = exact ? name === query : name.toLowerCase().includes(needle)
         if (hit)
@@ -878,9 +897,13 @@ const isBasicStateReducer = (queue: { lastRenderedReducer?: unknown }): boolean 
   return typeof reducer === 'function' && reducer.name === 'basicStateReducer'
 }
 
-// useOptimistic's queue carries a null reducer and useActionState's action slot has no reducer at all: neither is state an override can drive.
+// useActionState's action slot has no reducer at all: it is not state an override can drive.
 const hasReducer = (queue: { lastRenderedReducer?: unknown }): boolean =>
   typeof queue.lastRenderedReducer === 'function'
+
+// useOptimistic's queue holds a null reducer after mount but the app's reducer, or React's basic one, after every update, so only its bound dispatcher tells it from useState and useReducer.
+const isOptimisticQueue = (queue: { dispatch: unknown }): boolean =>
+  typeof queue.dispatch === 'function' && queue.dispatch.name.endsWith('dispatchOptimisticSetState')
 
 // A single-key { current } object is the useRef signature; useMemo/useCallback store [value, deps] arrays, checked before this so they don't fall through to ref.
 const isRefState = (v: unknown): boolean =>
@@ -903,7 +926,7 @@ export function isStatefulHook(hook: MemoizedState): boolean {
 /** Structurally classify a hook from its runtime shape (React 18/19). Never throws — unknown shapes fall to 'other'. */
 export function classifyHook(hook: MemoizedState): HookKind {
   if (hasDispatchQueue(hook)) {
-    if (!hasReducer(hook.queue)) return 'other'
+    if (!hasReducer(hook.queue) || isOptimisticQueue(hook.queue)) return 'other'
     return isBasicStateReducer(hook.queue) ? 'state' : 'reducer'
   }
   const ms = hook.memoizedState
