@@ -57,7 +57,8 @@ interface StateRenderChangeBase {
 export interface HookStateRenderChange extends StateRenderChangeBase {
   hook: {
     index: number
-    stateIndex: number
+    /** Null for state React keeps inside useTransition and useActionState, which has no ordinal react_override_hook_state accepts. */
+    stateIndex: number | null
     kind: 'state' | 'reducer'
   }
 }
@@ -252,28 +253,28 @@ export function diffStateChanges(
     if (!scanInputEvidence(evidence, 'state')) break
     const currentStateful = isStateQueueHook(cur)
     const previousStateful = isStateQueueHook(alt)
+    const ordinal = isStatefulHook(cur) ? stateIndex : null
+    if (ordinal !== null) stateIndex += 1
     if (currentStateful || previousStateful) {
       if (!Object.is(cur.memoizedState, alt.memoizedState)) {
         if (!retainInputEvidence(evidence)) {
           cur = cur.next
           alt = alt.next
           index += 1
-          stateIndex += 1
           continue
         }
         const classified = classifyHook(currentStateful ? cur : alt)
         const kind = classified === 'reducer' ? 'reducer' : 'state'
         changes.push({
-          name: `${kind}[${stateIndex}]`,
+          name: ordinal === null ? `hook[${index}]` : `${kind}[${ordinal}]`,
           kind: 'state',
           unstable: false,
-          hook: { index, stateIndex, kind },
+          hook: { index, stateIndex: ordinal, kind },
           before: stateValue(alt.memoizedState, evidence, STATE_PLAIN_OBJECT_DEPTH),
           after: stateValue(cur.memoizedState, evidence, STATE_PLAIN_OBJECT_DEPTH),
           deepDiff: diffStateWithBudget(alt.memoizedState, cur.memoizedState, evidence),
         })
       }
-      stateIndex += 1
     }
     cur = cur.next
     alt = alt.next

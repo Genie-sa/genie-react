@@ -8,6 +8,12 @@ import { isKnownProxy } from '../causal/proxy-tagging'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 import { safeStructuredClone } from '../structured-clone'
 import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
+import {
+  type ComponentMatch,
+  type ComponentNameSelector,
+  componentNameMatcher,
+  describeComponentMatch,
+} from './component-name'
 import { nameOf } from './fiber'
 import { type InstanceDescriptor, instanceForMountedFiber } from './instance-identity'
 import {
@@ -648,11 +654,10 @@ function errorMessage(error: unknown): string {
     : 'a thrown object without a readable message'
 }
 
-export function getEffectScheduleEvents(query: {
-  component?: string
-  afterDocumentCommitId?: number
-  limit: number
-}): {
+export function getEffectScheduleEvents(
+  query: ComponentNameSelector & { afterDocumentCommitId?: number; limit: number },
+): {
+  componentMatch: ComponentMatch | undefined
   observation: ObservationWindow | null
   events: EffectScheduleEvent[]
   omittedByLimit: number
@@ -660,16 +665,19 @@ export function getEffectScheduleEvents(query: {
   droppedEvents: number
   refreshCommitsExcluded: number
 } {
-  const needle = query.component?.toLowerCase()
-  const matching = events
-    .filter(
-      (event) =>
-        query.afterDocumentCommitId === undefined ||
-        event.documentCommitId > query.afterDocumentCommitId,
-    )
-    .filter((event) => !needle || event.componentName.toLowerCase().includes(needle))
+  const named = componentNameMatcher(query)
+  const inRange = events.filter(
+    (event) =>
+      query.afterDocumentCommitId === undefined ||
+      event.documentCommitId > query.afterDocumentCommitId,
+  )
+  const matching = inRange.filter((event) => named(event.componentName))
   const selected = matching.slice(-query.limit).reverse()
   return {
+    componentMatch: describeComponentMatch(
+      query,
+      inRange.map((event) => event.componentName),
+    ),
     observation: getActiveObservation(),
     events: selected,
     omittedByLimit: Math.max(0, matching.length - query.limit),
@@ -708,12 +716,13 @@ export function changedDependencySlots(
   return { slots, omitted, unscanned: Math.max(0, length - scanned) }
 }
 
-export async function getEffectScheduleEventsWithOwnership(query: {
-  component?: string
-  afterDocumentCommitId?: number
-  limit: number
-  appOnly?: boolean
-}) {
+export async function getEffectScheduleEventsWithOwnership(
+  query: ComponentNameSelector & {
+    afterDocumentCommitId?: number
+    limit: number
+    appOnly?: boolean
+  },
+) {
   const report = getEffectScheduleEvents({ ...query, limit: EFFECT_EVENT_LIMIT })
   const fibers = report.events.map((event) => eventFibers.get(event))
   const captured = safeStructuredClone(report)

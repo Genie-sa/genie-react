@@ -1,6 +1,6 @@
 import { GENIE_CLIENT_PATH, GENIE_DEFAULT_HUB_PORT } from 'genie-react/protocol'
 import { conflictRemedy, SKILL_PATH_CONFLICT } from './agent-skill'
-import { writeJson } from './cli-output'
+import { writeEnvelope } from './cli-output'
 import { type InitOptions, initNextCommands, type RootRouteOutcome, runInit } from './index'
 import { genieCommand, packageManagerCommands } from './package-manager'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
@@ -81,7 +81,7 @@ export function runInitCommand(options: InitCommandOptions = {}): number {
           ? { placement: `${conflictRemedy(path)}, then rerun init` }
           : {}),
       }))
-    writeJson(
+    writeEnvelope(
       {
         schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: result.ok ? 'ok' : 'action_required',
@@ -117,7 +117,7 @@ export function runInitCommand(options: InitCommandOptions = {}): number {
     )
     return result.ok ? 0 : 1
   } catch {
-    writeJson(
+    writeEnvelope(
       {
         schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
         status: 'error',

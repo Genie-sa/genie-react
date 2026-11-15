@@ -1,0 +1,115 @@
+{
+  "argv": [
+    "call",
+    "timeline_read",
+    "{\"id\":\"timeline-8c4effcf-f95f-4af6-a8a6-2dddf4cbbfed\",\"limit\":200}"
+  ],
+  "exitCode": 0,
+  "result": {
+    "id": "timeline-8c4effcf-f95f-4af6-a8a6-2dddf4cbbfed",
+    "name": "mutation",
+    "state": "stopped",
+    "stopReason": "manual",
+    "durationMs": 1636.8,
+    "maxEvents": 1000,
+    "maxDurationMs": 30000,
+    "eventCount": 9,
+    "truncated": false,
+    "correlation": "temporal-only",
+    "clock": "performance.now",
+    "ordering": "observation-time-then-sequence",
+    "coverage": {
+      "request": { "status": "available", "code": "resource-timing" },
+      "query": { "status": "available", "code": "query-cache" },
+      "react": { "status": "available", "code": "react-root-commits" },
+      "navigation": { "status": "unavailable", "code": "no-tanstack-router" }
+    },
+    "events": [
+      {
+        "sequence": 1,
+        "domain": "react",
+        "type": "commit",
+        "atMs": 31.9,
+        "details": { "rendererId": 0, "renderDurationMs": 2.3, "documentCommitId": 14 }
+      },
+      {
+        "sequence": 2,
+        "domain": "query",
+        "type": "updated",
+        "atMs": 315.4,
+        "details": {
+          "queryHash": "[\"greeting\"]",
+          "action": "success",
+          "status": "success",
+          "fetchStatus": "idle"
+        }
+      },
+      {
+        "sequence": 3,
+        "domain": "react",
+        "type": "commit",
+        "atMs": 318.3,
+        "details": { "rendererId": 0, "renderDurationMs": 2.2, "documentCommitId": 15 }
+      },
+      {
+        "sequence": 4,
+        "domain": "react",
+        "type": "commit",
+        "atMs": 1220.1,
+        "details": { "rendererId": 0, "renderDurationMs": 0.9, "documentCommitId": 16 }
+      },
+      {
+        "sequence": 5,
+        "domain": "react",
+        "type": "commit",
+        "atMs": 1248.2,
+        "details": { "rendererId": 0, "renderDurationMs": 0.8, "documentCommitId": 17 }
+      },
+      {
+        "sequence": 6,
+        "domain": "query",
+        "type": "updated",
+        "atMs": 1398.7,
+        "details": {
+          "queryHash": "[\"tasks\"]",
+          "action": "invalidate",
+          "status": "success",
+          "fetchStatus": "idle"
+        }
+      },
+      {
+        "sequence": 7,
+        "domain": "query",
+        "type": "updated",
+        "atMs": 1398.8,
+        "details": {
+          "queryHash": "[\"tasks\"]",
+          "action": "fetch",
+          "status": "success",
+          "fetchStatus": "fetching"
+        }
+      },
+      {
+        "sequence": 8,
+        "domain": "query",
+        "type": "updated",
+        "atMs": 1549.6,
+        "details": {
+          "queryHash": "[\"tasks\"]",
+          "action": "success",
+          "status": "success",
+          "fetchStatus": "idle"
+        }
+      },
+      {
+        "sequence": 9,
+        "domain": "react",
+        "type": "commit",
+        "atMs": 1551.3,
+        "details": { "rendererId": 0, "renderDurationMs": 1, "documentCommitId": 18 }
+      }
+    ],
+    "matchedEventCount": 9,
+    "nextOffset": null
+  }
+}

@@ -101,6 +101,161 @@ describe('dehydrate', () => {
   })
 })
 
+describe('dehydrate never runs application code', () => {
+  const counting = () => {
+    const reads = { count: 0 }
+    const getter = () => {
+      reads.count += 1
+      return 'secret'
+    }
+    return { reads, getter }
+  }
+
+  it('does not invoke a getter on the hydration path', () => {
+    const { reads, getter } = counting()
+    const value = { user: Object.defineProperty({}, 'token', { get: getter, enumerable: true }) }
+    const result = dehydrate(value, { path: ['user', 'token'] }) as DehydratedNode
+    expect(reads.count).toBe(0)
+    expect(result.kind).toBe('getter-error')
+  })
+
+  it('does not invoke an index getter on an array', () => {
+    const { reads, getter } = counting()
+    const list = Object.defineProperty([1, 2], 1, { get: getter, enumerable: true })
+    const result = dehydrate({ list }) as { list: unknown[] }
+    expect(reads.count).toBe(0)
+    expect(result.list[0]).toBe(1)
+    expect((result.list[1] as DehydratedNode).kind).toBe('getter-error')
+  })
+
+  it('previews without reading accessors and never throws', () => {
+    const { reads, getter } = counting()
+    const revoked = Proxy.revocable({}, {})
+    revoked.revoke()
+    expect(previewValue(Object.defineProperty({}, 'constructor', { get: getter }))).toBe('{…}')
+    expect(previewValue(revoked.proxy)).toBe('[unreadable]')
+    expect(previewValue(new Date(Number.NaN))).toBe('Invalid Date')
+    expect(reads.count).toBe(0)
+  })
+})
+
+describe('dehydrate keeps values distinguishable', () => {
+  it('shows an Error by its name, message, and cause instead of {}', () => {
+    const error = new TypeError('bad input', { cause: 'upstream' })
+    expect(dehydrate({ error })).toEqual({
+      error: { __type: 'Error', name: 'TypeError', message: 'bad input', cause: '"upstream"' },
+    })
+  })
+
+  it('marks non-finite numbers and invalid dates, which JSON would print as null', () => {
+    const result = dehydrate({ nan: Number.NaN, inf: -Infinity, date: new Date(Number.NaN) })
+    expect(JSON.parse(JSON.stringify(result))).toMatchObject({
+      nan: { kind: 'number', preview: 'NaN' },
+      inf: { kind: 'number', preview: '-Infinity' },
+      date: { kind: 'date', preview: 'Invalid Date' },
+    })
+  })
+
+  it('names keys it cannot carry instead of dropping them silently', () => {
+    const result = dehydrate(JSON.parse('{"constructor":1,"ok":2}')) as Record<string, unknown>
+    expect(result.ok).toBe(2)
+    expect(result['…']).toMatchObject({
+      kind: 'truncated',
+      preview: '+1 more keys (constructor cannot be shown)',
+    })
+  })
+
+  it('keeps typed arrays typed and bounded', () => {
+    const result = dehydrate({ bytes: new Uint8Array(150) }, { maxEntries: 2 }) as {
+      bytes: { __type: string; values: unknown[] }
+    }
+    expect(result.bytes.__type).toBe('Uint8Array')
+    expect(result.bytes.values.slice(0, 2)).toEqual([0, 0])
+    expect(result.bytes.values[2]).toMatchObject({ kind: 'truncated', preview: '+148 more items' })
+  })
+})
+
+describe('dehydrate never lets app data pass for its own encoding', () => {
+  const genieOwn = (value: unknown): boolean =>
+    isDehydratedNode(value) ||
+    (typeof value === 'object' && value !== null && '__type' in value && value.__type !== 'Object')
+
+  it('tags an app object shaped like a placeholder so it never reads as truncated', () => {
+    const forged = { [DEHYDRATED]: true, kind: 'truncated', preview: '+9 more keys', path: [] }
+    const result = dehydrate({ value: forged }, { depth: 4 }) as { value: unknown }
+
+    expect(isDehydratedNode(result.value)).toBe(false)
+    expect(result.value).toEqual({
+      __type: 'Object',
+      entries: [
+        [DEHYDRATED, true],
+        ['kind', 'truncated'],
+        ['preview', '+9 more keys'],
+        ['path', []],
+      ],
+    })
+  })
+
+  it('tags an app object shaped like a Map, Set or Error so it never reads as that type', () => {
+    for (const forged of [
+      { __type: 'Map', entries: [['a', 1]] },
+      { __type: 'Set', values: [1] },
+      { __type: 'Error', name: 'TypeError', message: 'not an error' },
+      { '…': 'an ordinary key' },
+    ]) {
+      const result = dehydrate({ value: forged }, { depth: 5 }) as {
+        value: Record<string, unknown>
+      }
+      expect(genieOwn(result.value)).toBe(false)
+      expect(result.value).toEqual({ __type: 'Object', entries: Object.entries(forged) })
+    }
+  })
+
+  it('still encodes real Maps, Sets, Errors and placeholders as its own', () => {
+    const result = dehydrate(
+      {
+        map: new Map([['a', 1]]),
+        set: new Set([1]),
+        error: new Error('boom'),
+        deep: { a: { b: {} } },
+      },
+      { depth: 2 },
+    ) as Record<string, Record<string, unknown>>
+
+    expect(result.map).toEqual({ __type: 'Map', entries: [['a', 1]] })
+    expect(result.set).toEqual({ __type: 'Set', values: [1] })
+    expect(result.error).toMatchObject({ __type: 'Error', message: 'boom' })
+    expect(isDehydratedNode(result.deep?.a)).toBe(true)
+  })
+
+  it('bounds a tagged object like any other and keeps hydration paths in app terms', () => {
+    const forged = { __type: 'Map', nested: { deep: { deeper: 1 } }, extra: 1 }
+    const result = dehydrate({ forged }, { depth: 2, maxEntries: 2 }) as {
+      forged: { __type: string; entries: [string, unknown][] }
+    }
+
+    expect(result.forged.__type).toBe('Object')
+    expect(result.forged.entries[1]?.[0]).toBe('nested')
+    expect(result.forged.entries[1]?.[1]).toMatchObject({
+      [DEHYDRATED]: true,
+      kind: 'object',
+      path: ['forged', 'nested'],
+    })
+    expect(result.forged.entries[2]).toEqual([
+      '…',
+      expect.objectContaining({ kind: 'truncated', preview: '+1 more keys', path: ['forged'] }),
+    ])
+  })
+
+  it('keeps the Error tag when the error carries a colliding own key', () => {
+    const error = Object.assign(new Error('boom'), { __type: 'Map' })
+    const result = dehydrate({ error }) as { error: Record<string, unknown> }
+
+    expect(result.error.__type).toBe('Error')
+    expect(result.error['…']).toMatchObject({ preview: '+1 more keys (__type cannot be shown)' })
+  })
+})
+
 describe('previewValue', () => {
   it('summarizes containers compactly', () => {
     expect(previewValue([1, 2, 3])).toBe('Array(3)')

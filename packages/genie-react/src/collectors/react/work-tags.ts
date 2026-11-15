@@ -27,6 +27,27 @@ export const ownsEffectList = (fiber: Fiber): boolean => {
   )
 }
 
+/** Fibers React skips on equal props whatever their parent does: memo without a comparator and PureComponent without shouldComponentUpdate. A custom comparator can still re-render with its parent. */
+export const comparesPropsShallowly = (fiber: Fiber): boolean => {
+  const tags = getReactWorkTagsForFiber(fiber)
+  if (fiber.tag === tags.SimpleMemoComponent) return true
+  try {
+    if (fiber.tag === tags.MemoComponent) {
+      return (fiber.elementType as { compare?: unknown } | null)?.compare == null
+    }
+    if (fiber.tag !== tags.ClassComponent) return false
+    const prototype: unknown = (fiber.type as { prototype?: unknown } | null)?.prototype
+    if (typeof prototype !== 'object' || prototype === null) return false
+    const { isPureReactComponent, shouldComponentUpdate } = prototype as {
+      isPureReactComponent?: unknown
+      shouldComponentUpdate?: unknown
+    }
+    return isPureReactComponent === true && typeof shouldComponentUpdate !== 'function'
+  } catch {
+    return false
+  }
+}
+
 /** Fibers React skips on shallow-equal props: memo wrappers and classes that are pure or define shouldComponentUpdate. */
 export const canBailOutOnProps = (fiber: Fiber): boolean => {
   const tags = getReactWorkTagsForFiber(fiber)

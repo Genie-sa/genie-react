@@ -1,0 +1,3470 @@
+{
+  "argv": ["tools", "--all"],
+  "exitCode": 0,
+  "result": {
+    "app": {
+      "name": "vite-demo",
+      "url": "http://127.0.0.1:52053/?_genie=measure",
+      "reactVersion": "19.2.7"
+    },
+    "tools": [
+      {
+        "name": "react_get_tree",
+        "title": "React component tree",
+        "description": "Get the live React component tree as a flat node list (id, parentId, name, key, kind). Reconstruct the hierarchy from parentId; pass node ids to react_inspect_component. For a dense tree, pass a returned node id as rootId to read that component and its descendants without dumping unrelated branches. Framework wrappers can be deep, so raise `depth` if your own components do not appear and `truncatedBy` is \"depth\". `otherRoots` lists separate React roots (widgets bundling their own React, createRoot islands); pass one's rootId to read it. Arguments: depth: minimum 1, maximum 80; maxNodes: minimum 1, maximum 2000.",
+        "group": "react.tree",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "rootId": {
+              "description": "Read only this mounted component/host node and its descendants. The selected node is included with parentId:null. Omit for the full root.",
+              "type": "integer"
+            },
+            "depth": { "default": 30, "type": "integer", "minimum": 1, "maximum": 80 },
+            "includeHost": {
+              "default": false,
+              "description": "Include host (DOM) elements, not just components.",
+              "type": "boolean"
+            },
+            "maxNodes": { "default": 400, "type": "integer", "minimum": 1, "maximum": 2000 },
+            "appOnly": {
+              "default": true,
+              "description": "Include only proven app ownership when true; library and unknown ownership are excluded with coverage. False includes all ownership classes.",
+              "type": "boolean"
+            }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ownershipCoverage?": "object",
+            "rootId": "number | null",
+            "nodes": "array<object>",
+            "otherRoots?": "array<object>",
+            "total": "number",
+            "truncated": "boolean",
+            "truncatedBy": "\"depth\" | \"maxNodes\" | null",
+            "filteredNote?": "string"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_get_tree --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_get_tree",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_provenance",
+        "title": "React provenance health",
+        "description": "Scan a bounded set of mounted components and report recursive wrapper ancestry, app/library/unknown ownership, split source roles, source-map confidence, and explicit failure reasons. This diagnostic never promotes an ambiguous fallback to a definition or allocation callsite. Arguments: limit: minimum 1, maximum 500.",
+        "group": "react.tree",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "component": { "type": "string" },
+            "limit": { "default": 200, "type": "integer", "minimum": 1, "maximum": 500 },
+            "appOnly": {
+              "default": false,
+              "description": "When true, include only components with resolved app ownership.",
+              "type": "boolean"
+            }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "records": "array<object>",
+            "summary": "object",
+            "hiddenByOwnership": "integer",
+            "omittedByLimit": "integer",
+            "truncated": "boolean"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_provenance --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_provenance",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_find_components",
+        "title": "Find React components",
+        "description": "Find mounted components by display name (substring match, or exact) across every live React root, including widgets that bundle their own React. Each match carries its id, ancestor path, kind, a shallow (depth-1) props preview, source file:line, and whether it is a library component — enough to pick the right one and often to act without a follow-up react_inspect_component call. Deepen a nested prop with react_inspect_component + `path`. Arguments: component: minimum characters 1; query: minimum characters 1; limit: minimum 1, maximum 200.",
+        "group": "react.tree",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "component": {
+              "description": "Canonical component display-name selector.",
+              "type": "string",
+              "minLength": 1
+            },
+            "query": {
+              "description": "Deprecated alias for component. Provide component or query; both must agree.",
+              "type": "string",
+              "minLength": 1
+            },
+            "exact": { "default": false, "type": "boolean" },
+            "limit": { "default": 50, "type": "integer", "minimum": 1, "maximum": 200 },
+            "appOnly": {
+              "default": false,
+              "description": "Include only proven app ownership when true; library and unknown ownership are excluded with coverage. False includes all ownership classes.",
+              "type": "boolean"
+            }
+          },
+          "examples": [{ "component": "App" }]
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ownershipCoverage": "object",
+            "omittedByLimit": "integer",
+            "scanTruncated": "boolean",
+            "matches": "array<object>"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_find_components --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_find_components",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_inspect_component",
+        "title": "Inspect a React component",
+        "description": "Inspect a component by id: its props, plus state (class components) or hooks (function components), depth-bounded. Each hook reports its `kind` (state/reducer/effect/layout-effect/memo/callback/ref/other), whether it is `stateful`, for stateful hooks a `stateIndex` — the ordinal you pass to react_override_hook_state instead of counting flat hook positions past library hooks — and `customHooks`, the custom-hook chain that called it (e.g. [\"useCart\",\"useQuery\"]), so you can tell which hook to edit. Functions appear as their `ƒ name()` preview string. Pass `path` to hydrate deeper into a nested prop value. Arguments: depth: minimum 1, maximum 6.",
+        "group": "react.inspect",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": { "type": "integer" },
+            "path": {
+              "description": "Path into props to hydrate deeper, e.g. [\"user\",\"address\"].",
+              "type": "array",
+              "items": { "anyOf": [{ "type": "string" }, { "type": "number" }] }
+            },
+            "depth": { "default": 2, "type": "integer", "minimum": 1, "maximum": 6 }
+          },
+          "required": ["id"]
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "id": "number",
+            "name": "string",
+            "kind": "string",
+            "props": "any",
+            "state?": "any",
+            "hooks": "array<object>",
+            "customHookGrouping?": "\"exact\" | \"partial\" | \"unavailable\"",
+            "wrapperAncestry": "array<object>"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_inspect_component --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_inspect_component",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_override_props",
+        "title": "Override component props (dev)",
+        "description": "Live-edit a mounted component's props by id (dev only): merges the given partial props and triggers a re-render. Useful for testing UI states.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": { "type": "integer" },
+            "props": {
+              "type": "object",
+              "propertyNames": { "type": "string" },
+              "additionalProperties": {}
+            }
+          },
+          "required": ["id", "props"]
+        },
+        "annotations": { "destructiveHint": true, "idempotentHint": false },
+        "output": {
+          "kind": "outline",
+          "fields": { "ok": "boolean" },
+          "next": {
+            "command": "pnpm exec genie-react tools react_override_props --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_override_props",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_override_hook_state",
+        "title": "Override hook state (dev)",
+        "description": "Set a stateful hook's value and re-render — drive a function component into any state (a wizard step, an open modal, an invalid form) without a multi-step UI script. Target the hook with EXACTLY ONE of: `stateIndex` (the 0-based ordinal among only the stateful useState/useReducer hooks — the `stateIndex` react_inspect_component prints on each stateful hook, robust to library hooks shifting flat positions) or `hookIndex` (the raw flat index over ALL hooks). Prefer stateIndex. Only stateful hooks can be overridden; a failed call lists the stateful hooks (flat index, stateIndex, kind, value preview) so you can retry. `path` targets a nested field of the value (e.g. [\"filters\",\"page\"]); omit it to replace the whole value. The component's own next setState takes back control; use react_reset_overrides to clear all overrides at once. Arguments: hookIndex: minimum 0, maximum 99; stateIndex: minimum 0, maximum 99.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": { "type": "integer" },
+            "hookIndex": {
+              "description": "Raw flat hook index over all hooks. Provide this OR stateIndex, not both.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 99
+            },
+            "stateIndex": {
+              "description": "Preferred. 0-based ordinal among only the stateful hooks, as react_inspect_component reports. Provide this OR hookIndex, not both.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 99
+            },
+            "path": {
+              "default": [],
+              "description": "Path into the hook value; empty replaces the whole value.",
+              "type": "array",
+              "items": { "anyOf": [{ "type": "string" }, { "type": "number" }] }
+            },
+            "value": {}
+          },
+          "required": ["id", "value"],
+          "examples": [{ "id": 1, "stateIndex": 0, "value": null }]
+        },
+        "annotations": { "destructiveHint": true, "idempotentHint": false },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ok": "boolean",
+            "name": "string",
+            "hookIndex": "number",
+            "stateIndex": "number | null",
+            "commitObserved": "boolean | null",
+            "warning?": "string"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_override_hook_state --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_override_hook_state",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_override_context",
+        "title": "Override a context value (dev)",
+        "description": "Override a React Context for a whole subtree by editing the nearest Provider's `value` above a component — test a different theme/locale/flag without touching code. Pass the id of a component that consumes the context (react_inspect_context lists them; `context` picks one by name when it consumes several) or a Provider id directly. A plain-object `value` shallow-merges into the current value; any other value replaces it. Reverts when the Provider's parent re-renders — same lifetime as react_override_props. A context running on its default value (no Provider mounted) cannot be overridden.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": { "type": "integer" },
+            "context": {
+              "description": "Context displayName, from react_inspect_context — required when several are consumed.",
+              "type": "string"
+            },
+            "value": {}
+          },
+          "required": ["id", "value"]
+        },
+        "annotations": { "destructiveHint": true, "idempotentHint": false },
+        "output": {
+          "kind": "outline",
+          "fields": { "ok": "boolean", "providerId": "number", "contextName": "string" },
+          "next": {
+            "command": "pnpm exec genie-react tools react_override_context --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_override_context",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_toggle_suspense_fallback",
+        "title": "Force a Suspense fallback (dev)",
+        "description": "Hold the nearest Suspense boundary at/above a component in its fallback (loading) state, or release it — a state normally visible for milliseconds becomes one you can inspect and screenshot to verify loading UI. Pass any component id inside the boundary, or a boundaryId from react_error_state. Persists until released with showFallback:false or a page reload. react_list_overrides shows every active override; react_reset_overrides releases them all at once (works even if this id no longer resolves).",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": { "type": "integer" },
+            "showFallback": { "default": true, "type": "boolean" }
+          },
+          "required": ["id"]
+        },
+        "annotations": { "destructiveHint": true, "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ok": "boolean",
+            "boundaryId": "number",
+            "showingFallback": "boolean",
+            "activeOverrides": "number"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_toggle_suspense_fallback --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_toggle_suspense_fallback",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_force_error_boundary",
+        "title": "Force an error boundary (dev)",
+        "description": "Make the nearest error boundary at/above a component catch a simulated error, or release it — verify error UI renders and that the intended boundary contains the failure, without manufacturing a real crash. Pass any component id inside the boundary. Release with the returned boundaryId and forceError:false — the original child id unmounts while the boundary is erroring, so its id may no longer resolve on release; if you get \"Component N not found\", call react_reset_overrides, which clears forced errors from module state without needing the id. Caveat: if the BOUNDARY itself re-mounted while forced (React Native RedBox flows do this), the new instance stays latched in its error state after reset — reload the app to restore the UI. react_list_overrides shows what is currently forced.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": { "type": "integer" },
+            "forceError": { "default": true, "type": "boolean" }
+          },
+          "required": ["id"]
+        },
+        "annotations": { "destructiveHint": true, "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ok": "boolean",
+            "boundaryId": "number",
+            "boundaryName": "string",
+            "erroring": "boolean",
+            "activeOverrides": "number"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_force_error_boundary --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_force_error_boundary",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_list_overrides",
+        "title": "List active overrides (dev)",
+        "description": "List every live override genie has applied and not yet reset — props, hook state, context, forced Suspense fallbacks, and forced error boundaries — with the target component, a human-readable detail (e.g. `title=\"GENIE OVERRIDE\" (was \"Activities\")`, `hook 12 ← true`, `fallback forced`), and whether that target is still mounted. componentId is the live id when the target is still findable from the current root, else null with mounted:false (its subtree may have re-mounted with new ids). Use before react_reset_overrides to see what will be cleared.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {}
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "overrides": "array<object>", "total": "number" },
+          "next": {
+            "command": "pnpm exec genie-react tools react_list_overrides --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_list_overrides",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_reset_overrides",
+        "title": "Reset all overrides (dev)",
+        "description": "Clear every override at once and return the app to its real state — the universal release and the recovery path when a forced-error/suspense boundary left the app stuck and the original id no longer resolves (react_force_error_boundary / react_toggle_suspense_fallback release by id, this does not need one). props, context, and hook overrides restore their captured pre-override value when the target is still mounted (\"restored\"); a hook target that unmounted or lost its renderer is \"released\" instead — the overridden value stays until the component's own next setState. Forced Suspense/error boundaries are released and re-rendered from module state even if unmounted. Each cleared override reports its outcome.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {}
+        },
+        "annotations": { "destructiveHint": true, "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ok": "true",
+            "cleared": "array<object>",
+            "remaining": "number",
+            "commitObserved?": "boolean | null"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_reset_overrides --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_reset_overrides",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_dom_for_component",
+        "title": "DOM elements for a component",
+        "description": "Map a React component (by id, from react_get_tree / react_find_components / react_inspect_component) to the actual DOM element(s) it renders — the missing link between the React tree and the live page. Each element comes with a best-effort CSS `selector` plus its id / data-testid / role / aria-label / name / classes / text, so you can hand it straight to a browser tool (click, screenshot, assert) instead of guessing which node a component controls. `styleSources` lists the style definitions applied to the element (file:line, application order) when the app emits style provenance (e.g. StyleX dev mode). Arguments: limit: minimum 1, maximum 50.",
+        "group": "react.inspect",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": { "type": "integer" },
+            "limit": {
+              "default": 10,
+              "description": "Max elements to return when a component renders many host nodes.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          "required": ["id"]
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "id": "number",
+            "name": "string",
+            "elements": "array<object>",
+            "total": "number"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_dom_for_component --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_dom_for_component",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_component_for_dom",
+        "title": "Owning component for a DOM element",
+        "description": "Map a CSS selector (e.g. an element a browser tool found) to the React component(s) rendering it — the reverse of react_dom_for_component, turning \"this button is wrong\" into \"edit this component\". Each match reports the owning component id (feed it to react_inspect_component / overrides), name, kind, shallow props, and source file:line, plus `styleSources` — the style definitions applied to the matched element (file:line, application order; later wins conflicts) when the app emits style provenance (e.g. StyleX dev mode), turning \"this looks wrong\" into \"edit this style definition\". Elements outside this React tree are skipped; duplicate owners are collapsed. Arguments: limit: minimum 1, maximum 20; propsDepth: minimum 0, maximum 4.",
+        "group": "react.inspect",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "appOnly": {
+              "default": false,
+              "description": "Include only proven app ownership when true; library and unknown ownership are excluded with coverage. False includes all ownership classes.",
+              "type": "boolean"
+            },
+            "selector": {
+              "type": "string",
+              "description": "CSS selector; each matched element resolves to its owning component."
+            },
+            "limit": {
+              "default": 5,
+              "description": "Max unique owning components after ownership filtering; scans at most 5000 DOM matches.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "propsDepth": { "default": 1, "type": "integer", "minimum": 0, "maximum": 4 }
+          },
+          "required": ["selector"]
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ownershipCoverage": "object",
+            "omittedByLimit": "integer",
+            "scanTruncated": "boolean",
+            "selector": "string",
+            "matched": "number",
+            "components": "array<object>"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_component_for_dom --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_component_for_dom",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "stylex_inspect",
+        "title": "StyleX: applied style objects, their source, and resolved CSS",
+        "description": "For apps styled with StyleX (dev mode with `debug: true`): explain how elements are styled from the running page. Reports the applied stylex.create() objects by name and source file:line in application order (later wins conflicts), the CSS each atomic class resolves to (property, value, pseudo/media condition), the defineVars tokens read (CSS variables with current values), runtime values from dynamic style functions, and class names no readable stylesheet explains. Target a CSS `selector` (elements a browser tool found) or a component `id` (every styled host element it renders, nested ones included). `status.hint` names the StyleX plugin option to enable when nothing is found. Use it to go from \"this looks wrong\" straight to the style object and line that owns the value: the last entry in `styleObjects` wins each conflict, so edit that definition.",
+        "group": "react.inspect",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "selector": {
+              "description": "CSS selector; each matched element is described.",
+              "type": "string"
+            },
+            "id": {
+              "description": "Component id; describes the styled host elements in its rendered subtree.",
+              "type": "integer"
+            },
+            "limit": {
+              "default": 5,
+              "description": "Max elements to describe.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "target": "string",
+            "matched": "number",
+            "status": "object",
+            "elements": "array<object>"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools stylex_inspect --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "stylex_inspect",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_inspect_context",
+        "title": "Inspect consumed React contexts",
+        "description": "Report which React Contexts a component consumes (by id) and their current provided values — invisible from source, which only shows the useContext call, and from the DOM. Answers \"what value is this component actually reading?\" and surfaces wrong-provider / stale-context bugs. Values are depth-bounded like react_inspect_component; an empty list means the component consumes no context. Arguments: depth: minimum 1, maximum 6.",
+        "group": "react.inspect",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": { "type": "integer" },
+            "depth": { "default": 2, "type": "integer", "minimum": 1, "maximum": 6 }
+          },
+          "required": ["id"]
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "id": "number", "name": "string", "contexts": "array<object>" },
+          "next": {
+            "command": "pnpm exec genie-react tools react_inspect_context --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_inspect_context",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_measure",
+        "title": "Open labelled measurement",
+        "description": "Open a labelled span without clearing global renders. The newest open span exclusively owns subsequent commits; older spans resume when it closes. Temporal capture does not establish interaction causality. Up to 20 spans, 500 components and 1000 commits each; handles expire after five minutes or reload. Arguments: label: minimum characters 1, maximum characters 160.",
+        "group": "react.render",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": { "label": { "type": "string", "minLength": 1, "maxLength": 160 } },
+          "required": ["label"]
+        },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "handle": "string",
+            "label": "string",
+            "ownership": "\"newest-open-span\"",
+            "attribution": "\"temporal-only\"",
+            "startedAfterDocumentCommitId": "integer",
+            "endedAtDocumentCommitId": "integer | null",
+            "expiresAt": "number"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_measure --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_measure",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_renders_since",
+        "title": "Read labelled measurement",
+        "description": "Read commits owned by a measurement handle after it opened. Set close:true to stop capture and resume the previous open span. Reports disjoint commit IDs, label, excluded commits, and coverage. Global clear does not erase spans. A report is frozen at call entry. Arguments: handle: minimum characters 1, maximum characters 100; limit: minimum 1, maximum 200.",
+        "group": "react.render",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "handle": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "close": { "default": false, "type": "boolean" },
+            "component": {
+              "description": "Only components whose name contains this string.",
+              "type": "string"
+            },
+            "appOnly": {
+              "default": true,
+              "description": "Only source-proven app components; unknown ownership is excluded and coverage becomes incomplete.",
+              "type": "boolean"
+            },
+            "limit": { "default": 40, "type": "integer", "minimum": 1, "maximum": 200 }
+          },
+          "required": ["handle"]
+        },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "handle": "string",
+            "label": "string",
+            "ownership": "\"newest-open-span\"",
+            "attribution": "\"temporal-only\"",
+            "startedAfterDocumentCommitId": "integer",
+            "endedAtDocumentCommitId": "integer | null",
+            "expiresAt": "number",
+            "bundle": "\"development\" | \"production\" | \"mixed\" | \"unknown\"",
+            "timingsBundleDependent": "true",
+            "countsScope": "\"observed-run\"",
+            "commitIds": "array<integer>",
+            "commits": "integer",
+            "excludedCommits": "integer",
+            "summary": "object",
+            "components": "array<object>",
+            "sourceClassification": "object",
+            "libraryHidden": "integer",
+            "omittedByLimit": "integer",
+            "coverage": "object",
+            "limitation": "string"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_renders_since --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_renders_since",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_get_renders",
+        "title": "Render report",
+        "description": "Timing fields are bundle-dependent; counts describe the observed run, not a production estimate. Report bounded component render counts, observed React input changes, stable mount identity, runtime timing, and source. Start a measurement with react_clear_renders, drive one interaction, then read this. The default summary view keeps compact per-component evidence; view:\"full\" adds input values and diffs, behavior assessment, detailed source provenance and the legacy unnecessary/forget fields. Arguments: nameFilter: minimum characters 1, maximum characters 160; excludeNames: maximum items 50; excludeNames[]: minimum characters 1, maximum characters 160; minUpdates: minimum 0; cursor: minimum characters 1, maximum characters 100; sort: one of \"renders\", \"updates\", \"unnecessary\", \"referenceOnly\", \"unstable\", \"selfTime\"; limit: minimum 1, maximum 200; view: one of \"summary\", \"full\".",
+        "group": "react.render",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "component": {
+              "description": "Only components whose name contains this string.",
+              "type": "string"
+            },
+            "nameFilter": {
+              "description": "Case-insensitive whole-name glob: * matches any text and ? matches one character. Applied before limit.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "excludeNames": {
+              "default": [],
+              "description": "Case-insensitive whole-name globs to exclude before limit.",
+              "maxItems": 50,
+              "type": "array",
+              "items": { "type": "string", "minLength": 1, "maxLength": 160 }
+            },
+            "minUpdates": {
+              "default": 0,
+              "description": "Minimum observed update count, applied before limit.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "includeCursor": {
+              "default": true,
+              "description": "Retain a frozen cursor for remaining rows. Set false for polling or one-shot reads: no snapshot is retained, the summary still covers the selected records, and omitted rows have no cursor.",
+              "type": "boolean"
+            },
+            "cursor": {
+              "description": "Continue a frozen report using nextCursor. Pass only cursor and optional limit; counts, filters, ordering, and source coverage remain frozen. Cursors expire after five minutes or after three newer paginated reports, and clear/profile start invalidates them.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "sort": {
+              "default": "renders",
+              "type": "string",
+              "enum": ["renders", "updates", "unnecessary", "referenceOnly", "unstable", "selfTime"]
+            },
+            "limit": { "default": 40, "type": "integer", "minimum": 1, "maximum": 200 },
+            "appOnly": {
+              "default": true,
+              "description": "Show only records with app source evidence. Unknown ownership is excluded instead of being attributed to the app; an exact app hook callsite keeps a framework-wrapped record visible.",
+              "type": "boolean"
+            },
+            "view": {
+              "default": "summary",
+              "description": "summary (default) returns bounded decision fields; full returns every component field, including legacy aliases.",
+              "type": "string",
+              "enum": ["summary", "full"]
+            }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "nextCursor": "string | null",
+            "pagination": "object",
+            "bundle": "\"development\" | \"production\" | \"mixed\" | \"unknown\"",
+            "timingsBundleDependent": "true",
+            "countsScope": "\"observed-run\"",
+            "tracking": "boolean",
+            "renderCollection": "string",
+            "commits": "number",
+            "documentCommitId": "integer",
+            "observation": "object | null",
+            "attribution": "object",
+            "sourceClassification": "object",
+            "omittedByLimit": "integer",
+            "comparable": "boolean",
+            "notComparableReasons": "array<string>",
+            "coverage": "object",
+            "filteredNote?": "string",
+            "view": "\"summary\" | \"full\"",
+            "summary": "object",
+            "components": "array<object>"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_get_renders --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_get_renders",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_render_causes",
+        "title": "Recent render evidence",
+        "description": "Report bounded render events with observation, document commit, render, component, and mount IDs plus exact, inferred, or unknown React input evidence. Start with react_clear_renders, drive one interaction, then filter by commit or component. IDs join only observed events; timing alone is never treated as causality. The default summary view names each cause; view:\"full\" adds input values, diffs, notification details, behavior assessment and detailed source attribution. Arguments: commit: minimum 0; afterCommit: minimum 0; limit: minimum 1, maximum 500; view: one of \"summary\", \"full\".",
+        "group": "react.render",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "commit": {
+              "description": "Only events from this documentCommitId, as shown on every event.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "afterCommit": {
+              "description": "Only events with a documentCommitId greater than this.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "component": {
+              "description": "Only components whose name contains this string.",
+              "type": "string"
+            },
+            "limit": { "default": 100, "type": "integer", "minimum": 1, "maximum": 500 },
+            "appOnly": {
+              "default": true,
+              "description": "Hide events with only library source evidence. An exact app hook callsite keeps a framework-wrapped event visible.",
+              "type": "boolean"
+            },
+            "view": {
+              "default": "summary",
+              "description": "summary (default) returns bounded decision fields; full returns every event field, including input values and diffs.",
+              "type": "string",
+              "enum": ["summary", "full"]
+            }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "tracking": "boolean",
+            "commits": "integer",
+            "documentCommitId": "integer",
+            "observation": "object | null",
+            "attribution": "object",
+            "omittedByLimit": "integer",
+            "coverage": "object",
+            "renderEventRetention": "object",
+            "filteredNote?": "string",
+            "view": "\"summary\" | \"full\"",
+            "events": "array<object>"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_render_causes --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_render_causes",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_component_cohort",
+        "title": "Component lifecycle cohort",
+        "description": "Distinguish matching component instances that updated, stayed mounted and idle, unmounted, are absent, or were omitted by a limit. Start with react_clear_renders, drive one interaction, then query an exact display name. Each row includes key/position strength, mount generation, and React Offscreen visibility independently of lifecycle. Hidden does not establish the cause of freezing or whether effects remain subscribed. Arguments: component: minimum characters 1; limit: minimum 1, maximum 200.",
+        "group": "react.render",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "appOnly": {
+              "default": false,
+              "description": "Include only proven app ownership when true; library and unknown ownership are excluded with coverage. False includes all ownership classes.",
+              "type": "boolean"
+            },
+            "component": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Component display name; matched exactly by default, or as a substring with exact:false."
+            },
+            "exact": { "default": true, "type": "boolean" },
+            "limit": { "default": 50, "type": "integer", "minimum": 1, "maximum": 200 }
+          },
+          "required": ["component"]
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "attribution": "object",
+            "documentCommitId": "integer",
+            "ownershipCoverage": "object",
+            "observation": "object | null",
+            "query": "object",
+            "status": "\"not-started\" | \"absent\" | \"mounted-idle\" | \"updated\" | \"unmounted\" | \"mixed\" | …",
+            "matched": "integer",
+            "mountedUpdated": "integer",
+            "mountedIdle": "integer",
+            "mountedUnknown": "integer",
+            "unmounted": "integer",
+            "returned": "integer",
+            "omittedByLimit": "integer",
+            "instances": "array<object>",
+            "coverage": "object"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_component_cohort --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_component_cohort",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_effect_audit",
+        "title": "Effect schedule audit",
+        "description": "Audit useEffect, useLayoutEffect, and useInsertionEffect schedules: commit counts, dependency mode/change, cleanup presence, sample-aware hotness, and implementation provenance. React commit flags do not prove passive execution or cleanup timing. Genie does not re-run components to recover hook callsites, so automatic provenance can be unknown with reason shadow-render-disabled. Start with react_clear_renders, drive the interaction, then read this. Arguments: packageName: minimum characters 1, maximum characters 214; minUpdates: minimum 1, maximum 1000; minFireRate: minimum 0.1, maximum 1; minScheduleRate: minimum 0.1, maximum 1; limit: minimum 1, maximum 200.",
+        "group": "react.render",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "component": {
+              "description": "Only components whose name contains this string.",
+              "type": "string"
+            },
+            "onlyHot": {
+              "default": false,
+              "description": "Return only effects whose thresholded hotness label is \"hot\".",
+              "type": "boolean"
+            },
+            "appOnly": {
+              "default": true,
+              "description": "Include only effects with app provenance. Library and unknown ownership are excluded so unresolved evidence is never attributed to your app; set false to inspect all provenance.",
+              "type": "boolean"
+            },
+            "packageName": {
+              "description": "Only effects attributed to this exact npm package, e.g. \"@tanstack/react-query\". Requires appOnly:false.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 214
+            },
+            "minUpdates": {
+              "default": 3,
+              "description": "Minimum observed updates required before an effect can be classified hot.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "minFireRate": {
+              "default": 1,
+              "description": "Legacy name for minScheduleRate.",
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 1
+            },
+            "minScheduleRate": {
+              "description": "Preferred minimum scheduled/updates ratio for hot classification.",
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 1
+            },
+            "limit": { "default": 40, "type": "integer", "minimum": 1, "maximum": 200 }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "tracking": "boolean",
+            "commits": "number",
+            "documentCommitId": "integer",
+            "attribution": "object",
+            "hotnessCriteria": "object",
+            "components": "array<object>",
+            "omittedByLimit": "integer",
+            "effectsOmittedByLimit": "integer",
+            "coverage": "object",
+            "filteredNote?": "string",
+            "packageFilter?": "object"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_effect_audit --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_effect_audit",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_effect_events",
+        "title": "Recent effect timeline events",
+        "description": "Alias of react_effect_timeline with identical input and output; prefer react_effect_timeline. Arguments: afterDocumentCommitId: minimum 0; limit: minimum 1, maximum 500.",
+        "group": "react.render",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "appOnly": {
+              "default": false,
+              "description": "Include only proven app ownership when true; library and unknown ownership are excluded with coverage. False includes all ownership classes.",
+              "type": "boolean"
+            },
+            "component": { "type": "string" },
+            "afterDocumentCommitId": { "type": "integer", "minimum": 0 },
+            "limit": { "default": 100, "type": "integer", "minimum": 1, "maximum": 500 }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ownershipCoverage": "object",
+            "tracking": "boolean",
+            "documentCommitId": "integer",
+            "observation": "object | null",
+            "events": "array<object>",
+            "omittedByLimit": "integer",
+            "evictedEvents": "integer",
+            "droppedEvents": "integer",
+            "coverage": "object"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_effect_events --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_effect_events",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_effect_timeline",
+        "title": "Effect causal timeline",
+        "description": "Report bounded effect schedules joined to exact passive execution and cleanup observations, exact Query/Router notification consequences, and the next resulting React commit as an explicitly inferred edge. Unsupported or unavailable stages carry a reason; state updates, external-store writes, network, event-listener, and navigation consequences remain explicitly unobserved. Arguments: afterDocumentCommitId: minimum 0; limit: minimum 1, maximum 500.",
+        "group": "react.render",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "appOnly": {
+              "default": false,
+              "description": "Include only proven app ownership when true; library and unknown ownership are excluded with coverage. False includes all ownership classes.",
+              "type": "boolean"
+            },
+            "component": { "type": "string" },
+            "afterDocumentCommitId": { "type": "integer", "minimum": 0 },
+            "limit": { "default": 100, "type": "integer", "minimum": 1, "maximum": 500 }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ownershipCoverage": "object",
+            "tracking": "boolean",
+            "documentCommitId": "integer",
+            "observation": "object | null",
+            "events": "array<object>",
+            "omittedByLimit": "integer",
+            "evictedEvents": "integer",
+            "droppedEvents": "integer",
+            "coverage": "object"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_effect_timeline --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_effect_timeline",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_error_state",
+        "title": "Error & suspense state (why is it blank/stuck?)",
+        "description": "Report error boundaries that have caught an error (with the boundary + throwing component, the message/stack, and their source file:line) and Suspense boundaries currently showing a fallback. Answers \"why is the page blank or stuck?\" — a render/tree snapshot cannot show a caught error or a suspended subtree. Recorded at commit time, so call it after the blank/stuck state appears. Boundaries you are holding open with react_force_error_boundary / react_toggle_suspense_fallback are included and flagged `forced:true` (release them with react_reset_overrides); real errors/suspends are `forced:false`. Arguments: limit: minimum 1, maximum 100.",
+        "group": "react.render",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "appOnly": {
+              "default": false,
+              "description": "Include only proven app ownership when true; library and unknown ownership are excluded with coverage. False includes all ownership classes.",
+              "type": "boolean"
+            },
+            "includeSource": {
+              "default": true,
+              "description": "Resolve the file:line of each boundary/component (async source-map lookup). When false, stacks also drop frames from node_modules.",
+              "type": "boolean"
+            },
+            "limit": { "default": 20, "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "scanTruncated": "boolean",
+            "ownershipCoverage": "object",
+            "caughtErrors": "array<object>",
+            "suspended": "array<object>",
+            "blankTreeHint": "string | null"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_error_state --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_error_state",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_refresh_events",
+        "title": "Fast Refresh events (state preserved vs remounted)",
+        "description": "Report recent React Fast Refresh/HMR updates: changed files, components that preserved state, components that remounted and lost state, and their live fiber ids/source locations. Genie excludes the associated refresh commits from render profiling and clears stale source caches automatically. filePaths is best-effort and can be empty when the bundler does not expose its HMR transport (notably Turbopack). Use afterSequence to poll incrementally. Arguments: afterSequence: minimum 0; limit: minimum 1, maximum 50.",
+        "group": "react.render",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "appOnly": {
+              "default": false,
+              "description": "Include only proven app ownership when true; library and unknown ownership are excluded with coverage. False includes all ownership classes.",
+              "type": "boolean"
+            },
+            "afterSequence": {
+              "description": "Return only events newer than this sequence number.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "limit": { "default": 10, "type": "integer", "minimum": 1, "maximum": 50 },
+            "includeSource": {
+              "default": true,
+              "description": "Resolve file:line for affected mounted fibers.",
+              "type": "boolean"
+            }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ownershipCoverage": "object",
+            "events": "array<object>",
+            "latestSequence": "integer",
+            "droppedEvents": "integer",
+            "partialSources": "boolean"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_refresh_events --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_refresh_events",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_clear_renders",
+        "title": "Start a render measurement",
+        "description": "Clear profile aggregates and start a new observation window. The returned observation ID joins later render and effect evidence; it does not imply that a browser interaction happened. Arguments: components: maximum items 50; components[]: minimum characters 1, maximum characters 160; roots: maximum items 20; budget.fiberLimit: minimum 50, maximum 20000; budget.operationLimit: minimum 1000, maximum 2000000; budget.timeLimitMs: minimum 1, maximum 500; budget.targetOperationReserve: minimum 100, maximum 500000; budget.targetTimeReserveMs: minimum 0.5, maximum 250; lifecycle.bufferLimit: minimum 100, maximum 20000; lifecycle.targetReserve: minimum 0, maximum 5000.",
+        "group": "react.render",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "components": {
+              "default": [],
+              "description": "Reserve analysis work for component display names containing any value.",
+              "maxItems": 50,
+              "type": "array",
+              "items": { "type": "string", "minLength": 1, "maxLength": 160 }
+            },
+            "roots": {
+              "default": [],
+              "description": "Reserve analysis work for these component node IDs and their descendants.",
+              "maxItems": 20,
+              "type": "array",
+              "items": { "type": "integer" }
+            },
+            "budget": {
+              "default": {
+                "fiberLimit": 250,
+                "operationLimit": 20000,
+                "timeLimitMs": 8,
+                "targetOperationReserve": 4000,
+                "targetTimeReserveMs": 4,
+                "adaptive": true
+              },
+              "type": "object",
+              "properties": {
+                "fiberLimit": {
+                  "default": 250,
+                  "type": "integer",
+                  "minimum": 50,
+                  "maximum": 20000
+                },
+                "operationLimit": {
+                  "default": 20000,
+                  "type": "integer",
+                  "minimum": 1000,
+                  "maximum": 2000000
+                },
+                "timeLimitMs": { "default": 8, "type": "number", "minimum": 1, "maximum": 500 },
+                "targetOperationReserve": {
+                  "default": 4000,
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 500000
+                },
+                "targetTimeReserveMs": {
+                  "default": 4,
+                  "type": "number",
+                  "minimum": 0.5,
+                  "maximum": 250
+                },
+                "adaptive": { "default": true, "type": "boolean" }
+              }
+            },
+            "lifecycle": {
+              "default": { "bufferLimit": 1000, "targetReserve": 100 },
+              "type": "object",
+              "properties": {
+                "bufferLimit": {
+                  "default": 1000,
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 20000
+                },
+                "targetReserve": {
+                  "default": 100,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                }
+              }
+            }
+          }
+        },
+        "annotations": { "idempotentHint": false },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ok": "boolean",
+            "tracking": "boolean",
+            "documentCommitId": "integer",
+            "observation": "object",
+            "observationConfig": "object"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_clear_renders --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_clear_renders",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_profile_start",
+        "title": "Start profiling",
+        "description": "Begin (or resume) a profiling session — enables commit tracking and clears render counters. Then interact with the app and call react_profile_report, or react_profile_stop to pause. For a before/after regression verdict: react_profile_snapshot (label the \"before\"), make the change, then react_renders_diff — no hand-diffing two JSON dumps. Arguments: components: maximum items 50; components[]: minimum characters 1, maximum characters 160; roots: maximum items 20; budget.fiberLimit: minimum 50, maximum 20000; budget.operationLimit: minimum 1000, maximum 2000000; budget.timeLimitMs: minimum 1, maximum 500; budget.targetOperationReserve: minimum 100, maximum 500000; budget.targetTimeReserveMs: minimum 0.5, maximum 250; lifecycle.bufferLimit: minimum 100, maximum 20000; lifecycle.targetReserve: minimum 0, maximum 5000.",
+        "group": "react.profile",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "components": {
+              "default": [],
+              "description": "Reserve analysis work for component display names containing any value.",
+              "maxItems": 50,
+              "type": "array",
+              "items": { "type": "string", "minLength": 1, "maxLength": 160 }
+            },
+            "roots": {
+              "default": [],
+              "description": "Reserve analysis work for these component node IDs and their descendants.",
+              "maxItems": 20,
+              "type": "array",
+              "items": { "type": "integer" }
+            },
+            "budget": {
+              "default": {
+                "fiberLimit": 250,
+                "operationLimit": 20000,
+                "timeLimitMs": 8,
+                "targetOperationReserve": 4000,
+                "targetTimeReserveMs": 4,
+                "adaptive": true
+              },
+              "type": "object",
+              "properties": {
+                "fiberLimit": {
+                  "default": 250,
+                  "type": "integer",
+                  "minimum": 50,
+                  "maximum": 20000
+                },
+                "operationLimit": {
+                  "default": 20000,
+                  "type": "integer",
+                  "minimum": 1000,
+                  "maximum": 2000000
+                },
+                "timeLimitMs": { "default": 8, "type": "number", "minimum": 1, "maximum": 500 },
+                "targetOperationReserve": {
+                  "default": 4000,
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 500000
+                },
+                "targetTimeReserveMs": {
+                  "default": 4,
+                  "type": "number",
+                  "minimum": 0.5,
+                  "maximum": 250
+                },
+                "adaptive": { "default": true, "type": "boolean" }
+              }
+            },
+            "lifecycle": {
+              "default": { "bufferLimit": 1000, "targetReserve": 100 },
+              "type": "object",
+              "properties": {
+                "bufferLimit": {
+                  "default": 1000,
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 20000
+                },
+                "targetReserve": {
+                  "default": 100,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                }
+              }
+            }
+          }
+        },
+        "annotations": { "idempotentHint": false },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ok": "boolean",
+            "tracking": "boolean",
+            "documentCommitId": "integer",
+            "observation": "object",
+            "observationConfig": "object"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_profile_start --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_profile_start",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_profile_stop",
+        "title": "Stop profiling",
+        "description": "Pause the profiling session — the commit counter freezes and isTracking() reports false until react_profile_start resumes. The captured aggregates and any snapshots are kept, so react_profile_report and react_renders_diff still work after stopping. The underlying instrumentation stays installed (React commits simply stop being recorded); this is the symmetric counterpart to react_profile_start.",
+        "group": "react.profile",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {}
+        },
+        "annotations": { "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "ok": "true", "tracking": "false", "commits": "number" },
+          "next": {
+            "command": "pnpm exec genie-react tools react_profile_stop --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_profile_stop",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_profile_snapshot",
+        "title": "Snapshot render aggregates",
+        "description": "Capture current app-component render aggregates under a label as the before baseline for react_renders_diff. The snapshot includes coverage; do not use an incomplete baseline to prove a change. Reusing a label overwrites it.",
+        "group": "react.profile",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "appOnly": {
+              "default": true,
+              "description": "Include only proven app ownership when true; library and unknown ownership are excluded with coverage. False includes all ownership classes.",
+              "type": "boolean"
+            },
+            "label": {
+              "default": "baseline",
+              "description": "Name for this snapshot; react_renders_diff reads it back. Reused labels overwrite.",
+              "type": "string"
+            }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ok": "true",
+            "label": "string",
+            "commits": "number",
+            "components": "number",
+            "coverage": "object"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_profile_snapshot --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_profile_snapshot",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_renders_diff",
+        "title": "Diff renders vs a snapshot",
+        "description": "Compare a stored profile snapshot with current app-component aggregates by component name plus source when resolved. Reports cumulative window self-time and the largest regressions, improvements, additions, and removals. Check coverage for both sides. If counters were cleared, compare only equivalent interactions; removed then means not observed in the current window.",
+        "group": "react.profile",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "appOnly": {
+              "default": true,
+              "description": "Include only proven app ownership when true; library and unknown ownership are excluded with coverage. False includes all ownership classes.",
+              "type": "boolean"
+            },
+            "baseline": {
+              "default": "baseline",
+              "description": "Snapshot label from react_profile_snapshot to compare against.",
+              "type": "string"
+            },
+            "thresholdMs": {
+              "default": 0.5,
+              "description": "Minimum self-time delta (ms) for a component to count as regressed/improved.",
+              "type": "number"
+            }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "baseline": "string",
+            "commits": "object",
+            "clearsSinceBaseline": "number",
+            "coverage": "object",
+            "selfTimeMs": "object",
+            "regressed": "array<object>",
+            "improved": "array<object>",
+            "added": "array<object>",
+            "removed": "array<object>"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_renders_diff --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_renders_diff",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "react_profile_report",
+        "title": "Profiling report",
+        "description": "Timing fields are bundle-dependent; counts describe the observed run, not a production estimate. Summarize peak render cost, render counts, and no-observed-input updates when causal attribution is complete. Check coverage.inputAttributionComplete before using causal leaderboards. The report never calls a render safe to remove. Arguments: limit: minimum 1, maximum 100.",
+        "group": "react.profile",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "component": { "type": "string" },
+            "appOnly": {
+              "default": false,
+              "description": "Include only proven app ownership when true; library and unknown ownership are excluded with coverage. False includes all ownership classes.",
+              "type": "boolean"
+            },
+            "limit": { "default": 20, "type": "integer", "minimum": 1, "maximum": 100 }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "bundle": "\"development\" | \"production\" | \"mixed\" | \"unknown\"",
+            "timingsBundleDependent": "true",
+            "countsScope": "\"observed-run\"",
+            "commits": "number",
+            "tracking": "boolean",
+            "documentCommitId": "integer",
+            "attribution": "object",
+            "coverage": "object",
+            "slowest": "array<object>",
+            "mostRerendered": "array<object>",
+            "mostUnnecessary": "array<object>",
+            "mostUnstable": "array<object>",
+            "mostReferenceOnly": "array<object>"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools react_profile_report --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "react_profile_report",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "app_unmountable_ping",
+        "title": "Unmountable ping",
+        "description": "Confirms the Unmountable component is mounted. Exists to demo route-scoped app tools: toggle the component off and this tool tombstones.",
+        "group": "app",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {}
+        },
+        "annotations": { "readOnlyHint": true, "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {},
+          "next": {
+            "command": "pnpm exec genie-react tools app_unmountable_ping --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "app_unmountable_ping",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "app_session",
+        "title": "Session",
+        "description": "Current demo session: the active role and what the task UI permits (guest reads, member adds, admin also deletes).",
+        "group": "app",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {}
+        },
+        "annotations": { "readOnlyHint": true, "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {},
+          "next": {
+            "command": "pnpm exec genie-react tools app_session --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "app_session",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "app_login_as",
+        "title": "Login as",
+        "description": "Switches the demo session role and re-gates the task UI instantly — no login form to drive. Use before testing role-restricted interactions.",
+        "group": "app",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": { "role": { "type": "string", "enum": ["guest", "member", "admin"] } },
+          "required": ["role"]
+        },
+        "annotations": { "readOnlyHint": false, "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {},
+          "next": {
+            "command": "pnpm exec genie-react tools app_login_as --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "app_login_as",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "app_seed_tasks",
+        "title": "Seed tasks",
+        "description": "Seeds N fixture tasks through the same fake API the UI uses, then refetches the [\"tasks\"] query. Use to set up list state before testing interactions.",
+        "group": "app",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "count": { "default": 3, "type": "integer", "minimum": 1, "maximum": 25 },
+            "done": { "default": false, "type": "boolean" }
+          }
+        },
+        "annotations": { "readOnlyHint": false },
+        "output": {
+          "kind": "outline",
+          "fields": {},
+          "next": {
+            "command": "pnpm exec genie-react tools app_seed_tasks --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "app_seed_tasks",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "app_reset_tasks",
+        "title": "Reset tasks",
+        "description": "Deletes every task and refetches — a clean slate before the next test run. Destructive: there is no undo.",
+        "group": "app",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {}
+        },
+        "annotations": { "readOnlyHint": false, "destructiveHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {},
+          "next": {
+            "command": "pnpm exec genie-react tools app_reset_tasks --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "app_reset_tasks",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "app_chaos",
+        "title": "Chaos",
+        "description": "Injects faults into the fake task API: fail the next N requests and/or set request latency in ms. Use to reproduce loading and error states, then inspect them with query_list or react_error_state.",
+        "group": "app",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "failNextRequests": { "type": "integer", "minimum": 0, "maximum": 10 },
+            "latencyMs": { "type": "integer", "minimum": 0, "maximum": 5000 }
+          }
+        },
+        "annotations": { "readOnlyHint": false },
+        "output": {
+          "kind": "outline",
+          "fields": {},
+          "next": {
+            "command": "pnpm exec genie-react tools app_chaos --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "app_chaos",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "app_flags",
+        "title": "Flags",
+        "description": "Current feature-flag values. beta_banner shows the beta callout; compact_mode tightens the flag list styling.",
+        "group": "app",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {}
+        },
+        "annotations": { "readOnlyHint": true, "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {},
+          "next": {
+            "command": "pnpm exec genie-react tools app_flags --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "app_flags",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "app_set_flag",
+        "title": "Set flag",
+        "description": "Sets a feature flag and re-renders the gated UI immediately — no settings menu to find. Verify the effect with a browser snapshot.",
+        "group": "app",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "flag": { "type": "string", "enum": ["beta_banner", "compact_mode"] },
+            "value": { "type": "boolean" }
+          },
+          "required": ["flag", "value"]
+        },
+        "annotations": { "readOnlyHint": false, "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {},
+          "next": {
+            "command": "pnpm exec genie-react tools app_set_flag --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "app_set_flag",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "browser_get_memory",
+        "title": "JavaScript heap usage",
+        "description": "Read the current JavaScript heap size (used/total/limit, in bytes) via performance.memory when the runtime exposes numeric fields. This is runtime-wide, not React-specific memory. Chromium and React Native/Hermes expose different fields and precision; otherwise this returns supported:false with an explanatory note.",
+        "group": "memory",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {}
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "supported": "boolean",
+            "usedJSHeapSize?": "number",
+            "totalJSHeapSize?": "number",
+            "jsHeapSizeLimit?": "number",
+            "note": "string"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools browser_get_memory --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "browser_get_memory",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "browser_measure_memory",
+        "title": "Measure page memory (standardized)",
+        "description": "Estimate the memory used by this page via the standardized performance.measureUserAgentSpecificMemory(). Returns total bytes plus a per-realm breakdown (JS heap, DOM, etc.) — page-wide browser memory, NOT React-specific memory. Requires a Chromium-based browser and a cross-origin-isolated context (COOP+COEP headers); otherwise returns supported:false with a note. Sampling can be delayed by the browser.",
+        "group": "memory",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {}
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "supported": "boolean",
+            "bytes?": "number",
+            "breakdown?": "array<object>",
+            "note": "string"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools browser_measure_memory --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "browser_measure_memory",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "browser_fps",
+        "title": "FPS / frame health",
+        "description": "Sample the page frame rate for `durationMs` via requestAnimationFrame and report avg FPS, the worst single stall (worstFrameMs), long frames (>50ms), and frames dropped against the estimated display refresh rate — plus a smooth/degraded/janky verdict. Page-wide (main-thread) frame health, not React-specific; start an animation or interaction first, then sample it. The sample blocks for its duration, so drive the interaction from another call or beforehand.",
+        "group": "perf",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "durationMs": {
+              "default": 5000,
+              "description": "How long to sample. Longer is steadier; 5000ms suits most interactions.",
+              "type": "integer",
+              "minimum": 250,
+              "maximum": 10000
+            }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "durationMs": "number",
+            "frames": "number",
+            "avgFps": "number",
+            "worstFrameMs": "number",
+            "longFrames": "number",
+            "droppedFrames": "number",
+            "refreshRate": "number",
+            "hidden": "boolean",
+            "visibility": "object",
+            "throttleState": "\"none-detected\" | \"visibility-throttled\" | \"possible-timer-throttling\"",
+            "calibration": "object",
+            "frameIntervalDistribution": "array<object>",
+            "refreshRateModes": "object",
+            "comparable": "boolean",
+            "notComparableReasons": "array<string>",
+            "verdict": "\"smooth\" | \"degraded\" | \"janky\""
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools browser_fps --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "browser_fps",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "plugin_list",
+        "title": "List DevTools plugins",
+        "description": "List every TanStack DevTools plugin (built-in and third-party) that has emitted traffic on the client event bus, with how many recent events each has buffered. Discovery is traffic-based — a plugin only appears after its first event — except ids declared via <Genie plugins>, which are listed immediately with eventCount 0 until traffic arrives. Use a pluginId with plugin_get_events.",
+        "group": "plugin",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {}
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "plugins": "array<object>" },
+          "next": {
+            "command": "pnpm exec genie-react tools plugin_list --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "plugin_list",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "plugin_get_events",
+        "title": "Get plugin events",
+        "description": "Get the most recent buffered events for one DevTools plugin by pluginId, newest last. Payloads are depth-bounded. Use plugin_list to discover plugin ids. Nested synchronous dispatch can buffer a response BEFORE the request that triggered it, so read a wide `limit` and do not assume request-then-response order.",
+        "group": "plugin",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "pluginId": { "type": "string" },
+            "limit": { "default": 50, "type": "integer", "minimum": 1, "maximum": 200 }
+          },
+          "required": ["pluginId"]
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "events": "array<object>" },
+          "next": {
+            "command": "pnpm exec genie-react tools plugin_get_events --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "plugin_get_events",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "plugin_emit",
+        "title": "Emit a plugin event",
+        "description": "Emit an event onto the TanStack DevTools event bus so browser plugins receive it. `type` may be bare (\"refresh\") or fully qualified (\"my-plugin:refresh\") — a bare type is prefixed with `pluginId` automatically, matching what listeners subscribe to. Returns ok=false when no DevTools bus is present.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "pluginId": { "type": "string" },
+            "type": { "type": "string" },
+            "payload": {}
+          },
+          "required": ["pluginId", "type"]
+        },
+        "annotations": { "openWorldHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "ok": "boolean" },
+          "next": {
+            "command": "pnpm exec genie-react tools plugin_emit --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "plugin_emit",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "timeline_start",
+        "title": "Start interaction timeline",
+        "description": "Begin an on-demand bounded recording of request completions, Query updates, React root commits and TanStack navigation on one monotonic clock. Temporal correlation only, not causation. No listeners run before this call. One recording is retained; starting replaces a stopped recording. Automatically stops at the event or duration limit.",
+        "group": "timeline",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+            "maxEvents": { "default": 1000, "type": "integer", "minimum": 1, "maximum": 10000 },
+            "maxDurationMs": {
+              "default": 30000,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120000
+            }
+          },
+          "required": ["name"]
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "id": "string",
+            "name": "string",
+            "state": "\"recording\" | \"stopped\"",
+            "stopReason": "\"manual\" | \"max-events\" | \"max-duration\" | \"collector-cleanup\" | null",
+            "durationMs": "number",
+            "maxEvents": "integer",
+            "maxDurationMs": "integer",
+            "eventCount": "integer",
+            "truncated": "boolean",
+            "correlation": "\"temporal-only\"",
+            "clock": "\"performance.now\"",
+            "ordering": "\"observation-time-then-sequence\"",
+            "coverage": "object"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools timeline_start --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "timeline_start",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "timeline_read",
+        "title": "Read interaction timeline",
+        "description": "Read a bounded page in stable observation order, optionally filtered by domain. Keep the same domains while paginating. Resource start/end times are separate from asynchronous observation time. Coverage explains missing evidence. A null nextOffset means caught up now; an active recording can append more events.",
+        "group": "timeline",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "domains": {
+              "minItems": 1,
+              "maxItems": 4,
+              "type": "array",
+              "items": { "type": "string", "enum": ["request", "query", "react", "navigation"] }
+            },
+            "offset": { "default": 0, "type": "integer", "minimum": 0 },
+            "limit": { "default": 200, "type": "integer", "minimum": 1, "maximum": 1000 }
+          },
+          "required": ["id"]
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "id": "string",
+            "name": "string",
+            "state": "\"recording\" | \"stopped\"",
+            "stopReason": "\"manual\" | \"max-events\" | \"max-duration\" | \"collector-cleanup\" | null",
+            "durationMs": "number",
+            "maxEvents": "integer",
+            "maxDurationMs": "integer",
+            "eventCount": "integer",
+            "truncated": "boolean",
+            "correlation": "\"temporal-only\"",
+            "clock": "\"performance.now\"",
+            "ordering": "\"observation-time-then-sequence\"",
+            "coverage": "object",
+            "events": "array<object>",
+            "matchedEventCount": "integer",
+            "nextOffset": "integer | null"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools timeline_read --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "timeline_read",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "timeline_stop",
+        "title": "Stop interaction timeline",
+        "description": "Stop recording, flush queued request timing entries, unsubscribe all sources and retain a frozen report. Repeated stops return the same report. Use timeline_read to retrieve events.",
+        "group": "timeline",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": { "id": { "type": "string", "minLength": 1 } },
+          "required": ["id"]
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "id": "string",
+            "name": "string",
+            "state": "\"recording\" | \"stopped\"",
+            "stopReason": "\"manual\" | \"max-events\" | \"max-duration\" | \"collector-cleanup\" | null",
+            "durationMs": "number",
+            "maxEvents": "integer",
+            "maxDurationMs": "integer",
+            "eventCount": "integer",
+            "truncated": "boolean",
+            "correlation": "\"temporal-only\"",
+            "clock": "\"performance.now\"",
+            "ordering": "\"observation-time-then-sequence\"",
+            "coverage": "object"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools timeline_stop --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "timeline_stop",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_notifications",
+        "title": "Query observer notifications",
+        "description": "List bounded QueryObserver delivery events with tracked fields, changed result fields, structural-sharing evidence, fanout, and exact notification/render IDs. A render cause is exact only when it joins one of these notification IDs.",
+        "group": "query",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "observerId": { "type": "string" },
+            "limit": { "default": 100, "type": "integer", "minimum": 1, "maximum": 500 }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "events": "array<object>", "omittedByLimit": "integer" },
+          "next": {
+            "command": "pnpm exec genie-react tools query_notifications --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_notifications",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_list",
+        "title": "List TanStack queries",
+        "description": "List all TanStack Query cache entries with explicit disabled, fetched, cached, and observer lifecycle state. `churn.families` contains only measured repeated cache turnover or unobserved fetching within the last 10 seconds; `churn.orphaned` is a neutral zero-observer count. Use a queryHash with query_get for the full state, or a queryKey with query_get_data for a light read.",
+        "group": "query",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "staleOnly": { "default": false, "type": "boolean" },
+            "limit": { "default": 100, "type": "integer", "minimum": 1, "maximum": 500 }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "queries": "array<object>", "total": "number", "churn": "object" },
+          "next": {
+            "command": "pnpm exec genie-react tools query_list --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_list",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_get",
+        "title": "Get a TanStack query",
+        "description": "Get the full state and depth-bounded data of one query by its queryHash or queryKey (from query_list). Each observer says whether its component subscriber was seen after the latest react_clear_renders, so old evidence cannot look current. hasQueryFn tells you whether query_fetch / query_ensure can re-run it. fetchCount (total settled fetches) and recentFetches (fetches in the last 10s) together reveal a refetch storm (staleTime:0 / refetchInterval) in a single call.",
+        "group": "query",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "queryHash": { "description": "Exact queryHash from query_list.", "type": "string" },
+            "queryKey": {
+              "description": "Exact query key, e.g. [\"todos\", 1]. Either identifier works; both come from query_list.",
+              "type": "array",
+              "items": {}
+            },
+            "path": {
+              "description": "Drill into the data at this path before depth-bounding, e.g. [\"items\", 0].",
+              "type": "array",
+              "items": { "anyOf": [{ "type": "string" }, { "type": "number" }] }
+            },
+            "depth": { "default": 3, "type": "integer", "minimum": 1, "maximum": 6 }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "queryHash": "string",
+            "queryKey": "any",
+            "status": "string",
+            "fetchStatus": "string",
+            "isStale": "boolean",
+            "isActive": "boolean",
+            "isInvalidated": "boolean",
+            "observerCount": "number",
+            "observersOmitted": "integer",
+            "hasQueryFn": "boolean",
+            "gcTime?": "number",
+            "staleTime?": "number",
+            "dataUpdatedAt": "number",
+            "errorUpdatedAt": "number",
+            "dataUpdateCount": "number",
+            "errorUpdateCount": "number",
+            "fetchFailureCount": "number",
+            "fetchCount": "number",
+            "recentFetches": "number",
+            "simulatedState?": "\"pending\" | \"error\"",
+            "fetchMeta": "any",
+            "error?": "string",
+            "data": "any",
+            "observers": "array<object>"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools query_get --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_get",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_get_data",
+        "title": "Read query data by key",
+        "description": "Light, imperative read of one query by its queryKey or queryHash (TanStack getQueryData/getQueryState). Returns found=false when nothing is cached under that key. Prefer query_get when you need the full state.",
+        "group": "query",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "queryHash": { "description": "Exact queryHash from query_list.", "type": "string" },
+            "queryKey": {
+              "description": "Exact query key, e.g. [\"todos\", 1]. Either identifier works; both come from query_list.",
+              "type": "array",
+              "items": {}
+            },
+            "path": {
+              "type": "array",
+              "items": { "anyOf": [{ "type": "string" }, { "type": "number" }] }
+            },
+            "depth": { "default": 3, "type": "integer", "minimum": 1, "maximum": 6 }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "found": "boolean",
+            "status?": "string",
+            "dataUpdatedAt?": "number",
+            "data": "any"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools query_get_data --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_get_data",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_is_fetching",
+        "title": "Count in-flight queries/mutations",
+        "description": "Count queries currently fetching and mutations currently pending (TanStack isFetching/isMutating). Use to check whether the app is busy before reading or acting; optionally scope the fetching count to a queryKey.",
+        "group": "query",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "queryKey": {
+              "description": "Limit the fetching count to queries matching this key prefix.",
+              "type": "array",
+              "items": {}
+            }
+          }
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "fetching": "number", "mutating": "number" },
+          "next": {
+            "command": "pnpm exec genie-react tools query_is_fetching --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_is_fetching",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_list_mutations",
+        "title": "List TanStack mutations",
+        "description": "List the TanStack Query mutation cache entries with status and variables. Use a mutationId with mutation_get for full state or mutation_rerun to re-execute one.",
+        "group": "query",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {}
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "mutations": "array<object>" },
+          "next": {
+            "command": "pnpm exec genie-react tools query_list_mutations --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_list_mutations",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "mutation_get",
+        "title": "Get a TanStack mutation",
+        "description": "Get the full state of one mutation by its mutationId (from query_list_mutations). hasMutationFn tells you whether mutation_rerun can re-execute it.",
+        "group": "query",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "mutationId": { "type": "integer" },
+            "depth": { "default": 3, "type": "integer", "minimum": 1, "maximum": 6 }
+          },
+          "required": ["mutationId"]
+        },
+        "annotations": { "readOnlyHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "mutationId": "number",
+            "status": "string",
+            "mutationKey": "any",
+            "variables": "any",
+            "data": "any",
+            "isPaused": "boolean",
+            "failureCount": "number",
+            "failureReason?": "string",
+            "submittedAt": "number",
+            "gcTime?": "number",
+            "hasMutationFn": "boolean",
+            "error?": "string"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools mutation_get --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "mutation_get",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_invalidate",
+        "title": "Invalidate queries",
+        "description": "Invalidate matching queries — marks them stale and refetches the active ones.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "queryKey": {
+              "description": "Query key prefix to match, e.g. [\"todos\"]. Omit to target all queries.",
+              "type": "array",
+              "items": {}
+            },
+            "exact": {
+              "default": false,
+              "description": "Match the queryKey exactly instead of as a prefix.",
+              "type": "boolean"
+            }
+          }
+        },
+        "annotations": { "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ok": "boolean",
+            "matched": "number",
+            "queries": "array<object>",
+            "hint?": "string"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools query_invalidate --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_invalidate",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_refetch",
+        "title": "Refetch queries",
+        "description": "Refetch matching queries immediately. Operates on existing cache entries; use query_fetch when you also want the resolved data returned.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "queryKey": {
+              "description": "Query key prefix to match, e.g. [\"todos\"]. Omit to target all queries.",
+              "type": "array",
+              "items": {}
+            },
+            "exact": {
+              "default": false,
+              "description": "Match the queryKey exactly instead of as a prefix.",
+              "type": "boolean"
+            }
+          }
+        },
+        "annotations": { "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ok": "boolean",
+            "matched": "number",
+            "queries": "array<object>",
+            "hint?": "string"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools query_refetch --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_refetch",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_cancel",
+        "title": "Cancel queries",
+        "description": "Cancel in-flight fetches for matching queries (TanStack cancelQueries). The previous data/state is preserved.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "queryKey": {
+              "description": "Query key prefix to match, e.g. [\"todos\"]. Omit to target all queries.",
+              "type": "array",
+              "items": {}
+            },
+            "exact": {
+              "default": false,
+              "description": "Match the queryKey exactly instead of as a prefix.",
+              "type": "boolean"
+            }
+          }
+        },
+        "annotations": { "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "ok": "boolean", "matched": "number" },
+          "next": {
+            "command": "pnpm exec genie-react tools query_cancel --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_cancel",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_reset",
+        "title": "Reset queries",
+        "description": "Reset matching queries to their initial state.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "queryKey": {
+              "description": "Query key prefix to match, e.g. [\"todos\"]. Omit to target all queries.",
+              "type": "array",
+              "items": {}
+            },
+            "exact": {
+              "default": false,
+              "description": "Match the queryKey exactly instead of as a prefix.",
+              "type": "boolean"
+            }
+          }
+        },
+        "annotations": { "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "ok": "boolean", "matched": "number" },
+          "next": {
+            "command": "pnpm exec genie-react tools query_reset --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_reset",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_remove",
+        "title": "Remove queries",
+        "description": "Remove matching queries from the cache entirely.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "queryKey": {
+              "description": "Query key prefix to match, e.g. [\"todos\"]. Omit to target all queries.",
+              "type": "array",
+              "items": {}
+            },
+            "exact": {
+              "default": false,
+              "description": "Match the queryKey exactly instead of as a prefix.",
+              "type": "boolean"
+            }
+          }
+        },
+        "annotations": { "destructiveHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "ok": "boolean", "matched": "number" },
+          "next": {
+            "command": "pnpm exec genie-react tools query_remove --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_remove",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_clear",
+        "title": "Clear all caches",
+        "description": "Clear the entire query cache AND mutation cache (TanStack queryClient.clear()). Destructive — removes every entry, not just matches. Use query_remove to target specific keys.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {}
+        },
+        "annotations": { "destructiveHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "ok": "boolean", "queriesCleared": "number", "mutationsCleared": "number" },
+          "next": {
+            "command": "pnpm exec genie-react tools query_clear --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_clear",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_set_data",
+        "title": "Set query data",
+        "description": "Imperatively set the cached data for a query key (optimistic-style write).",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": { "queryKey": { "type": "array", "items": {} }, "data": {} },
+          "required": ["queryKey", "data"]
+        },
+        "annotations": { "destructiveHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "ok": "boolean" },
+          "next": {
+            "command": "pnpm exec genie-react tools query_set_data --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_set_data",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_simulate_state",
+        "title": "Simulate query pending or error state",
+        "description": "Hold one existing query in a synthetic pending/loading or error state so its mounted UI can be inspected without changing app code or the server. Cancels a real in-flight fetch first, captures the stable state once, and notifies normal TanStack observers. A later query action can supersede the visible simulation; query_restore_state still restores the captured state. Always restore when finished.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "queryHash": { "description": "Exact queryHash from query_list.", "type": "string" },
+            "queryKey": {
+              "description": "Exact query key, e.g. [\"todos\", 1]. Either identifier works; both come from query_list.",
+              "type": "array",
+              "items": {}
+            },
+            "state": { "type": "string", "enum": ["pending", "error"] },
+            "errorMessage": {
+              "default": "Simulated query error",
+              "description": "Error message used when state=error; ignored for pending.",
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["state"]
+        },
+        "annotations": { "destructiveHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ok": "boolean",
+            "queryHash": "string",
+            "simulatedState": "\"pending\" | \"error\"",
+            "originalStatus": "string"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools query_simulate_state --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_simulate_state",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_restore_state",
+        "title": "Restore simulated query state",
+        "description": "Restore the exact stable state captured by query_simulate_state. Target one query by queryHash/queryKey, or pass all=true to clean up every query simulation. Returns the number actually restored.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "queryHash": { "description": "Exact queryHash from query_list.", "type": "string" },
+            "queryKey": {
+              "description": "Exact query key, e.g. [\"todos\", 1]. Either identifier works; both come from query_list.",
+              "type": "array",
+              "items": {}
+            },
+            "all": { "default": false, "type": "boolean" }
+          }
+        },
+        "annotations": { "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "ok": "boolean", "restored": "integer" },
+          "next": {
+            "command": "pnpm exec genie-react tools query_restore_state --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_restore_state",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_fetch",
+        "title": "Fetch a query and return data",
+        "description": "Fetch a query by key and return the resolved data (TanStack fetchQuery). Only works for queries that already have a queryFn — i.e. one with a mounted observer (a live useQuery) or a registered query default; otherwise it errors. staleTime defaults to 0 to force a network fetch. Use query_ensure to avoid refetching fresh data.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "queryKey": {
+              "type": "array",
+              "items": {},
+              "description": "Exact query key, e.g. [\"todos\"]."
+            },
+            "staleTime": {
+              "default": 0,
+              "description": "Treat cached data younger than this many ms as fresh and skip the fetch.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "depth": { "default": 3, "type": "integer", "minimum": 1, "maximum": 6 }
+          },
+          "required": ["queryKey"]
+        },
+        "annotations": { "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "data": "any", "status": "string", "dataUpdatedAt": "number" },
+          "next": {
+            "command": "pnpm exec genie-react tools query_fetch --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_fetch",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "query_ensure",
+        "title": "Ensure query data",
+        "description": "Return a query's cached data, fetching it only if absent (TanStack ensureQueryData). Errors only when there is no cached data AND no queryFn (no mounted observer / registered default) to produce it. Use query_fetch to always hit the network.",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "queryKey": {
+              "type": "array",
+              "items": {},
+              "description": "Exact query key, e.g. [\"todos\"]."
+            },
+            "revalidateIfStale": {
+              "default": false,
+              "description": "Kick off a background refetch when the cached data is stale.",
+              "type": "boolean"
+            },
+            "depth": { "default": 3, "type": "integer", "minimum": 1, "maximum": 6 }
+          },
+          "required": ["queryKey"]
+        },
+        "annotations": { "idempotentHint": true },
+        "output": {
+          "kind": "outline",
+          "fields": { "data": "any", "status": "string", "dataUpdatedAt": "number" },
+          "next": {
+            "command": "pnpm exec genie-react tools query_ensure --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "query_ensure",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "mutation_rerun",
+        "title": "Re-run a mutation",
+        "description": "Re-execute a mutation by its mutationId (from query_list_mutations), running its mutationFn and onSuccess/onError side effects again and updating any bound UI. Re-uses the mutation's own last variables unless you supply new ones. Requires the mutation to still hold its mutationFn (hasMutationFn on mutation_get).",
+        "group": "action",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "mutationId": { "type": "integer" },
+            "variables": {
+              "description": "Override the variables passed to the mutationFn; omit to reuse the last ones."
+            }
+          },
+          "required": ["mutationId"]
+        },
+        "annotations": { "idempotentHint": false },
+        "output": {
+          "kind": "outline",
+          "fields": {
+            "ok": "boolean",
+            "mutationId": "number",
+            "status": "string",
+            "data": "any",
+            "error?": "string"
+          },
+          "next": {
+            "command": "pnpm exec genie-react tools mutation_rerun --output-schema --session measure",
+            "argv": [
+              "pnpm",
+              "exec",
+              "genie-react",
+              "tools",
+              "mutation_rerun",
+              "--output-schema",
+              "--session",
+              "measure"
+            ]
+          }
+        }
+      },
+      {
+        "name": "devtools_status",
+        "title": "DevTools status",
+        "description": "Check whether a Genie-instrumented React + TanStack app is connected and ready, and report its session, React/TanStack versions, available data domains, and tool count. `sessions` lists one row per connected tab; untargeted calls hit the `current` one (the only tab, or the tab already targeted) and fail with unknown-session when several tabs leave the target ambiguous, so target a physical id, logical id, or unique session name explicitly (CLI: --session <target>).",
+        "group": "meta",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "includeTools": {
+              "default": false,
+              "description": "Include full tool descriptors (large). Prefer the CLI `genie-react tools [group|name]` for discovery.",
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      {
+        "name": "devtools_wait",
+        "title": "Wait for a condition",
+        "description": "Block until a runtime condition holds so the agent can synchronize instead of polling. `settled` reports each requested React, Query, Router, frame, or optional network domain independently; partial quiet never collapses into idle. For queries, prefer queryHash or queryKey from query_list; legacy matching is exact.",
+        "group": "meta",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "condition": {
+              "default": "connected",
+              "type": "string",
+              "enum": [
+                "connected",
+                "ready",
+                "component",
+                "query-settled",
+                "navigation",
+                "react-quiet",
+                "settled"
+              ]
+            },
+            "name": {
+              "description": "Component name or route. For query-settled, a legacy exact queryHash, JSON array key, or one-item string key; prefer queryHash/queryKey.",
+              "type": "string"
+            },
+            "queryHash": {
+              "description": "Exact queryHash from query_list; only for condition=\"query-settled\".",
+              "type": "string",
+              "minLength": 1
+            },
+            "queryKey": {
+              "description": "Exact structured query key; only for condition=\"query-settled\".",
+              "type": "array",
+              "items": {}
+            },
+            "timeoutMs": {
+              "default": 10000,
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 60000
+            },
+            "domains": {
+              "default": ["react"],
+              "description": "Domains required for condition=\"settled\"; react-quiet always checks React.",
+              "minItems": 1,
+              "maxItems": 5,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["react", "query", "router", "frames", "network"]
+              }
+            },
+            "quietMs": {
+              "default": 500,
+              "description": "How long the React document commit ID must stay unchanged.",
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 5000
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "react_quiesce",
+        "title": "Wait for React commits to become idle",
+        "description": "Wait until no React document commit is observed for idleMs. Returns idle, timed-out, or unavailable with elapsed time and commits observed since the first valid sample. Does not establish query, animation-frame, or future scheduled work completion. Session changes or counter resets cannot prove idle. Arguments: idleMs: minimum 100, maximum 5000; timeoutMs: maximum 60000, greater than 0.",
+        "group": "react.render",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "idleMs": { "default": 500, "type": "integer", "minimum": 100, "maximum": 5000 },
+            "timeoutMs": {
+              "default": 10000,
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 60000
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "devtools_capture_create",
+        "title": "Create an immutable runtime capture",
+        "description": "Create and retain a named, schema-versioned artifact containing bounded runtime sections. The bridge probes React commits before and after, retries when they move, and records whether the final artifact is React-commit-stable or best-effort. Returns the capture summary by default; read sections later with devtools_capture_read or export the artifact with `genie-react capture export`.",
+        "group": "meta",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+            "include": {
+              "description": "Domains to capture. Defaults to whichever of react, effects, query, router, and memory the app advertises.",
+              "minItems": 1,
+              "maxItems": 6,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["react", "effects", "query", "router", "memory", "performance"]
+              }
+            },
+            "maxAttempts": { "default": 3, "type": "integer", "minimum": 1, "maximum": 5 },
+            "view": {
+              "default": "summary",
+              "description": "summary (default) returns bounded decision fields; full returns the retained artifact with every section.",
+              "type": "string",
+              "enum": ["summary", "full"]
+            }
+          },
+          "required": ["name"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "devtools_capture_list",
+        "title": "List retained runtime captures",
+        "description": "List bounded capture summaries newest first. The bridge retains at most 20 captures; export important artifacts from devtools_capture_create/read as JSON.",
+        "group": "meta",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "devtools_capture_read",
+        "title": "Read an immutable runtime capture",
+        "description": "Read one retained capture by exact ID. The default summary view is bounded; request full or selected sections only when needed.",
+        "group": "meta",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "captureId": { "type": "string", "minLength": 1 },
+            "view": {
+              "default": "summary",
+              "description": "summary (default) returns bounded decision fields; full returns the retained artifact.",
+              "type": "string",
+              "enum": ["summary", "full"]
+            },
+            "sections": {
+              "description": "For view=\"full\", include only these sections.",
+              "maxItems": 6,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["react", "effects", "query", "router", "memory", "performance"]
+              }
+            }
+          },
+          "required": ["captureId"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "devtools_capture_pin",
+        "title": "Pin or unpin a retained capture",
+        "description": "Protect a capture from retention eviction, or unpin it. When all retained slots are pinned, creating another capture is refused instead of deleting evidence.",
+        "group": "meta",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "captureId": { "type": "string", "minLength": 1 },
+            "pinned": { "default": true, "type": "boolean" }
+          },
+          "required": ["captureId"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "devtools_capture_compare",
+        "title": "Compare repeated runtime captures",
+        "description": "Compare repeated baseline and candidate capture cohorts with median, p95, and median absolute deviation (MAD). Apply optional typed regression budgets per metric. At least minimumRuns usable samples per cohort are required for a pass/fail budget verdict; smaller or missing cohorts remain explicit insufficient-data. Capture IDs must be unique and cannot appear in both cohorts.",
+        "group": "meta",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "baselineCaptureIds": {
+              "minItems": 1,
+              "maxItems": 10,
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "candidateCaptureIds": {
+              "minItems": 1,
+              "maxItems": 10,
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "metrics": {
+              "default": [
+                "react.commits",
+                "react.renders",
+                "react.updates",
+                "react.unnecessary",
+                "react.selfTimeMs",
+                "effects.hot",
+                "query.pending",
+                "memory.usedHeapBytes",
+                "performance.avgFps",
+                "performance.droppedFrames"
+              ],
+              "minItems": 1,
+              "maxItems": 10,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "react.commits",
+                  "react.renders",
+                  "react.updates",
+                  "react.unnecessary",
+                  "react.selfTimeMs",
+                  "effects.hot",
+                  "query.pending",
+                  "memory.usedHeapBytes",
+                  "performance.avgFps",
+                  "performance.droppedFrames"
+                ]
+              }
+            },
+            "minimumRuns": { "default": 5, "type": "integer", "minimum": 1, "maximum": 10 },
+            "warmupRuns": { "default": 1, "type": "integer", "minimum": 0, "maximum": 3 },
+            "outlierThreshold": { "default": 3.5, "type": "number", "minimum": 2, "maximum": 10 },
+            "confidenceLevel": {
+              "default": 0.95,
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 0.999
+            },
+            "minimumEffectPct": { "default": 5, "type": "number", "minimum": 0, "maximum": 100 },
+            "budgets": {
+              "default": [],
+              "maxItems": 10,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "metric": {
+                    "type": "string",
+                    "enum": [
+                      "react.commits",
+                      "react.renders",
+                      "react.updates",
+                      "react.unnecessary",
+                      "react.selfTimeMs",
+                      "effects.hot",
+                      "query.pending",
+                      "memory.usedHeapBytes",
+                      "performance.avgFps",
+                      "performance.droppedFrames"
+                    ]
+                  },
+                  "maxRegressionPct": { "type": "number", "minimum": 0 },
+                  "maxValue": { "type": "number" },
+                  "minValue": { "type": "number" }
+                },
+                "required": ["metric"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["baselineCaptureIds", "candidateCaptureIds"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "devtools_interaction_begin",
+        "title": "Begin an atomic interaction observation",
+        "description": "Clear and start one targeted React observation under a bridge-owned interaction ID. Only one interaction may record per physical app document; drive the UI, then call devtools_interaction_stop to freeze and read one bounded bundle.",
+        "group": "meta",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "components": {
+              "default": [],
+              "maxItems": 20,
+              "type": "array",
+              "items": { "type": "string", "minLength": 1, "maxLength": 160 }
+            },
+            "roots": {
+              "default": [],
+              "maxItems": 20,
+              "type": "array",
+              "items": { "type": "integer" }
+            },
+            "budget": {
+              "default": {
+                "fiberLimit": 250,
+                "operationLimit": 20000,
+                "timeLimitMs": 8,
+                "targetOperationReserve": 4000,
+                "targetTimeReserveMs": 4,
+                "adaptive": true
+              },
+              "type": "object",
+              "properties": {
+                "fiberLimit": {
+                  "default": 250,
+                  "type": "integer",
+                  "minimum": 50,
+                  "maximum": 20000
+                },
+                "operationLimit": {
+                  "default": 20000,
+                  "type": "integer",
+                  "minimum": 1000,
+                  "maximum": 2000000
+                },
+                "timeLimitMs": { "default": 8, "type": "number", "minimum": 1, "maximum": 500 },
+                "targetOperationReserve": {
+                  "default": 4000,
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 500000
+                },
+                "targetTimeReserveMs": {
+                  "default": 4,
+                  "type": "number",
+                  "minimum": 0.5,
+                  "maximum": 250
+                },
+                "adaptive": { "default": true, "type": "boolean" }
+              }
+            },
+            "lifecycle": {
+              "default": { "bufferLimit": 1000, "targetReserve": 100 },
+              "type": "object",
+              "properties": {
+                "bufferLimit": {
+                  "default": 1000,
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 20000
+                },
+                "targetReserve": {
+                  "default": 100,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5000
+                }
+              }
+            },
+            "name": { "type": "string", "minLength": 1, "maxLength": 80 }
+          },
+          "required": ["name"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "devtools_interaction_stop",
+        "title": "Stop and read an atomic interaction observation",
+        "description": "Freeze React profiling before waiting, then summarize the interaction: top rendered components with their most frequent cause, the hottest effects, cohorts, settle and coverage. Commits occurring during settle are excluded by the profile freeze and counted explicitly. Repeat the call with view:\"full\" (optionally with sections) to read the retained renders, causes, effects and cohort evidence.",
+        "group": "meta",
+        "inputJsonSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "interactionId": { "type": "string", "minLength": 1 },
+            "domains": {
+              "default": ["react"],
+              "minItems": 1,
+              "maxItems": 5,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["react", "query", "router", "frames", "network"]
+              }
+            },
+            "quietMs": { "default": 500, "type": "integer", "minimum": 100, "maximum": 5000 },
+            "timeoutMs": {
+              "default": 10000,
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 60000
+            },
+            "view": {
+              "default": "summary",
+              "description": "summary (default) returns bounded decision fields; full returns the retained renders, causes, effects and cohort tool results.",
+              "type": "string",
+              "enum": ["summary", "full"]
+            },
+            "sections": {
+              "description": "For view=\"full\", include only these sections.",
+              "minItems": 1,
+              "maxItems": 4,
+              "type": "array",
+              "items": { "type": "string", "enum": ["renders", "causes", "effects", "cohorts"] }
+            }
+          },
+          "required": ["interactionId"],
+          "additionalProperties": false
+        }
+      }
+    ]
+  }
+}

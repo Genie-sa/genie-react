@@ -61,6 +61,12 @@ export const captureArtifactSchema = z.object({
     documentGeneration: z.number().int().positive().optional(),
     sessionName: z.string().optional(),
     app: appInfoSchema,
+    standIn: z
+      .literal(true)
+      .optional()
+      .describe(
+        'Another tab answered because the targeted tab was absent or silent; comparisons refuse this capture.',
+      ),
   }),
   include: z.array(captureDomainSchema),
   consistency: z.object({
@@ -73,7 +79,7 @@ export const captureArtifactSchema = z.object({
   complete: z
     .boolean()
     .describe(
-      'Every included section succeeded, React commits stayed stable, and captured render evidence is comparable with complete coverage.',
+      'Every included section succeeded, React commits stayed stable, captured render evidence is comparable with complete coverage, and the targeted tab answered.',
     ),
   warnings: z.array(z.string()),
   sizeBytes: z.number().int().nonnegative(),
@@ -220,6 +226,11 @@ export const captureComparisonSchema = z.object({
     'insufficient-data',
     'informational',
   ]),
+  notComparableReasons: z
+    .array(z.string())
+    .describe(
+      'Why no metric is comparable: runtime-environment-mismatch, cohort-spans-multiple-tabs, capture-from-stand-in-tab, or repeated-snapshot-of-one-run. warnings name the captures.',
+    ),
   metrics: z.array(captureComparisonMetricSchema),
   violations: z.array(z.object({ metric: captureMetricSchema, reasons: z.array(z.string()) })),
   warnings: z.array(z.string()),
@@ -539,7 +550,7 @@ export const devtoolsWaitContract = defineAgentToolContract({
         .string()
         .optional()
         .describe(
-          'Component name or route. For query-settled, a legacy exact queryHash, JSON array key, or one-item string key; prefer queryHash/queryKey.',
+          'For component, the exact display name. For navigation, the pathname the router must settle on. For query-settled, a legacy exact queryHash, JSON array key, or one-item string key; prefer queryHash/queryKey.',
         ),
       queryHash: z
         .string()
@@ -621,7 +632,13 @@ export const devtoolsWaitContract = defineAgentToolContract({
 export const INTERACTION_SCHEMA_VERSION = '1.0' as const
 
 const interactionObservationInputSchema = z.object({
-  components: z.array(z.string().trim().min(1).max(160)).max(20).default([]),
+  components: z
+    .array(z.string().trim().min(1).max(160))
+    .max(20)
+    .default([])
+    .describe(
+      'Exact display names to follow: each gets a react_component_cohort, and render analysis work is reserved for names containing it.',
+    ),
   roots: z.array(z.number().int()).max(20).default([]),
   budget: renderObservationBudgetInputSchema,
   lifecycle: z

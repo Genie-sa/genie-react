@@ -1,0 +1,122 @@
+{
+  "argv": ["doctor", "--live"],
+  "exitCode": 0,
+  "result": {
+    "ok": true,
+    "framework": "react-vite",
+    "checks": [
+      {
+        "label": "Vite config references genie-react/vite",
+        "ok": true,
+        "critical": true,
+        "detail": "vite.config.ts"
+      },
+      { "label": "genie-react resolvable in node_modules", "ok": true, "critical": true },
+      {
+        "label": "agent skill matches the bundled CLI guidance",
+        "ok": false,
+        "critical": false,
+        "detail": ".agents/skills/genie missing; run: pnpm exec genie-react init"
+      },
+      {
+        "label": "Claude Code skill matches the bundled CLI guidance",
+        "ok": false,
+        "critical": false,
+        "detail": ".claude/skills/genie missing; run: pnpm exec genie-react init"
+      },
+      {
+        "label": "CLI and runtime package versions agree",
+        "ok": true,
+        "critical": true,
+        "detail": "cli 0.19.0 · runtime 0.19.0"
+      },
+      {
+        "label": "dev server answering at http://127.0.0.1:52053",
+        "ok": true,
+        "critical": true,
+        "detail": "vite-mounted bridge (client is injected automatically)"
+      },
+      { "label": "bridge accepts agent connections", "ok": true, "critical": true },
+      {
+        "label": "an app session is connected",
+        "ok": true,
+        "critical": false,
+        "detail": "1 session(s) · vite-demo · react 19.2.7"
+      },
+      {
+        "label": "app tool round-trip",
+        "ok": true,
+        "critical": false,
+        "detail": "react_find_components answered in 2ms"
+      },
+      {
+        "label": "React source-map health",
+        "ok": true,
+        "critical": false,
+        "detail": "partial · mapped 12 · served 0 · unknown 1"
+      }
+    ],
+    "bridge": {
+      "url": "ws://127.0.0.1:52053/__genie/ws",
+      "pid": 76137,
+      "tokenFile": "/tmp/genie-react-501/5b579fc1133904d2a146df83a96634b0e49ab6e66b23b77620a2f5792e016f7d.json"
+    },
+    "versions": {
+      "cli": "0.19.0",
+      "runtime": "0.19.0",
+      "bundledSkill": "0.19.0",
+      "activeSkill": null
+    },
+    "skill": {
+      "path": null,
+      "bundledHash": "d58be587717ebbbedfcdbb35bebbaca3be1bbb490a161e20ed336a730cc1b502",
+      "activeHash": null,
+      "current": false,
+      "locations": [
+        {
+          "path": ".agents/skills/genie",
+          "symlink": false,
+          "conflictPath": null,
+          "version": null,
+          "hash": null,
+          "current": false
+        },
+        {
+          "path": ".claude/skills/genie",
+          "symlink": false,
+          "conflictPath": null,
+          "version": null,
+          "hash": null,
+          "current": false
+        }
+      ]
+    },
+    "bridgeCandidates": [
+      {
+        "url": "ws://127.0.0.1:52053/__genie/ws",
+        "pid": 76137,
+        "tokenFile": "/tmp/genie-react-501/5b579fc1133904d2a146df83a96634b0e49ab6e66b23b77620a2f5792e016f7d.json"
+      }
+    ],
+    "remediation": [
+      ".agents/skills/genie missing; run: pnpm exec genie-react init",
+      ".claude/skills/genie missing; run: pnpm exec genie-react init"
+    ],
+    "live": {
+      "sessionHealth": {
+        "connected": true,
+        "sessions": 1,
+        "app": "vite-demo",
+        "reactVersion": "19.2.7",
+        "roundTripMs": 2,
+        "sourceMapHealth": { "status": "partial", "mapped": 12, "served": 0, "unknown": 1 }
+      },
+      "sourceMapHealth": { "status": "partial", "mapped": 12, "served": 0, "unknown": 1 }
+    },
+    "schemaVersion": "2.0",
+    "status": "ok",
+    "reason": "checks_passed",
+    "message": "Setup checks passed.",
+    "userActionRequired": false
+  }
+}

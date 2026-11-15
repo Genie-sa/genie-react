@@ -121,6 +121,7 @@ function referenceBuildTree(
   const entries: { node: TreeNode; fiber: Fiber }[] = []
   let depthClipped = false
   let nodeCapped = false
+  let omittedByDepth = 0
 
   const visit = (fiber: Fiber, parentId: NodeId | null, depth: number): void => {
     let child: Fiber | null = fiber.child
@@ -133,18 +134,20 @@ function referenceBuildTree(
           return
         }
         const id = registerFiber(child)
-        entries.push({
-          node: {
-            id,
-            parentId,
-            name: nameOf(child),
-            key: child.key,
-            kind: composite ? 'component' : 'host',
-          },
-          fiber: child,
-        })
+        const node: TreeNode = {
+          id,
+          parentId,
+          name: nameOf(child),
+          key: child.key,
+          kind: composite ? 'component' : 'host',
+        }
+        entries.push({ node, fiber: child })
         if (depth > 0) visit(child, id, depth - 1)
-        else if (referenceHasReportableDescendant(child, options.includeHost)) depthClipped = true
+        else if (referenceHasReportableDescendant(child, options.includeHost)) {
+          depthClipped = true
+          node.omittedDescendants = referenceCountNodes(child, options.includeHost)
+          omittedByDepth += node.omittedDescendants
+        }
       } else {
         visit(child, parentId, depth)
       }
@@ -162,6 +165,8 @@ function referenceBuildTree(
     total,
     truncated: truncatedBy !== null,
     truncatedBy,
+    // Every reportable node is listed, below a depth-clipped listed node, or past the node cap.
+    omitted: { depth: omittedByDepth, maxNodes: total - nodes.length - omittedByDepth },
   }
 }
 

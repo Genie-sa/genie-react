@@ -1,0 +1,35 @@
+{
+  "argv": ["call", "react_error_state", "{}"],
+  "exitCode": 0,
+  "result": {
+    "caughtErrors": [
+      {
+        "boundaryId": 47,
+        "boundaryName": "LabErrorBoundary",
+        "boundarySource": {
+          "file": "App.tsx",
+          "line": 215,
+          "column": 8,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        },
+        "sourceOwnership": "app",
+        "throwingComponent": "Bomb",
+        "message": "Bomb detonated",
+        "stack": "Error: Bomb detonated\n    at Bomb (http://127.0.0.1:52053/src/App.tsx:94:19)\n    at Object.react_stack_bottom_frame (http://127.0.0.1:52053/node_modules/.vite/deps/react-dom_client.js?v=c116e7a2:12866:12)\n    at renderWithHooks (http://127.0.0.1:52053/node_modules/.vite/deps/react-dom_client.js?v=c116e7a2:4213:19)\n    at updateFunctionComponent (http://127.0.0.1:52053/node_modules/.vite/deps/react-dom_client.js?v=c116e7a2:5569:16)\n    at beginWork (http://127.0.0.1:52053/node_modules/.vite/deps/react-dom_client.js?v=c116e7a2:6140:20)\n    at runWithFiberInDEV (http://127.0.0.1:52053/node_modules/.vite/deps/react-dom_client.js?v=c116e7a2:851:66)\n    at performUnitOfWork (http://127.0.0.1:52053/node_modules/.vite/deps/react-dom_client.js?v=c116e7a2:8429:92)\n    at workLoopSync (http://127.0.0.1:52053/node_modules/.vite/deps/react-dom_client.js?v=c116e7a2:8325:37)\n    at renderRootSync (http://127.0.0.1:52053/node_modules/.vite/deps/react-dom_client.js?v=c116e7a2:8309:6)\n    at performWorkOnRoot (http://127.0.0.1:52053/node_modules/.vite/deps/react-dom_client.js?v=c116e7a2:7994:27)",
+        "isLibraryBoundary": false,
+        "forced": false
+      }
+    ],
+    "suspended": [],
+    "blankTreeHint": "error boundary <LabErrorBoundary> at App.tsx:215 caught \"Bomb detonated\" thrown by <Bomb> — the subtree below it did not render",
+    "ownershipCoverage": {
+      "complete": true,
+      "totalCandidates": 1,
+      "app": 1,
+      "library": 0,
+      "unknown": 0
+    },
+    "scanTruncated": false
+  }
+}

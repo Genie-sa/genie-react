@@ -13,14 +13,17 @@ import {
   resetOverrides,
 } from './overrides'
 
-// A no-op renderer: mounted-detection and registry bookkeeping go through the real jsdom fiber tree, not the renderer, so it need not actually mutate anything.
+// Mounted-detection and registry bookkeeping go through the real jsdom fiber tree; the renderer only stands in for the commit that would make the override props current.
 function recordingRenderer(): { renderer: DevRenderer; propsCalls: unknown[] } {
   const propsCalls: unknown[] = []
   return {
     propsCalls,
     renderer: {
       scheduleUpdate: () => {},
-      overrideProps: (f, path, value) => void propsCalls.push([f, path, value]),
+      overrideProps: (f, path, value) => {
+        propsCalls.push([f, path, value])
+        Object.assign(f, { memoizedProps: value })
+      },
     },
   }
 }

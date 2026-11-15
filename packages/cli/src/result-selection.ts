@@ -1,5 +1,6 @@
 import { isRecord } from './guards'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
+import { jsonText } from './text-output'
 
 const MAX_COUNTED_PATHS = 1_000_000
 
@@ -103,11 +104,26 @@ export interface Overflow {
   serialized: string
   originalBytes: number
   largestPaths: LargePath[]
+  /** File extension of `serialized`, so a spilled result keeps its format. */
+  extension: DocumentFormatter['extension']
 }
 
 export interface OverflowRecovery {
   outputPath?: string
   suggestions: OutputSuggestion[]
+}
+
+/** How one output format renders a complete document and the CLI's own truncation envelope. */
+export interface DocumentFormatter {
+  extension: 'json' | 'txt'
+  render(value: unknown): string
+  renderEnvelope(envelope: Record<string, unknown>): string
+}
+
+export const JSON_FORMATTER: DocumentFormatter = {
+  extension: 'json',
+  render: (value) => jsonText(value),
+  renderEnvelope: (envelope) => jsonText(envelope),
 }
 
 const LARGEST_PATH_LIMIT = 5
@@ -119,12 +135,27 @@ export function renderBoundedJson(
   maxBytes?: number,
   recover?: (overflow: Overflow) => OverflowRecovery,
 ): string {
-  const serialized = JSON.stringify(value)
+  return renderBoundedDocument(value, JSON_FORMATTER, maxBytes, recover)
+}
+
+/** `value` rendered whole when it fits `maxBytes` (counting the trailing newline), else the CLI's truncation envelope in the same format. */
+export function renderBoundedDocument(
+  value: unknown,
+  formatter: DocumentFormatter,
+  maxBytes?: number,
+  recover?: (overflow: Overflow) => OverflowRecovery,
+): string {
+  const serialized = formatter.render(value)
   const originalBytes = Buffer.byteLength(serialized, 'utf8') + 1
   if (maxBytes === undefined || originalBytes <= maxBytes) return serialized
 
   const largestPaths = largestJsonPaths(value)
-  const recovery = recover?.({ serialized, originalBytes, largestPaths })
+  const recovery = recover?.({
+    serialized,
+    originalBytes,
+    largestPaths,
+    extension: formatter.extension,
+  })
   const required = {
     schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
     status: 'truncated',
@@ -134,7 +165,7 @@ export function renderBoundedJson(
     omittedPathCount: countLeafPaths(value),
     ...(recovery?.outputPath === undefined ? {} : { outputPath: recovery.outputPath }),
     message: recovery?.outputPath
-      ? 'The result exceeded --max-bytes. The complete JSON was written to outputPath; read it from there, or follow a suggestion to request less.'
+      ? `The result exceeded --max-bytes. The complete ${formatter.extension === 'json' ? 'JSON' : 'text'} was written to outputPath; read it from there, or follow a suggestion to request less.`
       : 'The result exceeded --max-bytes. Follow a suggestion, use --select on one of largestPaths, or lower a tool limit.',
   }
   const topLevelPaths = isRecord(value)
@@ -150,7 +181,7 @@ export function renderBoundedJson(
     required,
   ]
   for (const envelope of candidates) {
-    const bounded = JSON.stringify(envelope)
+    const bounded = formatter.renderEnvelope(envelope)
     if (Buffer.byteLength(bounded, 'utf8') + 1 <= maxBytes) return bounded
   }
   throw new ResultSelectionError('--max-bytes is too small for the truncation envelope.')
@@ -181,13 +212,19 @@ export function largestJsonPaths(value: unknown): LargePath[] {
   return selectable.sort((left, right) => right.bytes - left.bytes).slice(0, LARGEST_PATH_LIMIT)
 }
 
-export function renderBoundedText(text: string, maxBytes?: number): string {
+/** Already-rendered lines, such as JSONL rows, bounded like a document: oversized output becomes a truncation envelope that carries it. */
+export function renderBoundedText(
+  text: string,
+  maxBytes?: number,
+  formatter: DocumentFormatter = JSON_FORMATTER,
+): string {
   if (maxBytes === undefined || Buffer.byteLength(text, 'utf8') + 1 <= maxBytes) return text
-  return renderBoundedJson(
+  return renderBoundedDocument(
     {
       output: text,
       omittedPathCount: text === '' ? 0 : text.split('\n').length,
     },
+    formatter,
     maxBytes,
   )
 }

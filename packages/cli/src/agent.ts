@@ -21,7 +21,19 @@ import {
   GenieAgentLink,
   INVOKE_GRACE_MS,
 } from './agent-link'
-import { DEFAULT_MAX_BYTES, writeDiagnostic, writeJson } from './cli-output'
+import { renderBatchItemText } from './batch-output'
+import {
+  DEFAULT_MAX_BYTES,
+  outputFormat,
+  renderEnvelopeText,
+  renderFailure,
+  renderOutput,
+  renderOutputLines,
+  renderRows,
+  writeDiagnostic,
+  writeOutput,
+} from './cli-output'
+import { renderToolsText, type ToolsView } from './contract-output'
 import {
   isTokenTransportSafe,
   normalizeBridgeUrl,
@@ -35,7 +47,6 @@ import {
   type FailureContext,
   type FailureOptions,
   type FailureReason,
-  formatAgentFailure,
   nextCommand,
   notReadyFailure,
   safeAnsweringSession,
@@ -44,6 +55,7 @@ import {
   toolHelpNext,
   withSession,
 } from './failure'
+import { agentFailure } from './failure-format'
 import { isRecord, isRecordArray } from './guards'
 import { type CallInvocation, recoverOverflow } from './output-recovery'
 import { setOutputContext } from './output-safety'
@@ -52,10 +64,9 @@ import {
   FieldSelectionError,
   type Overflow,
   type OverflowRecovery,
-  renderBoundedJson,
-  renderBoundedText,
   selectResult,
 } from './result-selection'
+import { jsonText } from './text-output'
 import {
   groupIndex,
   resolveToolsSelector,
@@ -63,6 +74,7 @@ import {
   type ToolDescriptor,
   toolDetail,
 } from './tool-output'
+import { renderToolText } from './tool-text-output'
 
 export {
   summarizeCapture,
@@ -145,12 +157,7 @@ function emitFailure(
   message: string,
   options?: FailureOptions,
 ): void {
-  out(
-    renderBoundedText(
-      formatAgentFailure(reason, message, options),
-      opts.maxBytes ?? DEFAULT_MAX_BYTES,
-    ),
-  )
+  out(renderFailure(agentFailure(reason, message, options), opts.maxBytes ?? DEFAULT_MAX_BYTES))
 }
 
 /** Reports a caught failure, prefixed with the operation that failed. */
@@ -281,9 +288,9 @@ async function connect(opts: AgentOptions): Promise<Connection> {
   return { link, url, connection: { url, source, authenticated: token !== undefined } }
 }
 
-/** Preserve raw tool schemas as bounded JSON; field projections emit JSONL. */
+/** The tool result in the active format with its own schema, bounded; field projections emit one row each. */
 export function renderResult(
-  _tool: string,
+  tool: string,
   result: unknown,
   _json?: boolean,
   fields?: string[],
@@ -291,9 +298,21 @@ export function renderResult(
   maxBytes = DEFAULT_MAX_BYTES,
   recover?: (overflow: Overflow) => OverflowRecovery,
 ): string {
-  if (fields && fields.length > 0) return renderBoundedText(projectFields(result, fields), maxBytes)
-  const projected = select === undefined ? result : selectResult(result, select)
-  return renderBoundedJson(projected ?? null, maxBytes, recover)
+  if (fields && fields.length > 0) {
+    return renderOutputLines(renderRows(projectRows(result, fields)), maxBytes)
+  }
+  if (select !== undefined) {
+    return renderOutput(selectResult(result, select), {
+      maxBytes,
+      recover,
+      text: renderEnvelopeText,
+    })
+  }
+  return renderOutput(result, {
+    maxBytes,
+    recover,
+    text: (value) => renderToolText(tool, value),
+  })
 }
 
 /** Oversized results spill to the private per-user output directory and suggest narrower retries built from this invocation. */
@@ -316,6 +335,12 @@ function overflowRecovery(
 
 /** `--fields` output: the top-level object projected when any requested key exists on it; otherwise one JSONL row per record in the FIRST array-of-records field (key order, empty → zero rows). Deterministic — the projected source never depends on which array happens to have rows. */
 export function projectFields(result: unknown, fields: string[]): string {
+  return projectRows(result, fields)
+    .map((row) => jsonText(row))
+    .join('\n')
+}
+
+export function projectRows(result: unknown, fields: string[]): Record<string, unknown>[] {
   if (!isRecord(result)) throw new FieldSelectionError(fields, [])
   const collection = fields.some((field) => field in result) ? null : firstRecordArray(result)
   if (collection?.[1].length === 0) {
@@ -326,13 +351,13 @@ export function projectFields(result: unknown, fields: string[]): string {
         ? { collection: `/${collection[0]}` }
         : undefined,
     )
-    return ''
+    return []
   }
   const source = collection?.[1] ?? [result]
   const available = [...new Set(source.flatMap((row) => Object.keys(row)))].sort()
   const unknown = fields.filter((field) => !available.includes(field))
   if (unknown.length > 0) throw new FieldSelectionError(unknown, available)
-  return source.map((row) => JSON.stringify(pickFields(row, fields))).join('\n')
+  return source.map((row) => pickFields(row, fields))
 }
 
 function firstRecordArray(
@@ -836,13 +861,25 @@ export async function runBatch(
   const lookups = failureLookups(link)
   let anyFailed = false
   const results: VersionedBatchResult[] = []
+  const texts: string[] = []
+  let position = 0
   const emitBatchResult = (result: BatchResult): void => {
+    position += 1
     const versioned: VersionedBatchResult = {
       schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
       ...result,
     }
-    if (opts.json || opts.maxBytes !== undefined) results.push(versioned)
-    else writeJson(versioned)
+    if (outputFormat() === 'text') {
+      const text = renderBatchItemText(
+        position,
+        parsed.items.length,
+        versioned,
+        opts.select !== undefined,
+      )
+      if (opts.maxBytes !== undefined) texts.push(text)
+      else out(renderOutputLines(text))
+    } else if (opts.json || opts.maxBytes !== undefined) results.push(versioned)
+    else writeOutput(versioned)
   }
   try {
     if (
@@ -884,14 +921,11 @@ export async function runBatch(
         emitBatchResult({ tool: item.tool, ok: false, status: 'error', ...failure })
       }
     }
-    if (opts.json) writeJson(results, opts.maxBytes)
+    if (outputFormat() === 'text') {
+      if (opts.maxBytes !== undefined) out(renderOutputLines(texts.join('\n'), opts.maxBytes))
+    } else if (opts.json) writeOutput(results, { maxBytes: opts.maxBytes })
     else if (opts.maxBytes !== undefined) {
-      out(
-        renderBoundedText(
-          results.map((result) => JSON.stringify(result)).join('\n'),
-          opts.maxBytes,
-        ),
-      )
+      out(renderOutputLines(results.map((result) => jsonText(result)).join('\n'), opts.maxBytes))
     }
     return anyFailed ? 1 : 0
   } catch (error) {
@@ -1075,11 +1109,11 @@ export async function runTools(
       const selection = resolveToolsSelector(tools, selector)
       switch (selection.kind) {
         case 'tool':
-          emitToolsResult(opts, detail(selection.tool), selector)
+          emitToolsResult(opts, 'contract', detail(selection.tool), selector)
           return 0
         case 'group': {
           const value = selection.tools.map(slimDescriptor)
-          emitToolsResult(opts, value, selector)
+          emitToolsResult(opts, 'group', value, selector)
           return 0
         }
         case 'unknown': {
@@ -1104,14 +1138,14 @@ export async function runTools(
     }
 
     if (opts.all) {
-      emitToolsResult(opts, {
+      emitToolsResult(opts, 'all', {
         app: status.app,
         tools: tools.map(detail),
       })
       return 0
     }
     const index = groupIndex(status.app?.name, tools)
-    emitToolsResult(opts, index)
+    emitToolsResult(opts, 'index', index)
     return 0
   } catch (error) {
     await emitCaughtFailure(
@@ -1126,7 +1160,12 @@ export async function runTools(
   }
 }
 
-function emitToolsResult(opts: AgentOptions, value: unknown, selector?: string): void {
+function emitToolsResult(
+  opts: AgentOptions,
+  view: ToolsView,
+  value: unknown,
+  selector?: string,
+): void {
   const selected = opts.select === undefined ? value : selectResult(value, opts.select)
   const command = [
     'tools',
@@ -1135,11 +1174,11 @@ function emitToolsResult(opts: AgentOptions, value: unknown, selector?: string):
     ...(opts.outputSchema ? ['--output-schema'] : []),
   ]
   out(
-    renderBoundedJson(
-      selected,
-      opts.maxBytes ?? DEFAULT_MAX_BYTES,
-      overflowRecovery(opts, `tools-${selector ?? 'all'}`, { command }),
-    ),
+    renderOutput(selected, {
+      maxBytes: opts.maxBytes,
+      recover: overflowRecovery(opts, `tools-${selector ?? 'all'}`, { command }),
+      text: opts.select === undefined ? renderToolsText(view) : renderEnvelopeText,
+    }),
   )
 }
 

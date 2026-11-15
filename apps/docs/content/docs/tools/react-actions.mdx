@@ -189,5 +189,7 @@ npx @genie-react/cli call react_reset_overrides '{}' --json
 ```
 
 **Agent use:** Continue with real-state verification only when `remaining` is 0. An outcome is
-`restored`, `released`, or `skipped-unmounted`; a released unmounted hook can keep its last shown
-value until the component's own next state update.
+`restored`, `superseded`, `released`, or `skipped-unmounted`. `superseded` means the app replaced the
+overridden value since (its own state update, or a parent or Provider render), so Genie left the real
+value alone. A released unmounted hook can keep its last shown value until the component's own next
+state update.

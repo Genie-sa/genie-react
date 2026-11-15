@@ -1,0 +1,21 @@
+{
+  "argv": ["call", "react_clear_renders", "{\"budget\":{\"adaptive\":true}}"],
+  "exitCode": 0,
+  "result": {
+    "ok": true,
+    "tracking": true,
+    "documentCommitId": 7,
+    "observation": { "id": "observation:1", "epoch": 1, "startedAfterDocumentCommitId": 7 },
+    "observationConfig": {
+      "adaptive": true,
+      "adaptiveScale": 1,
+      "fiberLimit": 250,
+      "operationLimit": 20000,
+      "timeLimitMs": 8,
+      "targetOperationReserve": 4000,
+      "targetTimeReserveMs": 4,
+      "lifecycleBufferLimit": 1000,
+      "lifecycleTargetReserve": 100
+    }
+  }
+}

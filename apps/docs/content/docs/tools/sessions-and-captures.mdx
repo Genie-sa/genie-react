@@ -62,8 +62,11 @@ the document within the logical session. The list contains connected tabs only; 
 Blocks the caller until one runtime condition succeeds, fails, or reaches its timeout.
 
 **Input:** `condition` is optional and defaults to `connected`; it accepts `connected`, `ready`,
-`component`, `query-settled`, `navigation`, `react-quiet`, or `settled`. `name` is an optional string
-for a component, route, or legacy exact query selector. `queryHash` is an optional non-empty string,
+`component`, `query-settled`, `navigation`, `react-quiet`, or `settled`. `name` is an optional string:
+the exact display name for `component`, the pathname for `navigation`, or a legacy exact query
+selector. `navigation` and the `router` domain of `settled` wait for `router_get_state` to report
+`settled`, which stays false while a stale-while-revalidate loader or the render transition runs
+after `isLoading` turns false; `lastObserved` carries `settled` and `pendingWork`. `queryHash` is an optional non-empty string,
 and `queryKey` is an optional array; use only one, only with `query-settled`, and not with `name`.
 `timeoutMs` is an optional positive integer up to 60,000 and defaults to 10,000. `domains` is an
 optional list of 1–5 unique values from `react`, `query`, `router`, `frames`, and `network`; it
@@ -349,6 +352,7 @@ npx @genie-react/cli call devtools_capture_compare \
     "warmupCandidateCaptureIds": ["cap_064ad176-2a96-4e6c-b15e-e6fd1bee04b7"]
   },
   "overall": "pass",
+  "notComparableReasons": [],
   "metrics": [
     {
       "metric": "react.renders",
@@ -378,16 +382,22 @@ runs.
 
 **Limits:** The default warm-up means six IDs per cohort are needed for five usable runs. Missing
 metrics and small cohorts stay `insufficient-data`; noise or weak effects can stay `inconclusive`.
-Environment differences can make a comparison unsafe. Comparison does not pin its input captures,
-so export or pin evidence before retention cleanup.
+The whole comparison is `not-comparable`, with the reason in `notComparableReasons` and the captures
+named in `warnings`, when captures ran on a different app, React, TanStack, or React bundle
+(`runtime-environment-mismatch`), a cohort mixes tabs (`cohort-spans-multiple-tabs`), another tab
+answered for a silent targeted tab (`capture-from-stand-in-tab`), or two captures read the same
+observation window, which makes them one run (`repeated-snapshot-of-one-run`). Render metrics from a
+capture taken without an observation window are `render-observation-window-missing`, because their
+counts are cumulative. Comparison does not pin its input captures, so export or pin evidence before
+retention cleanup.
 
 ## `devtools_interaction_begin`
 
 Clears React observations and starts one bounded interaction window on the selected physical document.
 
 **Input:** `name` is required, trimmed, 1–80 characters, and cannot contain control characters.
-`components` is an optional list of at most 20 trimmed names, each 1–160 characters, and defaults to
-`[]`. `roots` is an optional list of at most 20 integers and defaults to `[]`. `budget` is optional:
+`components` is an optional list of at most 20 trimmed exact display names, each 1–160 characters,
+and defaults to `[]`; each name gets its own cohort. `roots` is an optional list of at most 20 integers and defaults to `[]`. `budget` is optional:
 `fiberLimit` is an integer 50–20,000 (default 250), `operationLimit` is an integer 1,000–2,000,000
 (default 20,000), `timeLimitMs` is 1–500 (default 8), `targetOperationReserve` is an integer
 100–500,000 (default 4,000), `targetTimeReserveMs` is 0.5–250 (default 4), and `adaptive` is boolean

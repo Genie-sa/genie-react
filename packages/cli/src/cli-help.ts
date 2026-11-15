@@ -1,8 +1,18 @@
 import { CAPTURE_DOMAINS } from './capture-domains'
 import { DEFAULT_MAX_BYTES } from './cli-output'
 import { FEEDBACK_COMMAND, FEEDBACK_OPTION_DETAILS, FEEDBACK_OPTIONS } from './feedback-options'
+import { isRecord } from './guards'
 import { genieCommand } from './package-manager'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
+import {
+  blockLines,
+  encodeText,
+  FieldReader,
+  fieldLines,
+  flowText,
+  proseText,
+  shellQuote,
+} from './text-output'
 import { editDistance } from './tool-output'
 
 export const CLI_OPTIONS = {
@@ -45,10 +55,10 @@ export interface OptionDetail {
   conflictsWith?: OptionName[]
 }
 const OPTION_DETAILS: Record<OptionName, OptionDetail> = {
-  help: { description: 'Describe commands, arguments, options and output as JSON' },
-  version: { description: 'Return the CLI package version as JSON' },
+  help: { description: 'Describe commands, arguments, options and output; JSON with --json' },
+  version: { description: 'Print the CLI package version; a JSON object with --json' },
   json: {
-    description: 'Compatibility alias for JSON; batch collects results into one JSON array',
+    description: 'Print JSON instead of compact text; batch collects results into one JSON array',
     conflictsWith: ['ndjson'],
   },
   ndjson: { description: 'Emit one batch result per JSON line', conflictsWith: ['json'] },
@@ -88,7 +98,7 @@ const OPTION_DETAILS: Record<OptionName, OptionDetail> = {
   },
   fields: {
     description:
-      'Select comma-separated record keys as JSONL; unknown fields fail; empty collections emit no rows',
+      'Select comma-separated record keys, one row per record (JSONL with --json); unknown fields fail; empty collections emit no rows',
     conflictsWith: ['select'],
   },
   select: {
@@ -98,7 +108,7 @@ const OPTION_DETAILS: Record<OptionName, OptionDetail> = {
   },
   'max-bytes': {
     description:
-      'Bound stdout bytes including newlines; an oversized call or tools result is written to a private per-user temp directory and replaced by a truncation envelope with its path and retry suggestions',
+      'Bound stdout bytes including newlines; an oversized call or tools result is written, in the output format, to a private per-user temp directory and replaced by a truncation envelope with its path and retry suggestions',
     default: DEFAULT_MAX_BYTES,
     minimum: 512,
     maximum: 50000000,
@@ -123,7 +133,7 @@ const OPTION_DETAILS: Record<OptionName, OptionDetail> = {
   section: { description: 'Export comma-separated capture domains', enum: CAPTURE_DOMAINS },
   force: { description: 'Replace an existing capture export file', default: false },
   verbose: {
-    description: 'Emit bootstrap and connection diagnostics as JSONL on stderr',
+    description: 'Emit bootstrap and connection diagnostics on stderr (JSONL with --json)',
     default: false,
   },
   ...FEEDBACK_OPTION_DETAILS,
@@ -169,7 +179,7 @@ export const COMMANDS: Record<string, Command> = {
     options: ['port'],
     examples: [['hub']],
     notes: [
-      'Emits ready, reused or stopped lifecycle records as JSONL. Reusing an existing hub exits without taking ownership.',
+      'Emits ready, reused or stopped lifecycle records, one block each in text or one JSONL record each with --json. Reusing an existing hub exits without taking ownership.',
     ],
   },
   link: {
@@ -226,7 +236,7 @@ export const COMMANDS: Record<string, Command> = {
     options: [...CONNECTION, ...SELECTION, 'wait', 'timeout', 'fields', 'fail-on-result-error'],
     examples: [['call', 'react_get_renders', '{"sort":"selfTime"}']],
     notes: [
-      'Returns the tool result without a new envelope. --fields returns JSONL; --select returns a selection envelope. Input is read from argv, not stdin.',
+      'Returns the tool result without a new envelope. --fields returns one row per record (JSONL with --json); --select returns a selection envelope. Input is read from argv, not stdin.',
     ],
   },
   batch: {
@@ -242,7 +252,7 @@ export const COMMANDS: Record<string, Command> = {
     options: [...CONNECTION, ...SELECTION, 'wait', 'timeout', 'ndjson'],
     examples: [['batch', '[{"tool":"react_get_renders"}]']],
     notes: [
-      'Default and --ndjson emit JSONL. --json emits one array. Item keys other than tool and args are rejected. Exit 0 requires every call to succeed. --max-bytes bounds the whole batch.',
+      'Text prints each result under a [position/total] tool ok|error header as it completes. --ndjson emits JSONL; --json emits one array. Item keys other than tool and args are rejected. Exit 0 requires every call to succeed. --max-bytes bounds the whole batch.',
       'Waits for a ready app only when an item needs one; hub tools such as devtools_status run without an app.',
     ],
   },
@@ -297,6 +307,8 @@ export function cliHelp(name?: string): unknown {
             GENIE_SESSION: 'Default app session target',
             GENIE_SKILL_DIR:
               'Directory holding the agent skill when it is installed outside the project; doctor checks it instead of the project skill locations',
+            GENIE_OUTPUT:
+              'json makes every command print what it printed before text became the default; text or unset keeps compact text; --json always wins',
           },
         }),
     options: Object.fromEntries(
@@ -312,18 +324,26 @@ export function cliHelp(name?: string): unknown {
       ]),
     ),
     output: {
-      default: name === 'batch' || name === 'hub' ? 'jsonl' : 'json',
-      diagnostics: 'jsonl on stderr',
+      default: 'text',
+      json: name === 'batch' ? 'one JSON array' : name === 'hub' ? 'jsonl' : 'json',
+      diagnostics: 'text lines on stderr; jsonl with --json',
       defaultMaxBytes: DEFAULT_MAX_BYTES,
       limitScope:
-        name === 'hub' || name === 'batch' ? 'per JSONL record by default' : 'whole result',
+        name === 'hub' || name === 'batch'
+          ? 'per result block or JSONL record by default'
+          : 'whole result',
       ...(name === 'batch'
         ? { explicitMaxBytes: 'whole batch; buffers results before emission' }
         : {}),
       exits: { '0': 'success', '1': 'failure' },
-      ...(name === 'call' ? { fields: 'jsonl; zero bytes for an empty collection' } : {}),
+      ...(name === 'call'
+        ? { fields: 'one row per record, jsonl with --json; zero bytes for an empty collection' }
+        : {}),
       ...(name === 'batch'
-        ? { json: 'one JSON array', ndjson: 'one JSON object per result line' }
+        ? {
+            ndjson:
+              'one JSON object per result line, also the batch format under GENIE_OUTPUT=json',
+          }
         : {}),
     },
     examples: (
@@ -369,4 +389,98 @@ function closestOption(typed: string, accepted: readonly string[]): string | und
       best = { option, distance }
   }
   return best?.option
+}
+
+/** Help as text: usage, commands, arguments, one line per option with every limit, then output, notes and examples. */
+export function renderHelpText(value: unknown): string {
+  if (!isRecord(value)) return encodeText(value)
+  const help = new FieldReader(value)
+  help.take('schemaVersion')
+  help.take('status')
+  const name = String(help.take('command'))
+  const lines = [`${name}: ${proseText(String(help.take('description')))}`]
+  const commands = help.take('commands')
+  if (Array.isArray(commands)) {
+    lines.push(
+      `usage: ${genieCommand(['<command>', '[options]']).command}`,
+      `commands (details: ${genieCommand(['<command>', '--help']).command}):`,
+      ...commands
+        .filter(isRecord)
+        .map((command) => `  ${String(command.name)}  ${proseText(String(command.description))}`),
+    )
+  }
+  const args = help.take('arguments')
+  if (Array.isArray(args) && args.length > 0) {
+    lines.push(
+      'arguments:',
+      ...args.filter(isRecord).map((argument) => {
+        const qualifiers = [
+          argument.required === true ? 'required' : 'optional',
+          ...(Array.isArray(argument.enum) ? [`one of ${argument.enum.join(', ')}`] : []),
+        ]
+        return `  <${String(argument.name)}> (${qualifiers.join('; ')})  ${proseText(String(argument.description))}`
+      }),
+    )
+  }
+  const options = help.take('options')
+  if (isRecord(options)) {
+    lines.push(
+      'options:',
+      ...Object.entries(options).map(([option, detail]) => optionLine(option, detail)),
+    )
+  }
+  const environment = help.take('environment')
+  if (isRecord(environment)) {
+    lines.push(
+      'environment:',
+      ...Object.entries(environment).map(
+        ([variable, text]) => `  ${variable}  ${proseText(String(text))}`,
+      ),
+    )
+  }
+  lines.push(...fieldLines('output', help.take('output'), 0, ''))
+  const notes = help.take('notes')
+  if (Array.isArray(notes) && notes.length > 0) {
+    lines.push('notes:', ...notes.map((note) => `  ${proseText(String(note))}`))
+  }
+  const examples = help.take('examples')
+  if (Array.isArray(examples)) {
+    lines.push(
+      'examples:',
+      ...examples.filter(isRecord).map((example) => {
+        const argv = Array.isArray(example.argv) ? example.argv.map(String) : []
+        return `  $ ${argv.map(shellQuote).join(' ')}`
+      }),
+    )
+  }
+  lines.push(...blockLines(help.rest(), 0, ''))
+  return lines.join('\n')
+}
+
+function optionLine(option: string, detail: unknown): string {
+  if (!isRecord(detail)) return `  --${option}  ${flowText(detail)}`
+  const fields = new FieldReader(detail)
+  const short = fields.take('short')
+  const type = fields.take('type')
+  const flag = `${typeof short === 'string' ? `-${short}, ` : ''}--${option}${type === 'string' ? ' <value>' : ''}`
+  const qualifiers: string[] = []
+  if (fields.take('required') === true) qualifiers.push('required')
+  const fallback = fields.take('default')
+  if (fallback !== undefined) qualifiers.push(`default ${flowText(fallback)}`)
+  const minimum = fields.take('minimum')
+  const maximum = fields.take('maximum')
+  if (minimum !== undefined || maximum !== undefined) {
+    qualifiers.push(`${minimum ?? ''}..${maximum ?? ''}`)
+  }
+  const exclusiveMinimum = fields.take('exclusiveMinimum')
+  if (exclusiveMinimum !== undefined) qualifiers.push(`> ${flowText(exclusiveMinimum)}`)
+  const choices = fields.take('enum')
+  if (Array.isArray(choices)) qualifiers.push(`one of ${choices.join(', ')}`)
+  const conflicts = fields.take('conflictsWith')
+  if (Array.isArray(conflicts))
+    qualifiers.push(`not with ${conflicts.map((name) => `--${name}`).join(', ')}`)
+  const description = proseText(String(fields.take('description') ?? ''))
+  const rest = fields.rest()
+  const extra = Object.keys(rest).length === 0 ? '' : ` ${flowText(rest)}`
+  return `  ${flag}  ${description}${qualifiers.length === 0 ? '' : ` (${qualifiers.join('; ')})`}${extra}`
 }

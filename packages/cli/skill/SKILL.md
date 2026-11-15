@@ -10,6 +10,8 @@ metadata:
 
 Genie reads runtime evidence from a running app. Use agent-browser (web) or agent-device (native) to drive the UI and check what users see; use Genie to explain what happened underneath.
 
+Commands print compact text that keeps every field of the result under its JSON name. Quoted strings are app data. `each: {…}` holds fields every item below it shares, `← kind evidence name` is one render cause with its evidence grade, and `$ …` is a command to run. Add `--json` only when a script parses the output.
+
 Run commands from the app folder exactly as written. They use this project's package manager; in another project, replace the prefix before `genie-react` with its exec command (`npx`, `pnpm exec`, `yarn`, `yarn --silent` on Yarn 1, or `bunx`).
 
 ## 1. Open the app, then connect

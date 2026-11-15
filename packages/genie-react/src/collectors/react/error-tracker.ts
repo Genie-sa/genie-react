@@ -14,6 +14,7 @@ import {
   type ResolvedSource,
   type SourceOwnership,
 } from './source'
+import { committedSuspenseState, forEachVisibleSuspenseBoundary } from './suspense-state'
 import { isSuspenseFiber } from './work-tags'
 
 // React's DidCapture flag is set on a boundary only during the catch commit, then cleared, so catches are recorded at commit time and re-verified against the live tree on every read.
@@ -72,7 +73,7 @@ const isHostRootFiber = (fiber: Fiber): boolean =>
 export function recordErrorState(fiber: Fiber): void {
   if (isSuspenseFiber(fiber)) {
     const id = getFiberId(fiber)
-    if (suspenseShowsFallback(fiber)) suspended.set(id, { id, fiber })
+    if (committedSuspenseState(fiber) === 'fallback') suspended.set(id, { id, fiber })
     else suspended.delete(id)
     return
   }
@@ -101,12 +102,6 @@ function takeErrorLog(boundaryName: string | null): ErrorLog | null {
     return entry
   }
   return null
-}
-
-// The fallback shows exactly when React parks a non-null memoizedState; a dehydrated boundary is still showing server HTML, not its fallback.
-function suspenseShowsFallback(fiber: Fiber): boolean {
-  const state = fiber.memoizedState as { dehydrated?: unknown } | null
-  return isSuspenseFiber(fiber) && state != null && state.dehydrated == null
 }
 
 /** Patches console.error to capture React's dev boundary-error logs (message + throwing component name) alongside DidCapture; installed from hook.ts before React loads, and always calls the original. */
@@ -233,9 +228,12 @@ type BoundaryStatus =
 interface LiveTree {
   current: Map<CaughtEntry, Fiber>
   fallbacks: Fiber[]
+  fallbackScanTruncated: boolean
 }
 
-/** One walk of every committed tree resolves each recorded boundary to its current fiber and finds every Suspense fallback on screen now. */
+const FALLBACK_SCAN_FIBER_LIMIT = 50_000
+
+/** Resolves each recorded boundary to its current fiber, and finds the Suspense fallbacks on screen now by the rule react_suspense and react_pending_work use. */
 function scanLiveTree(entries: CaughtEntry[]): LiveTree {
   const wanted = new Map<Fiber, CaughtEntry>()
   for (const entry of entries) {
@@ -243,16 +241,25 @@ function scanLiveTree(entries: CaughtEntry[]): LiveTree {
     if (entry.fiber.alternate) wanted.set(entry.fiber.alternate, entry)
   }
   const current = new Map<CaughtEntry, Fiber>()
-  const fallbacks: Fiber[] = []
-  for (const root of _fiberRoots) {
-    traverseFiber(root.current, (node) => {
-      const entry = wanted.get(node)
-      if (entry) current.set(entry, node)
-      if (suspenseShowsFallback(node)) fallbacks.push(node)
-      return false
-    })
+  const roots = [..._fiberRoots].map((root) => root.current)
+  if (wanted.size > 0) {
+    for (const root of roots) {
+      traverseFiber(root, (node) => {
+        const entry = wanted.get(node)
+        if (entry) current.set(entry, node)
+        return false
+      })
+    }
   }
-  return { current, fallbacks }
+  const fallbacks: Fiber[] = []
+  const { scanTruncated } = forEachVisibleSuspenseBoundary(
+    roots,
+    FALLBACK_SCAN_FIBER_LIMIT,
+    (boundary, state) => {
+      if (state === 'fallback') fallbacks.push(boundary)
+    },
+  )
+  return { current, fallbacks, fallbackScanTruncated: scanTruncated }
 }
 
 function ownDataValue(value: unknown, key: string): { value: unknown } | undefined {
@@ -435,6 +442,7 @@ export async function getErrorState(query: {
     blankTreeHint: hintFrom(caughtErrors),
     ownershipCoverage: ownershipCoverage(all.map((entry) => entry.sourceOwnership)),
     scanTruncated:
+      live?.fallbackScanTruncated === true ||
       organicCaught.length + forcedCaught.length > caughtCandidates.length ||
       showing.length + forcedSuspended.length > suspendedCandidates.length,
   }
