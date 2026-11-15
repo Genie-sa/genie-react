@@ -163,6 +163,19 @@ describe('renders decision table', () => {
     expect(reasonOf({ ...badgeMax0, max: 5 }, evidence)).toBe(reason)
   })
 
+  it('counts an instance mounted at both begin and end as one active instance', () => {
+    expect(outcome(badgeMax0, windowEvidence())).toMatchObject({
+      observed: { instances: 1, activeInstances: 1 },
+    })
+
+    const replaced = windowEvidence([
+      targetEvidence({ begin: [instance()], end: [instance({ mountId: 'mount:13' })] }),
+    ])
+    expect(outcome(badgeMax0, replaced)).toMatchObject({
+      observed: { instances: 2, activeInstances: 2 },
+    })
+  })
+
   it('sees an instance whose source ownership is unknown, since reads use appOnly false', () => {
     const unknownOwnership = windowEvidence([
       targetEvidence({ records: [rendered({ sourceFile: null, sourceLocation: null })] }),
