@@ -14,6 +14,7 @@ import {
   shellQuote,
 } from './text-output'
 import { editDistance } from './tool-output'
+import { VERIFY_COMMAND, VERIFY_OPTION_DETAILS, VERIFY_OPTIONS } from './verify-options'
 
 export const CLI_OPTIONS = {
   help: { type: 'boolean', short: 'h' },
@@ -42,6 +43,7 @@ export const CLI_OPTIONS = {
   force: { type: 'boolean' },
   verbose: { type: 'boolean' },
   ...FEEDBACK_OPTIONS,
+  ...VERIFY_OPTIONS,
 } as const
 
 type OptionName = keyof typeof CLI_OPTIONS
@@ -137,6 +139,7 @@ const OPTION_DETAILS: Record<OptionName, OptionDetail> = {
     default: false,
   },
   ...FEEDBACK_OPTION_DETAILS,
+  ...VERIFY_OPTION_DETAILS,
 }
 interface Argument {
   name: string
@@ -151,6 +154,10 @@ export interface Command {
   requiredOptions?: OptionName[]
   examples: string[][]
   notes?: string[]
+  /** Details that differ for this command, when one option name means something else here. */
+  optionDetails?: Partial<Record<OptionName, OptionDetail>>
+  /** Exit codes and what each means; commands without it exit 0 or 1. */
+  exits?: Record<string, string>
 }
 const CONNECTION: OptionName[] = ['url', 'connect-timeout', 'session', 'verbose']
 const SELECTION: OptionName[] = ['select']
@@ -270,6 +277,7 @@ export const COMMANDS: Record<string, Command> = {
     ],
   },
   feedback: FEEDBACK_COMMAND,
+  verify: VERIFY_COMMAND,
 }
 const GLOBAL_OPTIONS: OptionName[] = ['help', 'version', 'json', 'max-bytes']
 export const COMMAND_OPTIONS: Record<string, ReadonlySet<string>> = Object.fromEntries(
@@ -319,6 +327,7 @@ export function cliHelp(name?: string): unknown {
         {
           ...CLI_OPTIONS[option],
           ...OPTION_DETAILS[option],
+          ...command?.optionDetails?.[option],
           ...(option === 'wait' && name === 'tools' ? { default: 12000 } : {}),
           ...(option === 'wait' && name === 'status' ? { default: undefined } : {}),
           required: command?.requiredOptions?.includes(option) ?? false,
@@ -337,7 +346,7 @@ export function cliHelp(name?: string): unknown {
       ...(name === 'batch'
         ? { explicitMaxBytes: 'whole batch; buffers results before emission' }
         : {}),
-      exits: { '0': 'success', '1': 'failure' },
+      exits: command?.exits ?? { '0': 'success', '1': 'failure' },
       ...(name === 'call'
         ? { fields: 'one row per record, jsonl with --json; zero bytes for an empty collection' }
         : {}),

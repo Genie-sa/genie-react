@@ -181,12 +181,17 @@ describe('react_quiesce pending React work', () => {
     scanTruncated: false,
   }
 
-  async function app(pendingWork: (index: number) => unknown, commit: () => number = () => 10) {
+  async function app(
+    pendingWork: (index: number) => unknown,
+    commit: () => number = () => 10,
+    answers: (tool: string) => boolean = () => true,
+  ) {
     const { ws } = await open(`${url}?role=app`)
     let probes = 0
     ws.on('message', (data) => {
       const request = decodeFrame(data.toString()) as Frame
       if (request.kind !== 'bridge/request') return
+      if (!answers(request.tool)) return
       const work = request.tool === 'react_pending_work' ? pendingWork(++probes) : undefined
       send(ws, {
         kind: 'app/response',
@@ -268,6 +273,34 @@ describe('react_quiesce pending React work', () => {
       '2 Suspense boundaries show a fallback (ProductList, Reviews?[2J)',
     )
   })
+
+  it.each(['react_get_renders', 'react_pending_work'])(
+    'keeps naming the boundary when the deadline cuts off a %s probe after it was seen',
+    async (cutOff) => {
+      let blockerSeen = false
+      await app(
+        () => {
+          blockerSeen = true
+          return {
+            ...idleWork,
+            documentCommitId: 10,
+            suspendedBoundaries: 1,
+            boundaries: [{ boundaryId: 1, boundaryName: 'ProductList' }],
+          }
+        },
+        () => 10,
+        (tool) => !(blockerSeen && tool === cutOff),
+      )
+      const result = await invoke({ idleMs: 100, timeoutMs: 2_000 })
+      expect(result).toMatchObject({
+        outcome: 'timed-out',
+        pendingWork: { suspendedBoundaries: 1 },
+      })
+      expect(result.reason).toBe(
+        'React work is still pending: 1 Suspense boundary shows a fallback (ProductList).',
+      )
+    },
+  )
 
   it('stays pending while a server-rendered boundary has not hydrated, without calling it a fallback', async () => {
     await app(() => ({

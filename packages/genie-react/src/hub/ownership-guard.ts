@@ -2,6 +2,8 @@ import {
   devtoolsCaptureCreateContract,
   devtoolsInteractionBeginContract,
   devtoolsInteractionStopContract,
+  devtoolsVerifyBeginContract,
+  devtoolsVerifyEndContract,
   type HubErrorCode,
   type OwnershipConflict,
   type OwnershipResource,
@@ -127,6 +129,21 @@ export class OwnershipGuard<TDocument extends GuardedDocument = GuardedDocument>
       return conflict ? { failure: supersededFailure(conflict) } : {}
     }
     const result = recordOf(response.result)
+    if (tool === devtoolsVerifyBeginContract.name) {
+      const observationId = stringField(recordOf(result?.window), 'observationId')
+      return result?.state === 'recording'
+        ? displacedBy(
+            'render-window',
+            this.ledger.windowStarted(scope, caller, observationId, tool),
+          )
+        : {}
+    }
+    if (tool === devtoolsVerifyEndContract.name) {
+      return displacedBy(
+        'render-window',
+        this.ledger.windowInterrupted(scope, caller, 'paused', tool),
+      )
+    }
     if (WINDOW_STARTS.has(tool) || tool === devtoolsInteractionBeginContract.name) {
       const observationId =
         tool === devtoolsInteractionBeginContract.name

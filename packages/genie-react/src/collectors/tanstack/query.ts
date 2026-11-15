@@ -201,6 +201,13 @@ const queryNotificationsContract = defineAgentToolContract({
       }),
     ),
     omittedByLimit: z.number().int().nonnegative(),
+    evictedEvents: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe(
+        'Notifications evicted from the bounded history since the page loaded; monotonic. If it grew across a window, a missing notification is not proof that none was delivered.',
+      ),
   }),
   annotations: { readOnlyHint: true },
 })
@@ -391,7 +398,13 @@ const queryIsFetchingContract = defineAgentToolContract({
       .optional()
       .describe('Limit the fetching count to queries matching this key prefix.'),
   }),
-  output: z.object({ fetching: z.number(), mutating: z.number() }),
+  output: z.object({
+    fetching: z.number(),
+    mutating: z.number(),
+    simulatedQueries: z
+      .array(z.object({ queryHash: z.string(), simulatedState: z.enum(['pending', 'error']) }))
+      .describe('Queries query_simulate_state holds right now; empty when none.'),
+  }),
   annotations: { readOnlyHint: true },
 })
 
@@ -1216,6 +1229,10 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
         handler: ({ queryKey }) => ({
           fetching: queryClient.isFetching(queryKey ? { queryKey } : undefined),
           mutating: queryClient.isMutating(),
+          simulatedQueries: [...querySimulations.values()].map(({ query, simulatedState }) => ({
+            queryHash: query.queryHash,
+            simulatedState,
+          })),
         }),
       }),
       defineCollectorTool({

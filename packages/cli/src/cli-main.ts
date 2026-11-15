@@ -18,6 +18,7 @@ import {
   writeDiagnostic,
   writeOutput,
 } from './cli-output'
+import { EXIT_CODES } from './exit-codes'
 import { agentFailure } from './failure-format'
 import { FEEDBACK_HINT, feedbackSuggestion } from './feedback-options'
 import { isRecord } from './guards'
@@ -31,7 +32,7 @@ import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 installOutputFailureHandler()
 setOutputContext({ operation: 'cli' })
 
-type ParsedValues = Record<string, boolean | string | undefined>
+type ParsedValues = Record<string, boolean | string | string[] | undefined>
 
 function unsupportedOption(command: string, values: ParsedValues): string | null {
   const allowed = COMMAND_OPTIONS[command]
@@ -41,6 +42,11 @@ function unsupportedOption(command: string, values: ParsedValues): string | null
     if (!allowed.has(name)) return `Option --${name} isn't valid for ${command}.`
   }
   return null
+}
+
+/** `verify` uses the exit-code taxonomy from its first release; other commands keep exiting 1 until every command switches. */
+function usageExit(command: string | undefined): number {
+  return command === 'verify' ? EXIT_CODES.usage : 1
 }
 
 function writeCliFailure(message: string, command?: string): void {
@@ -116,7 +122,7 @@ async function main(): Promise<number> {
     writeCliFailure(
       `Unknown command. Run ${genieCommand(['--help']).command} for accepted commands.`,
     )
-    return 1
+    return usageExit(command)
   }
   if (!command) {
     const unsupported = Object.keys(values).some(
@@ -124,7 +130,7 @@ async function main(): Promise<number> {
     )
     if (unsupported) {
       writeCliFailure('Provide a command before using command-specific options.')
-      return 1
+      return usageExit(command)
     }
   }
   const operation = command ?? 'help'
@@ -132,14 +138,14 @@ async function main(): Promise<number> {
   const optionError = unsupportedOption(operation, values)
   if (optionError) {
     writeCliFailure(optionError)
-    return 1
+    return usageExit(command)
   }
   const positionalLimit = POSITIONAL_LIMITS[operation]
   if (positionalLimit !== undefined && positionals.length > positionalLimit) {
     writeCliFailure(
       `Too many arguments for ${command}. Run ${genieCommand([operation, '--help']).command}.`,
     )
-    return 1
+    return usageExit(command)
   }
 
   if (
@@ -149,14 +155,14 @@ async function main(): Promise<number> {
       Number(values['connect-timeout']) > 120_000)
   ) {
     writeCliFailure('--connect-timeout must be a number from 100 to 120000 milliseconds.')
-    return 1
+    return usageExit(command)
   }
   if (
     values.timeout !== undefined &&
     (!Number.isFinite(Number(values.timeout)) || Number(values.timeout) <= 0)
   ) {
     writeCliFailure('--timeout must be a positive number of milliseconds.')
-    return 1
+    return usageExit(command)
   }
   if (
     values.wait !== undefined &&
@@ -165,23 +171,23 @@ async function main(): Promise<number> {
       Number(values.wait) > 120_000)
   ) {
     writeCliFailure('--wait must be a number from 1 to 120000 milliseconds.')
-    return 1
+    return usageExit(command)
   }
   if (values.fields !== undefined && parseFields(values.fields) === undefined) {
     writeCliFailure('--fields requires at least one comma-separated field name.')
-    return 1
+    return usageExit(command)
   }
   if (values.select !== undefined && values.select.trim() === '') {
     writeCliFailure('--select requires a non-empty JSON Pointer or dotted path.')
-    return 1
+    return usageExit(command)
   }
   if (values.session !== undefined && command === 'doctor' && !values.live) {
     writeCliFailure('--session applies to doctor --live only.', 'doctor')
-    return 1
+    return usageExit(command)
   }
   if (values.fields !== undefined && values.select !== undefined) {
     writeCliFailure('Choose either --fields or --select, not both.')
-    return 1
+    return usageExit(command)
   }
   if (
     values['max-bytes'] !== undefined &&
@@ -190,7 +196,7 @@ async function main(): Promise<number> {
       Number(values['max-bytes']) > 50_000_000)
   ) {
     writeCliFailure('--max-bytes must be an integer from 512 to 50000000.')
-    return 1
+    return usageExit(command)
   }
   if (
     values.marker !== undefined &&
@@ -199,11 +205,11 @@ async function main(): Promise<number> {
       [...values.marker].some((character) => (character.codePointAt(0) ?? 0) <= 31))
   ) {
     writeCliFailure('--marker must be 1–80 characters without control characters.')
-    return 1
+    return usageExit(command)
   }
   if (command === 'batch' && values.json === true && values.ndjson === true) {
     writeCliFailure('Choose either --json or --ndjson, not both.')
-    return 1
+    return usageExit(command)
   }
   const maxBytes = values['max-bytes'] ? Number(values['max-bytes']) : undefined
   markPhase('cli:parsed')
@@ -314,6 +320,23 @@ async function main(): Promise<number> {
         force: values.force,
       })
     }
+    case 'verify': {
+      const { runVerify } = await import('./verify-command')
+      return runVerify(positionals[1], positionals[2], {
+        ...agentOptions,
+        name: values.name,
+        claim: values.claim,
+        claims: values.claims,
+        budget: values.budget,
+        quietMs: values['quiet-ms'],
+        settleTimeoutMs: values['timeout-ms'],
+        tailMs: values['tail-ms'],
+        domains: values.domains,
+        maxDuration: values['max-duration'],
+        allowOverrides: values['allow-overrides'],
+        section: values.section,
+      })
+    }
     case 'feedback': {
       const { runFeedbackCommand } = await import('./feedback-command')
       return runFeedbackCommand({
@@ -348,19 +371,20 @@ main()
     if (argumentError) {
       const command = process.argv.slice(2).find((arg) => Object.hasOwn(COMMANDS, arg))
       writeCliFailure(parseArgsFailureMessage(error, command), command)
-    } else {
-      process.stdout.write(
-        `${renderFailure(
-          agentFailure(
-            'operational_failure',
-            `CLI operation failed. Inspect local setup with ${genieCommand(['doctor']).command} before retrying. ${FEEDBACK_HINT}`,
-            {
-              next: genieCommand(['doctor']),
-              feedback: feedbackSuggestion('operational_failure'),
-            },
-          ),
-        )}\n`,
-      )
+      process.exitCode = usageExit(command)
+      return
     }
+    process.stdout.write(
+      `${renderFailure(
+        agentFailure(
+          'operational_failure',
+          `CLI operation failed. Inspect local setup with ${genieCommand(['doctor']).command} before retrying. ${FEEDBACK_HINT}`,
+          {
+            next: genieCommand(['doctor']),
+            feedback: feedbackSuggestion('operational_failure'),
+          },
+        ),
+      )}\n`,
+    )
     process.exitCode = 1
   })

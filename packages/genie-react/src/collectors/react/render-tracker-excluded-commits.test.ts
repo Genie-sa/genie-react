@@ -49,6 +49,7 @@ import {
   disposeRenderTracking,
   getAnalysisFailedFiberCount,
   getDroppedPendingUnmountFiberCount,
+  getPausedCommitCount,
   getPendingUnmountFiberCount,
   getRenders,
   getRenderTrackingCoverage,
@@ -393,7 +394,8 @@ describe('excluded commit traversal baselines', () => {
     stopRenderTracking()
     harness.options?.onCommitFiberRoot?.(1, root)
 
-    expect(getAnalysisFailedFiberCount()).toBe(1)
+    expect(getAnalysisFailedFiberCount()).toBe(0)
+    expect(getPausedCommitCount()).toBe(1)
     expect(
       await getRenderCohort(
         root.current,
@@ -402,11 +404,32 @@ describe('excluded commit traversal baselines', () => {
           skippedCommitFibers: 0,
           droppedUnmountFibers: 0,
           analysisFailedFibers: getAnalysisFailedFiberCount(),
+          pausedCommits: getPausedCommitCount(),
           truncatedInputFibers: 0,
           pendingUnmountFibers: getPendingUnmountFiberCount(),
         },
       ),
     ).toMatchObject({ status: 'unknown', mountedIdle: 0, mountedUnknown: 1 })
+  })
+
+  it('reports a paused commit as outside the window instead of as failed analysis', async () => {
+    const root = rootWithComponent('CountedBeforePause')
+    harness.options?.onCommitFiberRoot?.(1, root)
+    const atPause = getRenderTrackingCoverage('measurement')
+    stopRenderTracking()
+    harness.options?.onCommitFiberRoot?.(1, root)
+    const afterPause = getRenderTrackingCoverage('measurement')
+
+    expect(atPause).toMatchObject({ complete: true, pausedCommits: 0, analysisFailedFibers: 0 })
+    expect(afterPause).toMatchObject({
+      complete: false,
+      semantics: 'lower-bound',
+      pausedCommits: 1,
+      analysisFailedFibers: 0,
+    })
+    expect(await getRenders({ sort: 'renders', limit: 10 })).toMatchObject([
+      { name: 'CountedBeforePause', renders: 1 },
+    ])
   })
 
   it('fails closed for roots whose supported renderer is unsafe for deep analysis', async () => {

@@ -4,7 +4,7 @@ description: Inputs, outputs, limits, and agent use for every live Genie tool.
 icon: Blocks
 ---
 
-The built-in collectors expose 84 tools. The active app may expose fewer, and can add its own under
+The built-in collectors expose 89 tools. The active app may expose fewer, and can add its own under
 the `app` group ([App tools](/docs/tools/app-tools)). Run `status` to see its domains, then discover
 one exact contract:
 
@@ -53,6 +53,8 @@ condition was met; use `--fail-on-result-error` with `devtools_wait` and `react_
 - Use `devtools_interaction_begin` and `devtools_interaction_stop` to join renders, causes, effects,
   and coverage under one interaction ID. Use the [timeline](/docs/workflows/interaction-timeline)
   when the question spans requests, Query updates, React commits, and navigation.
+- Before reporting a fix, run [`genie-react verify`](/docs/workflows/verify-a-fix): it decides declared
+  claims about one interaction and refuses instead of passing on incomplete evidence.
 - Read coverage, omissions, truncation, and evictions.
 - Treat `inferred` and `unknown` as leads, not proof.
 - Distinguish effect scheduling, execution, cleanup, and observed consequences.

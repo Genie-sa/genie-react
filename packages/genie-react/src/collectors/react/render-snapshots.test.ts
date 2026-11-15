@@ -9,6 +9,7 @@ const counters = {
   skippedCommitFibers: 0,
   droppedUnmountFibers: 0,
   analysisFailedFibers: 0,
+  pausedCommits: 0,
   truncatedInputFibers: 0,
   propsNotEnumeratedFibers: 0,
   budgetExhaustedCommits: 0,
@@ -40,6 +41,16 @@ describe('render evidence semantics', () => {
       comparable: false,
       notComparableReasons: ['skipped-commit-fibers'],
     })
+  })
+
+  it('keeps commits after a profile stop out of an exact count', () => {
+    const coverage = buildRenderTrackingCoverage({ ...counters, pausedCommits: 1 }, 'measurement')
+
+    expect(coverage).toMatchObject({ complete: false, semantics: 'lower-bound' })
+    expect(renderSummarySemantics(coverage, 0)).toBe('unknown')
+    expect(renderEvidenceComparability(coverage, 'current').notComparableReasons).toEqual([
+      'commits-after-profile-stop',
+    ])
   })
 
   it('discloses stale attribution separately from coverage gaps', () => {

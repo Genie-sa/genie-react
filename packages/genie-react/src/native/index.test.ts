@@ -26,6 +26,10 @@ async function loadNative() {
   vi.doMock('../collectors/react/hook', () => ({}))
   vi.doMock('../collectors/memory', () => ({ memoryCollector: tag('memory') }))
   vi.doMock('../collectors/perf', () => ({ perfCollector: tag('perf') }))
+  const visibilityCollector = vi.fn((_options: { appState?: unknown }) => ({
+    __collector: 'visibility',
+  }))
+  vi.doMock('../collectors/visibility', () => ({ visibilityCollector }))
   const timelineCollector = vi.fn((_options: { queryClient?: unknown; router?: unknown }) => ({
     __collector: 'timeline',
   }))
@@ -39,7 +43,14 @@ async function loadNative() {
   }))
 
   const native = await import('./index')
-  return { ...native, createGenieClient, startSpy, registerSpy, timelineCollector }
+  return {
+    ...native,
+    createGenieClient,
+    startSpy,
+    registerSpy,
+    timelineCollector,
+    visibilityCollector,
+  }
 }
 
 const names = (collectors: TaggedCollector[]) => collectors.map((c) => c.__collector)
@@ -88,9 +99,21 @@ describe('startGenie', () => {
       'react',
       'memory',
       'perf',
+      'visibility',
       'plugin',
       'timeline',
     ])
+  })
+
+  it('records background time from the AppState it is given, and ignores a non-AppState', async () => {
+    const appState = { currentState: 'active', addEventListener: () => ({ remove() {} }) }
+    const first = await loadNative()
+    first.startGenie({ url: URL, appState })
+    expect(first.visibilityCollector).toHaveBeenCalledWith({ appState })
+
+    const second = await loadNative()
+    second.startGenie({ url: URL, appState: { currentState: 'active' } })
+    expect(second.visibilityCollector).toHaveBeenCalledWith({ appState: undefined })
   })
 
   it('wires router and query collectors when valid instances arrive at start', async () => {
@@ -103,6 +126,7 @@ describe('startGenie', () => {
       'react',
       'memory',
       'perf',
+      'visibility',
       'plugin',
       'timeline',
       'router',

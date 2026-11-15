@@ -5,6 +5,7 @@ import { perfCollector } from './collectors/perf'
 import { reactCollector } from './collectors/react'
 import './collectors/react/hook'
 import { timelineCollector } from './collectors/timeline'
+import { visibilityCollector } from './collectors/visibility'
 import { GENIE_DEFAULT_HUB_PORT, readGenieGlobal } from './protocol'
 
 // Self-starting script-tag build served by the hub: any React setup attaches with one <script src>, no bundler integration.
@@ -18,6 +19,7 @@ if (typeof window !== 'undefined' && !readGenieGlobal()) {
       reactCollector(),
       memoryCollector(),
       perfCollector(),
+      visibilityCollector(),
       timelineCollector(),
     ],
   }).start()

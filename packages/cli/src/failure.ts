@@ -85,6 +85,8 @@ export interface FailureDetails {
   hubCode?: HubErrorCode
   /** The recording that blocks a new interaction (`INTERACTION_ACTIVE`). */
   interactionId?: string
+  /** The verification whose document lock refused the call (`VERIFICATION_ACTIVE`). */
+  verificationId?: string
   /** The interrupted call was not read-only, so the app may have applied it before the document went away. */
   mayHaveCompleted?: true
   suggestions?: string[]
@@ -185,6 +187,9 @@ const SESSION_HUB_CODES: ReadonlySet<HubErrorCode> = new Set([
   'SESSION_SUPERSEDED',
 ])
 
+/** The hub refuses any tool on a locked document with these, so they are genuine whatever the tool; the hub strips hub codes from app responses. */
+const LOCK_HUB_CODES: ReadonlySet<HubErrorCode> = new Set(['VERIFICATION_ACTIVE'])
+
 /** Wire codes only the hub's session routing produces; an app response can never carry them. */
 const ROUTING_ERROR_CODES: ReadonlySet<AgentErrorCode> = new Set([
   'not-connected',
@@ -200,11 +205,13 @@ function hubCodeOf(
   if (!isHubErrorCode(hubCode)) return undefined
   if (SESSION_HUB_CODES.has(hubCode))
     return ROUTING_ERROR_CODES.has(errorCode) ? hubCode : undefined
+  if (LOCK_HUB_CODES.has(hubCode)) return hubCode
   return tool !== undefined && HUB_TOOLS.has(tool) ? hubCode : undefined
 }
 
-// Hub-minted (`int_<uuid>`), so it is safe to echo into a runnable next command.
+// Hub-minted (`int_<uuid>`, `vfy_<uuid>`), so they are safe to echo into a runnable next command.
 const INTERACTION_ID = /^int_[0-9a-f-]{36}$/
+const VERIFICATION_ID = /^vfy_[0-9a-f-]{36}$/
 
 /** Fixed recovery guidance per hub code, so a recognized code never puts upstream text into `message`. */
 const HUB_GUIDANCE: Record<HubErrorCode, { message: string; next?: NextCommand }> = {
@@ -258,6 +265,14 @@ const HUB_GUIDANCE: Record<HubErrorCode, { message: string; next?: NextCommand }
   STATE_HELD: {
     message:
       'Another agent holds the overrides, Query simulation or timeline recording this call would reset or replace (details.ownership says which), so it was not run. Use your own tab (?_genie=<your-name> with --session), or retry after that agent finishes; its hold lapses after 5 minutes without a call.',
+  },
+  VERIFICATION_ACTIVE: {
+    message:
+      'A verification is recording on this document, so calls that would reset its window or put simulated state on screen are refused until it ends. End it with next to get its verdict, or release it with verify abort.',
+  },
+  VERIFICATION_UNKNOWN: {
+    message:
+      'The hub holds no verification with this ID: it expired, was evicted, or the hub restarted. Begin a new one.',
   },
 }
 
@@ -491,13 +506,19 @@ function invalidArgsFailure(
     hubCode === 'INTERACTION_ACTIVE' && INTERACTION_ID.test(details.interactionId ?? '')
       ? details.interactionId
       : undefined
+  const blockingVerificationId =
+    hubCode === 'VERIFICATION_ACTIVE' && VERIFICATION_ID.test(details.verificationId ?? '')
+      ? details.verificationId
+      : undefined
   const hubNext = blockingInteractionId
     ? nextCommand(
         'call',
         'devtools_interaction_stop',
         JSON.stringify({ interactionId: blockingInteractionId }),
       )
-    : hubCode && HUB_GUIDANCE[hubCode].next
+    : blockingVerificationId
+      ? nextCommand('verify', 'end', blockingVerificationId)
+      : hubCode && HUB_GUIDANCE[hubCode].next
   return {
     reason: 'invalid_args',
     message: sentences.filter((sentence) => sentence !== undefined).join(' '),
@@ -513,6 +534,7 @@ function invalidArgsFailure(
       didYouMean,
       hubCode,
       interactionId: blockingInteractionId,
+      verificationId: blockingVerificationId,
     }),
   }
 }

@@ -490,3 +490,41 @@ describe('instrumentation safety', () => {
     expect(delivered.slice(deliveredBefore).map((result) => result.data)).toEqual([99])
   })
 })
+
+describe('evidence a verification needs to trust an absence', () => {
+  it('lists simulated queries on query_is_fetching until they are restored', async () => {
+    const queryClient = client()
+    queryClient.setQueryData(['user'], 'v1')
+    const collector = started(queryClient)
+    const fetching = () => call<{ simulatedQueries: unknown[] }>(collector, 'query_is_fetching', {})
+
+    expect((await fetching()).simulatedQueries).toEqual([])
+    await call(collector, 'query_simulate_state', { queryKey: ['user'], state: 'error' })
+    expect((await fetching()).simulatedQueries).toEqual([
+      { queryHash: '["user"]', simulatedState: 'error' },
+    ])
+    await call(collector, 'query_restore_state', { queryKey: ['user'] })
+    expect((await fetching()).simulatedQueries).toEqual([])
+  })
+
+  it('counts notifications evicted from the bounded history', async () => {
+    const queryClient = client()
+    const observer = new QueryObserver<number, Error>(queryClient, {
+      queryKey: ['counter'],
+      enabled: false,
+    })
+    watch(observer)
+    const collector = started(queryClient)
+    const notifications = () =>
+      call<{ evictedEvents: number; events: unknown[] }>(collector, 'query_notifications', {
+        limit: 1,
+      })
+
+    queryClient.setQueryData(['counter'], 0)
+    expect((await notifications()).evictedEvents).toBe(0)
+    for (let value = 1; value <= 1_005; value += 1) queryClient.setQueryData(['counter'], value)
+    const report = await notifications()
+    expect(report.evictedEvents).toBeGreaterThan(0)
+    expect(report.events).toHaveLength(1)
+  })
+})

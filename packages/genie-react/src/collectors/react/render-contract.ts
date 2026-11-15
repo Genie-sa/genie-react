@@ -631,6 +631,13 @@ export const renderCoverageSchema = z.object({
   skippedCommitFibers: z.number().int().nonnegative(),
   droppedUnmountFibers: z.number().int().nonnegative(),
   analysisFailedFibers: z.number().int().nonnegative(),
+  pausedCommits: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe(
+      'Commits React made after react_profile_stop paused recording. They fall outside the measured window, so counts read now are a lower bound for the time since; react_profile_stop reports coverage as of the pause.',
+    ),
   truncatedInputFibers: z.number().int().nonnegative(),
   propsNotEnumeratedFibers: z
     .number()
@@ -708,6 +715,12 @@ export const renderObservationInputSchema = z.object({
       path: ['targetReserve'],
     }),
 })
+
+export const strictModeStatusSchema = z
+  .enum(['on', 'off', 'partial', 'unknown'])
+  .describe(
+    'Whether mounted components render under React StrictMode: on for all, off for none, partial for some; unknown with no mounted components or a tree too large to scan. StrictMode replays effects on mount in development.',
+  )
 
 export const renderMeasurementEnvironmentSchema = z.object({
   bundle: z
@@ -1013,6 +1026,11 @@ export const reactComponentCohortContract = defineAgentToolContract({
     unmounted: z.number().int().nonnegative(),
     returned: z.number().int().nonnegative(),
     omittedByLimit: z.number().int().nonnegative(),
+    rendererBundle: renderMeasurementEnvironmentSchema.shape.bundle
+      .nullable()
+      .describe(
+        'Bundle types of the React renderers hosting the mounted matches, so a framework overlay running production React does not speak for app components; null when none is mounted. Genie never analyzes a production renderer, so an instance it hosts has no render evidence.',
+      ),
     instances: z.array(
       z.object({
         componentName: z.string(),
@@ -1062,6 +1080,7 @@ export const reactComponentCohortContract = defineAgentToolContract({
       skippedCommitFibers: z.number().int().nonnegative(),
       droppedUnmountFibers: z.number().int().nonnegative(),
       analysisFailedFibers: z.number().int().nonnegative(),
+      pausedCommits: z.number().int().nonnegative(),
       truncatedInputFibers: z.number().int().nonnegative(),
       propsNotEnumeratedFibers: z.number().int().nonnegative(),
       budgetExhaustedCommits: z.number().int().nonnegative(),
@@ -1087,6 +1106,7 @@ export const reactClearRendersContract = defineAgentToolContract({
     documentCommitId: z.number().int().nonnegative(),
     observation: observationSchema,
     observationConfig: renderCoverageSchema.shape.observationBudget.unwrap(),
+    strictMode: strictModeStatusSchema,
   }),
   annotations: { idempotentHint: false },
 })

@@ -63,6 +63,7 @@ import {
   type UpgradePolicyOptions,
   type UpgradeVerdict,
 } from './upgrade-policy'
+import { isVerifyTool, VerificationManager } from './verification-manager'
 import {
   matchesOf,
   parseQueryList,
@@ -221,6 +222,18 @@ interface WaitDomainCheck {
   status: 'met' | 'pending' | 'failed' | 'unsupported'
   reason?: string
   lastObserved?: unknown
+  /** The app did not answer the probe (it failed, or the deadline cut it off), so the check observed nothing about what blocks. */
+  unanswered?: true
+}
+
+/** An unanswered probe keeps the blocker an earlier answered probe named, so a timeout reports what held the app instead of the probe the deadline cut off. */
+function keepObservedBlocker(
+  previous: WaitDomainCheck | undefined,
+  current: WaitDomainCheck,
+): WaitDomainCheck {
+  return current.unanswered && previous?.reason !== undefined && !previous.unanswered
+    ? { ...previous, status: 'pending' }
+    : current
 }
 
 /** A tab target resolved on every poll, or one exact document that fails the wait once it is gone. */
@@ -244,6 +257,7 @@ interface WaitPollState {
   reactCommit: number | null
   reactChangedAt: number
   frameCheck: WaitDomainCheck | null
+  latest: Partial<Record<WaitDomain, WaitDomainCheck>>
 }
 
 function queryIdentity(
@@ -321,6 +335,7 @@ export class GenieBridge {
   private readonly generationRaces = new Set<string>()
   private readonly captures: CaptureManager<AppSession>
   private readonly interactions: InteractionManager<AppSession>
+  private readonly verifications: VerificationManager<AppSession>
   private readonly connections = new Set<WebSocket>()
   private readonly responsiveSockets = new WeakSet<WebSocket>()
   private readonly heartbeat: ReturnType<typeof setInterval>
@@ -383,6 +398,16 @@ export class GenieBridge {
     this.guard = new OwnershipGuard<AppSession>(this.ownership, (session, tool, args) =>
       this.appRequestForSession(tool, args, session),
     )
+    this.verifications = new VerificationManager({
+      resolveSession: (target) => this.targetSession(target),
+      sessionUnavailable: (target) => this.sessionUnavailable(target),
+      isCurrentSession: (session) => this.isCurrent(session),
+      hasLogicalCollision: (session) => this.logicalPeers(session).length > 0,
+      isInteractionRecording: (sessionId) => this.interactions.isRecording(sessionId),
+      request: (session, tool, args) => this.appRequestForSession(tool, args, session),
+      settle: (session, domains, quietMs, timeoutMs) =>
+        this.settleInteraction(session, domains, quietMs, timeoutMs),
+    })
     const interval = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
     this.heartbeat = setInterval(() => this.sweepDeadConnections(), interval)
     unrefTimer(this.heartbeat)
@@ -447,6 +472,7 @@ export class GenieBridge {
     this.ownership.clear()
     this.captures.clear()
     this.interactions.clear()
+    this.verifications.clear()
     // terminate(), not close(): a graceful close handshake with a half-open peer blocks shutdown on ws's 30s timeout.
     for (const socket of this.agents) socket.terminate()
     for (const session of this.apps.values()) session.socket.terminate()
@@ -1261,11 +1287,20 @@ export class GenieBridge {
       return
     }
 
-    if (isCaptureTool(tool) || isInteractionTool(tool)) {
+    const locked = this.verificationLock(tool, sessionId)
+    if (locked) {
+      const { error, ...extra } = locked
+      this.result(agent, id, false, undefined, error, extra)
+      return
+    }
+
+    if (isCaptureTool(tool) || isInteractionTool(tool) || isVerifyTool(tool)) {
       if (await this.refusedByOwnership(agent, id, tool, args, sessionId)) return
       const response = isCaptureTool(tool)
         ? await this.captures.invoke(tool, args, sessionId)
-        : await this.interactions.invoke(tool, args, sessionId)
+        : isInteractionTool(tool)
+          ? await this.interactions.invoke(tool, args, sessionId)
+          : await this.verifications.invoke(tool, args, sessionId)
       const outcome = response.session
         ? this.guard.settle(response.session, this.currentCaller(), tool, args, response)
         : {}
@@ -1315,6 +1350,27 @@ export class GenieBridge {
     return true
   }
 
+  /** A verification owns its document's window: calls that would reset it, pause it, or put Genie-made state on screen are refused until it ends. */
+  private verificationLock(
+    tool: string,
+    sessionId?: string,
+  ): { error: string; errorCode: AgentErrorCode; errorDetails: ToolErrorDetails } | null {
+    const session = this.peekTarget(sessionId)
+    const verificationId = session ? this.verifications.lockFor(session.sessionId, tool) : undefined
+    if (!verificationId) return null
+    const recording = verificationId !== 'starting'
+    return {
+      error: recording
+        ? `Verification ${verificationId} is recording on this document, so ${tool} is refused until it ends. Run genie-react verify end ${verificationId}, or release the lock with genie-react verify abort ${verificationId}.`
+        : `A verification is starting on this document, so ${tool} is refused. Retry once genie-react verify begin returns.`,
+      errorCode: 'invalid-args',
+      errorDetails: {
+        hubCode: 'VERIFICATION_ACTIVE' satisfies HubErrorCode,
+        ...(recording ? { verificationId } : {}),
+      },
+    }
+  }
+
   private async handleQuiesce(
     agent: WebSocket,
     id: string,
@@ -1335,6 +1391,7 @@ export class GenieBridge {
       reactCommit: null,
       reactChangedAt: started,
       frameCheck: null,
+      latest: {},
     }
     const sameDocument = (current: AppSession | null | undefined) =>
       current?.socket === session?.socket &&
@@ -1510,6 +1567,7 @@ export class GenieBridge {
       reactCommit: null,
       reactChangedAt: Date.now(),
       frameCheck: null,
+      latest: {},
     }
     let lastCheck: WaitCheck = { state: 'pending' }
     while (Date.now() < deadline) {
@@ -1537,12 +1595,19 @@ export class GenieBridge {
       timeoutMs,
       session,
     )
+    const blocking =
+      check.state === 'pending'
+        ? Object.values(check.domains ?? {}).find(
+            (domain) => domain?.status === 'pending' && domain.reason !== undefined,
+          )?.reason
+        : undefined
     return {
       ok: check.state === 'met',
       waitedMs: Date.now() - started,
       ...(check.state === 'met'
         ? {}
         : { reason: check.state === 'failed' ? check.reason : 'timeout' }),
+      ...(blocking === undefined ? {} : { blocking }),
       domains: check.domains ?? {},
     }
   }
@@ -1694,6 +1759,20 @@ export class GenieBridge {
     session: AppSession | null,
     pollState: WaitPollState,
   ): Promise<WaitDomainCheck> {
+    const check = keepObservedBlocker(
+      pollState.latest[domain],
+      await this.probeSettleDomain(domain, input, session, pollState),
+    )
+    pollState.latest[domain] = check
+    return check
+  }
+
+  private async probeSettleDomain(
+    domain: WaitDomain,
+    input: WaitInput,
+    session: AppSession | null,
+    pollState: WaitPollState,
+  ): Promise<WaitDomainCheck> {
     const unsupported = (tool: string): WaitDomainCheck => ({
       status: 'unsupported',
       reason: `Domain ${domain} requires unavailable tool ${tool}.`,
@@ -1719,7 +1798,7 @@ export class GenieBridge {
       const commit = result && numberField(result, 'documentCommitId')
       if (!response.ok || commit === null || !Number.isInteger(commit) || commit < 0) {
         pollState.reactCommit = null
-        return { status: 'pending', reason: response.error, lastObserved: null }
+        return { status: 'pending', reason: response.error, lastObserved: null, unanswered: true }
       }
       const renderCollection = result?.renderCollection
       // Late installation loses history, but still observes commits throughout this new wait window.
@@ -1767,10 +1846,17 @@ export class GenieBridge {
       const result = recordOf(response.result)
       const fetching = result ? numberField(result, 'fetching') : null
       const mutating = result ? (numberField(result, 'mutating') ?? 0) : null
-      return {
-        status: response.ok && fetching === 0 && mutating === 0 ? 'met' : 'pending',
-        lastObserved: { fetching, mutating },
+      const lastObserved = { fetching, mutating }
+      if (!response.ok || fetching === null) {
+        return { status: 'pending', reason: response.error, lastObserved, unanswered: true }
       }
+      return fetching === 0 && mutating === 0
+        ? { status: 'met', lastObserved }
+        : {
+            status: 'pending',
+            reason: `${fetching} ${fetching === 1 ? 'query is' : 'queries are'} fetching and ${mutating} ${mutating === 1 ? 'mutation is' : 'mutations are'} running.`,
+            lastObserved,
+          }
     }
     if (domain === 'router') {
       if (!toolDescriptor(session, 'router_get_state')) {
@@ -1784,10 +1870,16 @@ export class GenieBridge {
       )
       const result = routerStateOf(response.result)
       const settlement = result ? routerSettlement(result) : null
-      return {
-        status: response.ok && settlement?.settled === true ? 'met' : 'pending',
-        lastObserved: settlement?.observed ?? null,
+      if (!response.ok || !settlement) {
+        return { status: 'pending', reason: response.error, lastObserved: null, unanswered: true }
       }
+      return settlement.settled
+        ? { status: 'met', lastObserved: settlement.observed }
+        : {
+            status: 'pending',
+            reason: `The router has not settled on ${String(settlement.observed.pathname ?? 'the current location')}.`,
+            lastObserved: settlement.observed,
+          }
     }
     if (!toolDescriptor(session, 'browser_fps')) return unsupported('browser_fps')
     if (pollState.frameCheck?.status === 'met') return pollState.frameCheck
@@ -1797,10 +1889,13 @@ export class GenieBridge {
       session,
       input.deadline,
     )
+    if (!response.ok) {
+      return { status: 'pending', reason: response.error, lastObserved: null, unanswered: true }
+    }
     const result = recordOf(response.result)
     const comparable = result?.comparable === true
     pollState.frameCheck = {
-      status: response.ok && comparable ? 'met' : 'pending',
+      status: comparable ? 'met' : 'pending',
       reason: comparable
         ? undefined
         : 'Frame sample is hidden, throttled, sparse, or mode-shifted.',
@@ -1837,6 +1932,7 @@ export class GenieBridge {
         status: 'pending',
         reason: `Pending React work could not be read: ${response.error ?? 'malformed react_pending_work result'}.`,
         lastObserved: { ...observed, pendingWork: null },
+        unanswered: true,
       }
     }
     const pendingWork = parsed.data

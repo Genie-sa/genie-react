@@ -1,6 +1,6 @@
 ---
 name: genie
-description: Inspect a running React or React Native app with Genie. Use for render causes, effects, Query and Router state, interaction timelines, performance comparisons, or app_* tools for login, fixtures, and UI states.
+description: Inspect a running React or React Native app with Genie. Use for verifying a fix, render causes, effects, Query and Router state, interaction timelines, performance comparisons, or app_* tools for login, fixtures, and UI states.
 metadata:
   version: "0.19.0"
   package: "@genie-react/cli"
@@ -25,7 +25,7 @@ npx genie-react status --session my-agent --wait 15000
 
 `--wait` holds `status` until that session is ready, up to the given milliseconds. Use the app's real URL, appending `&_genie=my-agent` when it already has a query. On native, open the app with agent-device, then take the ready session's `sessionId` from `npx genie-react status`.
 
-Pass `--session <name>` to every `status`, `tools`, `call`, `batch`, and `capture` command. This step is complete when status reports `ready: true` and `app.url` is the intended app (`app.name` on native). If status fails, `details.session.registeredTabs` tells why: `0` means no browser tab reached the hub, so check that the browser opened the page; more than `0` means other tabs registered but not this session. Then run `npx genie-react doctor --live` and follow its `remediation`; it also reports a stale skill, which `init` refreshes. Exclude `genie-react:*` sessionStorage keys from saved browser state.
+Pass `--session <name>` to every `status`, `tools`, `call`, `batch`, `capture`, and `verify` command. This step is complete when status reports `ready: true` and `app.url` is the intended app (`app.name` on native). If status fails, `details.session.registeredTabs` tells why: `0` means no browser tab reached the hub, so check that the browser opened the page; more than `0` means other tabs registered but not this session. Then run `npx genie-react doctor --live` and follow its `remediation`; it also reports a stale skill, which `init` refreshes. Exclude `genie-react:*` sessionStorage keys from saved browser state.
 
 The app's dev process owns the hub. When the hub is unreachable, start it:
 
@@ -90,6 +90,21 @@ Each command starts a process and opens a connection to the hub. Read results yo
 npx genie-react batch '[{"tool":"react_render_causes","args":{"component":"CheckoutRow","limit":20}},{"tool":"query_list","args":{"limit":10}}]' --session my-agent
 ```
 
-## 4. Decide what the evidence supports
+## 4. Verify a fix before reporting it
+
+Declare what the fix must make true, drive the same interaction, and let Genie decide:
+
+```bash
+npx genie-react verify begin --session my-agent --name "type in filter" \
+  --claim 'render StatusBadge max 0' --claim 'render SearchScreen min 1' --claim 'boundaries clean'
+# Drive the interaction with the UI driver and check its visible outcome.
+npx genie-react verify end <id> --session my-agent
+```
+
+`npx genie-react verify begin --help` lists the claim forms: render counts, renders only for named causes, effect runs, effect settles, and error boundaries. Include a positive control (`min 1` on a component the interaction must change), so an interaction that missed the app fails instead of passing. Claims are fixed at begin; between begin and end, Genie refuses window resets and overrides on that tab.
+
+The verdict is the exit code: `0` pass, `1` fail, `4` refused, `5` inconclusive. On a refusal, run its `fix: $` command, then the interaction again. Report a fix only on a pass, quoting the verdict line and the attempt line, and confirm the visible result with the UI driver: Genie does not check the screen. `verify show <id> --claim N` prints every deciding item.
+
+## 5. Decide what the evidence supports
 
 Before interpreting coverage, comparing performance, reporting a fix, or recovering from a CLI failure, read [EVIDENCE.md](EVIDENCE.md).

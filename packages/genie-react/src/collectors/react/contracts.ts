@@ -13,6 +13,7 @@ import {
   renderCoverageSchema,
   renderMeasurementEnvironmentSchema,
   renderObservationInputSchema,
+  strictModeStatusSchema,
 } from './render-contract'
 
 export {
@@ -759,6 +760,14 @@ export const reactErrorStateContract = defineAgentToolContract({
         'Resolve the file:line of each boundary/component (async source-map lookup). When false, stacks also drop frames from node_modules.',
       ),
     limit: z.number().int().min(1).max(100).default(20),
+    afterDocumentCommitId: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        'Also return catchLog: every catch committed after this document commit, including boundaries that have since reset or unmounted.',
+      ),
   }),
   output: z.object({
     scanTruncated: z.boolean(),
@@ -819,6 +828,37 @@ export const reactErrorStateContract = defineAgentToolContract({
       }),
     ),
     blankTreeHint: z.string().nullable(),
+    catchLog: z
+      .object({
+        afterDocumentCommitId: z.number().int().nonnegative(),
+        documentCommitId: z.number().int().nonnegative(),
+        catches: z.array(
+          z.object({
+            catchId: z.string(),
+            documentCommitId: z.number().int().nonnegative(),
+            observationId: z.string().nullable(),
+            boundaryId: z.number(),
+            boundaryName: z.string(),
+            boundaryKind: z.enum(['error-boundary', 'root']),
+            forced: z
+              .boolean()
+              .describe(
+                'true = react_force_error_boundary held it open; no real error was thrown.',
+              ),
+            message: z.string().nullable(),
+            throwingComponent: z.string().nullable(),
+          }),
+        ),
+        omittedByLimit: z.number().int().nonnegative(),
+        complete: z
+          .boolean()
+          .describe(
+            'False when older catches in the range were evicted or a commit in the range could not be scanned; an empty list then does not prove no boundary caught.',
+          ),
+        incompleteReasons: z.array(z.enum(['catches-evicted', 'commit-not-scanned'])),
+      })
+      .optional()
+      .describe('Present when afterDocumentCommitId is given.'),
   }),
   annotations: { readOnlyHint: true },
 })
@@ -903,6 +943,7 @@ export const reactProfileStartContract = defineAgentToolContract({
     documentCommitId: z.number().int().nonnegative(),
     observation: observationSchema,
     observationConfig: renderCoverageSchema.shape.observationBudget.unwrap(),
+    strictMode: strictModeStatusSchema,
   }),
   annotations: { idempotentHint: false },
 })
@@ -921,13 +962,24 @@ export const reactProfileStopContract = defineAgentToolContract({
   name: 'react_profile_stop',
   title: 'Stop profiling',
   description:
-    'Pause the profiling session — the commit counter freezes and isTracking() reports false until react_profile_start resumes. The captured aggregates and any snapshots are kept, so react_profile_report and react_renders_diff still work after stopping. The underlying instrumentation stays installed (React commits simply stop being recorded); this is the symmetric counterpart to react_profile_start.',
+    'Pause the profiling session — the commit counter freezes and isTracking() reports false until react_profile_start resumes. The captured aggregates and any snapshots are kept, so react_profile_report and react_renders_diff still work after stopping. The underlying instrumentation stays installed (React commits simply stop being recorded); this is the symmetric counterpart to react_profile_start. Reads after the stop report commits React made since as pausedCommits and mark coverage incomplete; coverage here is the measured window as of the stop.',
   group: 'react.profile',
   input: z.object({}),
   output: z.object({
     ok: z.literal(true),
     tracking: z.literal(false),
     commits: z.number().describe('Commits recorded up to the stop.'),
+    documentCommitId: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe('The last document commit inside the measured window.'),
+    observation: observationSchema.nullable(),
+    coverage: renderCoverageSchema
+      .extend({ truncatedEffectLists: z.number().int().nonnegative() })
+      .describe(
+        'Render measurement coverage of the window as of the stop. A repeated stop reports commits since the first one as pausedCommits.',
+      ),
   }),
   annotations: { idempotentHint: true },
 })
