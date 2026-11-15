@@ -72,7 +72,8 @@ export type CaptureInvocation =
     })
 
 interface CaptureManagerOptions<TSession extends CaptureSession> {
-  resolveSession: (target?: string) => TSession | null
+  /** `standIn` means another tab answers for a targeted tab that is absent or silent. */
+  resolveSession: (target?: string) => { session: TSession; standIn: boolean } | null
   /** Why `resolveSession(target)` found no document; untargeted calls can fail as ambiguous, not only as disconnected. */
   sessionUnavailable: (target?: string) => SessionUnavailable
   isCurrentSession: (session: TSession) => boolean
@@ -225,17 +226,19 @@ export class CaptureManager<TSession extends CaptureSession> {
     }
     const parsed = devtoolsCaptureCreateContract.input.safeParse(args ?? {})
     if (!parsed.success) return invalidArguments(devtoolsCaptureCreateContract, args, parsed.error)
-    const session = this.options.resolveSession(sessionTarget)
-    if (!session) {
+    const resolved = this.options.resolveSession(sessionTarget)
+    if (!resolved) {
       return {
         ok: false,
         ...this.options.sessionUnavailable(sessionTarget),
       }
     }
+    const { session, standIn } = resolved
     try {
       const capture = await this.create(session, {
         ...parsed.data,
         include: parsed.data.include ?? defaultCaptureDomains(session.tools),
+        standIn,
       })
       return {
         ok: true,
@@ -259,7 +262,7 @@ export class CaptureManager<TSession extends CaptureSession> {
 
   private async create(
     session: TSession,
-    input: { name: string; include: CaptureDomain[]; maxAttempts: number },
+    input: { name: string; include: CaptureDomain[]; maxAttempts: number; standIn: boolean },
   ): Promise<CaptureArtifact> {
     let finalSections: CaptureArtifact['sections'] = {}
     let finalCommit: number | null = null
@@ -314,6 +317,11 @@ export class CaptureManager<TSession extends CaptureSession> {
 
     const warnings = captureWarnings(finalSections)
     if (consistencyKind === 'best-effort') warnings.push(consistencyReason)
+    if (input.standIn) {
+      warnings.push(
+        `The targeted tab was absent or silent, so tab ${JSON.stringify(session.logicalSessionId ?? session.sessionId)} answered; comparisons refuse this capture.`,
+      )
+    }
     const capture: CaptureArtifact = {
       schemaVersion: CAPTURE_SCHEMA_VERSION,
       captureId: `cap_${newId()}`,
@@ -329,6 +337,7 @@ export class CaptureManager<TSession extends CaptureSession> {
           : { documentGeneration: session.documentGeneration }),
         ...(session.sessionName === undefined ? {} : { sessionName: session.sessionName }),
         app: session.app,
+        ...(input.standIn ? { standIn: true as const } : {}),
       },
       include: [...input.include],
       consistency: {
@@ -341,7 +350,8 @@ export class CaptureManager<TSession extends CaptureSession> {
       complete:
         input.include.every((domain) => finalSections[domain]?.status === 'ok') &&
         consistencyKind === 'react-commit-stable' &&
-        renderEvidenceComplete(finalSections),
+        renderEvidenceComplete(finalSections) &&
+        !input.standIn,
       warnings,
       sizeBytes: 0,
       pinned: false,

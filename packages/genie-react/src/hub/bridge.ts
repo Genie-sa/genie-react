@@ -332,7 +332,12 @@ export class GenieBridge {
     this.log = options.logger ?? (() => {})
     this.upgradePolicy = new UpgradePolicy(options)
     this.captures = new CaptureManager({
-      resolveSession: (target) => this.targetSession(target),
+      resolveSession: (target) => {
+        const resolution = this.resolveTarget(target)
+        return resolution.ok
+          ? { session: resolution.session, standIn: resolution.standIn === true }
+          : null
+      },
       sessionUnavailable: (target) => this.sessionUnavailable(target),
       isCurrentSession: (session) => this.isCurrent(session),
       request: (session, tool, args) => this.appRequestForSession(tool, args, session),

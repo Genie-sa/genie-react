@@ -55,25 +55,31 @@ export function compareCaptureCohorts(
   const usableBaseline = baseline.slice(input.warmupRuns)
   const usableCandidate = candidate.slice(input.warmupRuns)
   const budgets = new Map(input.budgets.map((budget) => [budget.metric, budget]))
+  const hygiene = sampleHygiene(baseline, candidate)
   const metrics = input.metrics.map((metric) =>
-    compareMetric(metric, usableBaseline, usableCandidate, input, budgets.get(metric)),
+    compareMetric(metric, usableBaseline, usableCandidate, input, budgets.get(metric), [
+      ...hygiene.reasons,
+      ...(metric.startsWith('react.') ? hygiene.renderReasons : []),
+    ]),
   )
   const budgeted = metrics.filter((metric) => metric.budget !== undefined)
   const violations = budgeted
     .filter((metric) => metric.verdict === 'fail')
     .map((metric) => ({ metric: metric.metric, reasons: metric.reasons }))
   const overall: CaptureComparison['overall'] =
-    budgeted.length === 0
-      ? 'informational'
-      : violations.length > 0
-        ? 'fail'
-        : budgeted.some((metric) => metric.verdict === 'not-comparable')
-          ? 'not-comparable'
-          : budgeted.some((metric) => metric.verdict === 'insufficient-data')
-            ? 'insufficient-data'
-            : budgeted.some((metric) => metric.verdict === 'inconclusive')
-              ? 'inconclusive'
-              : 'pass'
+    hygiene.reasons.length > 0
+      ? 'not-comparable'
+      : budgeted.length === 0
+        ? 'informational'
+        : violations.length > 0
+          ? 'fail'
+          : budgeted.some((metric) => metric.verdict === 'not-comparable')
+            ? 'not-comparable'
+            : budgeted.some((metric) => metric.verdict === 'insufficient-data')
+              ? 'insufficient-data'
+              : budgeted.some((metric) => metric.verdict === 'inconclusive')
+                ? 'inconclusive'
+                : 'pass'
 
   return {
     schemaVersion: '1.0',
@@ -91,9 +97,10 @@ export function compareCaptureCohorts(
     baselineCaptureIds: baseline.map((capture) => capture.captureId),
     candidateCaptureIds: candidate.map((capture) => capture.captureId),
     overall,
+    notComparableReasons: hygiene.reasons,
     metrics,
     violations,
-    warnings: environmentWarnings(baseline, candidate),
+    warnings: hygiene.warnings,
   }
 }
 
@@ -110,6 +117,7 @@ function compareMetric(
   candidate: CaptureArtifact[],
   input: ParsedComparisonInput,
   budget: MetricBudget | undefined,
+  hygieneReasons: string[],
 ): MetricResult {
   const baselineSamples = samplesFor(metric, baseline)
   const candidateSamples = samplesFor(metric, candidate)
@@ -131,6 +139,7 @@ function compareMetric(
   )
   const sampleFloor = Math.min(baselineStats.samples, candidateStats.samples)
   const notComparableReasons = unique([
+    ...hygieneReasons,
     ...baselineSamples.notComparableReasons,
     ...candidateSamples.notComparableReasons,
     ...crossCohortReasons(metric, baselineSamples, candidateSamples),
@@ -596,21 +605,99 @@ function unique(values: string[]): string[] {
   return [...new Set(values)]
 }
 
-function environmentWarnings(baseline: CaptureArtifact[], candidate: CaptureArtifact[]): string[] {
-  const signatures = new Set([...baseline, ...candidate].map(environmentSignature))
-  return signatures.size <= 1
-    ? []
-    : [
-        `Capture cohorts span ${signatures.size} runtime fingerprints (app/React/TanStack); compare like-for-like environments.`,
+/** Conditions that make every metric's samples incomparable, found across all captures of both cohorts, warm-up included. */
+function sampleHygiene(
+  baseline: CaptureArtifact[],
+  candidate: CaptureArtifact[],
+): { reasons: string[]; renderReasons: string[]; warnings: string[] } {
+  const all = [...baseline, ...candidate]
+  const reasons: string[] = []
+  const renderReasons: string[] = []
+  const warnings: string[] = []
+
+  const environments = new Map<string, string[]>()
+  for (const capture of all) {
+    const signature = environmentSignature(capture)
+    environments.set(signature, [...(environments.get(signature) ?? []), capture.captureId])
+  }
+  if (environments.size > 1) {
+    reasons.push('runtime-environment-mismatch')
+    warnings.push(
+      `Captures ran in ${environments.size} runtime environments (app, React, TanStack, React bundle): ${[
+        ...environments,
       ]
+        .map(([signature, ids]) => `${signature} for ${ids.join(', ')}`)
+        .join('; ')}.`,
+    )
+  }
+
+  for (const [label, cohort] of [
+    ['baseline', baseline],
+    ['candidate', candidate],
+  ] as const) {
+    const tabs = new Set(cohort.map(tabOf))
+    if (tabs.size > 1) {
+      reasons.push('cohort-spans-multiple-tabs')
+      warnings.push(`The ${label} cohort mixes captures from ${tabs.size} tabs: ${[...tabs].join(', ')}.`)
+    }
+  }
+
+  const standIns = all.filter((capture) => capture.session.standIn === true)
+  if (standIns.length > 0) {
+    reasons.push('capture-from-stand-in-tab')
+    warnings.push(
+      `Another tab answered for a silent targeted tab in ${standIns.map((capture) => capture.captureId).join(', ')}.`,
+    )
+  }
+
+  const runs = new Map<string, string[]>()
+  const withoutWindow: string[] = []
+  for (const capture of all) {
+    const window = observationWindowOf(capture)
+    if (window === undefined) continue
+    if (window === null) {
+      withoutWindow.push(capture.captureId)
+      continue
+    }
+    const run = JSON.stringify([capture.session.sessionId, window])
+    runs.set(run, [...(runs.get(run) ?? []), capture.captureId])
+  }
+  const repeated = [...runs.values()].filter((ids) => ids.length > 1)
+  if (repeated.length > 0) {
+    reasons.push('repeated-snapshot-of-one-run')
+    warnings.push(
+      `Captures share one observation window, so each group is one run: ${repeated.map((ids) => ids.join(' = ')).join('; ')}. Clear renders before each run.`,
+    )
+  }
+  if (withoutWindow.length > 0) {
+    renderReasons.push('render-observation-window-missing')
+    warnings.push(
+      `No observation window was open for ${withoutWindow.join(', ')}, so their render counts are cumulative, not one run. Run react_clear_renders before each run.`,
+    )
+  }
+  return { reasons: unique(reasons), renderReasons, warnings }
 }
 
 function environmentSignature(capture: CaptureArtifact): string {
+  const renders = toolResult(capture, 'react', 'react_get_renders')
   return JSON.stringify({
     name: capture.session.app.name ?? null,
     reactVersion: capture.session.app.reactVersion ?? null,
     tanstack: capture.session.app.tanstack ?? null,
+    bundle: isRecord(renders) && typeof renders.bundle === 'string' ? renders.bundle : null,
   })
+}
+
+function tabOf(capture: CaptureArtifact): string {
+  return capture.session.logicalSessionId ?? capture.session.sessionId
+}
+
+/** The render observation window a capture read: its id, `null` when none was open, `undefined` without render evidence. */
+function observationWindowOf(capture: CaptureArtifact): string | null | undefined {
+  const renders = toolResult(capture, 'react', 'react_get_renders')
+  if (!isRecord(renders)) return undefined
+  const observation = renders.observation
+  return isRecord(observation) && typeof observation.id === 'string' ? observation.id : null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -29,7 +29,12 @@ function capture(id: string, metrics: FixtureMetrics, reactVersion = '19.2.7'): 
     captureId: id,
     name: id,
     createdAt: '2026-07-13T08:00:00.000Z',
-    session: { sessionId: `session-${id}`, app: { name: 'demo', reactVersion } },
+    session: {
+      sessionId: 'session-1',
+      logicalSessionId: 'tab-1',
+      documentGeneration: 1,
+      app: { name: 'demo', reactVersion },
+    },
     include: ['react', 'effects', 'query', 'memory', 'performance'],
     consistency: {
       kind: 'react-commit-stable',
@@ -46,6 +51,7 @@ function capture(id: string, metrics: FixtureMetrics, reactVersion = '19.2.7'): 
             capturedAt: '2026-07-13T08:00:00.000Z',
             durationMs: 1,
             result: {
+              observation: { id: `observation:${id}` },
               commits: metrics.commits,
               summary: {
                 totalRenders: metrics.renders,
@@ -323,7 +329,7 @@ describe('compareCaptureCohorts', () => {
     expect(zeroBaseline.metrics[0]?.delta.regressionPct).toBeNull()
   })
 
-  it('marks hidden FPS samples missing and warns across runtime fingerprints', () => {
+  it('marks hidden FPS samples missing and refuses cohorts from different React versions', () => {
     const result = compare(
       [capture('b1', { avgFps: 60 }, '19.2.7')],
       [capture('c1', { avgFps: 2, hidden: true }, '20.0.0')],
@@ -337,7 +343,8 @@ describe('compareCaptureCohorts', () => {
       missingCandidateCaptureIds: ['c1'],
       excludedCaptureIds: { c1: ['document-hidden-during-sample'] },
     })
-    expect(result.warnings[0]).toContain('2 runtime fingerprints')
+    expect(result.notComparableReasons).toEqual(['runtime-environment-mismatch'])
+    expect(result.warnings[0]).toContain('2 runtime environments')
   })
 
   it('excludes warm-up runs and robust zero-MAD outliers before summarizing', () => {
@@ -702,6 +709,131 @@ describe('compareCaptureCohorts', () => {
           notComparableReasons: ['render-component-list-truncated'],
         }),
       ]),
+    )
+  })
+})
+
+describe('compareCaptureCohorts sample hygiene', () => {
+  const metrics: CaptureMetric[] = ['react.renders', 'memory.usedHeapBytes']
+  const budgets = [{ metric: 'react.renders' as const, maxRegressionPct: 10 }]
+  const runs = (prefix: string, renders: number[]) =>
+    renders.map((value, index) =>
+      capture(`${prefix}${index}`, { renders: value, usedHeapBytes: 1_000 + index }),
+    )
+  const renderResult = (artifact: CaptureArtifact) =>
+    artifact.sections.react?.tools.react_get_renders?.result as Record<string, unknown>
+
+  function expectNotComparable(result: ReturnType<typeof compare>, reason: string) {
+    expect(result.overall).toBe('not-comparable')
+    expect(result.notComparableReasons).toContain(reason)
+    expectMetricsNotComparable(result, reason, metrics)
+  }
+
+  function expectMetricsNotComparable(
+    result: ReturnType<typeof compare>,
+    reason: string,
+    affected: CaptureMetric[],
+  ) {
+    for (const metric of result.metrics.filter((entry) => affected.includes(entry.metric))) {
+      expect(metric).toMatchObject({ comparable: false, verdict: 'not-comparable' })
+      expect(metric.notComparableReasons).toContain(reason)
+    }
+  }
+
+  it('compares clean cohorts from one tab with one observation window per run', () => {
+    const result = compare(
+      runs('b', [10, 10, 10, 10, 10]),
+      runs('c', [20, 20, 20, 20, 20]),
+      metrics,
+      budgets,
+    )
+
+    expect(result.notComparableReasons).toEqual([])
+    expect(result.warnings).toEqual([])
+    expect(result.overall).toBe('fail')
+  })
+
+  it('refuses cohorts that ran on different React versions, even without budgets', () => {
+    const baseline = runs('b', [10, 10, 10])
+    const candidate = [10, 10, 10].map((renders, index) =>
+      capture(`c${index}`, { renders, usedHeapBytes: 1_000 }, '20.0.0'),
+    )
+
+    expectNotComparable(compare(baseline, candidate, metrics), 'runtime-environment-mismatch')
+  })
+
+  it('refuses cohorts measured on different React bundles', () => {
+    const baseline = runs('b', [10, 10, 10])
+    const candidate = runs('c', [10, 10, 10])
+    for (const artifact of baseline) renderResult(artifact).bundle = 'development'
+    for (const artifact of candidate) renderResult(artifact).bundle = 'production'
+
+    expectNotComparable(compare(baseline, candidate, metrics, budgets), 'runtime-environment-mismatch')
+  })
+
+  it('counts two snapshots of one observation window as one run, never two samples', () => {
+    const baseline = runs('b', [10, 10, 10])
+    const candidate = runs('c', [20, 20, 20])
+    renderResult(candidate[1] as CaptureArtifact).observation = { id: 'observation:c0' }
+
+    expectNotComparable(
+      compare(baseline, candidate, metrics, budgets),
+      'repeated-snapshot-of-one-run',
+    )
+  })
+
+  it('treats the same observation id in two documents as two runs', () => {
+    const baseline = runs('b', [10, 10, 10])
+    const candidate = runs('c', [20, 20, 20])
+    const reloaded = candidate[1] as CaptureArtifact
+    reloaded.session = { ...reloaded.session, sessionId: 'session-2', documentGeneration: 2 }
+    renderResult(reloaded).observation = { id: 'observation:c0' }
+
+    expect(compare(baseline, candidate, metrics, budgets).notComparableReasons).toEqual([])
+  })
+
+  it('refuses render metrics from a capture with no observation window', () => {
+    const baseline = runs('b', [10, 10, 10])
+    renderResult(baseline[2] as CaptureArtifact).observation = null
+
+    const result = compare(baseline, runs('c', [20, 20, 20]), metrics, budgets)
+    expect(result.overall).toBe('not-comparable')
+    expectMetricsNotComparable(result, 'render-observation-window-missing', ['react.renders'])
+    expect(result.metrics.find((metric) => metric.metric === 'memory.usedHeapBytes')).toMatchObject(
+      { comparable: true },
+    )
+  })
+
+  it('refuses a cohort that mixes captures from two tabs', () => {
+    const candidate = runs('c', [20, 20, 20])
+    const other = candidate[2] as CaptureArtifact
+    other.session = { ...other.session, sessionId: 'session-9', logicalSessionId: 'tab-9' }
+
+    expectNotComparable(
+      compare(runs('b', [10, 10, 10]), candidate, metrics, budgets),
+      'cohort-spans-multiple-tabs',
+    )
+  })
+
+  it('accepts baseline and candidate from different tabs when each cohort has one tab', () => {
+    const candidate = runs('c', [20, 20, 20])
+    for (const artifact of candidate) {
+      artifact.session = { ...artifact.session, sessionId: 'session-9', logicalSessionId: 'tab-9' }
+    }
+
+    expect(compare(runs('b', [10, 10, 10]), candidate, metrics, budgets).notComparableReasons).toEqual(
+      [],
+    )
+  })
+
+  it('refuses a capture a stand-in tab answered for a silent default tab', () => {
+    const baseline = runs('b', [10, 10, 10])
+    const standIn = baseline[0] as CaptureArtifact
+    standIn.session = { ...standIn.session, standIn: true }
+
+    expectNotComparable(
+      compare(baseline, runs('c', [20, 20, 20]), metrics, budgets),
+      'capture-from-stand-in-tab',
     )
   })
 })

@@ -39,9 +39,10 @@ const comparableRenders = {
 function manager(
   renders: Record<string, unknown> = comparableRenders,
   target: CaptureSession = session,
+  standIn = false,
 ): CaptureManager<CaptureSession> {
   return new CaptureManager({
-    resolveSession: () => target,
+    resolveSession: () => ({ session: target, standIn }),
     sessionUnavailable: (requested) => ({
       errorCode: 'unknown-session',
       error: `unknown ${requested}`,
@@ -277,7 +278,7 @@ describe('capture manager artifacts', () => {
   it('uses document commit IDs for consistency even when the profile count is frozen', async () => {
     let renderProbe = 0
     const captures = new CaptureManager({
-      resolveSession: () => session,
+      resolveSession: () => ({ session, standIn: false }),
       sessionUnavailable: (target) => ({
         errorCode: 'unknown-session',
         error: `unknown ${target}`,
