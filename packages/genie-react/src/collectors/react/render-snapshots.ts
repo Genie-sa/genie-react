@@ -48,6 +48,8 @@ export interface RenderTrackingCoverage {
   pausedCommits: number
   /** Commits while no window, span or recording was open: Genie did not analyse them at all. */
   unobservedCommits: number
+  /** Commits from a Fast Refresh, or soon enough after one to be indistinguishable, while a window observed: Genie did not analyse them. */
+  refreshCommitsExcluded: number
   truncatedInputFibers: number
   propsNotEnumeratedFibers: number
   budgetExhaustedCommits: number
@@ -89,6 +91,7 @@ export interface IncompleteCoverageReason {
     | 'unmounts-dropped'
     | 'commits-after-profile-stop'
     | 'commits-not-observed'
+    | 'commits-during-fast-refresh'
     | AnalysisFailureReason
     | 'inputs-truncated'
     | 'props-not-enumerated'
@@ -158,6 +161,14 @@ function incompleteCoverageReasons(
       next: UNOBSERVED_COMMITS_NEXT,
     })
   }
+  if (input.refreshCommitsExcluded > 0) {
+    reasons.push({
+      reason: 'commits-during-fast-refresh',
+      fibers: 0,
+      detail: `${input.refreshCommitsExcluded} commits came from a Fast Refresh edit, or less than a second after one with no user input in between, so Genie could not tell them from the edit and did not analyse them.`,
+      next: 'Wait a second after the edit applies, run react_clear_renders, repeat the step, and read again.',
+    })
+  }
   const failures = input.gaps?.analysisFailures ?? []
   for (const { reason, fibers } of failures) {
     reasons.push({ reason, fibers, detail: ANALYSIS_FAILURE_DETAIL[reason] })
@@ -201,6 +212,7 @@ export function buildRenderTrackingCoverage(
     input.analysisFailedFibers === 0 &&
     input.pausedCommits === 0 &&
     input.unobservedCommits === 0 &&
+    input.refreshCommitsExcluded === 0 &&
     input.budgetExhaustedCommits === 0
   const inputAttributionComplete =
     measurementComplete && input.truncatedInputFibers === 0 && input.propsNotEnumeratedFibers === 0
@@ -236,6 +248,7 @@ export function renderEvidenceComparability(
   if (coverage.analysisFailedFibers > 0) reasons.push('fiber-analysis-failed')
   if (coverage.pausedCommits > 0) reasons.push('commits-after-profile-stop')
   if (coverage.unobservedCommits > 0) reasons.push('commits-not-observed')
+  if (coverage.refreshCommitsExcluded > 0) reasons.push('commits-during-fast-refresh')
   if (coverage.truncatedInputFibers > 0) reasons.push(RENDER_INPUT_SCAN_TRUNCATED)
   if (coverage.propsNotEnumeratedFibers > 0) reasons.push(RENDER_PROPS_NOT_ENUMERATED)
   if (coverage.budgetExhaustedCommits > 0) reasons.push('commit-analysis-budget-exhausted')

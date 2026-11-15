@@ -98,6 +98,22 @@ describe('renders decision table', () => {
     ).toBe('coverage_incomplete')
   })
 
+  it('refuses a count while commits after a Fast Refresh went unanalysed, and names them', () => {
+    const refreshTail = withCoverage({
+      complete: false,
+      semantics: 'lower-bound',
+      refreshCommitsExcluded: 2,
+    })
+
+    expect(outcome(badgeMax0, refreshTail)).toMatchObject({
+      verdict: 'refused',
+      refusal: {
+        reason: 'coverage_incomplete',
+        message: expect.stringContaining('refreshCommitsExcluded 2'),
+      },
+    })
+  })
+
   it('counts updates only with counting updates, but fails on a key-change remount', () => {
     const remount = windowEvidence([
       targetEvidence({

@@ -42,6 +42,14 @@ const effectCoverageSchema = z.object({
     .describe(
       'Commits made while no render window, profile, measurement or timeline was open; their effects were not recorded.',
     ),
+  refreshCommitsExcluded: z
+    .number()
+    .int()
+    .nonnegative()
+    .default(0)
+    .describe(
+      'Fast Refresh commits, or commits indistinguishable from one, that the window did not analyse; their effects were not recorded.',
+    ),
   truncatedInputFibers: z.number().int().nonnegative(),
   propsNotEnumeratedFibers: z.number().int().nonnegative(),
   truncatedEffectLists: z.number().int().nonnegative(),

@@ -52,6 +52,7 @@ const coverageSnapshotSchema = z.object({
   droppedUnmountFibers: z.number(),
   analysisFailedFibers: z.number(),
   pausedCommits: z.number().default(0),
+  refreshCommitsExcluded: z.number().default(0),
   budgetExhaustedCommits: z.number(),
   budgetAdvice: budgetAdviceSchema.optional(),
   targeted: z.object({ complete: z.boolean(), skippedFibers: z.number() }).optional(),

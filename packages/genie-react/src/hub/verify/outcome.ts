@@ -82,6 +82,7 @@ export function coverageRefusal(evidence: VerificationEvidence): Refusal | null 
     droppedUnmountFibers: coverage.droppedUnmountFibers,
     analysisFailedFibers: coverage.analysisFailedFibers,
     pausedCommits: coverage.pausedCommits,
+    refreshCommitsExcluded: coverage.refreshCommitsExcluded,
     budgetExhaustedCommits: coverage.budgetExhaustedCommits,
   }
   const lossy = Object.entries(gaps).filter(([, value]) => value > 0)

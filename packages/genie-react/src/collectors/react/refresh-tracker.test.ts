@@ -344,4 +344,89 @@ describe('refresh tracking', () => {
     await new Promise((resolve) => setTimeout(resolve, 1_010))
     expect(tracker.isRefreshCommit()).toBe(false)
   })
+
+  describe('refresh tail bounds', () => {
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+
+    function refreshingRenderer(): RefreshCapableRenderer {
+      const update = refreshUpdate([], [])
+      const renderer = {
+        scheduleRefresh() {
+          mocks.refreshHandler?.(update)
+        },
+      } as unknown as RefreshCapableRenderer
+      mocks.renderers.set(1, renderer)
+      return renderer
+    }
+
+    it('ends the tail a fixed time after the refresh while app commits keep arriving', () => {
+      const renderer = refreshingRenderer()
+      tracker.startRefreshTracking()
+      renderer.scheduleRefresh?.({} as never, {} as never)
+
+      for (let elapsed = 0; elapsed < 900; elapsed += 300) {
+        vi.advanceTimersByTime(300)
+        expect(tracker.isRefreshCommit()).toBe(true)
+        tracker.noteExcludedRefreshCommit()
+      }
+      vi.advanceTimersByTime(100)
+
+      expect(tracker.isRefreshCommit()).toBe(false)
+    })
+
+    it('ends the tail at the first user input after the refresh', () => {
+      const page = new EventTarget()
+      vi.stubGlobal('window', page)
+      const renderer = refreshingRenderer()
+      tracker.startRefreshTracking()
+      renderer.scheduleRefresh?.({} as never, {} as never)
+      expect(tracker.isRefreshCommit()).toBe(true)
+
+      page.dispatchEvent(new Event('pointerdown'))
+
+      expect(tracker.isRefreshCommit()).toBe(false)
+    })
+
+    it('keeps a bundler update excluded through user input until the update completes', () => {
+      const page = new EventTarget()
+      vi.stubGlobal('window', page)
+      tracker.startRefreshTracking()
+
+      tracker.beginBundlerUpdate()
+      page.dispatchEvent(new Event('keydown'))
+      expect(tracker.isRefreshCommit()).toBe(true)
+
+      tracker.completeBundlerUpdate()
+      page.dispatchEvent(new Event('keydown'))
+      expect(tracker.isRefreshCommit()).toBe(false)
+    })
+
+    it('ends a bundler update whose completion never arrives', () => {
+      tracker.startRefreshTracking()
+      tracker.beginBundlerUpdate()
+
+      vi.advanceTimersByTime(9_999)
+      expect(tracker.isRefreshCommit()).toBe(true)
+      vi.advanceTimersByTime(1)
+
+      expect(tracker.isRefreshCommit()).toBe(false)
+    })
+
+    it('stops listening for input once disposed', () => {
+      const page = new EventTarget()
+      const removeEventListener = vi.spyOn(page, 'removeEventListener')
+      vi.stubGlobal('window', page)
+      tracker.startRefreshTracking()
+
+      tracker.disposeRefreshTracking()
+
+      expect(removeEventListener.mock.calls.map(([type]) => type).sort()).toEqual([
+        'input',
+        'keydown',
+        'pointerdown',
+        'wheel',
+      ])
+    })
+  })
 })

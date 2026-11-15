@@ -11,6 +11,7 @@ const counters = {
   analysisFailedFibers: 0,
   pausedCommits: 0,
   unobservedCommits: 0,
+  refreshCommitsExcluded: 0,
   truncatedInputFibers: 0,
   propsNotEnumeratedFibers: 0,
   budgetExhaustedCommits: 0,
@@ -51,6 +52,25 @@ describe('render evidence semantics', () => {
     expect(renderSummarySemantics(coverage, 0)).toBe('unknown')
     expect(renderEvidenceComparability(coverage, 'current').notComparableReasons).toEqual([
       'commits-after-profile-stop',
+    ])
+  })
+
+  it('names Fast Refresh commits a window could not analyse and how to measure without them', () => {
+    const coverage = buildRenderTrackingCoverage(
+      { ...counters, refreshCommitsExcluded: 2 },
+      'measurement',
+    )
+
+    expect(coverage).toMatchObject({ complete: false, semantics: 'lower-bound' })
+    expect(coverage.incompleteBecause).toEqual([
+      expect.objectContaining({
+        reason: 'commits-during-fast-refresh',
+        detail: expect.stringContaining('2 commits'),
+        next: expect.stringContaining('react_clear_renders'),
+      }),
+    ])
+    expect(renderEvidenceComparability(coverage, 'current').notComparableReasons).toEqual([
+      'commits-during-fast-refresh',
     ])
   })
 
