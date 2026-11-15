@@ -160,8 +160,8 @@ describe('contextsForFiber', () => {
     )
     expect(result.name).toBe('Consumer')
     expect(result.contexts).toEqual([
-      { name: 'ThemeContext', value: { mode: 'dark' } },
-      { name: 'AuthContext', value: { user: 'ali' } },
+      { name: 'ThemeContext', value: { mode: 'dark' }, provider: null },
+      { name: 'AuthContext', value: { user: 'ali' }, provider: null },
     ])
   })
 

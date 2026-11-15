@@ -143,6 +143,63 @@ describe('GenieBridge routing hardening', () => {
     }
   })
 
+  it('marks a capture another tab answered for the silent default tab, and refuses to compare it', async () => {
+    await start({ sessionStaleMs: 150 })
+    const agent = await open(`${url}?role=agent`)
+    const pinned = await openDocument('pinned')
+    const pinId = call(agent, 'peek')
+    answer(pinned, (await requestOn(pinned, pinId)).id)
+    await agent.inbox.wait(isResult(pinId))
+    const capture = async (name: string): Promise<Frame> => {
+      const id = newId()
+      send(agent.ws, {
+        kind: 'agent/invoke',
+        id,
+        tool: 'devtools_capture_create',
+        args: { name, maxAttempts: 1, view: 'full' },
+      })
+      const response = await agent.inbox.wait(isResult(id))
+      expect(response.ok).toBe(true)
+      return response.result
+    }
+    const fromTarget = await capture('target')
+    expect(fromTarget.session).not.toHaveProperty('standIn')
+
+    const other = await openDocument('other')
+    await expect.poll(() => handle.bridge.getStatus().sessions.length).toBe(2)
+    const keepAlive = setInterval(
+      () => send(other.ws, { kind: 'app/heartbeat', sessionId: 'other' }),
+      50,
+    )
+    try {
+      await delay(250)
+      const fromStandIn = await capture('stand-in')
+      expect(fromStandIn).toMatchObject({
+        session: { sessionId: 'other', standIn: true },
+        complete: false,
+      })
+      expect(fromStandIn.warnings.join('\n')).toContain('"tab-other" answered')
+
+      const compareId = newId()
+      send(agent.ws, {
+        kind: 'agent/invoke',
+        id: compareId,
+        tool: 'devtools_capture_compare',
+        args: {
+          baselineCaptureIds: [fromTarget.captureId],
+          candidateCaptureIds: [fromStandIn.captureId],
+          warmupRuns: 0,
+          minimumRuns: 1,
+        },
+      })
+      const comparison = (await agent.inbox.wait(isResult(compareId))).result
+      expect(comparison.overall).toBe('not-comparable')
+      expect(comparison.notComparableReasons).toContain('capture-from-stand-in-tab')
+    } finally {
+      clearInterval(keepAlive)
+    }
+  })
+
   it('reports each runtime version and warns about a runtime from another release line', async () => {
     await start()
     await openDocument('current')

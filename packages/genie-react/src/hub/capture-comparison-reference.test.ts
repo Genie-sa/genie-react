@@ -22,6 +22,7 @@ function renderCapture(id: string, renders: number, createdAtOffsetMs = 0): Capt
             capturedAt: new Date(CREATED_AT + createdAtOffsetMs).toISOString(),
             durationMs: 1,
             result: {
+              observation: { id: `observation:${id}` },
               summary: { totalRenders: renders, semantics: 'exact' },
               comparable: true,
               notComparableReasons: [],

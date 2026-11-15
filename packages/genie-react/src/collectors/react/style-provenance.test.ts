@@ -145,8 +145,10 @@ const fakeElement = (opts: {
     ownerDocument: opts.doc,
     style: {
       length: inlineKeys.length,
+      cssText: inlineKeys.map((key) => `${key}: ${inline[key]};`).join(' '),
       item: (i: number) => inlineKeys[i] ?? '',
       getPropertyValue: (name: string) => inline[name] ?? '',
+      getPropertyPriority: () => '',
     },
   } as unknown as Element
 }
@@ -202,6 +204,7 @@ describe('indexStyleRules + describeElementStyles', () => {
         condition: null,
         className: 'borderColor-x1a',
         tokens: [],
+        overriddenByInline: false,
       },
       {
         property: 'color',
@@ -209,6 +212,7 @@ describe('indexStyleRules + describeElementStyles', () => {
         condition: ':hover',
         className: 'color-x2b',
         tokens: [{ variable: '--x9z', value: '#e4511e' }],
+        overriddenByInline: false,
       },
       {
         property: 'padding',
@@ -216,6 +220,7 @@ describe('indexStyleRules + describeElementStyles', () => {
         condition: '@media (min-width: 48rem)',
         className: 'padding-x3c',
         tokens: [],
+        overriddenByInline: false,
       },
     ])
     expect(info.unresolvedClasses).toEqual([])
@@ -285,7 +290,40 @@ describe('indexStyleRules + describeElementStyles', () => {
     )
     expect(asked).toEqual(['button.counter', '#lab > .counter', '.counter:not(.muted)'])
     expect(info.declarations).toEqual([
-      { property: 'color', value: 'red', condition: ':hover', className: 'counter', tokens: [] },
+      {
+        property: 'color',
+        value: 'red',
+        condition: ':hover',
+        className: 'counter',
+        tokens: [],
+        overriddenByInline: false,
+      },
+    ])
+  })
+
+  it('flags a class declaration the inline style overrides, unless only the class is !important', () => {
+    const inlineDoc = fakeDocument([
+      {
+        rules: [
+          styleRule('.color-x1', { color: 'blue' }),
+          styleRule('.margin-x2', { margin: '4px !important' }),
+          styleRule('.padding-x3', { padding: '8px' }),
+        ],
+      },
+    ])
+    const classes = ['color-x1', 'margin-x2', 'padding-x3']
+    const info = describeElementStyles(
+      fakeElement({ classes, inline: { color: 'red', margin: '0px' }, doc: inlineDoc }),
+      indexStyleRules(inlineDoc, new Set(classes)),
+    )
+    expect(info.declarations.map((entry) => [entry.property, entry.overriddenByInline])).toEqual([
+      ['color', true],
+      ['margin', false],
+      ['padding', false],
+    ])
+    expect(info.inline).toEqual([
+      { property: 'color', value: 'red', important: false },
+      { property: 'margin', value: '0px', important: false },
     ])
   })
 
@@ -299,7 +337,13 @@ describe('indexStyleRules + describeElementStyles', () => {
 })
 
 describe('styleProvenanceStatus', () => {
-  const emptyInfo = { styleObjects: [], declarations: [], dynamic: [], unresolvedClasses: [] }
+  const emptyInfo = {
+    styleObjects: [],
+    declarations: [],
+    dynamic: [],
+    inline: [],
+    unresolvedClasses: [],
+  }
 
   it('explains how to enable provenance when nothing is emitted', () => {
     const status = styleProvenanceStatus([emptyInfo])

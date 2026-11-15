@@ -1,5 +1,6 @@
 import type { FailureErrorCode, FailureOptions, FailureReason } from './failure'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
+import { jsonText } from './text-output'
 
 /** Bridge failures keep the wire spelling; CLI-side failures get the kebab-case of their reason, so every envelope carries a code. */
 export const DEFAULT_ERROR_CODES: Record<FailureReason, FailureErrorCode> = {
@@ -24,7 +25,7 @@ export function formatAgentFailure(
   message: string,
   options: FailureOptions = {},
 ): string {
-  return JSON.stringify(agentFailure(reason, message, options))
+  return jsonText(agentFailure(reason, message, options))
 }
 
 export function agentFailure(

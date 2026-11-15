@@ -15,6 +15,7 @@ import {
   FieldReader,
   fieldLines,
   flowText,
+  jsonText,
   proseText,
 } from './text-output'
 
@@ -84,14 +85,14 @@ export function renderFailure(
   failure: Record<string, unknown>,
   maxBytes: number = DEFAULT_MAX_BYTES,
 ): string {
-  if (activeFormat === 'json') return renderBoundedText(JSON.stringify(failure), maxBytes)
+  if (activeFormat === 'json') return renderBoundedText(jsonText(failure), maxBytes)
   return renderBoundedDocument(failure, formatterFor(renderEnvelopeText), maxBytes)
 }
 
 /** `--fields` rows: JSON Lines, or one text document; zero rows emit zero bytes in both. */
 export function renderRows(rows: readonly Record<string, unknown>[]): string {
   if (rows.length === 0) return ''
-  if (activeFormat === 'json') return rows.map((row) => JSON.stringify(row)).join('\n')
+  if (activeFormat === 'json') return rows.map((row) => jsonText(row)).join('\n')
   return encodeText(toPlainJson(rows))
 }
 
