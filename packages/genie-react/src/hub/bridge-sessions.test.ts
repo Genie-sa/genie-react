@@ -433,4 +433,177 @@ describe('GenieBridge tab sessions', () => {
     expect(routedWait).toMatchObject({ ok: false, errorCode: 'unknown-session' })
     expect(routedWait.error).toContain('alpha [tab-a] at http://localhost/a-1')
   })
+
+  describe('a session React never mounted in', () => {
+    const helloWith = async (sessionId: string, app: Record<string, unknown>) => {
+      const { ws } = await open(`${url}?role=app`)
+      send(ws, {
+        kind: 'app/hello',
+        protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
+        sessionId,
+        app: { name: sessionId, ...app },
+        capabilities: ['react'],
+        tools: [],
+      })
+      send(ws, { kind: 'app/ready', sessionId })
+      await expect.poll(() => handle.bridge.getStatus().ready).toBe(true)
+      return ws
+    }
+
+    it('stays ready but warns that React tools see an empty app', async () => {
+      await start()
+      await helloWith('blank-tab', { reactMounted: false })
+
+      const status = handle.bridge.getStatus()
+      expect(status.ready).toBe(true)
+      expect(status.app).toMatchObject({ reactMounted: false })
+      expect(status.warnings).toEqual([
+        expect.stringContaining(
+          '"blank-tab" is connected, but Genie sees no mounted React component tree',
+        ),
+      ])
+    })
+
+    it('drops the warning once the session announces its mounted tree', async () => {
+      await start()
+      const ws = await helloWith('late-tab', { reactMounted: false })
+      send(ws, {
+        kind: 'app/hello',
+        protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
+        sessionId: 'late-tab',
+        app: { name: 'late-tab', reactMounted: true },
+        capabilities: ['react'],
+        tools: [],
+      })
+      await expect.poll(() => handle.bridge.getStatus().warnings).toEqual([])
+    })
+
+    it('does not warn for a runtime that does not report mounting', async () => {
+      await start()
+      await helloWith('older-runtime', {})
+      expect(handle.bridge.getStatus().warnings).toEqual([])
+    })
+  })
+
+  describe('a call that lands while a reloaded tab re-registers its tools', () => {
+    const descriptor = (name: string) => ({
+      name,
+      title: name,
+      description: name,
+      group: 'router',
+      annotations: { readOnlyHint: true },
+    })
+    const hello = (ws: WebSocket, sessionId: string, generation: number, tools: string[]) =>
+      send(ws, {
+        kind: 'app/hello',
+        protocol: 1,
+        runtimeVersion: GENIE_REACT_VERSION,
+        sessionId,
+        logicalSessionId: 'reloading-tab',
+        documentGeneration: generation,
+        sessionName: 'reloading',
+        app: { name: 'app', url: 'http://localhost/' },
+        capabilities: [],
+        tools: tools.map(descriptor),
+      })
+
+    /** The first document advertises router_get_state, closes, and its reload says hello before the router collector registers. */
+    const reload = async () => {
+      const first = await open(`${url}?role=app`)
+      hello(first.ws, 'doc-before', 1, ['router_get_state'])
+      send(first.ws, { kind: 'app/ready', sessionId: 'doc-before' })
+      await expect.poll(() => sessionIds()).toEqual(['doc-before'])
+      first.ws.close()
+      await expect.poll(() => sessionIds()).toEqual([])
+      const second = await open(`${url}?role=app`)
+      hello(second.ws, 'doc-after', 2, [])
+      send(second.ws, { kind: 'app/ready', sessionId: 'doc-after' })
+      await expect.poll(() => sessionIds()).toEqual(['doc-after'])
+      return second
+    }
+
+    it('waits for the new document to register the tool, then runs it there', async () => {
+      await start({ targetReloadGraceMs: 2_000 })
+      const agent = await open(`${url}?role=agent`)
+      const second = await reload()
+
+      const id = call(agent, 'reloading', 'router_get_state')
+      await expect(
+        second.inbox.wait((frame) => frame.kind === 'bridge/request' && frame.id === id, 150),
+      ).rejects.toThrow('timed out')
+      hello(second.ws, 'doc-after', 2, ['router_get_state'])
+      const request = await second.inbox.wait(
+        (frame) => frame.kind === 'bridge/request' && frame.id === id,
+      )
+      send(second.ws, { kind: 'app/response', id: request.id, ok: true, result: { pathname: '/' } })
+
+      expect(await agent.inbox.wait(isResult(id))).toMatchObject({
+        ok: true,
+        result: { pathname: '/' },
+      })
+    })
+
+    it('says the tab reloaded when the tool never comes back within the grace', async () => {
+      await start({ targetReloadGraceMs: 300 })
+      const agent = await open(`${url}?role=agent`)
+      const second = await reload()
+
+      const id = call(agent, 'reloading', 'router_get_state')
+      const result = await agent.inbox.wait(isResult(id))
+
+      expect(result).toMatchObject({
+        ok: false,
+        errorCode: 'not-connected',
+        errorDetails: { hubCode: 'SESSION_RELOADING' },
+      })
+      expect(result.error).toContain('The tab reloaded')
+      await expect(
+        second.inbox.wait((frame) => frame.kind === 'bridge/request', 100),
+      ).rejects.toThrow('timed out')
+    })
+
+    it('keeps a ready wait for the named tab open across the gap before the new document connects', async () => {
+      await start({ targetReloadGraceMs: 2_000 })
+      const agent = await open(`${url}?role=agent`)
+      const first = await open(`${url}?role=app`)
+      hello(first.ws, 'doc-before', 1, ['router_get_state'])
+      send(first.ws, { kind: 'app/ready', sessionId: 'doc-before' })
+      await expect.poll(() => sessionIds()).toEqual(['doc-before'])
+      first.ws.close()
+      await expect.poll(() => sessionIds()).toEqual([])
+
+      const id = newId()
+      send(agent.ws, {
+        kind: 'agent/invoke',
+        id,
+        tool: 'devtools_wait',
+        args: { condition: 'ready', timeoutMs: 3_000 },
+        sessionId: 'reloading',
+      })
+      await delay(200)
+      const second = await open(`${url}?role=app`)
+      hello(second.ws, 'doc-after', 2, ['router_get_state'])
+      send(second.ws, { kind: 'app/ready', sessionId: 'doc-after' })
+
+      expect(await agent.inbox.wait(isResult(id), 3_000)).toMatchObject({
+        ok: true,
+        result: { ok: true },
+      })
+    })
+
+    it('forwards at once a tool the previous document never advertised', async () => {
+      await start({ targetReloadGraceMs: 2_000 })
+      const agent = await open(`${url}?role=agent`)
+      const second = await reload()
+
+      const id = call(agent, 'reloading', 'peek')
+      const request = await second.inbox.wait(
+        (frame) => frame.kind === 'bridge/request' && frame.id === id,
+        500,
+      )
+      expect(request.tool).toBe('peek')
+    })
+  })
 })

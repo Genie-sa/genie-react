@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { defineAgentToolContract, outputViewSchema } from '../../protocol'
+import { appValueSchema, defineAgentToolContract, outputViewSchema } from '../../protocol'
 import { renderObservationBudgetInputSchema } from '../../protocol/react-observation-schema'
 import { componentMatchSchema, componentSelectorInputShape } from './component-name'
 import {
@@ -89,8 +89,8 @@ const renderPropChangeSchema = z.object({
   unstable: z.boolean().describe('Legacy alias for referenceChanged.'),
   beforePresent: z.boolean(),
   afterPresent: z.boolean(),
-  before: z.unknown(),
-  after: z.unknown(),
+  before: appValueSchema('Depth- and size-bounded value before this commit.'),
+  after: appValueSchema('Depth- and size-bounded value after this commit.'),
   deepDiff: deepDiffSchema,
 })
 
@@ -98,8 +98,8 @@ const renderStateChangeBase = z.object({
   name: z.string(),
   kind: z.literal('state'),
   unstable: z.literal(false),
-  before: z.unknown().describe('Depth- and size-bounded value before this commit.'),
-  after: z.unknown().describe('Depth- and size-bounded value after this commit.'),
+  before: appValueSchema('Depth- and size-bounded value before this commit.'),
+  after: appValueSchema('Depth- and size-bounded value after this commit.'),
   deepDiff: deepDiffSchema,
 })
 
@@ -126,8 +126,8 @@ const renderExternalStoreCauseBase = z.object({
   externalStoreIndex: z.number().int().nonnegative(),
   subscriberId: z.string(),
   selectionEqual: z.literal(false),
-  before: z.unknown().describe('Depth- and size-bounded selected snapshot before this commit.'),
-  after: z.unknown().describe('Depth- and size-bounded selected snapshot after this commit.'),
+  before: appValueSchema('Depth- and size-bounded selected snapshot before this commit.'),
+  after: appValueSchema('Depth- and size-bounded selected snapshot after this commit.'),
   changedFields: z
     .array(z.string())
     .describe('Shallow selected-snapshot fields that changed; "$value" means a scalar changed.'),
@@ -256,8 +256,8 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
     unstable: z.boolean().describe('Legacy alias for referenceChanged.'),
     beforePresent: z.boolean(),
     afterPresent: z.boolean(),
-    before: z.unknown(),
-    after: z.unknown(),
+    before: appValueSchema('Depth- and size-bounded value before this commit.'),
+    after: appValueSchema('Depth- and size-bounded value after this commit.'),
     deepDiff: deepDiffSchema,
     producerCandidate: z
       .object({
@@ -271,8 +271,8 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
     kind: z.literal('state'),
     evidence: z.literal('exact'),
     name: z.string(),
-    before: z.unknown(),
-    after: z.unknown(),
+    before: appValueSchema('Depth- and size-bounded value before this commit.'),
+    after: appValueSchema('Depth- and size-bounded value after this commit.'),
     deepDiff: deepDiffSchema,
     hook: renderHookStateChangeSchema.shape.hook.optional(),
   }),
@@ -282,8 +282,8 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
     evidence: z.literal('exact'),
     contextIndex: z.number().int().nonnegative(),
     name: z.string(),
-    before: z.unknown(),
-    after: z.unknown(),
+    before: appValueSchema('Depth- and size-bounded value before this commit.'),
+    after: appValueSchema('Depth- and size-bounded value after this commit.'),
     deepDiff: deepDiffSchema,
   }),
   renderExternalStoreCauseBase.extend({

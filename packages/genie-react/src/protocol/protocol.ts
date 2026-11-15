@@ -48,6 +48,8 @@ export const appInfoSchema = z.object({
   name: z.string().optional(),
   url: z.string().optional(),
   reactVersion: z.string().optional(),
+  /** Whether React has committed a component tree in this document; absent from runtimes that predate it or run no React collector. */
+  reactMounted: z.boolean().optional(),
   tanstack: z.record(z.string(), z.string()).optional(),
 })
 export type AppInfo = z.infer<typeof appInfoSchema>

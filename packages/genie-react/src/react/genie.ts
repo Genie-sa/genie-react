@@ -6,7 +6,7 @@ import { createGenieClient, sessionCollector } from '../client'
 import { defaultAppCollectors } from '../collectors/defaults'
 import { reactCollector } from '../collectors/react'
 import { queryCollector, routerCollector } from '../collectors/tanstack'
-import { isQueryClient } from '../collectors/tanstack/guards'
+import { isQueryClient, isRouter } from '../collectors/tanstack/guards'
 import { timelineCollector } from '../collectors/timeline'
 import { readGenieGlobal } from '../protocol'
 import { useGenieTools } from './use-genie-tool'
@@ -30,7 +30,14 @@ export interface GenieProps {
 
 // useRouter's type omits `undefined`, but the Vite-plugin peer stub and the no-provider case return it; this is the single widening for that boundary.
 function useOptionalRouter(): ReturnType<typeof useRouter> | undefined {
-  return useRouter({ warn: false }) as ReturnType<typeof useRouter> | undefined
+  return (useRouter({ warn: false }) as ReturnType<typeof useRouter> | undefined) ?? pageRouter()
+}
+
+/** The router TanStack Router publishes on every browser page. It finds the app's router when the context does not, as when a bundler loads a second @tanstack/react-router instance whose context the app's provider never filled. */
+function pageRouter(): ReturnType<typeof useRouter> | undefined {
+  if (typeof window === 'undefined') return undefined
+  const published: unknown = (window as { __TSR_ROUTER__?: unknown }).__TSR_ROUTER__
+  return isRouter(published) ? (published as ReturnType<typeof useRouter>) : undefined
 }
 
 /** Reads a `QueryClient` off the router context when the app wired one in, otherwise `undefined`. */

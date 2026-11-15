@@ -187,6 +187,34 @@ export function hasDomLookupRuntime(): boolean {
   )
 }
 
+const MOUNT_POLL_MS = 1000
+
+/** The hello usually goes out before the app mounts, so the first tree Genie can see is announced again. A commit announces it at once; the slow poll covers a React that loaded before the DevTools hook and so never reports commits. */
+function watchFirstMount(announce: () => void): { onCommit: () => void; stop: () => void } {
+  let announced = findRootFiber() !== null
+  let timer: ReturnType<typeof setInterval> | null = null
+  const stop = () => {
+    if (timer !== null) clearInterval(timer)
+    timer = null
+  }
+  const check = () => {
+    if (announced || findRootFiber() === null) return
+    announced = true
+    stop()
+    announce()
+  }
+  if (!announced) {
+    timer = setInterval(check, MOUNT_POLL_MS)
+    if (typeof timer === 'object' && 'unref' in timer) timer.unref()
+  }
+  return {
+    onCommit: () => {
+      if (!announced) queueMicrotask(check)
+    },
+    stop,
+  }
+}
+
 /** React collector: tree, search, inspection, live overrides; why-did-render + profiling need commit instrumentation from `genie-react/hook`. */
 export function reactCollector(): GenieCollector {
   return defineCollector({
@@ -198,16 +226,23 @@ export function reactCollector(): GenieCollector {
     capabilities: ['react'],
     appInfo: () => {
       const reactVersion = detectReactVersion()
-      return reactVersion ? { reactVersion } : {}
+      return { ...(reactVersion ? { reactVersion } : {}), reactMounted: findRootFiber() !== null }
     },
     start: (ctx) => {
       // Fallback for setups that did not load the hook early — captures future commits only.
       startRefreshTracking()
       startRenderTracking()
       startSuspenseCapture()
+      const mountWatch = watchFirstMount(ctx.refreshTools)
       // Ride the commit loop with a throttled heartbeat so an animation- or list-saturated thread stays live.
-      setCommitListener(ctx.markActivity)
-      return () => setCommitListener(null)
+      setCommitListener(() => {
+        ctx.markActivity()
+        mountWatch.onCommit()
+      })
+      return () => {
+        setCommitListener(null)
+        mountWatch.stop()
+      }
     },
     tools: [
       defineCollectorTool({
@@ -411,8 +446,6 @@ export function reactCollector(): GenieCollector {
         contract: stylexInspectContract,
         handler: ({ selector, id, limit }) => {
           if (!hasDomLookupRuntime()) throw new Error('No DOM in this environment.')
-          if (selector === undefined && id === undefined)
-            throw new Error('Pass a CSS `selector` or a component `id`.')
           const { target, candidates } = styleTargets(selector, id)
           const targets = candidates.slice(0, limit)
           const index = indexStyleRules(

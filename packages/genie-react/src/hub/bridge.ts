@@ -203,6 +203,7 @@ const LOGICAL_COLLISION_GRACE_MS = 750
 // Spans two ~1s heartbeats, so a superseded document that is really a live cloned tab can prove it before eviction.
 const SUPERSEDED_LIVENESS_MS = 2_500
 const TARGET_RELOAD_GRACE_MS = 5_000
+const TOOL_REREGISTRATION_POLL_MS = 50
 // One ~1s app heartbeat plus jitter: an older document quieter than this is frozen or unloading, not a live duplicate.
 const SUPERSEDE_SILENCE_MS = 1_500
 const MAX_CALLER_DEFAULTS = 256
@@ -355,6 +356,11 @@ export class GenieBridge {
   private readonly agentCallers = new WeakMap<WebSocket, string>()
   private readonly ownership = new OwnershipLedger()
   private readonly guard: OwnershipGuard<AppSession>
+  /** Tab key → the tools its last document advertised, kept for the reload grace: a reloaded document says hello before its app collectors register their tools again. */
+  private readonly reloadedTabTools = new Map<
+    string,
+    { tools: ReadonlySet<string>; until: number }
+  >()
 
   constructor(options: GenieBridgeOptions = {}) {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
@@ -763,6 +769,12 @@ export class GenieBridge {
         `Session ${JSON.stringify(session.sessionId)} runs ${session.runtimeVersion === undefined ? 'a genie-react runtime that predates version reporting' : `genie-react runtime ${JSON.stringify(session.runtimeVersion)}`} but the hub is genie-react ${HUB_INFO.version}; tool results may not match what this hub and the CLI expect. Install one genie-react version, then restart the dev server and reload the app (clear the bundler's dependency cache if the version persists).`,
       )
     }
+    for (const session of this.apps.values()) {
+      if (session.readyAt === undefined || session.app.reactMounted !== false) continue
+      warnings.push(
+        `Session ${JSON.stringify(session.sessionId)} is connected, but Genie sees no mounted React component tree in it, so React tools return empty results. If the page should have rendered by now, it failed before React mounted (read the browser console for a module or render error), or React loaded before genie-react/hook.`,
+      )
+    }
     const origins = [...this.apps.values()].map((session) => this.appOrigins.get(session.socket))
     const distinctOrigins = new Set(origins.map((entry) => entry?.origin))
     if (distinctOrigins.size > 1 && origins.some((entry) => entry?.originUnverified)) {
@@ -999,6 +1011,7 @@ export class GenieBridge {
 
   /** A newer generation of the same tab replaces this document at once: no routing, no status row, and its in-flight calls fail now instead of reading as busy. */
   private supersede(document: AppSession, successor: AppSession): void {
+    this.rememberTabTools(document)
     this.apps.delete(document.sessionId)
     this.ownership.forgetDocument(document.sessionId)
     this.clearCollisionTimer(document.sessionId)
@@ -2031,6 +2044,41 @@ export class GenieBridge {
       )
       return
     }
+    const reregistration = this.reregistrationDeadline(session, tool)
+    if (reregistration !== null) {
+      const requestDeadline = deadline ?? Date.now() + this.clampTimeout(timeoutMs)
+      const giveUpAt = Math.min(reregistration, requestDeadline)
+      const retry = (): void => {
+        const current = this.apps.get(session.sessionId)
+        // A newer document, or this one with the tool back, goes through routing again.
+        if (!current || toolDescriptor(current, tool)) {
+          this.sendAppRequest(
+            id,
+            tool,
+            args,
+            settle,
+            sessionId,
+            timeoutMs,
+            exactSession,
+            requestDeadline,
+          )
+          return
+        }
+        if (Date.now() < giveUpAt) {
+          unrefTimer(setTimeout(retry, TOOL_REREGISTRATION_POLL_MS))
+          return
+        }
+        settle({
+          ok: false,
+          errorCode: 'not-connected',
+          errorDetails: { hubCode: 'SESSION_RELOADING' },
+          retryInMs: BUSY_RETRY_MS,
+          error: `The tab reloaded and its new document has not registered "${tool}" again yet; the previous document advertised it. Retry once the app has mounted, or wait for it with devtools_wait.`,
+        })
+      }
+      unrefTimer(setTimeout(retry, TOOL_REREGISTRATION_POLL_MS))
+      return
+    }
     const settleWithSession = (response: AppResponse): void =>
       settle({ ...response, session, ...(retargeted ? { retargeted } : {}) })
     const fullTimeout = Math.min(
@@ -2219,6 +2267,7 @@ export class GenieBridge {
     }
     const session = [...this.apps.values()].find((s) => s.socket === connection.socket)
     if (session) {
+      this.rememberTabTools(session)
       this.apps.delete(session.sessionId)
       this.clearCollisionTimer(session.sessionId)
       this.promoteLogicalSuccessor(session)
@@ -2232,6 +2281,24 @@ export class GenieBridge {
       return
     }
     this.agents.delete(connection.socket)
+  }
+
+  private rememberTabTools(document: AppSession): void {
+    const now = Date.now()
+    for (const [tab, entry] of this.reloadedTabTools)
+      if (entry.until <= now) this.reloadedTabTools.delete(tab)
+    this.reloadedTabTools.set(tabKeyOf(document), {
+      tools: new Set(catalogOf(document).map((descriptor) => descriptor.name)),
+      until: now + this.targetReloadGraceMs,
+    })
+  }
+
+  /** When the tab's previous document advertised `tool` and the reload grace is still running, the moment the wait for its re-registration must end; otherwise null. */
+  private reregistrationDeadline(session: AppSession, tool: string): number | null {
+    if (toolDescriptor(session, tool)) return null
+    const previous = this.reloadedTabTools.get(tabKeyOf(session))
+    if (!previous?.tools.has(tool) || previous.until <= Date.now()) return null
+    return previous.until
   }
 
   /** Keeps untargeted calls on a reloading tab instead of letting another tab take over; waiters re-check once the grace lapses. */

@@ -70,6 +70,14 @@ it('reports a Router 1.0.0 navigation that never started instead of ok:true', as
   expect(result).toMatchObject({ ok: false, outcome: 'not-started', pathname: '/' })
 })
 
+it('reports isTransitioning from Router 1.0.0, which still carries its own flag', async () => {
+  const { collector } = await minimumRouter()
+
+  const state = await call<{ isTransitioning: unknown }>(collector, 'router_get_state', {})
+
+  expect(state.isTransitioning).toBe(false)
+})
+
 it('counts Router 1.0.0 pending matches kept on router state', async () => {
   const { collector, releaseLoader, loadPushed } = await minimumRouter()
   const load = loadPushed('/slow')

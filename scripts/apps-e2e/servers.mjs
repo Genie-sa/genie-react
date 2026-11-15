@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { createServer as createHttpServer, request as httpRequest } from 'node:http'
 import { join } from 'node:path'
 import { CheckFailure, freePort, waitFor, waitForHttp } from './harness.mjs'
@@ -29,19 +29,6 @@ export async function discoveredHub(appDir, { port, owner }) {
     },
     { timeoutMs: 20_000 },
   )
-}
-
-/** Writes a throwaway Vite config beside the app's own that merges `overrides` into it; Vite only resolves the app's dependencies from a config inside the app directory. */
-export async function writeOverrideConfig(appDir, overrides) {
-  const path = join(appDir, `.genie-apps-e2e-${process.pid}.vite.config.mjs`)
-  await writeFile(
-    path,
-    `import { mergeConfig } from 'vite'
-import base from './vite.config.ts'
-export default (env) => mergeConfig(typeof base === 'function' ? base(env) : base, ${JSON.stringify(overrides)})
-`,
-  )
-  return { path, remove: () => rm(path, { force: true }) }
 }
 
 export async function startVite({ processes, appDir }, args = []) {

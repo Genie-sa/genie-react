@@ -182,6 +182,54 @@ describe('<Genie /> under a TanStack Router', () => {
   })
 })
 
+describe('<Genie /> when its router context is empty but the page has a router', () => {
+  type RouterWindow = { __TSR_ROUTER__?: unknown }
+  afterEach(() => {
+    delete (window as RouterWindow).__TSR_ROUTER__
+  })
+
+  it('wires the router TanStack published on the page, so a second router module instance still yields router tools', async () => {
+    const published = {
+      options: { context: {} },
+      subscribe: () => () => {},
+      navigate: async () => {},
+    }
+    ;(window as RouterWindow).__TSR_ROUTER__ = published
+    const { Genie, createGenieClient } = await loadGenie(undefined)
+
+    render(createElement(Genie))
+
+    const collectors = createGenieClient.mock.calls[0]?.[0]?.collectors ?? []
+    const router = collectors.find((collector) => collector.__collector === 'router')
+    expect((router as { router?: unknown } | undefined)?.router).toBe(published)
+  })
+
+  it('ignores a published value that is not a router', async () => {
+    ;(window as RouterWindow).__TSR_ROUTER__ = { navigate: 'not a function' }
+    const { Genie, createGenieClient } = await loadGenie(undefined)
+
+    render(createElement(Genie))
+
+    expect(names(createGenieClient.mock.calls[0]?.[0]?.collectors ?? [])).not.toContain('router')
+  })
+
+  it('prefers the context router over the published one', async () => {
+    const contextRouter = { options: { context: {} } }
+    ;(window as RouterWindow).__TSR_ROUTER__ = {
+      options: { context: {} },
+      subscribe: () => () => {},
+      navigate: async () => {},
+    }
+    const { Genie, createGenieClient } = await loadGenie(contextRouter)
+
+    render(createElement(Genie))
+
+    const collectors = createGenieClient.mock.calls[0]?.[0]?.collectors ?? []
+    const router = collectors.find((collector) => collector.__collector === 'router')
+    expect((router as { router?: unknown } | undefined)?.router).toBe(contextRouter)
+  })
+})
+
 describe('<Genie /> under a bare QueryClientProvider (no router)', () => {
   it('picks the QueryClient up from the provider context', async () => {
     const queryClient = { getQueryCache: () => ({}) }

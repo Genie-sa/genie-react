@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { defineCollector, defineCollectorTool, type GenieCollector } from '../../client'
-import { defineAgentToolContract, dehydrate } from '../../protocol'
+import { appValueSchema, defineAgentToolContract, dehydrate } from '../../protocol'
 import {
   type DevtoolsBusEvent,
   emitToDevtoolsBus,
@@ -54,7 +54,7 @@ export const pluginGetEventsContract = defineAgentToolContract({
     events: z.array(
       z.object({
         type: z.string(),
-        payload: z.unknown(),
+        payload: appValueSchema('The event payload the plugin emitted.'),
         ts: z.number(),
       }),
     ),
