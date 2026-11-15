@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { readFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -86,6 +87,9 @@ function appendBounded(current, chunk) {
 function cleanEnv(extra = {}) {
   const env = { ...process.env, ...extra }
   for (const name of BRIDGE_ENV) delete env[name]
+  // The matrix drives Playwright tabs, so the CLI must not scan the developer's agent-browser sessions.
+  delete env.AGENT_BROWSER_SESSION
+  env.GENIE_AGENT_BROWSER = join(tmpdir(), 'genie-apps-e2e-no-agent-browser')
   return env
 }
 

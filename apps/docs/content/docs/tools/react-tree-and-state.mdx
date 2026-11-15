@@ -281,9 +281,17 @@ semantic fields when generated CSS classes make the selector brittle.
 
 ## `react_component_for_dom`
 
-Finds the React components that own DOM elements matched by a CSS selector.
+Finds the React components that own DOM elements: those a CSS selector matches, or the element an
+agent-browser snapshot ref names.
 
-**Input:** `selector` is a required string. `limit` is an integer from 1 to 20 and defaults to 5.
+**Input:** pass exactly one of `selector`, `ref`, or `box`. `ref` is an agent-browser snapshot ref
+such as `@e12`. The CLI reads that element's box and innerHTML with `agent-browser get box` and
+`get html` in the session that shows the targeted tab, and sends them as `box`. Other callers pass
+`box` themselves, which requires `x`, `y`, `width` and `height` in viewport CSS pixels and takes an
+optional `html`. A box
+matches the elements whose `getBoundingClientRect()` equals it, innermost first; `html` keeps only
+the one with that innerHTML when a wrapper or an overlay shares the box. Read the box again after the
+page scrolls or reflows. `limit` is an integer from 1 to 20 and defaults to 5.
 `propsDepth` is an integer from 0 to 4 and defaults to 1.
 `appOnly` defaults to `false`. With `true`, classify up to 5000 DOM matches before limiting unique
 app-owned components. Read `ownershipCoverage`, `omittedByLimit`, and `scanTruncated` before treating
@@ -319,8 +327,16 @@ npx @genie-react/cli call react_component_for_dom \
 }
 ```
 
+From an agent-browser snapshot:
+
+```bash
+agent-browser --session checkout-agent snapshot -i
+npx @genie-react/cli call react_component_for_dom '{"ref":"@e12"}' --session checkout-agent
+```
+
 **Agent use:** Use the owner `id` and exact source to inspect the visible bug or choose the file to
-edit; compare all returned owners when the selector matches more than one element.
+edit; compare all returned owners when the selector matches more than one element. A ref that the
+session's latest snapshot no longer has fails with `invalid_input` and the snapshot command to run.
 
 ## `stylex_inspect`
 

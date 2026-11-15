@@ -1,9 +1,9 @@
-import { newId, normalizeSessionName } from '../protocol'
+import { GENIE_TAB_IDENTITY_GLOBAL, newId, normalizeSessionName } from '../protocol'
 
 const LOGICAL_SESSION_KEY = 'genie-react:logical-session-id'
 const DOCUMENT_GENERATION_KEY = 'genie-react:document-generation'
 const SESSION_NAME_KEY = 'genie-react:session-name'
-const RUNTIME_IDENTITY_KEY = Symbol.for('genie-react:runtime-session-identity')
+const RUNTIME_IDENTITY_KEY = Symbol.for(GENIE_TAB_IDENTITY_GLOBAL)
 
 interface SessionStorageLike {
   getItem(key: string): string | null

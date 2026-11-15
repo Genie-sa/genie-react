@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { GENIE_TAB_IDENTITY_GLOBAL } from '../protocol'
 import {
   advanceSessionIdentity,
   createSessionIdentity,
   createSessionName,
   forkSessionIdentity,
+  runtimeSessionIdentity,
 } from './session-identity'
 
 class MemoryStorage {
@@ -19,6 +21,16 @@ class MemoryStorage {
 }
 
 describe('session identity', () => {
+  it('publishes the live identity where a browser driver evaluating page script finds it, forks included', () => {
+    const identity = runtimeSessionIdentity()
+    const published = (globalThis as Record<symbol, unknown>)[Symbol.for(GENIE_TAB_IDENTITY_GLOBAL)]
+
+    forkSessionIdentity(identity, 'forked-by-the-hub', 1, undefined)
+
+    expect(published).toBe(identity)
+    expect(published).toMatchObject({ logicalSessionId: 'forked-by-the-hub' })
+  })
+
   it('keeps one logical tab id while increasing the document generation after reload', () => {
     const storage = new MemoryStorage()
     const first = createSessionIdentity(storage)
