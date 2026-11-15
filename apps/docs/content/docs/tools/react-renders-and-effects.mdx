@@ -1251,7 +1251,8 @@ Tool-catalog refreshes in the same document preserve the wait. Add `--fail-on-re
 nonzero exit on a result with `ok:false`.
 
 Once commits are quiet, quiesce reads [`react_pending_work`](#react_pending_work): a pending or
-suspended transition, or a Suspense boundary showing its fallback, keeps the outcome from `idle`, and
+suspended transition, a Suspense boundary showing its fallback, or server HTML React has not hydrated
+keeps the outcome from `idle`, and
 a timeout names the blocking work in `reason`. `pendingWork` is `null` when the app runtime predates
 that tool; idle then covers commits only. Quiesce does not observe timers, promises that never reach
 React, query freshness, or continuous canvas/native frames.
@@ -1273,13 +1274,16 @@ npx @genie-react/cli call react_pending_work '{}' --json
   "documentCommitId": 42,
   "scheduledRoots": 1,
   "suspendedBoundaries": 1,
-  "boundaries": [{ "boundaryId": 17, "boundaryName": "Suspense" }],
+  "dehydratedBoundaries": 0,
+  "boundaries": [{ "boundaryId": 17, "boundaryName": "Suspense", "state": "fallback" }],
   "scanTruncated": false
 }
 ```
 
 **Agent use:** `scheduledRoots` counts mounted roots with uncommitted or suspended updates, such as a
-transition waiting on data. `suspendedBoundaries` counts Suspense boundaries showing a fallback;
-boundaries held open by `react_toggle_suspense_fallback` are excluded. `boundaries` lists at most 20
-of them. `scanTruncated: true` means the fiber scan stopped at its limit, so the boundary count is a
+transition waiting on data. `suspendedBoundaries` counts Suspense boundaries showing a fallback and
+`dehydratedBoundaries` counts server-rendered boundaries React has not hydrated yet; these are the
+boundaries `react_suspense` reports as `fallback` and `dehydrated`, and boundaries inside a hidden
+`Activity` are not counted. Boundaries held open by `react_toggle_suspense_fallback` are excluded.
+`boundaries` lists at most 20 of them with their `state`. `scanTruncated: true` means the fiber scan stopped at its limit, so the boundary count is a
 lower bound. `react_quiesce` and `devtools_wait` read this tool before they report React idle.

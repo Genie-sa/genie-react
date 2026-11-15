@@ -107,15 +107,17 @@ describe('GenieBridge', () => {
 
   it('creates, lists, and reads a bounded React-commit-stable capture', async () => {
     const { ws: app } = await open(`${url}?role=app`)
+    const renders = {
+      observation: { id: 'observation:before' },
+      commits: 7,
+      comparable: true,
+      notComparableReasons: [],
+      coverage: { complete: true, semantics: 'exact' },
+      summary: { totalRenders: 10, totalUpdates: 8, semantics: 'exact' },
+      components: [],
+    }
     const toolResults: Record<string, unknown> = {
-      react_get_renders: {
-        commits: 7,
-        comparable: true,
-        notComparableReasons: [],
-        coverage: { complete: true, semantics: 'exact' },
-        summary: { totalRenders: 10, totalUpdates: 8, semantics: 'exact' },
-        components: [],
-      },
+      react_get_renders: renders,
       react_render_causes: { commits: 7, events: [] },
       react_profile_report: { commits: 7, components: [] },
       react_effect_audit: { commits: 7, effects: [] },
@@ -232,6 +234,7 @@ describe('GenieBridge', () => {
     expect(read.result.name).toBe('before optimization')
     expect(read.result).toEqual(expect.objectContaining({ captureId: created.result.captureId }))
 
+    renders.observation = { id: 'observation:after' }
     const createAfterId = newId()
     send(agent, {
       kind: 'agent/invoke',

@@ -2075,12 +2075,21 @@ function pendingWorkReason(work: PendingReactWork): string | null {
       `${work.scheduledRoots} root${work.scheduledRoots === 1 ? ' has' : 's have'} an uncommitted or suspended update (for example a pending transition)`,
     )
   }
-  if (work.suspendedBoundaries > 0) {
+  const named = (state: PendingReactWork['boundaries'][number]['state']): string => {
     const names = work.boundaries
+      .filter((boundary) => boundary.state === state)
       .map((boundary) => safeDiagnostic(boundary.boundaryName, 80))
       .join(', ')
+    return names ? ` (${names})` : ''
+  }
+  if (work.suspendedBoundaries > 0) {
     parts.push(
-      `${work.suspendedBoundaries} Suspense boundar${work.suspendedBoundaries === 1 ? 'y shows' : 'ies show'} a fallback${names ? ` (${names})` : ''}`,
+      `${work.suspendedBoundaries} Suspense boundar${work.suspendedBoundaries === 1 ? 'y shows' : 'ies show'} a fallback${named('fallback')}`,
+    )
+  }
+  if (work.dehydratedBoundaries > 0) {
+    parts.push(
+      `${work.dehydratedBoundaries} server-rendered Suspense boundar${work.dehydratedBoundaries === 1 ? 'y has' : 'ies have'} not hydrated${named('dehydrated')}`,
     )
   }
   return parts.length === 0 ? null : `React work is still pending: ${parts.join('; ')}.`

@@ -268,4 +268,20 @@ describe('react_quiesce pending React work', () => {
       '2 Suspense boundaries show a fallback (ProductList, Reviews?[2J)',
     )
   })
+
+  it('stays pending while a server-rendered boundary has not hydrated, without calling it a fallback', async () => {
+    await app(() => ({
+      ...idleWork,
+      documentCommitId: 10,
+      dehydratedBoundaries: 1,
+      boundaries: [{ boundaryId: 3, boundaryName: 'Comments', state: 'dehydrated' }],
+    }))
+    const result = await invoke({ idleMs: 100, timeoutMs: 600 })
+    expect(result).toMatchObject({
+      outcome: 'timed-out',
+      pendingWork: { suspendedBoundaries: 0, dehydratedBoundaries: 1 },
+    })
+    expect(result.reason).toContain('1 server-rendered Suspense boundary has not hydrated (Comments)')
+    expect(result.reason).not.toContain('fallback')
+  })
 })

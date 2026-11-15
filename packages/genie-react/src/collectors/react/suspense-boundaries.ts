@@ -36,6 +36,7 @@ import {
   type StackSource,
   weakestCapability,
 } from './suspense-debug-info'
+import { committedSuspenseState, visibleChildOf } from './suspense-state'
 import { isSuspenseFiber } from './work-tags'
 
 export const SUSPENSE_FIBER_SCAN_LIMIT = 20_000
@@ -110,12 +111,6 @@ function rootHoldsFinishedRender(root: Fiber): boolean {
   return timeoutPending || own(fiberRoot, 'cancelPendingCommit') != null
 }
 
-function committedState(fiber: Fiber): SuspenseBoundaryState | null {
-  const memoizedState = own(fiber, 'memoizedState')
-  if (memoizedState == null) return null
-  return own(memoizedState, 'dehydrated') != null ? 'dehydrated' : 'fallback'
-}
-
 function awaiterFor(fiber: Fiber, composite: Fiber | null): AwaiterRef | null {
   const target = isCompositeFiber(fiber) ? fiber : composite
   return target ? { fiber: target, name: nameOf(target), env: null } : null
@@ -159,7 +154,7 @@ function scanRoots(roots: Fiber[]): Scan {
       }
 
       if (isSuspenseFiber(fiber)) {
-        const committed = committedState(fiber)
+        const committed = committedSuspenseState(fiber)
         const pending = dedupeBlockers(
           pendingBlockersOf(fiber, committed === 'fallback', capturedWakeablesOf(fiber)),
         ).filter((blocker) => committed !== null || (pendingWork && isUnsettled(blocker)))
@@ -175,11 +170,9 @@ function scanRoots(roots: Fiber[]): Scan {
           order: records.length,
         }
         records.push(record)
-        if (committed === 'fallback') {
-          const fallback = fiber.child?.sibling
-          if (fallback) stack.push({ fiber: fallback, enclosing, composite })
-        } else if (fiber.child) {
-          stack.push({ fiber: fiber.child, enclosing: record, composite })
+        const child = visibleChildOf(fiber, committed)
+        if (child) {
+          stack.push({ fiber: child, enclosing: committed === 'fallback' ? enclosing : record, composite })
         }
         continue
       }
