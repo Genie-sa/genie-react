@@ -30,6 +30,7 @@
     "check:compatibility": "pnpm build && pnpm test:compatibility",
     "test:react18": "node scripts/check-react18-corpus.mjs",
     "test:effect-e2e": "node scripts/check-effect-e2e.mjs",
+    "test:parallel-agents": "node scripts/check-parallel-agents.mjs",
     "check:release": "node scripts/sync-skill.mjs --check && node scripts/prepare-release.mjs",
     "check": "pnpm lint && pnpm typecheck && pnpm build && pnpm check:release && pnpm test && pnpm check:docs",
     "format": "biome format --write .",

@@ -5,6 +5,9 @@ import {
   type HubErrorCode,
   isHubErrorCode,
   metaTools,
+  OWNERSHIP_CAUSES,
+  OWNERSHIP_RESOURCES,
+  type OwnershipConflict,
   type SessionSummary,
   safeDiagnostic,
   type ToolDescriptor,
@@ -40,6 +43,7 @@ export type FailureReason =
   | 'unknown_tool'
   | 'tool_unavailable'
   | 'tool_error'
+  | 'conflict'
   | 'busy'
   | 'timeout'
   | 'bridge_rejected'
@@ -91,6 +95,8 @@ export interface FailureDetails {
   bridge?: { url: string; source?: BridgeSource }
   /** `hub: null` means the hub predates version reporting. */
   versions?: { cli: string; hub: string | null }
+  /** What another agent did to the per-tab state the call depended on. */
+  ownership?: OwnershipConflict
 }
 
 export interface FailureOptions {
@@ -173,6 +179,7 @@ const HUB_TOOLS: ReadonlySet<string> = new Set(metaTools.map((contract) => contr
 
 const SESSION_HUB_CODES: ReadonlySet<HubErrorCode> = new Set([
   'SESSION_AMBIGUOUS',
+  'SESSION_CLAIMED',
   'SESSION_DISCONNECTED',
   'SESSION_RELOADING',
   'SESSION_SUPERSEDED',
@@ -238,6 +245,19 @@ const HUB_GUIDANCE: Record<HubErrorCode, { message: string; next?: NextCommand }
   },
   SESSION_SUPERSEDED: {
     message: 'A newer page load in the app tab replaced the document before it answered.',
+  },
+  SESSION_CLAIMED: {
+    message:
+      'Every connected app tab is in use by another agent, so an untargeted call does not take one. Open your own tab with ?_genie=<your-name> in the app URL and pass --session <your-name>; to share a listed tab deliberately, pass its sessionName or logicalSessionId with --session.',
+    next: nextCommand('status', '--sessions-only'),
+  },
+  OBSERVATION_SUPERSEDED: {
+    message:
+      'Another agent restarted, paused or changed the state of the render window or recording this read depends on (details.ownership says which), so its evidence would not be yours. Start a new window (react_clear_renders, devtools_interaction_begin or timeline_start) and repeat the interaction, on your own tab (?_genie=<your-name> with --session) so no other agent can disturb it.',
+  },
+  STATE_HELD: {
+    message:
+      'Another agent holds the overrides, Query simulation or timeline recording this call would reset or replace (details.ownership says which), so it was not run. Use your own tab (?_genie=<your-name> with --session), or retry after that agent finishes; its hold lapses after 5 minutes without a call.',
   },
 }
 
@@ -311,6 +331,8 @@ async function classify(error: unknown, context: FailureContext): Promise<Failur
     case 'unknown-session':
     case 'not-connected':
       return { ...transport, ...(await routingFailure(error.errorCode, details, context)) }
+    case 'conflict':
+      return { ...transport, ...conflictFailure(details, context) }
     case 'busy':
       return {
         ...transport,
@@ -700,7 +722,8 @@ async function routingFailure(
   context: FailureContext,
 ): Promise<Failure> {
   const hubCode = hubCodeOf(details, context.tool, errorCode)
-  if (hubCode === 'SESSION_AMBIGUOUS') return ambiguousSessionFailure(context)
+  if (hubCode === 'SESSION_AMBIGUOUS' || hubCode === 'SESSION_CLAIMED')
+    return listedSessionFailure(hubCode, details, context)
   if (hubCode) {
     const mayHaveCompleted = details.mayHaveCompleted === true
     const recovery =
@@ -724,8 +747,50 @@ async function routingFailure(
   }
 }
 
+/** Only the hub sends `conflict`, and an app cannot, so its hub code is trusted for every tool. */
+function conflictFailure(details: ToolErrorDetails, context: FailureContext): Failure {
+  const hubCode =
+    details.hubCode === 'OBSERVATION_SUPERSEDED' || details.hubCode === 'STATE_HELD'
+      ? details.hubCode
+      : undefined
+  const ownership = safeOwnership(details.ownership)
+  return {
+    reason: 'conflict',
+    message: hubCode
+      ? HUB_GUIDANCE[hubCode].message
+      : 'Another agent owns or changed per-tab state this call depends on. Use your own tab with ?_genie=<your-name> and --session.',
+    userActionRequired: true,
+    ...(context.session === undefined
+      ? {}
+      : { next: withSession(nextCommand('status'), context.session) }),
+    details: present({ hubCode, ownership }),
+  }
+}
+
+function safeOwnership(ownership: ToolErrorDetails['ownership']): OwnershipConflict | undefined {
+  if (
+    !ownership ||
+    !OWNERSHIP_RESOURCES.includes(ownership.resource) ||
+    !OWNERSHIP_CAUSES.includes(ownership.cause)
+  )
+    return undefined
+  const tool =
+    ownership.tool !== undefined && SAFE_TOOL_NAME.test(ownership.tool) ? ownership.tool : undefined
+  return {
+    resource: ownership.resource,
+    cause: ownership.cause,
+    ...(tool === undefined ? {} : { tool }),
+    ...(ownership.ageMs === undefined ? {} : { ageMs: ownership.ageMs }),
+    ...(ownership.otherCallers === undefined ? {} : { otherCallers: ownership.otherCallers }),
+  }
+}
+
 /** Lists the tabs the target matched, or every tab when the call was untargeted. */
-async function ambiguousSessionFailure(context: FailureContext): Promise<Failure> {
+async function listedSessionFailure(
+  hubCode: 'SESSION_AMBIGUOUS' | 'SESSION_CLAIMED',
+  details: ToolErrorDetails,
+  context: FailureContext,
+): Promise<Failure> {
   const requested = safeSession(context.session)
   const sessions = (await context.sessions?.().catch(() => null)) ?? []
   const matching = sessions.filter(
@@ -734,13 +799,15 @@ async function ambiguousSessionFailure(context: FailureContext): Promise<Failure
       session.sessionName === context.session ||
       session.logicalSessionId === context.session,
   )
-  const guidance = HUB_GUIDANCE.SESSION_AMBIGUOUS
+  const guidance = HUB_GUIDANCE[hubCode]
+  const ownership = hubCode === 'SESSION_CLAIMED' ? safeOwnership(details.ownership) : undefined
   return {
     reason: 'unknown_session',
     message: guidance.message,
     next: guidance.next,
     details: {
-      hubCode: 'SESSION_AMBIGUOUS',
+      hubCode,
+      ...(ownership ? { ownership } : {}),
       session: {
         ...(requested ? { requested } : {}),
         connected: (matching.length > 0 ? matching : sessions)

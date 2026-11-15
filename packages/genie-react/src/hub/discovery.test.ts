@@ -54,6 +54,23 @@ describe('removeDiscoveryFile', () => {
     return { server, url: `ws://127.0.0.1:${port}/__genie/ws` }
   }
 
+  it('never pairs one publisher endpoint with another publisher token when two publish at once', async () => {
+    for (let round = 0; round < 40; round += 1) {
+      const publishers = ['first', 'second'].map((name, index) => ({
+        url: `ws://127.0.0.1:${45_000 + index}/__genie/ws`,
+        port: 45_000 + index,
+        token: `${name}-${round}`,
+      }))
+      const results = await Promise.allSettled(
+        publishers.map((publisher) => writeDiscoveryFile(root, publisher)),
+      )
+      expect(results.map((result) => result.status)).toEqual(['fulfilled', 'fulfilled'])
+      const published = JSON.parse(await readFile(join(root, GENIE_DISCOVERY_FILE), 'utf8'))
+      const owner = publishers.find((publisher) => publisher.url === published.url)
+      expect(await readAgentToken(root)).toBe(owner?.token)
+    }
+  })
+
   it('does not take over a root another live bridge publishes', async () => {
     const { server, url } = await listening()
     try {

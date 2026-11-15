@@ -10,6 +10,7 @@ export const DEFAULT_ERROR_CODES: Record<FailureReason, FailureErrorCode> = {
   unknown_tool: 'unknown-tool',
   tool_unavailable: 'tool-unavailable',
   tool_error: 'tool-error',
+  conflict: 'conflict',
   busy: 'busy',
   timeout: 'timeout',
   bridge_rejected: 'bridge-rejected',

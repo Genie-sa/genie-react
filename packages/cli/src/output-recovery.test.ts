@@ -154,6 +154,25 @@ describe('overflow spill', () => {
     }
   })
 
+  it('keeps a spill another agent was just told to read while parallel agents keep spilling', () => {
+    const mine = spill()
+    const directory = dirname(mine ?? '')
+    for (let index = 0; index < 60; index += 1) {
+      writeFileSync(join(directory, `other-${Date.now()}-${10_000 + index}.json`), '{}')
+      spill()
+    }
+    expect(mine && existsSync(mine)).toBe(true)
+  })
+
+  it('bounds young spills at a hard cap so sustained load cannot fill the disk', () => {
+    const directory = dirname(spill() ?? '')
+    for (let index = 0; index < 250; index += 1) {
+      writeFileSync(join(directory, `burst-${Date.now()}-${index}.json`), '{}')
+    }
+    spill()
+    expect(readdirSync(directory).filter((name) => name.endsWith('.json'))).toHaveLength(200)
+  })
+
   it('keeps a text result as .txt and prunes old text spills with the JSON ones', () => {
     const text = { ...overflow, serialized: 'components: []', extension: 'txt' as const }
     const directory = dirname(spill() ?? '')
