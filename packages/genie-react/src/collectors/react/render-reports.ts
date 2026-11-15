@@ -32,6 +32,7 @@ import {
 
 const SOURCE_CLASSIFY_LIMIT = 120
 const SOURCE_CLASSIFY_BUDGET_MS = 500
+const UNKNOWN_COMPONENT_LIMIT = 50
 const UNCLASSIFIED_FIBER: FiberClassification = {
   source: null,
   ownership: 'unknown',
@@ -69,6 +70,8 @@ export interface SourceClassificationCoverage {
   app: number
   library: number
   unknown: number
+  unknownComponents: string[]
+  unknownComponentsOmitted: number
 }
 
 type ClassifiedRecord = {
@@ -160,25 +163,40 @@ function selectClassifiedRecords(
   libraryHidden: number
   sourceClassification: SourceClassificationCoverage
 } {
-  const sourceClassification = countClassification(classified, query.appOnly)
+  const sourceClassification = summarizeOwnership(
+    classified.map((entry) => ({ ...entry, name: entry.report.name, source: entry.report.source })),
+    query.appOnly,
+  )
   if (query.appOnly !== true) return { kept: classified, libraryHidden: 0, sourceClassification }
   const kept = classified.filter((entry) => !entry.libraryOnly)
   return { kept, libraryHidden: classified.length - kept.length, sourceClassification }
 }
 
-function countClassification(
-  entries: readonly Pick<ClassifiedRecord, 'evaluated' | 'appOwned' | 'libraryOnly'>[],
+interface OwnershipEvidence {
+  evaluated: boolean
+  appOwned: boolean
+  libraryOnly: boolean
+  name: string
+  source: { file: string } | null
+}
+
+/** Ownership counts plus the distinct unknown-ownership components, named with the file that renders them, so two cohorts can be checked for counting the same ones. */
+function summarizeOwnership(
+  entries: OwnershipEvidence[],
   appOnly: boolean | undefined,
 ): SourceClassificationCoverage {
   let app = 0
   let library = 0
   let evaluated = 0
+  const unknownLabels = new Set<string>()
   for (const entry of entries) {
+    if (entry.evaluated) evaluated += 1
     if (entry.appOwned) app += 1
     else if (entry.libraryOnly) library += 1
-    if (entry.evaluated) evaluated += 1
+    else unknownLabels.add(entry.source ? `${entry.name} (${entry.source.file})` : entry.name)
   }
   const unknown = entries.length - app - library
+  const unknownComponents = [...unknownLabels].sort()
   return {
     complete: unknown === 0,
     affects: appOnly === true ? 'result' : 'ownership-labels',
@@ -187,6 +205,8 @@ function countClassification(
     app,
     library,
     unknown,
+    unknownComponents: unknownComponents.slice(0, UNKNOWN_COMPONENT_LIMIT),
+    unknownComponentsOmitted: Math.max(0, unknownComponents.length - UNKNOWN_COMPONENT_LIMIT),
   }
 }
 
@@ -448,7 +468,10 @@ export async function buildRenderCauseEventsReport(
     query.appOnly !== true ? classified : classified.filter(({ libraryOnly }) => !libraryOnly)
   const libraryHidden = classified.length - visible.length
   return {
-    sourceClassification: countClassification(classified, query.appOnly),
+    sourceClassification: summarizeOwnership(
+      classified.map((entry) => ({ ...entry, name: entry.event.componentName, source: null })),
+      query.appOnly,
+    ),
     componentMatch: describeComponentMatch(
       query,
       inRange.map((event) => event.componentName),
@@ -599,10 +622,16 @@ export async function buildCurrentAggregateMeasurement(
       unstableRenders: record.unstableRenders,
     })
   })
-  return {
-    components: [...aggregates.values()],
-    sourceClassification: countClassification(evidence, appOnly),
-  }
+  const sourceClassification = summarizeOwnership(
+    list.map((record, index) => {
+      const entry = evidence[index] ?? unknownRecordSourceEvidence()
+      const name =
+        record.name === 'Anonymous' ? (sourceLabel(entry.source) ?? record.name) : record.name
+      return { ...entry, name }
+    }),
+    appOnly,
+  )
+  return { components: [...aggregates.values()], sourceClassification }
 }
 
 const componentDefinitionIds = new WeakMap<object, number>()

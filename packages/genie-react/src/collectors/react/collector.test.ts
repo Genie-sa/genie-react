@@ -112,6 +112,8 @@ describe('app source classification coverage', () => {
       app: 0,
       library: 0,
       unknown: 1,
+      unknownComponents: ['Unresolved'],
+      unknownComponentsOmitted: 0,
     })
     expect(filtered.comparable).toBe(false)
     expect(filtered.notComparableReasons).toContain('app-source-classification-incomplete')

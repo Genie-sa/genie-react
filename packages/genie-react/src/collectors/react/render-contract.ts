@@ -1045,6 +1045,16 @@ const renderSourceClassificationSchema = z.object({
     .int()
     .nonnegative()
     .describe('Unresolved or unevaluated ownership; never counted as library.'),
+  unknownComponents: z
+    .array(z.string())
+    .describe(
+      'Distinct components with unknown ownership as "Name (file that renders it)", sorted. appOnly keeps them, so totals count them.',
+    ),
+  unknownComponentsOmitted: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Distinct unknown-ownership components past the unknownComponents limit.'),
 })
 
 const renderReportBaseSchema = z.object({

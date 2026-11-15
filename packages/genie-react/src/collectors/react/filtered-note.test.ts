@@ -145,6 +145,8 @@ describe('getRendersReport filteredNote count', () => {
         app: 120,
         library: 0,
         unknown: 121,
+        unknownComponents: Array.from({ length: 50 }, (_, index) => `App${120 + index}`),
+        unknownComponentsOmitted: 71,
       })
       expect(cold.summary.trackedComponents).toBe(241)
       expect(cold.components).toHaveLength(200)
@@ -160,6 +162,8 @@ describe('getRendersReport filteredNote count', () => {
         app: 241,
         library: 0,
         unknown: 0,
+        unknownComponents: [],
+        unknownComponentsOmitted: 0,
       })
       expect(warm.summary.trackedComponents).toBe(241)
       expect(warm.omittedByLimit).toBe(41)
@@ -185,6 +189,8 @@ describe('getRendersReport filteredNote count', () => {
       app: 1,
       library: 1,
       unknown: 1,
+      unknownComponents: ['UnknownOwner'],
+      unknownComponentsOmitted: 0,
     })
     const selected = await getRendersMeasurement({
       sort: 'renders',
@@ -200,6 +206,8 @@ describe('getRendersReport filteredNote count', () => {
       app: 0,
       library: 0,
       unknown: 1,
+      unknownComponents: ['UnknownOwner'],
+      unknownComponentsOmitted: 0,
     })
     withOwnSource(unknown, at('/src/Recovered.tsx'))
     const recovered = await getRendersMeasurement({ sort: 'renders', limit: 50, appOnly: true })
@@ -211,6 +219,8 @@ describe('getRendersReport filteredNote count', () => {
       app: 2,
       library: 1,
       unknown: 0,
+      unknownComponents: [],
+      unknownComponentsOmitted: 0,
     })
     expect(recovered.components.map((entry) => entry.name)).toContain('UnknownOwner')
   })

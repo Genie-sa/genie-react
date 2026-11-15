@@ -26,6 +26,8 @@ describe('react_get_renders output contract', () => {
         app: 0,
         library: 0,
         unknown: 1,
+        unknownComponents: ['Panel (/src/panel.tsx)'],
+        unknownComponentsOmitted: 0,
       },
       tracking: true,
       renderCollection: 'available',
@@ -312,6 +314,8 @@ describe('react_render_causes contract', () => {
         app: 0,
         library: 0,
         unknown: 0,
+        unknownComponents: [],
+        unknownComponentsOmitted: 0,
       },
       coverage: {
         complete: true,
