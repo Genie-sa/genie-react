@@ -1,0 +1,226 @@
+{
+  "argv": ["verify", "end", "<id>"],
+  "exitCode": 1,
+  "result": {
+    "schemaVersion": "1.0",
+    "kind": "verification",
+    "verificationId": "vfy_fdef96ba-5a60-4da3-85ec-1941c8b167b9",
+    "verdict": "fail",
+    "exitCode": 1,
+    "name": "type in filter",
+    "state": "completed",
+    "stage": "end",
+    "session": {
+      "sessionId": "4e6df3b7-4743-48bc-9723-67f959c22f61",
+      "logicalSessionId": "a6de639b-24da-4b2e-a4b5-019f62426ba4",
+      "documentGeneration": 1,
+      "sessionName": "verify-e2e",
+      "url": "http://127.0.0.1:65061/?_genie=verify-e2e"
+    },
+    "window": {
+      "observationId": "observation:1",
+      "startDocumentCommitId": 1,
+      "settledDocumentCommitId": 4,
+      "frozenDocumentCommitId": 4,
+      "commits": 3,
+      "settle": {
+        "outcome": "met",
+        "quietMs": 500,
+        "timeoutMs": 10000,
+        "waitedMs": 617,
+        "domains": {
+          "react": "met"
+        }
+      },
+      "tail": {
+        "ms": 500,
+        "commits": 0
+      },
+      "environment": {
+        "bundle": "development",
+        "strictMode": "unknown",
+        "renderCollection": "available",
+        "visibility": "document"
+      },
+      "refusals": []
+    },
+    "claims": [
+      {
+        "index": 1,
+        "text": "render StatusBadge max 0",
+        "claim": {
+          "kind": "renders",
+          "target": {
+            "component": "StatusBadge"
+          },
+          "max": 0,
+          "counting": "renders",
+          "allowRemount": false
+        },
+        "verdict": "fail",
+        "observed": {
+          "renders": 3,
+          "mounts": 0,
+          "updates": 3,
+          "remounts": 0,
+          "semantics": "exact",
+          "instances": 1,
+          "activeInstances": 2
+        },
+        "deciding": [
+          {
+            "kind": "instance",
+            "mountId": "mount:3",
+            "renders": 3,
+            "mounts": 0,
+            "updates": 3,
+            "mountGeneration": 1,
+            "latestDocumentCommitId": 4,
+            "source": "/Search.jsx:13:7"
+          }
+        ],
+        "decidingOmitted": 0,
+        "caveats": []
+      },
+      {
+        "index": 2,
+        "text": "render ResultCount min 1",
+        "claim": {
+          "kind": "renders",
+          "target": {
+            "component": "ResultCount"
+          },
+          "min": 1,
+          "counting": "renders",
+          "allowRemount": false
+        },
+        "verdict": "pass",
+        "observed": {
+          "renders": 3,
+          "mounts": 0,
+          "updates": 3,
+          "remounts": 0,
+          "semantics": "exact",
+          "instances": 1,
+          "activeInstances": 2
+        },
+        "deciding": [
+          {
+            "kind": "instance",
+            "mountId": "mount:2",
+            "renders": 3,
+            "mounts": 0,
+            "updates": 3,
+            "mountGeneration": 1,
+            "latestDocumentCommitId": 4,
+            "source": "/Search.jsx:12:7"
+          }
+        ],
+        "decidingOmitted": 0,
+        "caveats": []
+      },
+      {
+        "index": 3,
+        "text": "boundaries clean",
+        "claim": {
+          "kind": "boundaries-clean",
+          "scope": "window"
+        },
+        "verdict": "pass",
+        "observed": {
+          "caughtDuringWindow": 0,
+          "caughtAtEnd": 0
+        },
+        "deciding": [
+          {
+            "kind": "boundary-log",
+            "scope": "window",
+            "complete": true,
+            "afterDocumentCommitId": 1
+          }
+        ],
+        "decidingOmitted": 0,
+        "caveats": ["uncaught-errors-outside-boundaries-unobserved"]
+      }
+    ],
+    "caveats": ["ui-outcome-not-observed"],
+    "ledger": {
+      "fingerprint": "cf_02d7eb3a7599",
+      "scope": "logical-session",
+      "storage": "memory",
+      "attempt": 1,
+      "history": [],
+      "codeChangedSincePrevious": null,
+      "failsOnSameCode": 0
+    },
+    "evidence": {
+      "retained": true,
+      "tools": [
+        "react_get_renders",
+        "react_list_overrides",
+        "react_refresh_events",
+        "browser_visibility",
+        "react_component_cohort",
+        "react_profile_stop",
+        "react_error_state"
+      ]
+    },
+    "startedAt": "2026-11-15T01:35:05.155Z",
+    "endedAt": "2026-11-15T01:35:06.646Z",
+    "request": {
+      "claims": [
+        {
+          "kind": "renders",
+          "target": {
+            "component": "StatusBadge"
+          },
+          "max": 0,
+          "counting": "renders",
+          "allowRemount": false
+        },
+        {
+          "kind": "renders",
+          "target": {
+            "component": "ResultCount"
+          },
+          "min": 1,
+          "counting": "renders",
+          "allowRemount": false
+        },
+        {
+          "kind": "boundaries-clean",
+          "scope": "window"
+        }
+      ],
+      "budget": {
+        "fiberLimit": 250,
+        "operationLimit": 20000,
+        "timeLimitMs": 8,
+        "targetOperationReserve": 4000,
+        "targetTimeReserveMs": 4,
+        "adaptive": true
+      },
+      "settle": {
+        "quietMs": 500,
+        "timeoutMs": 10000
+      },
+      "maxDurationMs": 300000,
+      "allowOverrides": false
+    },
+    "next": {
+      "command": "pnpm exec genie-react verify show vfy_fdef96ba-5a60-4da3-85ec-1941c8b167b9 --claim 1 --session verify-e2e",
+      "argv": [
+        "pnpm",
+        "exec",
+        "genie-react",
+        "verify",
+        "show",
+        "vfy_fdef96ba-5a60-4da3-85ec-1941c8b167b9",
+        "--claim",
+        "1",
+        "--session",
+        "verify-e2e"
+      ]
+    }
+  }
+}

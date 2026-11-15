@@ -3,6 +3,8 @@ import { defineAgentToolContract } from './contract'
 import { appInfoSchema } from './protocol'
 import { renderObservationBudgetInputSchema } from './react-observation-schema'
 
+export { DEFAULT_RENDER_OBSERVATION_BUDGET } from './react-observation-schema'
+
 export const VERIFY_SCHEMA_VERSION = '1.0' as const
 export const MAX_VERIFY_CLAIMS = 20
 export const MAX_VERIFY_TARGETS = 10

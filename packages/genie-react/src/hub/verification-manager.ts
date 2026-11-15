@@ -477,7 +477,7 @@ export class VerificationManager<TSession extends VerificationSession> {
     if (stored) return { ok: true, result: stored.document }
     const active = this.active.get(verificationId)
     if (!active) return unknownVerification(verificationId)
-    if (target) {
+    if (target && this.options.isCurrentSession(active.session)) {
       const targeted = this.options.resolveSession(target)
       if (targeted && targeted.sessionId !== active.session.sessionId) {
         return {

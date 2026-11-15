@@ -189,7 +189,7 @@ function failureLookups(link: GenieAgentLink): FailureLookups {
   }
 }
 
-function failureContext(
+export function failureContext(
   { link, connection }: Connection,
   opts: AgentOptions,
   tool?: string,
@@ -207,7 +207,7 @@ function once<T>(load: () => Promise<T>): () => Promise<T> {
   }
 }
 
-interface Connection {
+export interface Connection {
   link: GenieAgentLink
   url: string
   connection: NonNullable<FailureContext['connection']>
@@ -227,7 +227,7 @@ async function openConnection(
   }
 }
 
-async function connect(opts: AgentOptions, toolCatalog: boolean): Promise<Connection> {
+export async function connect(opts: AgentOptions, toolCatalog: boolean): Promise<Connection> {
   markPhase('connect:start')
   const cwd = opts.cwd ?? process.cwd()
   let url: string
@@ -1286,7 +1286,7 @@ function waitForTools(
 }
 
 /** Bridge-global wait (sessionId: null) so a stale --session fails fast on the real call instead of stalling here; its own timeout tracks --wait so a small --timeout can't truncate the connect window. A greeting that already reports the default tab ready answers the wait without a round trip. */
-async function waitForApp(link: GenieAgentLink, opts: AgentOptions): Promise<boolean> {
+export async function waitForApp(link: GenieAgentLink, opts: AgentOptions): Promise<boolean> {
   const waitMs = opts.waitMs ?? 15_000
   const ready = await link
     .connected()

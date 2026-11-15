@@ -1,3 +1,4 @@
+import { failureExit } from './exit-codes'
 import type { FailureErrorCode, FailureOptions, FailureReason } from './failure'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 import { jsonText } from './text-output'
@@ -48,5 +49,6 @@ export function agentFailure(
       : { correctedExample: options.correctedExample }),
     ...(options.busyTelemetry === undefined ? {} : { busyTelemetry: options.busyTelemetry }),
     ...(options.details === undefined ? {} : { details: options.details }),
+    exit: failureExit(reason),
   }
 }
