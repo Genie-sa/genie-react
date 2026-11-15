@@ -21,6 +21,11 @@ export const DEHYDRATED = '__genie_dehydrated__' as const
 // Pollution-vector keys superjson refuses to reconstruct — including one would discard the whole payload.
 const RESERVED_OBJECT_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype'])
 
+const TRUNCATED_KEYS = '…'
+
+/** Keys Genie's own encoding uses on objects; an app object that carries one is emitted as `{ __type: 'Object', entries }`, so these keys always mean Genie's encoding. */
+const ENCODING_KEYS: ReadonlySet<string> = new Set([DEHYDRATED, '__type', TRUNCATED_KEYS])
+
 export type DehydratedKind =
   | 'object'
   | 'array'
@@ -229,6 +234,13 @@ function errorFields(error: Error): Record<string, unknown> {
   }
 }
 
+/** An app object's walked entries as output: plain, or tagged `{ __type: 'Object', entries }` when one of its keys would read as Genie's encoding. */
+export function encodeAppObject(entries: Array<[string, unknown]>): Record<string, unknown> {
+  return entries.some(([key]) => ENCODING_KEYS.has(key))
+    ? { __type: 'Object', entries }
+    : Object.fromEntries(entries)
+}
+
 const getterPlaceholder = (path: ReadonlyArray<string | number>): DehydratedNode =>
   dehydratedNode('getter-error', '[getter not invoked]', path)
 
@@ -359,35 +371,44 @@ export function dehydrate(input: unknown, options: DehydrateOptions = {}): unkno
     if (currentDepth >= depth) return dehydratedNode('object', previewValue(value), path)
 
     seen.add(obj)
-    const out: Record<string, unknown> = value instanceof Error ? errorFields(value) : {}
+    const isError = value instanceof Error
+    // An Error keeps its own tag, so a colliding own key on it is reported as omitted instead.
+    const cannotCarry = (key: string): boolean =>
+      RESERVED_OBJECT_KEYS.has(key) || (isError && ENCODING_KEYS.has(key))
     const allKeys = Object.keys(obj)
-    const keys = allKeys.filter((key) => !RESERVED_OBJECT_KEYS.has(key))
-    const reserved = allKeys.filter((key) => RESERVED_OBJECT_KEYS.has(key))
+    const keys = allKeys.filter((key) => !cannotCarry(key))
+    const reserved = allKeys.filter(cannotCarry)
+    const entries: Array<[string, unknown]> = []
     for (const key of keys.slice(0, Math.max(0, maxEntries))) {
       const read = readOwn(obj, key)
       if (read.kind === 'accessor') {
-        out[key] = getterPlaceholder([...path, key])
+        entries.push([key, getterPlaceholder([...path, key])])
         continue
       }
       try {
-        out[key] = walk(read.kind === 'value' ? read.value : undefined, currentDepth + 1, [
-          ...path,
+        entries.push([
           key,
+          walk(read.kind === 'value' ? read.value : undefined, currentDepth + 1, [...path, key]),
         ])
       } catch (error) {
-        out[key] = dehydratedNode('getter-error', `[getter threw: ${errorMessage(error)}]`, [
-          ...path,
+        entries.push([
           key,
+          dehydratedNode('getter-error', `[getter threw: ${errorMessage(error)}]`, [...path, key]),
         ])
       }
     }
+    seen.delete(obj)
+    const collides = entries.some(([key]) => ENCODING_KEYS.has(key))
     const omitted = Math.max(0, keys.length - maxEntries) + reserved.length
     if (omitted > 0) {
       const note = reserved.length > 0 ? ` (${reserved.join(', ')} cannot be shown)` : ''
-      out['…'] = dehydratedNode('truncated', `+${omitted} more keys${note}`, path, allKeys.length)
+      entries.push([
+        TRUNCATED_KEYS,
+        dehydratedNode('truncated', `+${omitted} more keys${note}`, path, allKeys.length),
+      ])
     }
-    seen.delete(obj)
-    return out
+    if (collides) return { __type: 'Object', entries }
+    return Object.assign(isError ? errorFields(value) : {}, Object.fromEntries(entries))
   }
 
   return walk(resolved.value, 0, basePath)

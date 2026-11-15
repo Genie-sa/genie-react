@@ -3,6 +3,12 @@ import type { HooksNode } from 'bippy/source'
 import type { Effect } from './bippy-compat'
 import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
 import {
+  type ComponentMatch,
+  type ComponentNameSelector,
+  componentNameMatcher,
+  describeComponentMatch,
+} from './component-name'
+import {
   clearEffectEvents,
   markEffectInstrumentationUnavailable,
   type PassiveEffectBinding,
@@ -303,8 +309,7 @@ export function getEffectTrackingCoverage(): { truncatedEffectLists: number } {
   return { truncatedEffectLists }
 }
 
-export interface EffectAuditQuery {
-  component?: string
+export interface EffectAuditQuery extends ComponentNameSelector {
   limit: number
   /** Only components with an effect scheduled at the configured hot rate. */
   onlyHot?: boolean
@@ -433,6 +438,7 @@ const totalEffects = (findings: EffectAuditRecord[]): number =>
 
 /** The audited components plus the count of library-origin effects appOnly hid — for react_effect_audit's filteredNote. */
 export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
+  componentMatch: ComponentMatch | undefined
   components: EffectAuditRecord[]
   omittedByLimit: number
   effectsOmittedByLimit: number
@@ -446,11 +452,13 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
     unknownPackageEffects: number
   }
 }> {
-  let list = snapshotEffectRecords()
-  if (query.component) {
-    const needle = query.component.toLowerCase()
-    list = list.filter((record) => record.name.toLowerCase().includes(needle))
-  }
+  const allRecords = snapshotEffectRecords()
+  const componentMatch = describeComponentMatch(
+    query,
+    allRecords.map((record) => record.name),
+  )
+  const named = componentNameMatcher(query)
+  const list = allRecords.filter((record) => named(record.name))
 
   // Public contracts pass their default explicitly; internal reads default to the complete provenance view so diagnostics never silently drop unknown rows.
   const appOnly = query.appOnly ?? false
@@ -571,6 +579,7 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
     return { ...record, effects, effectsOmitted }
   })
   return {
+    componentMatch,
     components,
     omittedByLimit,
     effectsOmittedByLimit,

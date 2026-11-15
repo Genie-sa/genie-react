@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   type CaptureArtifact,
   captureArtifactSchema,
+  dehydrate,
   devtoolsCaptureCreateContract,
+  isDehydratedNode,
   type ToolDescriptor,
 } from '../protocol'
 import { CaptureManager, type CaptureSession, verifyCaptureIntegrity } from './capture-manager'
@@ -39,9 +41,10 @@ const comparableRenders = {
 function manager(
   renders: Record<string, unknown> = comparableRenders,
   target: CaptureSession = session,
+  standIn = false,
 ): CaptureManager<CaptureSession> {
   return new CaptureManager({
-    resolveSession: () => target,
+    resolveSession: () => ({ session: target, standIn }),
     sessionUnavailable: (requested) => ({
       errorCode: 'unknown-session',
       error: `unknown ${requested}`,
@@ -180,6 +183,28 @@ describe('capture manager artifacts', () => {
     })
   })
 
+  it('stores a tool result exactly as the app sent it, placeholders and long strings included', async () => {
+    let nested: Record<string, unknown> = { leaf: { beyond: 'the app depth limit' } }
+    for (let level = 0; level < 12; level += 1) nested = { level, child: nested }
+    const appValue = dehydrate({ props: nested, map: new Map([['k', 1]]) }, { depth: 14 })
+    const renders = {
+      ...comparableRenders,
+      components: [{ name: 'Deep', props: appValue, note: 'x'.repeat(12_000) }],
+    }
+
+    const created = await createCapture(manager(renders), 'faithful')
+    const stored = created.sections.react?.tools.react_get_renders?.result as typeof renders
+
+    const { argsEcho: _, ...sent } = stored as typeof renders & { argsEcho?: unknown }
+    expect(sent).toEqual(renders)
+    let cursor: unknown = (stored.components[0] as { props: { props: unknown } }).props.props
+    while (typeof cursor === 'object' && cursor !== null && 'child' in cursor) {
+      cursor = (cursor as { child: unknown }).child
+    }
+    expect(isDehydratedNode((cursor as { leaf: unknown }).leaf)).toBe(true)
+    expect((cursor as { leaf: { path: unknown } }).leaf.path).toBeInstanceOf(Array)
+  })
+
   it('retains invocation args, content integrity, and a bounded summary-first read', async () => {
     const captures = manager()
     const created = await createCapture(captures, 'baseline')
@@ -277,7 +302,7 @@ describe('capture manager artifacts', () => {
   it('uses document commit IDs for consistency even when the profile count is frozen', async () => {
     let renderProbe = 0
     const captures = new CaptureManager({
-      resolveSession: () => session,
+      resolveSession: () => ({ session, standIn: false }),
       sessionUnavailable: (target) => ({
         errorCode: 'unknown-session',
         error: `unknown ${target}`,

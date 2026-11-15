@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { defineAgentToolContract } from '../../protocol'
+import { componentMatchSchema, componentSelectorInputShape } from './component-name'
 import { appOnlySchema, ownershipCoverageSchema, sourceSchema } from './contract-schemas'
 import { observationSchema } from './render-contract'
 
@@ -141,7 +142,7 @@ export const reactEffectAuditContract = defineAgentToolContract({
   group: 'react.render',
   input: z
     .object({
-      component: z.string().optional().describe('Only components whose name contains this string.'),
+      ...componentSelectorInputShape,
       onlyHot: z
         .boolean()
         .default(false)
@@ -192,6 +193,7 @@ export const reactEffectAuditContract = defineAgentToolContract({
       }
     }),
   output: z.object({
+    componentMatch: componentMatchSchema.optional(),
     tracking: z.boolean(),
     commits: z.number(),
     documentCommitId: z.number().int().nonnegative(),
@@ -250,7 +252,7 @@ export const reactEffectAuditContract = defineAgentToolContract({
 
 const effectEventsInputSchema = z.object({
   appOnly: appOnlySchema,
-  component: z.string().optional(),
+  ...componentSelectorInputShape,
   afterDocumentCommitId: z.number().int().nonnegative().optional(),
   limit: z.number().int().min(1).max(500).default(100),
 })
@@ -395,6 +397,7 @@ const effectEventSchema = z.object({
 })
 
 const effectEventsOutputSchema = z.object({
+  componentMatch: componentMatchSchema.optional(),
   ownershipCoverage: ownershipCoverageSchema,
   tracking: z.boolean(),
   documentCommitId: z.number().int().nonnegative(),

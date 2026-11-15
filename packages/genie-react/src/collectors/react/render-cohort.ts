@@ -1,4 +1,5 @@
 import { type Fiber, getReactWorkTagsForFiber, isCompositeFiber } from 'bippy'
+import { type ComponentMatch, componentNameMatcher, describeComponentMatch } from './component-name'
 import { findAllCommittedRootFibers, nameOf } from './fiber'
 import { hasReactFreezeAdapter, isReactFreeze } from './freeze-identity'
 import {
@@ -52,6 +53,7 @@ export interface RenderCohort {
   ownershipCoverage: ReturnType<typeof ownershipCoverage>
   observation: ObservationWindow | null
   query: { component: string; exact: boolean }
+  componentMatch: ComponentMatch
   status: CohortStatus
   matched: number
   mountedUpdated: number
@@ -108,6 +110,8 @@ export async function getRenderCohort(
   const freezeDetection = hasReactFreezeAdapter() ? 'react-freeze-identity' : 'disabled'
   const epoch = captureReportEpoch()
   const observation = getActiveObservation()
+  const named = componentNameMatcher(query)
+  const seenNames = new Set<string>()
   const mountedCandidates: Array<{
     fiber: Fiber
     reactVisibility: CohortInstance['reactVisibility']
@@ -186,7 +190,8 @@ export async function getRenderCohort(
     scannedFibers += 1
     if (isCompositeFiber(fiber)) {
       const componentName = nameOf(fiber)
-      if (matches(componentName, query.component, query.exact)) {
+      seenNames.add(componentName)
+      if (named(componentName)) {
         const instance = instanceForReport(fiber)
         if (!mountedFiberIds.has(instance.fiberId)) {
           mountedFiberIds.add(instance.fiberId)
@@ -272,7 +277,10 @@ export async function getRenderCohort(
   const unmountedUnfiltered: CohortInstance[] = observation
     ? getInstanceTombstones()
         .filter((entry) => entry.observationId === observation.id)
-        .filter((entry) => matches(entry.componentName, query.component, query.exact))
+        .filter((entry) => {
+          seenNames.add(entry.componentName)
+          return named(entry.componentName)
+        })
         .map((entry) => ({
           componentName: entry.componentName,
           sourceOwnership: entry.ownership.ownership,
@@ -324,6 +332,7 @@ export async function getRenderCohort(
     ownershipCoverage: ownership,
     observation,
     query: { component: query.component, exact: query.exact },
+    componentMatch: describeComponentMatch(query, seenNames),
     status: cohortStatus({
       observation,
       mountedUpdated,
@@ -357,10 +366,6 @@ export async function getRenderCohort(
       ...effectiveCoverageGaps,
     },
   }
-}
-
-function matches(name: string, query: string, exact: boolean): boolean {
-  return exact ? name === query : name.toLowerCase().includes(query.toLowerCase())
 }
 
 function cohortStatus(input: {

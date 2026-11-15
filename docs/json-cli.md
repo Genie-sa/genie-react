@@ -14,7 +14,7 @@ Text is the default because an agent's context is the scarce resource: the same 
 | `batch --ndjson` | JSONL in either case |
 | `GENIE_OUTPUT` set to anything else | `invalid_input` failure, exit 1 |
 
-`--json` always wins over `GENIE_OUTPUT`. The output is the same on a terminal and in a pipe: there is no TTY detection, no color and no ANSI escapes in either format. Exit codes do not depend on the format.
+`--json` always wins over `GENIE_OUTPUT`. The output is the same on a terminal and in a pipe: there is no TTY detection, no color and no ANSI escapes in either format. Exit codes do not depend on the format. JSON output escapes the line separators, bidirectional controls, zero-width characters and C1 controls inside strings as `\uXXXX`, as text does, so an app string cannot reorder or hide what a terminal shows; the document parses to the same values.
 
 | Surface | Text | `--json` |
 | --- | --- | --- |
