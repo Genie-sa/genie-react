@@ -277,14 +277,62 @@ async function timelineRoundTrip(ctx, { name, action, domains }) {
   return report
 }
 
-/** One step that drives span, profile, interaction, capture and timeline tools around the same interaction. */
+async function verifyWindow(ctx, name, claims, action) {
+  const begun = await ctx.call('devtools_verify_begin', { name, claims })
+  check(typeof begun.verificationId === 'string', 'verify begin returned no id', begun)
+  await action()
+  return ctx.call('devtools_verify_end', { verificationId: begun.verificationId })
+}
+
+/** One action updates the component exactly once (the span step proves it), so verify must pass at most and at least one render, fail at most zero, and keep its stored verdict. */
+async function verifyRoundTrip(ctx, { component, action }) {
+  const target = { component }
+  const passed = await verifyWindow(
+    ctx,
+    `apps-e2e ${component} renders once`,
+    [
+      { kind: 'renders', target, max: 1 },
+      { kind: 'renders', target, min: 1 },
+      { kind: 'boundaries-clean' },
+    ],
+    action,
+  )
+  check(passed.verdict === 'pass', `verify must pass ${component} max 1 and min 1`, passed)
+  const stored = await ctx.call('devtools_verify_read', { verificationId: passed.verificationId })
+  check(stored.verdict === passed.verdict, 'verify read must return the stored verdict', {
+    passed,
+    stored,
+  })
+  const failed = await verifyWindow(
+    ctx,
+    `apps-e2e ${component} never renders`,
+    [{ kind: 'renders', target, max: 0 }],
+    action,
+  )
+  check(failed.verdict === 'fail', `verify must fail ${component} max 0 after one render`, failed)
+  const abandoned = await ctx.call('devtools_verify_begin', {
+    name: `apps-e2e ${component} abandoned`,
+    claims: [{ kind: 'renders', target, max: 1 }],
+  })
+  const aborted = await ctx.call('devtools_verify_abort', {
+    verificationId: abandoned.verificationId,
+  })
+  check(
+    JSON.stringify(aborted).includes(abandoned.verificationId),
+    'verify abort lost its id',
+    aborted,
+  )
+}
+
+/** One step that drives span, profile, verify, interaction, capture and timeline tools around the same interaction. */
 export function measurementToolsStep({ component, action, timeline, setup }) {
   return {
-    name: `measurement tools: span, profile, interaction, capture and timeline agree on ${component}`,
+    name: `measurement tools: span, profile, verify, interaction, capture and timeline agree on ${component}`,
     async run(ctx) {
       await setup?.(ctx)
       await spanRoundTrip(ctx, { component, action: () => action(ctx) })
       await profileRoundTrip(ctx, () => action(ctx))
+      await verifyRoundTrip(ctx, { component, action: () => action(ctx) })
       await interactionRoundTrip(ctx, {
         name: `apps-e2e ${component}`,
         component,
