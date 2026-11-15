@@ -40,6 +40,8 @@ export interface InteractionSettleResult {
   ok: boolean
   waitedMs: number
   reason?: string
+  /** On a timeout, the most specific work an answered probe saw blocking a domain. */
+  blocking?: string
   domains: Partial<
     Record<
       WaitDomain,

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '../collectors/react/hook'
-import { createElement, memo, type ReactNode, useEffect, useState } from 'react'
+import { createElement, memo, type ReactNode, Suspense, use, useEffect, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
@@ -119,11 +119,14 @@ const badgeMax0: VerifyClaimInput = {
   max: 0,
 }
 
-async function begin(claims: VerifyClaimInput[]) {
+async function begin(
+  claims: VerifyClaimInput[],
+  settle: { quietMs: number; timeoutMs: number } = { quietMs: 400, timeoutMs: 5_000 },
+) {
   const began = await invoke('devtools_verify_begin', {
     name: 'type in search',
     claims,
-    settle: { quietMs: 400, timeoutMs: 5_000 },
+    settle,
   })
   expect(began.ok).toBe(true)
   return began.result as { verificationId: string }
@@ -139,6 +142,38 @@ describe('verify through the hub against a real React tree', () => {
     expect(ended.ok).toBe(true)
     expect(ended.result).toMatchObject({ verdict: 'fail', exitCode: 1 })
     expect(ended.result.claims[0].observed).toMatchObject({ renders: 1, semantics: 'exact' })
+  })
+
+  it('names the Suspense boundary that kept the app from settling, not the timeout', async () => {
+    const never = new Promise<string>(() => {})
+    function Details(): ReactNode {
+      return createElement('p', null, use(never))
+    }
+    function Gallery(): ReactNode {
+      const [open, setOpen] = useState(false)
+      return createElement(
+        'main',
+        null,
+        createElement('button', { type: 'button', onClick: () => setOpen(true) }, 'open'),
+        createElement(
+          Suspense,
+          { fallback: createElement('p', null, 'loading') },
+          open ? createElement(Details) : null,
+        ),
+      )
+    }
+    await mounted(createElement(Gallery), 'open')
+    const { verificationId } = await begin(
+      [{ kind: 'renders', target: { component: 'Gallery' }, max: 5 }],
+      { quietMs: 200, timeoutMs: 1_500 },
+    )
+    press('open')
+    const ended = await invoke('devtools_verify_end', { verificationId })
+
+    expect(ended.result.claims[0].refusal).toMatchObject({ reason: 'not_quiescent' })
+    expect(ended.result.claims[0].refusal.message).toContain(
+      'React work is still pending: 1 Suspense boundary shows a fallback',
+    )
   })
 
   it('shows the freeze-first interaction order would have missed that render', async () => {
