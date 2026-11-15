@@ -4,6 +4,7 @@ import { getRDTHook, instrument } from 'bippy'
 import { z } from 'zod'
 import { defineCollector, defineCollectorTool, type GenieCollector } from '../../client'
 import { defineAgentToolContract, newId, roundMilliseconds } from '../../protocol'
+import { claimGenieRequest, unclaimedGenieRequestsSince } from '../genie-fetch'
 import { getDocumentCommitId, holdCommitAnalysis } from '../react/observation'
 import { isSafeRenderer, safeCommitHandler } from '../react/safe-instrumentation'
 import { describeQuery, observeRequests, type RequestRecord } from './requests'
@@ -80,6 +81,13 @@ const reportSchema = z.object({
   queryValues: z
     .enum(['hashed', 'plain'])
     .describe('How request query parameter values are reported; see timeline_start.'),
+  genieRequestsExcluded: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe(
+      'Requests Genie made for itself during the recording (app source files, source maps, symbolication), left out of the request lane so it shows only app traffic.',
+    ),
 })
 const startInput = z.object({
   name: z.string().trim().min(1).max(120),
@@ -294,6 +302,7 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
       resources(target, deliveredEntries)
       if (target.observer) resources(target, target.observer.takeRecords())
       unmatchedRequests(target)
+      target.report.genieRequestsExcluded += unclaimedGenieRequestsSince(target.startedAt)
     } catch {
       target.report.coverage.request = { status: 'available', code: 'resource-timing-flush-failed' }
     } finally {
@@ -356,6 +365,10 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
         endMs < 0 ||
         endMs > cutoff
       ) {
+        continue
+      }
+      if (claimGenieRequest(entry.name, entry.startTime, REQUEST_MATCH_WINDOW_MS)) {
+        target.report.genieRequestsExcluded += 1
         continue
       }
       const status =
@@ -468,6 +481,7 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
         clock: 'performance.now',
         ordering: 'observation-time-then-sequence',
         queryValues: args.queryValues,
+        genieRequestsExcluded: 0,
         coverage: {
           request: { status: 'unavailable', code: 'no-resource-timing' },
           query: { status: 'unavailable', code: 'no-query-client' },

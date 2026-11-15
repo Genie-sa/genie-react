@@ -2,6 +2,7 @@ import { type Fiber, getFiberId, isCompositeFiber } from 'bippy'
 import { normalizeFileName, parseStack, symbolicateStack } from 'bippy/source'
 import { roundMilliseconds } from '../../protocol'
 import { renderStartedQueriesUnder } from '../causal/render-started-queries'
+import { genieFetch } from '../genie-fetch'
 import type { NodeId } from './contracts'
 import { findAllRootFibers, findFiberById, nameOf, registerFiber } from './fiber'
 import { hydrationOutcomeOf } from './hydration-tracker'
@@ -345,7 +346,7 @@ async function resolveStack(source: StackSource, symbolicate: boolean): Promise<
     let mapped = parsed
     if (symbolicate && parsed.length > 0) {
       try {
-        mapped = await symbolicateStack(parsed)
+        mapped = await symbolicateStack(parsed, true, genieFetch)
       } catch {
         mapped = parsed
       }

@@ -12,6 +12,7 @@ import {
   type SourceMap,
 } from 'bippy/source'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
+import { genieFetch } from '../genie-fetch'
 
 /** What a component source points at: where its element was created (`<Card />` in the parent), or a line inside the component's own body. */
 export type SourceRole = 'element-callsite' | 'component-body' | 'hook-callsite'
@@ -523,7 +524,7 @@ function rawSourceLines(url: string): Promise<string[] | null> {
   if (!pending) {
     pending = (async () => {
       try {
-        const response = await fetch(url)
+        const response = await genieFetch(url)
         if (!response.ok) return null
         const literal = /^export default ("(?:[^"\\]|\\.)*");?\s*$/s.exec(
           await response.text(),
@@ -1066,7 +1067,7 @@ async function symbolicateMetroFrame(
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     const response = await Promise.race([
-      fetch(`${origin}/symbolicate`, {
+      genieFetch(`${origin}/symbolicate`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ stack: [{ file: servedUrl, lineNumber: line, column }] }),
@@ -1159,7 +1160,7 @@ function nextServerSourceMapUrl(frameUrl: string): string | null {
 async function unloadableFrame(url: string): Promise<Response> {
   const endpoint = nextServerSourceMapUrl(url)
   if (endpoint === null) return NOT_LOADABLE()
-  const map = await fetch(endpoint)
+  const map = await genieFetch(endpoint)
   if (!map.ok) return NOT_LOADABLE()
   const inline = `data:application/json;base64,${base64(await map.text())}`
   return new Response(`//# sourceMappingURL=${inline}\n`, { status: 200 })
@@ -1177,7 +1178,7 @@ function base64(text: string): string {
 
 // Bippy keys its map cache weakly by `fetchFn`, so a fresh function per generation is how `clearSourceCache` drops maps for rebuilt modules. An unloadable URL answers a 404 instead of a rejection, which bippy would treat as transient and retry on every lookup.
 function boundFetch(): SourceFetch {
-  return (url, init) => (isPageLoadableUrl(url) ? fetch(url, init) : unloadableFrame(url))
+  return (url, init) => (isPageLoadableUrl(url) ? genieFetch(url, init) : unloadableFrame(url))
 }
 
 let generationFetch: SourceFetch = boundFetch()

@@ -104,7 +104,9 @@ recording; its `outcome` then comes from timing alone: `no-response` or `unknown
 `load`). `responseReceived` is `false` when a same-origin request got no response; its `durationMs`
 runs until the failure. `null` means cross-origin timing without `Timing-Allow-Origin` hides it. A
 redirect chain is one event under the requested URL, timed across every hop, with the final
-`responseStatus`. Navigation `pathChanged` and `hrefChanged` are `null` when the Router release does
+`responseStatus`. Requests Genie makes for itself, such as reading app source files and source maps
+to locate components, are left out so the lane shows only app traffic; `genieRequestsExcluded`
+counts them. The app's own requests to the same files are kept. Navigation `pathChanged` and `hrefChanged` are `null` when the Router release does
 not report them.
 
 For requests to the same method and path that overlap in time, `overlappingSameEndpoint` counts the

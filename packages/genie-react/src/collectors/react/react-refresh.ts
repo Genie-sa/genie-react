@@ -9,6 +9,7 @@ import {
   traverseFiber,
 } from 'bippy'
 import { normalizeFileName } from 'bippy/source'
+import { genieFetch } from '../genie-fetch'
 import { toUnsubscribe } from './bippy-compat'
 
 const RECONNECT_DELAY_MS = 1_000
@@ -261,7 +262,7 @@ const parseViteMessage = (data: string): string[] => {
 
 const fetchViteWsToken = async (): Promise<string | null> => {
   try {
-    const response = await fetch('/@vite/client')
+    const response = await genieFetch('/@vite/client')
     if (!response.ok) return null
     return VITE_WS_TOKEN.exec(await response.text())?.[1] ?? null
   } catch {

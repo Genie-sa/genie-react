@@ -1,6 +1,7 @@
 import { type Fiber, isCompositeFiber } from 'bippy'
 import type { SourceMap } from 'bippy/source'
 import type { ErasedCollectorTool } from '../../client'
+import { genieFetch } from '../genie-fetch'
 import { recordSourceName } from './component-name'
 import { findAllRootFibers, nameOf } from './fiber'
 import { getCommitCount } from './render-tracker'
@@ -156,7 +157,7 @@ function generatedSource(url: string, map: SourceMap): Promise<string[] | null> 
   if (!pending) {
     pending = (async () => {
       if (!isPageLoadableUrl(url)) return null
-      const response = await fetch(url)
+      const response = await genieFetch(url)
       if (!response.ok) return null
       const text = await response.text()
       return text.length > MAX_BUNDLE_CHARACTERS ? null : text.split('\n')
