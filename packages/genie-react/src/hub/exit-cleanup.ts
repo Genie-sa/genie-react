@@ -2,9 +2,9 @@ import { removeDiscoveryFileSync } from './discovery'
 
 const TERMINATING_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
 
-/** Removes this process's discovery and token files for `rootDir` however the dev server ends: on `process.exit`, and on a terminating signal. The signal listener runs first; when nothing else handles the signal it re-raises it after cleanup, so the process still ends the way it would have. Returns the function that unregisters it. */
-export function removeDiscoveryOnExit(rootDir: string): () => void {
-  const cleanUp = (): void => removeDiscoveryFileSync(rootDir)
+/** Removes this process's discovery and token files for `rootDir`, or only the `instance` publication when given, however the dev server ends: on `process.exit`, and on a terminating signal. The signal listener runs first; when nothing else handles the signal it re-raises it after cleanup, so the process still ends the way it would have. Returns the function that unregisters it. */
+export function removeDiscoveryOnExit(rootDir: string, instance?: string): () => void {
+  const cleanUp = (): void => removeDiscoveryFileSync(rootDir, instance)
   const onSignal = (signal: NodeJS.Signals): void => {
     const othersHandle = process.listenerCount(signal) > 1
     unregister()

@@ -500,6 +500,7 @@ export function stopRenderTracking(): void {
 }
 
 export const isTracking = (): boolean => installed && !paused
+export const isRenderTrackingInstalled = (): boolean => installed
 export const getCommitCount = (): number => commits
 
 /** Distinguishes "nothing re-rendered" from "the hook could not observe renders" — a zero report is only evidence when collection is available. */
@@ -812,6 +813,7 @@ interface RenderMeasurementPage extends RenderMeasurement {
     offset: number
     totalComponents: number
     expiresAt: number | null
+    cursorOmitted?: 'candidate-limit'
   }
 }
 
@@ -862,18 +864,15 @@ export async function getRendersMeasurement(
   }
   const measurementEnvironment = getMeasurementEnvironment()
   const pagesAtStart = renderPages
-  const includeCursor = query.includeCursor !== false
   const candidates: RenderRecord[] = []
   const matches = renderRecordFilter(query)
   for (const record of records.values()) {
-    if (!matches(record)) continue
-    if (includeCursor && candidates.length >= RENDER_PAGE_COMPONENT_LIMIT) {
-      throw new Error(
-        'More than 5000 candidates match the name/update filters before appOnly. Narrow component, nameFilter, excludeNames, or minUpdates and retry, or set includeCursor:false for a one-shot report.',
-      )
-    }
-    candidates.push(record)
+    if (matches(record)) candidates.push(record)
   }
+  // A frozen cursor snapshot is bounded, so a larger match reads as one bounded page that says no cursor was kept.
+  const cursorOmitted =
+    query.includeCursor !== false && candidates.length > RENDER_PAGE_COMPONENT_LIMIT
+  const retainCursor = query.includeCursor !== false && !cursorOmitted
   const componentMatch = describeRecordMatch(records, query)
   const recordsAtStart = snapshotRenderRecords(candidates)
   const commitsAtStart = commits
@@ -895,7 +894,7 @@ export async function getRendersMeasurement(
     {
       sort: query.sort,
       appOnly: query.appOnly,
-      limit: includeCursor ? RENDER_PAGE_COMPONENT_LIMIT : query.limit,
+      limit: retainCursor ? RENDER_PAGE_COMPONENT_LIMIT : query.limit,
     },
     {
       isCurrent: () => reportStateMatches(epoch),
@@ -928,7 +927,7 @@ export async function getRendersMeasurement(
     budgetExhaustedSubsystems: budgetSubsystemsAtStart,
     budgetAdvice: budgetAdviceAtStart,
   }
-  if (!includeCursor) {
+  if (!retainCursor) {
     return {
       ...measurement,
       nextCursor: null,
@@ -937,6 +936,7 @@ export async function getRendersMeasurement(
         offset: 0,
         totalComponents: measurement.summary.trackedComponents,
         expiresAt: null,
+        ...(cursorOmitted ? { cursorOmitted: 'candidate-limit' as const } : {}),
       },
     }
   }

@@ -137,4 +137,31 @@ describe('removeDiscoveryFile', () => {
     )
     expect(await readAgentToken(root)).toBe('newer')
   })
+
+  describe('two hubs of one process publishing the same root in turn, as a Vite restart does', () => {
+    const successor = { url: 'ws://127.0.0.1:4391/__genie/ws', port: 4391, token: 'successor' }
+    const publishedEndpoint = async () =>
+      JSON.parse(await readFile(join(root, GENIE_DISCOVERY_FILE), 'utf8')).url
+
+    it("leaves the successor's files when the closing hub removes its own publication", async () => {
+      const closing = await writeDiscoveryFile(root, info)
+      await writeDiscoveryFile(root, successor)
+
+      await removeDiscoveryFile(root, closing?.instance)
+
+      expect(await publishedEndpoint()).toBe(successor.url)
+      expect(await readAgentToken(root)).toBe(successor.token)
+    })
+
+    it('still removes its own publication when no successor took over', async () => {
+      const own = await writeDiscoveryFile(root, info)
+
+      await removeDiscoveryFile(root, own?.instance)
+
+      await expect(readFile(join(root, GENIE_DISCOVERY_FILE))).rejects.toMatchObject({
+        code: 'ENOENT',
+      })
+      expect(await readAgentToken(root)).toBeUndefined()
+    })
+  })
 })

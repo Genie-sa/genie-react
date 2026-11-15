@@ -224,6 +224,10 @@ export function noteCommit(): void {
   treeGeneration += 1
 }
 
+export function getTreeGeneration(): number {
+  return treeGeneration
+}
+
 interface TreeCacheEntry {
   generation: number
   root: Fiber

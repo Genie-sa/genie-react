@@ -17,29 +17,52 @@ export function visibleChildOf(fiber: Fiber, state: CommittedSuspenseState | nul
   return state === 'fallback' ? (fiber.child?.sibling ?? null) : fiber.child
 }
 
-/** Visits every committed Suspense boundary under the given root fibers that can be on screen: hidden Offscreen and Activity subtrees, and the primary tree behind a fallback, are skipped. */
-export function forEachVisibleSuspenseBoundary(
-  roots: Iterable<Fiber>,
-  fiberLimit: number,
-  visit: (boundary: Fiber, state: CommittedSuspenseState | null) => void,
-): { scanTruncated: boolean } {
-  let visited = 0
-  for (const root of roots) {
-    const stack: Fiber[] = [root]
-    while (stack.length > 0) {
-      const fiber = stack.pop() as Fiber
-      if (++visited > fiberLimit) return { scanTruncated: true }
-      if (fiber.sibling) stack.push(fiber.sibling)
+export type SuspenseBoundaryVisitor = (
+  boundary: Fiber,
+  state: CommittedSuspenseState | null,
+) => void
+
+/** A depth-first walk over every committed Suspense boundary that can be on screen: hidden Offscreen and Activity subtrees, and the primary tree behind a fallback, are skipped. It stops at a fiber budget and resumes on a later call, which is sound only while the walked tree stays committed. */
+export class VisibleSuspenseBoundaryWalk {
+  private readonly stack: Fiber[]
+  private visited = 0
+
+  constructor(roots: Iterable<Fiber>) {
+    this.stack = [...roots].reverse()
+  }
+
+  get visitedFibers(): number {
+    return this.visited
+  }
+
+  get complete(): boolean {
+    return this.stack.length === 0
+  }
+
+  /** Visits at most `fiberBudget` more fibers and reports whether the walk has covered the whole tree. */
+  advance(fiberBudget: number, visit: SuspenseBoundaryVisitor): boolean {
+    for (let budget = fiberBudget; budget > 0 && this.stack.length > 0; budget -= 1) {
+      const fiber = this.stack.pop() as Fiber
+      this.visited += 1
+      if (fiber.sibling) this.stack.push(fiber.sibling)
       if (isHiddenOffscreen(fiber)) continue
       if (isSuspenseFiber(fiber)) {
         const state = committedSuspenseState(fiber)
         visit(fiber, state)
         const child = visibleChildOf(fiber, state)
-        if (child) stack.push(child)
+        if (child) this.stack.push(child)
         continue
       }
-      if (fiber.child) stack.push(fiber.child)
+      if (fiber.child) this.stack.push(fiber.child)
     }
+    return this.complete
   }
-  return { scanTruncated: false }
+}
+
+export function forEachVisibleSuspenseBoundary(
+  roots: Iterable<Fiber>,
+  fiberLimit: number,
+  visit: SuspenseBoundaryVisitor,
+): { scanTruncated: boolean } {
+  return { scanTruncated: !new VisibleSuspenseBoundaryWalk(roots).advance(fiberLimit, visit) }
 }

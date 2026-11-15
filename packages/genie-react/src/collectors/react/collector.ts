@@ -763,7 +763,10 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({ contract: reactSuspenseContract, handler: getSuspenseReport }),
       defineCollectorTool({ contract: reactHydrationContract, handler: getHydrationReport }),
-      defineCollectorTool({ contract: reactPendingWorkContract, handler: getPendingReactWork }),
+      defineCollectorTool({
+        contract: reactPendingWorkContract,
+        handler: () => getPendingReactWork(),
+      }),
       defineCollectorTool({
         contract: reactRefreshEventsContract,
         handler: ({ afterSequence, limit, includeSource, appOnly }) =>

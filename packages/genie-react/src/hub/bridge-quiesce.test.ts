@@ -319,4 +319,51 @@ describe('react_quiesce pending React work', () => {
     )
     expect(result.reason).not.toContain('fallback')
   })
+
+  it('never reports idle while the pending-work scan has not covered the tree', async () => {
+    await app(() => ({
+      ...idleWork,
+      documentCommitId: 10,
+      scanTruncated: true,
+      scannedFibers: 50_000,
+    }))
+    const result = await invoke({ idleMs: 100, timeoutMs: 600 })
+    expect(result).toMatchObject({
+      ok: false,
+      outcome: 'timed-out',
+      pendingWork: { scanTruncated: true, suspendedBoundaries: 0 },
+    })
+    expect(result.reason).toBe(
+      'The pending-work scan has covered 50000 fibers so far, so a Suspense fallback in the rest of the tree is not ruled out; it resumes on the next poll while no commit lands.',
+    )
+  })
+
+  it('reports idle once later polls complete the scan of an unchanged tree', async () => {
+    const probes = await app((index) => ({
+      ...idleWork,
+      documentCommitId: 10,
+      scanTruncated: index < 3,
+      scannedFibers: Math.min(index, 3) * 50_000,
+    }))
+    const result = await invoke({ idleMs: 100, timeoutMs: 3_000 })
+    expect(result).toMatchObject({
+      outcome: 'idle',
+      pendingWork: { scanTruncated: false, scannedFibers: 150_000 },
+    })
+    expect(probes()).toBe(3)
+  })
+
+  it('calls blockers found by a partial scan lower bounds', async () => {
+    await app(() => ({
+      ...idleWork,
+      documentCommitId: 10,
+      suspendedBoundaries: 1,
+      boundaries: [{ boundaryId: 1, boundaryName: 'ProductList' }],
+      scanTruncated: true,
+    }))
+    const result = await invoke({ idleMs: 100, timeoutMs: 600 })
+    expect(result.reason).toBe(
+      'React work is still pending: 1 Suspense boundary shows a fallback (ProductList). The pending-work scan has covered part of the tree, so these counts are lower bounds; it resumes on the next poll while no commit lands.',
+    )
+  })
 })

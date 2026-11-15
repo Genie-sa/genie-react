@@ -152,13 +152,12 @@ Evidence is unchanged too. `node scripts/check-runtime-evidence-parity.mjs --bas
 - The pending-unmount buffer re-scanned all 1,000 entries on every overflow to find which targeted entries to protect. A count of targeted entries gives the same choice directly. An evicted unmount no longer restores its Bippy id just to discard it.
 - While paused, a commit on a root Bippy has already traversed no longer walks the rendered tree. Bippy reads its per-root baseline only until the root's first commit sets an alternate, so the next traversal reports the same renders. Components mounted while paused therefore get their ids when a tool first reads them, so their id numbers differ; ids remain stable handles.
 - The unmount callback checks the renderer once per commit instead of once per deleted fiber.
+- Two limits found by this fixture were fixed later. `react_pending_work` scans 50,000 fibers per call and resumes the walk on the next call while no commit lands; the hub never reports React idle while that scan is partial. `react_get_renders` with default arguments answers a match of more than 5,000 components with one bounded page and `pagination.cursorOmitted`, instead of an error.
 
 ## Still open
 
 - Per-component analysis is the remaining idle cost, about 6 µs per rendered component on this machine. The largest parts are deep-comparing props and building the bounded before/after values they report (about a third), instance identity (about a quarter), and render assessment. Changing what is recorded, or when, would change evidence.
 - Bippy's per-fiber unmount dispatch dominates unmount-heavy commits in every state, including paused.
-- `react_pending_work` scans at most 50,000 fibers. On a larger tree it returns `scanTruncated: true`, and the hub's quiescence check does not read that field, so `react_quiesce` can report idle while a fallback past the scan limit is showing.
-- `react_get_renders` with default arguments fails once more than 5,000 components match, which this fixture reaches at 500 rows. The error tells the caller to filter or pass `includeCursor: false`.
 
 ## The CI guard
 

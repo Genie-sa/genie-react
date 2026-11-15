@@ -14,6 +14,7 @@ import {
 } from 'vite'
 import {
   bridgeUrlFor,
+  type DiscoveryPublication,
   GenieBridge,
   removeDiscoveryFile,
   removeDiscoveryOnExit,
@@ -257,7 +258,6 @@ function nestedPeerIncludes(installed: ReadonlySet<string>, excluded: readonly s
 export function genie(options: GenieViteOptions = {}): Plugin[] {
   const enabled = options.enabled ?? true
   const react = options.react ?? true
-  let bridge: GenieBridge | null = null
   let warnedMissingHook = false
   let cloudflare = false
   let hubWsUrl: string | null = null
@@ -378,26 +378,41 @@ export function genie(options: GenieViteOptions = {}): Plugin[] {
         allowedHosts: server.config.server.allowedHosts,
         logger: (level, message) => server.config.logger.info(`[genie:${level}] ${message}`),
       })
-      bridge = currentBridge
+      // Vite restarts in place by building the next server before closing this one, so each server serves and closes only its own bridge and publication.
       httpServer.on('upgrade', (request, socket, head) => {
-        bridge?.handleUpgrade(request, socket, head)
+        currentBridge.handleUpgrade(request, socket, head)
       })
-      let stopExitCleanup: (() => void) | null = null
+      const root = server.config.root
+      const reportFailure = (action: string) => (error: unknown) =>
+        server.config.logger.error(
+          `[genie] could not ${action} the bridge for the genie CLI: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      let publication: Promise<{ instance: string; stopExitCleanup: () => void } | null> =
+        Promise.resolve(null)
       httpServer.once('listening', () => {
-        writeDiscovery(server, httpServer.address(), currentBridge.agentToken)
-          .then((published) => {
-            if (published) stopExitCleanup = removeDiscoveryOnExit(server.config.root)
-          })
-          .catch((error) => {
-            server.config.logger.error(
-              `[genie] could not publish the bridge for the genie CLI: ${error instanceof Error ? error.message : String(error)}`,
-            )
+        publication = writeDiscovery(server, httpServer.address(), currentBridge.agentToken)
+          .then((published) =>
+            published
+              ? {
+                  instance: published.instance,
+                  stopExitCleanup: removeDiscoveryOnExit(root, published.instance),
+                }
+              : null,
+          )
+          .catch((error: unknown) => {
+            reportFailure('publish')(error)
+            return null
           })
       })
       httpServer.once('close', () => {
-        stopExitCleanup?.()
-        bridge?.close()
-        void removeDiscovery(server)
+        currentBridge.close()
+        void publication
+          .then(async (published) => {
+            if (!published) return
+            published.stopExitCleanup()
+            await removeDiscoveryFile(root, published.instance)
+          })
+          .catch(reportFailure('unpublish'))
       })
     },
 
@@ -461,11 +476,7 @@ function releaseStandaloneHub(root: string, owner: object): void {
   const current = hubs.get(root)
   if (current?.owner !== owner) return
   hubs.delete(root)
-  void current.started.then(({ close }) => {
-    if (!close) return
-    void close()
-    void removeDiscoveryFile(root)
-  })
+  void current.started.then(({ close }) => close?.())
 }
 
 function productionNoopPlugin(): Plugin {
@@ -562,8 +573,8 @@ async function writeDiscovery(
   server: ViteDevServer,
   address: string | AddressInfo | null,
   token: string,
-): Promise<boolean> {
-  if (!address || typeof address === 'string') return false
+): Promise<DiscoveryPublication | null> {
+  if (!address || typeof address === 'string') return null
   const url = bridgeUrlFor(address.address, address.port)
   const published = await writeDiscoveryFile(server.config.root, { url, port: address.port, token })
   if (published) server.config.logger.info(`[genie] bridge ready at ${url}`)
@@ -571,9 +582,5 @@ async function writeDiscovery(
     server.config.logger.warn(
       `[genie] another running dev server or hub already publishes this project, so the genie CLI reaches that one, not ${url}. Stop it, or pass --url ${url} to the CLI.`,
     )
-  return published !== null
-}
-
-async function removeDiscovery(server: ViteDevServer): Promise<void> {
-  await removeDiscoveryFile(server.config.root)
+  return published
 }

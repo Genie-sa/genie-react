@@ -30,12 +30,16 @@ function tokenFileForRealRoot(realRoot: string): string {
   return join(agentTokenDirectory(), `${digest}.json`)
 }
 
-/** Publishes the hub's agent token for `rootDir`; returns the file path. */
-export async function writeAgentToken(rootDir: string, token: string): Promise<string> {
+/** Publishes the hub's agent token for `rootDir`; returns the file path. `instance` names the publication, so only the hub that wrote it removes it. */
+export async function writeAgentToken(
+  rootDir: string,
+  token: string,
+  instance?: string,
+): Promise<string> {
   ensurePrivateDirectory(agentTokenDirectory())
   const file = await agentTokenFile(rootDir)
   const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
-  await writeFile(temporary, `${JSON.stringify({ token, pid: process.pid })}\n`, {
+  await writeFile(temporary, `${JSON.stringify({ token, pid: process.pid, instance })}\n`, {
     mode: PRIVATE_FILE_MODE,
     flag: 'wx',
   })
