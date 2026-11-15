@@ -267,8 +267,10 @@ interface PendingUnmount {
   targeted: boolean
 }
 const pendingUnmounts: PendingUnmount[] = []
+let targetedPendingUnmounts = 0
 const pendingHostUnmountRenderers = new Set<number>()
 let uncertainTraversalRoots = new WeakMap<FiberRoot, string | null>()
+let traversedRoots = new WeakSet<FiberRoot>()
 
 let commitListener: (() => void) | null = null
 
@@ -294,13 +296,14 @@ export function startRenderTracking(): boolean {
     instrumentation = instrument({
       name: 'genie-react',
       onCommitFiberUnmount: (rendererId: number, fiber: Fiber) => {
-        if (!isSafeRenderer(rendererId)) return
+        if (!isSafeUnmountRenderer(rendererId)) return
         if (isHostFiber(fiber) || isHostTextFiber(fiber)) {
           pendingHostUnmountRenderers.add(rendererId)
         }
         queuePendingUnmount(rendererId, fiber)
       },
       onCommitFiberRoot: supportedCommitHandler((rendererId: number, root: FiberRoot) => {
+        unmountRendererVerdicts.clear()
         commitListener?.()
         noteCommit()
         noteCommittedRoot(root)
@@ -327,7 +330,7 @@ export function startRenderTracking(): boolean {
         if (paused) {
           discardPendingUnmounts(rendererId)
           pausedCommits += 1
-          advanceExcludedCommitBaseline(root)
+          if (!hasSettledBaseline(root) || mayHaveCaught(root)) advanceExcludedCommitBaseline(root)
           return
         }
         if (uncertainTraversalRoots.has(root)) {
@@ -415,6 +418,7 @@ export function startRenderTracking(): boolean {
           finalizeCommitAnalysisBudget(budget)
           return
         }
+        traversedRoots.add(root)
         for (const candidate of targetedCandidates) {
           recordCommitFiber(candidate.fiber, candidate.phase, budget, true)
         }
@@ -432,6 +436,29 @@ export function startRenderTracking(): boolean {
   return installed
 }
 
+/** Bippy keeps one previous Fiber per root and reads it only while the root's current Fiber has no alternate, which React sets at the root's first commit; after one clean traversal, an excluded commit can skip the walk without changing what a later traversal reports. */
+function hasSettledBaseline(root: FiberRoot): boolean {
+  return traversedRoots.has(root) && !uncertainTraversalRoots.has(root)
+}
+
+/** React bubbles every non-static flag of a re-rendered fiber into its ancestors' subtreeFlags, so a root without DidCapture there committed no catch. */
+function mayHaveCaught(root: FiberRoot): boolean {
+  const { flags, subtreeFlags } = root.current
+  return ((flags | subtreeFlags) & DID_CAPTURE) !== 0
+}
+
+// React reports every deleted fiber before its commit's root callback, which clears this; a renderer's verdict cannot change inside one commit, so it is decided once per commit rather than once per deleted fiber.
+const unmountRendererVerdicts = new Map<number, boolean>()
+
+function isSafeUnmountRenderer(rendererId: number): boolean {
+  let verdict = unmountRendererVerdicts.get(rendererId)
+  if (verdict === undefined) {
+    verdict = isSafeRenderer(rendererId)
+    unmountRendererVerdicts.set(rendererId, verdict)
+  }
+  return verdict
+}
+
 /** Advance Bippy's per-root previous-Fiber baseline without retaining excluded commit evidence; catches are still recorded, since a boundary's error state is screen state. */
 function advanceExcludedCommitBaseline(root: FiberRoot): void {
   try {
@@ -439,6 +466,7 @@ function advanceExcludedCommitBaseline(root: FiberRoot): void {
       if (hasCapturedError(fiber)) recordBoundaryCatch(fiber)
     })
     uncertainTraversalRoots.delete(root)
+    traversedRoots.add(root)
   } catch {
     noteUnscannedCommit()
     uncertainTraversalRoots.set(root, getActiveObservation()?.id ?? null)
@@ -452,7 +480,7 @@ export function disposeRenderTracking(): void {
   renderPages = new Map()
   noteAnalysisInvalidation()
   for (const pending of pendingUnmounts) forgetUnmountWithoutTombstone(pending)
-  pendingUnmounts.length = 0
+  replacePendingUnmounts([])
   invalidateLiveInstancesForRefresh()
   instrumentation?.()
   instrumentation = null
@@ -461,7 +489,9 @@ export function disposeRenderTracking(): void {
   commitObservedSinceInstall = false
   paused = false
   pendingHostUnmountRenderers.clear()
+  unmountRendererVerdicts.clear()
   uncertainTraversalRoots = new WeakMap()
+  traversedRoots = new WeakSet()
 }
 
 /** Pause commit recording without uninstalling instrumentation; isTracking() reports false until startRenderTracking() resumes. */
@@ -566,7 +596,7 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   suggestedTargetScale = 0
   exhaustedBudgetLimits.clear()
   for (const pending of pendingUnmounts) forgetUnmountWithoutTombstone(pending)
-  pendingUnmounts.length = 0
+  replacePendingUnmounts([])
   clears++
   clearEffects()
   clearErrorState()
@@ -922,21 +952,24 @@ export async function getRendersMeasurement(
   return renderMeasurementPage(snapshotId, snapshot, 0, query.limit)
 }
 
+/** Each render publishes new instance, change, cause, assessment and coverage objects and never mutates them, so a snapshot copies only the fields a later render or unmount rewrites in place. */
 function snapshotRenderRecords(candidates = [...records.values()]): Map<number, RenderRecord> {
   return new Map(
-    candidates.map((record) => [
-      record.id,
-      {
-        ...record,
-        instance: safeStructuredClone(record.instance),
-        changes: safeStructuredClone(record.changes),
-        causes: safeStructuredClone(record.causes),
-        causeCounts: { ...record.causeCounts },
-        assessment: safeStructuredClone(record.assessment),
-        inputCoverage: { ...record.inputCoverage },
-      },
-    ]),
+    candidates.map((record) => [record.id, { ...record, causeCounts: { ...record.causeCounts } }]),
   )
+}
+
+/** The cause report reads only the records its retained events name, not the whole store. */
+function recordsOfEvents(events: readonly RetainedRenderCauseEvent[]): RenderRecord[] {
+  const named: RenderRecord[] = []
+  const seen = new Set<number>()
+  for (const event of events) {
+    if (seen.has(event.componentId)) continue
+    seen.add(event.componentId)
+    const record = records.get(event.componentId)
+    if (record) named.push(record)
+  }
+  return named
 }
 
 export async function getRenderCauseEventsReport(query: RenderCauseQuery): Promise<{
@@ -972,8 +1005,8 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
     latestDocumentCommitId: number | null
   }
 }> {
-  const recordsAtStart = snapshotRenderRecords()
-  const eventsAtStart = safeStructuredClone(recentCauseEvents)
+  const eventsAtStart = [...recentCauseEvents]
+  const recordsAtStart = snapshotRenderRecords(recordsOfEvents(eventsAtStart))
   const commitsAtStart = commits
   const epoch = captureReportEpoch()
   const observation = getActiveObservation()
@@ -1523,8 +1556,13 @@ function recordPendingUnmounts(rendererId: number, budget: CommitAnalysisBudget)
     removeEffectRecord(pending.fiber)
     retainUnmountedRecord(instance.fiberId)
   }
+  replacePendingUnmounts(retained)
+}
+
+function replacePendingUnmounts(retained: PendingUnmount[]): void {
   pendingUnmounts.length = 0
   pendingUnmounts.push(...retained)
+  targetedPendingUnmounts = retained.filter((pending) => pending.targeted).length
 }
 
 function retainUnmountedRecord(id: number): void {
@@ -1548,30 +1586,29 @@ export function queuePendingUnmount(rendererId: number, fiber: Fiber): void {
   if (!isCompositeFiber(fiber)) return
   const targeted = withinRoot || matchesObservedComponent(fiber)
   pendingUnmounts.push({ rendererId, fiber, fiberId: getFiberId(fiber), targeted })
+  if (targeted) targetedPendingUnmounts += 1
   if (pendingUnmounts.length <= observationConfiguration.lifecycle.bufferLimit) return
-  const protectedTargetIndices = new Set<number>()
-  let remainingReservation = observationConfiguration.lifecycle.targetReserve
-  for (let index = pendingUnmounts.length - 1; index >= 0 && remainingReservation > 0; index -= 1) {
-    if (!pendingUnmounts[index]?.targeted) continue
-    protectedTargetIndices.add(index)
-    remainingReservation -= 1
-  }
-  const evictionIndex = Math.max(
-    0,
-    pendingUnmounts.findIndex((_, index) => !protectedTargetIndices.has(index)),
-  )
-  const [dropped] = pendingUnmounts.splice(evictionIndex, 1)
+  const [dropped] = pendingUnmounts.splice(pendingUnmountEvictionIndex(), 1)
   if (dropped) forgetUnmountWithoutTombstone(dropped)
-  if (dropped?.targeted) droppedTargetUnmountFibers += 1
+  if (dropped?.targeted) {
+    targetedPendingUnmounts -= 1
+    droppedTargetUnmountFibers += 1
+  }
   droppedPendingUnmountFibers += 1
 }
 
+/** The newest `targetReserve` targeted unmounts are protected; evict the oldest entry outside them, or the oldest entry when every entry is protected. */
+function pendingUnmountEvictionIndex(): number {
+  if (targetedPendingUnmounts > observationConfiguration.lifecycle.targetReserve) return 0
+  const firstUntargeted = pendingUnmounts.findIndex((pending) => !pending.targeted)
+  return Math.max(0, firstUntargeted)
+}
+
 /** An unmount that cannot be reported still has to release its record, or the record pins the detached fiber. */
-function forgetUnmountWithoutTombstone(pending: PendingUnmount): void {
-  const fiber = restoreFiberId(pending)
-  discardExcludedInstanceUnmount(fiber)
-  removeEffectRecord(fiber)
-  records.delete(pending.fiberId)
+function forgetUnmountWithoutTombstone({ fiber, fiberId }: PendingUnmount): void {
+  discardExcludedInstanceUnmount(fiber, fiberId)
+  removeEffectRecord(fiber, fiberId)
+  records.delete(fiberId)
 }
 
 /** Bippy 0.7.3+ forgets a fiber's id once its unmount callbacks return; the deferred lifecycle needs the mounted id. */
@@ -1586,8 +1623,7 @@ function discardPendingUnmounts(rendererId: number): void {
     if (pending.rendererId === rendererId) forgetUnmountWithoutTombstone(pending)
     else retained.push(pending)
   }
-  pendingUnmounts.length = 0
-  pendingUnmounts.push(...retained)
+  replacePendingUnmounts(retained)
 }
 
 function publishCauseEvent(

@@ -32,6 +32,7 @@ import {
   type NodeId,
 } from './contracts'
 import { type HookSlot, hookSlots } from './hook-groups'
+import { LruMap } from './lru-map'
 import {
   classifyFibersWithinBudget,
   type FiberClassification,
@@ -132,9 +133,9 @@ export interface WrapperFrame {
   name: string
 }
 
-// Id → fiber registry. React double-buffers fibers (current/alternate swap each commit), so the id is mirrored onto both buffers and resolved via getLatestFiber to whichever is mounted; LRU-capped (delete+set refreshes recency) so a long session can't pin unmounted fibers forever.
+// Id → fiber registry. React double-buffers fibers (current/alternate swap each commit), so the id is mirrored onto both buffers and resolved via getLatestFiber to whichever is mounted; LRU-capped (each registration refreshes recency) so a long session can't pin unmounted fibers forever.
 const REGISTRY_LIMIT = 5_000
-const fiberRegistry = new Map<NodeId, Fiber>()
+const fiberRegistry = new LruMap<NodeId, Fiber>(REGISTRY_LIMIT)
 
 const TREE_SOURCE_CLASSIFY_LIMIT = 120
 const TREE_SOURCE_CLASSIFY_BUDGET_MS = 500
@@ -148,10 +149,6 @@ export function registerFiber(fiber: Fiber): NodeId {
   const id = asNodeId(getFiberId(fiber))
   // bippy's setFiberId allocates a WeakRef and finalizer registration per call, so only mirror a missing or stale id.
   if (fiber.alternate && getFiberId(fiber.alternate) !== id) setFiberId(fiber.alternate, id)
-  if (!fiberRegistry.delete(id) && fiberRegistry.size >= REGISTRY_LIMIT) {
-    const oldest = fiberRegistry.keys().next().value
-    if (oldest !== undefined) fiberRegistry.delete(oldest)
-  }
   fiberRegistry.set(id, fiber)
   return id
 }
