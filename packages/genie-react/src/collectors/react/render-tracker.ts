@@ -289,6 +289,8 @@ const DEFAULT_OBSERVATION_CONFIGURATION: RenderObservationConfiguration = {
 }
 
 let observationConfiguration = safeStructuredClone(DEFAULT_OBSERVATION_CONFIGURATION)
+/** True until a commit is analyzed, and again after any commit is not. */
+let analysisCold = true
 let observationRootIds = new Set<number>()
 /** Bippy releases ids as React reports each unmount parent-first, so descendants read their deleted ancestors' root membership here, through either buffer a stale `return` may point at. */
 let unmountedRootMembership = new WeakMap<Fiber, boolean>()
@@ -302,6 +304,8 @@ const BUDGET_ADVICE_MARGIN = 1.25
 const MOUNTED_TREE_VISIT_LIMIT = 100_000
 // Hysteresis: one cheap commit after a burst must not shrink the budget the next burst needs.
 const ADAPTIVE_DECAY_COMMITS = 30
+// Measured in Chromium at a 2x CPU throttle: the first analyzed commit after unanalyzed ones took four times a warm commit, because V8 had not compiled the analysis code or had flushed it.
+const COLD_COMMIT_TIME_FACTOR = 4
 
 const DID_CAPTURE = 0b1000_0000
 const RECENT_CAUSE_EVENT_LIMIT = 1_000
@@ -389,7 +393,8 @@ export function startRenderTracking(): boolean {
           return
         }
         commits += 1
-        const effective = effectiveObservationBudget()
+        const effective = commitTimeAllowance(effectiveObservationBudget())
+        analysisCold = false
         const budget = createCommitAnalysisBudget(
           effective.fiberLimit,
           {
@@ -477,6 +482,7 @@ export function isTracking(): boolean {
 
 /** A commit nothing observes keeps what a reader arriving later still needs: boundary catches, Bippy's traversal baseline, and mount generations. */
 function recordUnanalyzedCommit(rendererId: number, root: FiberRoot): void {
+  analysisCold = true
   if (paused) {
     pausedCommits += 1
     discardPendingUnmounts(rendererId)
@@ -528,6 +534,7 @@ function advanceExcludedCommitBaseline(root: FiberRoot): void {
 
 /** Module/HMR teardown only. Profiling stop must keep the lightweight commit heartbeat installed. */
 export function disposeRenderTracking(): void {
+  analysisCold = true
   clearMeasurementSpans()
   renderPages = new Map()
   noteAnalysisInvalidation()
@@ -761,6 +768,21 @@ function effectiveObservationBudget(): RenderObservationConfiguration['budget'] 
   return observationConfiguration.budget.adaptive
     ? scaledBudget(adaptiveBudgetScale, adaptiveCostScale)
     : scaledBudget(1)
+}
+
+/** A cold commit gets more time so a window's first interaction keeps its input evidence; the operation limit still bounds its work. */
+function commitTimeAllowance(
+  budget: RenderObservationConfiguration['budget'],
+): RenderObservationConfiguration['budget'] {
+  if (!analysisCold) return budget
+  return {
+    ...budget,
+    timeLimitMs: Math.min(MAXIMUM_BUDGET.timeLimitMs, budget.timeLimitMs * COLD_COMMIT_TIME_FACTOR),
+    targetTimeReserveMs: Math.min(
+      MAXIMUM_BUDGET.targetTimeReserveMs,
+      budget.targetTimeReserveMs * COLD_COMMIT_TIME_FACTOR,
+    ),
+  }
 }
 
 const currentBudgetScale = (): number =>

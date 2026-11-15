@@ -33,6 +33,10 @@ a `deprecations` entry naming `component`. `roots` defaults to `[]` and accepts 
 defaults to `{bufferLimit:1000,targetReserve:100}`; `bufferLimit` is an integer from 100 to 20000,
 `targetReserve` is an integer from 0 to 5000, and the reserve cannot exceed the buffer.
 
+The first commit analyzed after commits nothing observed, such as the first interaction in a new
+window, gets four times `timeLimitMs` and `targetTimeReserveMs`, up to their maxima, because the
+analysis code runs cold; `operationLimit` still bounds its work.
+
 The expanded maxima are opt-in. With `adaptive:true`, the call counts the components already
 mounted and raises `fiberLimit`, `operationLimit`, and `timeLimitMs` by the same factor until
 `fiberLimit` covers them, up to the maxima; `observationConfig.adaptiveScale` reports the factor. A
@@ -1141,6 +1145,10 @@ Clears render counters and starts a profiling observation.
 50–20000, 1000–2000000, 1–500, 100–500000, and 0.5–250 respectively. `lifecycle`
 defaults to `{bufferLimit:1000,targetReserve:100}`; `bufferLimit` is an integer from 100 to 20000,
 `targetReserve` is an integer from 0 to 5000, and the reserve cannot exceed the buffer.
+
+The first commit analyzed after commits nothing observed, such as the first interaction in a new
+window, gets four times `timeLimitMs` and `targetTimeReserveMs`, up to their maxima, because the
+analysis code runs cold; `operationLimit` still bounds its work.
 
 The expanded maxima are opt-in. With `adaptive:true`, the call counts the components already
 mounted and raises `fiberLimit`, `operationLimit`, and `timeLimitMs` by the same factor until

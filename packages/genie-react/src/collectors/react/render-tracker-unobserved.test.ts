@@ -55,6 +55,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   view?.unmount()
   view = null
   disposeRenderTracking()
@@ -192,6 +193,30 @@ describe('commits before any window', () => {
     expect(state.catchLog?.catches).toMatchObject([
       { boundaryName: 'Boundary', observationId: null },
     ])
+  })
+})
+
+describe('the first commit a window analyzes', () => {
+  /** Every clock read costs `msPerRead`, so a commit costs the same whether or not its code is compiled; only the allowance differs. */
+  function slowClock(msPerRead: number): void {
+    let now = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => {
+      now += msPerRead
+      return now
+    })
+  }
+
+  it('gets extra time after unobserved commits, so it keeps the evidence a warm commit of the same cost would lose', () => {
+    view = render(createElement(Toggle, { initiallyShown: true }))
+    click('bump')
+    clearRenders({ budget: { timeLimitMs: 8, adaptive: false } })
+    slowClock(2)
+
+    click('bump')
+    expect(getRenderTrackingCoverage('measurement').complete).toBe(true)
+
+    click('bump')
+    expect(getRenderTrackingCoverage('measurement').complete).toBe(false)
   })
 })
 

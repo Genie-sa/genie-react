@@ -241,7 +241,7 @@ describe('excluded commit traversal baselines', () => {
       .spyOn(performance, 'now')
       .mockReturnValueOnce(0)
       .mockReturnValueOnce(0)
-      .mockReturnValue(2)
+      .mockReturnValue(5)
     try {
       harness.options?.onCommitFiberRoot?.(1, root)
       expect(getPendingUnmountFiberCount()).toBe(1)
