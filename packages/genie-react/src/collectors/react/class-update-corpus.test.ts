@@ -13,6 +13,7 @@ import {
 } from 'react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, click, mount, startCollector, unmountAll } from '../../test-support/react-app'
+import { resetObservationStateForTests } from './observation'
 import { disposeRenderTracking } from './render-tracker'
 
 const THIS_FILE = fileURLToPath(import.meta.url)
@@ -309,6 +310,29 @@ class Gate extends Component<object, { hidden: number; shown: number }> {
     return h('output', null, String(this.state.shown))
   }
 }
+
+describe('a class mounted while nothing observed', () => {
+  it('records the updates a window then sees', async () => {
+    class LateDraft extends Component<object, { draft: string }> {
+      override state = { draft: 'Original title' }
+
+      edit = () => this.setState({ draft: 'renamed by the user' })
+
+      override render(): ReactNode {
+        return h('button', { type: 'button', onClick: this.edit }, this.state.draft)
+      }
+    }
+    resetObservationStateForTests()
+    const app = await mount(h(LateDraft))
+    await genie.call('react_clear_renders')
+
+    await click(app.container.querySelector('button'))
+
+    expect(updatesOf(await rendersOf('LateDraft'))).toEqual([
+      expect.objectContaining({ method: 'setState', phase: 'event', fields: ['draft'] }),
+    ])
+  })
+})
 
 describe('the recorder leaves the app as it was', () => {
   it('passes lifecycle arguments and results through, keeps setState callbacks in order, and keeps method names', async () => {

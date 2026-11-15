@@ -695,6 +695,7 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   clearEffects()
   clearErrorState()
   clearSourceCache()
+  instrumentMountedClasses()
   const observation = beginObservation()
   setExternalStoreObservation(observation)
   beginInstanceObservation(observation.id)
@@ -800,6 +801,17 @@ function scaleFittingFibers(fibers: number): number {
     maxAdaptiveScale(),
     Math.max(1, Math.ceil(fibers / observationConfiguration.budget.fiberLimit)),
   )
+}
+
+/** An analyzed render wraps its class's prototype to record setState calls; a class that rendered only while nothing observed is wrapped here, so the window records its first update. */
+function instrumentMountedClasses(): void {
+  const stack = [...findAllCommittedRootFibers().roots]
+  for (let visited = 0; stack.length > 0 && visited < MOUNTED_TREE_VISIT_LIMIT; visited++) {
+    const fiber = stack.pop() as Fiber
+    instrumentClassFiber(fiber, recordingClassUpdates)
+    if (fiber.sibling) stack.push(fiber.sibling)
+    if (fiber.child) stack.push(fiber.child)
+  }
 }
 
 /** Size an adaptive window from the tree already mounted, because growth after an exhausted commit cannot restore that commit; a component's analysis walks its ancestors, so deeper trees get proportionally more work per component. */
