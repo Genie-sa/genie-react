@@ -1,0 +1,80 @@
+---
+title: Verify a fix
+description: Declare what the fix must make true, drive the interaction, and get a verdict with an exit code.
+icon: ShieldCheck
+---
+
+Declare claims, drive the UI, and end the window. Genie waits for the app to settle, then decides
+each claim.
+
+## Run one verification
+
+```bash
+npx @genie-react/cli verify begin --session my-agent --name "click the counter" \
+  --claim 'render MemoChild max 0' \
+  --claim 'render App min 1' \
+  --claim 'boundaries clean'
+agent-browser --session my-agent click button.counter
+npx @genie-react/cli verify end <id> --session my-agent
+```
+
+`begin` prints the ID and the `end` command. `end` prints one line per claim. This is
+`apps/vite-demo` before the fix, trimmed:
+
+```text
+fail vfy_… "click the counter"  1 commit, quiet after 616 ms (react, query)
+  1 fail render MemoChild max 0  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,…}
+  2 pass render App min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,…}
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 1 for these claims on this tab
+```
+
+Fix the code and run all three again. The last line tracks attempts:
+
+```text
+attempt 2 for these claims on this tab; previous fail vfy_…; code changed since (Fast Refresh)
+```
+
+`verify show <id> --claim 1` prints the evidence that decided a claim.
+
+## Write claims
+
+| Claim | Holds when |
+| --- | --- |
+| `render <Name> max <N>` | matched instances rendered at most N times |
+| `render <Name> min <N>` | they rendered at least N times |
+| `render <Name> max <N> counting updates` | updates only; a remount still fails unless you add `allow-remount` |
+| `render <Name> only <cause>[,<cause>]` | every render had only listed causes: `mount`, `children`, `router`, `props.<name>`, `state[<n>]`, `context.<Name>`, `query.<hash>` |
+| `effect <Name>[#index] max <N>` | each effect ran at most N times |
+| `effect <Name>[#index] settles` | the effect stopped running after the app settled |
+| `boundaries clean` | no error boundary caught during the window or is in an error state at the end |
+| `boundaries clean-at-end` | no boundary is in an error state at the end |
+
+Names are exact component names. Narrow one with `@src/file.tsx` or `[key=value]`. Add a positive
+control, such as `min 1` on a component the action must change, so a run that never reached the app
+fails. `--claims <file>` takes claims as JSON.
+
+## Read the verdict
+
+| Verdict | Exit | Meaning |
+| --- | --- | --- |
+| `pass` | 0 | the evidence proves every claim |
+| `fail` | 1 | the evidence proves at least one claim false |
+| `refused` | 4 | the evidence is not good enough to decide |
+| `inconclusive` | 5 | complete evidence that does not decide, such as an excess only StrictMode explains |
+
+A refusal names its reason and the fix. Ending a window with no action:
+
+```text
+refused vfy_… "nothing"  0 commits, quiet after 609 ms (react, query)
+  1 refused render MemoChild max 0  no_activity: No React commit happened in the window; the interaction did not reach this tab or did not change React state.
+```
+
+[Read evidence](/docs/reference/evidence#refusals) lists every refusal.
+
+## While a window is open
+
+Genie refuses tools that would skew the evidence on that tab, such as `react_clear_renders` and the
+override tools. `verify abort <id>` releases the window, and unended windows expire after five
+minutes. Genie does not check the screen, so confirm the result with the UI driver.

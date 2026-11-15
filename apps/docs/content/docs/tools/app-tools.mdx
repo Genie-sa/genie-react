@@ -221,7 +221,7 @@ schema.
 
 ## Expose a Redux store
 
-Register the [Redux collector](/docs/setup/redux) first. It records the actions dispatched through
+Register the [Redux collector](/docs/getting-started/install#redux) first. It records the actions dispatched through
 the store and its thunks, flags reducers that change state in place, and names the action behind
 each store-driven render, through the built-in [`redux_actions`](/docs/tools/redux) and
 `redux_state` tools.
@@ -508,7 +508,7 @@ unknown keys rejected with the valid keys listed.
 
 Inspect a tool's JSON descriptor with `tools app_login_as` before calling it. `annotations` reports
 `readOnlyHint`, `idempotentHint`, and `destructiveHint` when declared. These are handler contracts,
-not enforcement or a promise that a read has no runtime cost.
+not enforcement.
 
 ## Unavailable tools
 

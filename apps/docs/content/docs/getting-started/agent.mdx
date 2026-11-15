@@ -1,0 +1,56 @@
+---
+title: Use it with your agent
+description: The skill, one session name for both tools, prompts that work, and several agents at once.
+icon: Bot
+---
+
+## The skill
+
+`init` installs the Genie skill in `.agents/skills/genie` for Codex, Cursor and other Agent Skills
+clients, and links `.claude/skills/genie` to it for Claude Code. The skill teaches your agent the
+loop below, so you only describe the outcome. Rerun `init` after you upgrade Genie.
+
+## One session name for both tools
+
+Each browser tab is a Genie session. Open the app with an agent-browser session and pass the same
+name to every Genie command:
+
+```bash
+agent-browser --session my-agent open http://localhost:3040/
+npx @genie-react/cli status --session my-agent --wait 15000
+npx @genie-react/cli call react_get_tree --session my-agent '{"depth":2}'
+```
+
+The name survives reloads and navigation. In another browser, add `?_genie=my-agent` to the URL.
+
+## The loop
+
+1. Open a window with `verify begin` or `react_clear_renders`. Genie analyzes renders and effects
+   only while a window is open.
+2. Act with agent-browser or agent-device.
+3. Read the result, or end the verification.
+4. Fix the code and repeat the same action.
+5. Check the screen with the UI driver. Genie does not see pixels.
+6. Restore any state you forced. The work is done when `verify` passed and the screen looks right.
+
+## Prompts that work
+
+Name the interaction and the outcome:
+
+> Find out why Checkout re-renders when I type in search. Fix it and verify the fix.
+
+> Open the product page and tell me whether the delay comes from a request or from rendering.
+
+> Show me the cart in its loading, empty and error states, then put it back.
+
+## Several agents at once
+
+Agents can share one dev server and hub. Give each its own tab and session name, and run each from
+its own checkout or worktree. Set `GENIE_AGENT=<name>` when two agents share a shell. Genie keeps
+their evidence apart and refuses calls that would disturb another agent:
+
+| Failure | Meaning | What to do |
+| --- | --- | --- |
+| `unknown_session`, `SESSION_CLAIMED` | Every tab is in use by another agent | Open your own tab |
+| `conflict`, `OBSERVATION_SUPERSEDED` | Your window was reset by another agent or a reload | Open a new window and repeat |
+| `conflict`, `STATE_HELD` | Another agent holds the overrides or recording | Use your own tab |

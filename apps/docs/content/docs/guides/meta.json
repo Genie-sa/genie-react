@@ -1,0 +1,11 @@
+{
+  "title": "Guides",
+  "icon": "Workflow",
+  "pages": [
+    "verify-a-fix",
+    "optimize",
+    "validate-ui-states",
+    "renders-and-effects",
+    "query-and-router"
+  ]
+}

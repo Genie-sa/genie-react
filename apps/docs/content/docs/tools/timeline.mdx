@@ -7,8 +7,10 @@ icon: Activity
 The JSON examples below show selected fields from the full response.
 
 These tools belong to the `timeline` group and are available through `<Genie />`, the hub-served
-script entry, or the manual `timelineCollector`. They record only after an explicit start. See the
-[interaction workflow](/docs/workflows/interaction-timeline) for lane semantics and live validation.
+script entry, or the manual `timelineCollector`. They record only after an explicit start. Events
+line up by time only (`correlation: "temporal-only"`), so confirm a link with render causes. A lane
+whose coverage is unavailable recorded nothing, which does not mean nothing happened. The
+[optimize guide](/docs/guides/optimize#request-or-render) shows a recording end to end.
 
 ## `timeline_start`
 
