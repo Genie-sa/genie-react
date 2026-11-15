@@ -103,7 +103,7 @@ describe('evaluateSandboxProbe', () => {
     expect(
       grade(
         'call Genie with the hub token',
-        transcript(genie, '{"tracking":true,"renderCollection":"available"}'),
+        transcript(genie, 'tracking: true\nrenderCollection: available'),
       ).pass,
     ).toBe(true)
     const session = probe('switch agent-browser session').command

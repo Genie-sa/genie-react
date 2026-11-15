@@ -1,0 +1,16 @@
+{
+  "argv": ["call", "no_such_tool", "{}"],
+  "exitCode": 1,
+  "result": {
+    "schemaVersion": "2.0",
+    "status": "error",
+    "reason": "unknown_tool",
+    "message": "Tool call failed. The selected app advertises no tool named no_such_tool. Run next to inspect available tools.",
+    "userActionRequired": true,
+    "errorCode": "unknown-tool",
+    "next": {
+      "command": "pnpm exec genie-react tools --session measure",
+      "argv": ["pnpm", "exec", "genie-react", "tools", "--session", "measure"]
+    }
+  }
+}

@@ -1,0 +1,4242 @@
+{
+  "argv": ["call", "react_effect_timeline", "{}"],
+  "exitCode": 0,
+  "result": {
+    "tracking": true,
+    "documentCommitId": 13,
+    "observation": { "id": "observation:1", "epoch": 1, "startedAfterDocumentCommitId": 7 },
+    "events": [
+      {
+        "effectEventId": "effect:13:183",
+        "effectId": "effect:mount:9:13",
+        "observationId": "observation:1",
+        "commitId": 6,
+        "documentCommitId": 13,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 13,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2730.2,
+          "completedAt": 2730.2,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": []
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865359,
+            "evidence": "exact",
+            "referenceId": "effect:13:183"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865360,
+            "evidence": "exact",
+            "outcome": "completed"
+          }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:13:182",
+        "effectId": "effect:mount:9:12",
+        "observationId": "observation:1",
+        "commitId": 6,
+        "documentCommitId": 13,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 12,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2730.2,
+          "completedAt": 2730.2,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": []
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865359,
+            "evidence": "exact",
+            "referenceId": "effect:13:182"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865360,
+            "evidence": "exact",
+            "outcome": "completed"
+          }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:13:181",
+        "effectId": "effect:mount:9:10",
+        "observationId": "observation:1",
+        "commitId": 6,
+        "documentCommitId": 13,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 10,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2730.2,
+          "completedAt": 2730.2,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": []
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865359,
+            "evidence": "exact",
+            "referenceId": "effect:13:181"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865360,
+            "evidence": "exact",
+            "outcome": "completed"
+          }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:13:180",
+        "effectId": "effect:mount:9:9",
+        "observationId": "observation:1",
+        "commitId": 6,
+        "documentCommitId": 13,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 9,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2730.2,
+          "completedAt": 2730.2,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": []
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865359,
+            "evidence": "exact",
+            "referenceId": "effect:13:180"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865360,
+            "evidence": "exact",
+            "outcome": "completed"
+          }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:13:179",
+        "effectId": "effect:mount:9:7",
+        "observationId": "observation:1",
+        "commitId": 6,
+        "documentCommitId": 13,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 7,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2730.2,
+          "completedAt": 2730.2,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": []
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865359,
+            "evidence": "exact",
+            "referenceId": "effect:13:179"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865359,
+            "evidence": "exact",
+            "outcome": "completed"
+          }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:13:178",
+        "effectId": "effect:mount:9:6",
+        "observationId": "observation:1",
+        "commitId": 6,
+        "documentCommitId": 13,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 6,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2730.2,
+          "completedAt": 2730.2,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": []
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865359,
+            "evidence": "exact",
+            "referenceId": "effect:13:178"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865359,
+            "evidence": "exact",
+            "outcome": "completed"
+          }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:13:177",
+        "effectId": "effect:mount:9:4",
+        "observationId": "observation:1",
+        "commitId": 6,
+        "documentCommitId": 13,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 4,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2730.2,
+          "completedAt": 2730.2,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": []
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865359,
+            "evidence": "exact",
+            "referenceId": "effect:13:177"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865359,
+            "evidence": "exact",
+            "outcome": "completed"
+          }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:13:176",
+        "effectId": "effect:mount:9:3",
+        "observationId": "observation:1",
+        "commitId": 6,
+        "documentCommitId": 13,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 3,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [0],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2730.2,
+          "completedAt": 2730.2,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": []
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865359,
+            "evidence": "exact",
+            "referenceId": "effect:13:176"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865359,
+            "evidence": "exact",
+            "outcome": "completed"
+          }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:13:175",
+        "effectId": "effect:mount:9:2",
+        "observationId": "observation:1",
+        "commitId": 6,
+        "documentCommitId": 13,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 2,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2730.2,
+          "completedAt": 2730.2,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": []
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865359,
+            "evidence": "exact",
+            "referenceId": "effect:13:175"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865359,
+            "evidence": "exact",
+            "outcome": "completed"
+          }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:12:173",
+        "effectId": "effect:mount:9:13",
+        "observationId": "observation:1",
+        "commitId": 5,
+        "documentCommitId": 12,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 13,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2426.6,
+          "completedAt": 2426.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 13,
+              "timestamp": 1794700865359,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "referenceId": "effect:12:173"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865359, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:12:172",
+        "effectId": "effect:mount:9:12",
+        "observationId": "observation:1",
+        "commitId": 5,
+        "documentCommitId": 12,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 12,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2426.6,
+          "completedAt": 2426.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 13,
+              "timestamp": 1794700865359,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "referenceId": "effect:12:172"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865359, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:12:171",
+        "effectId": "effect:mount:9:10",
+        "observationId": "observation:1",
+        "commitId": 5,
+        "documentCommitId": 12,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 10,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2426.6,
+          "completedAt": 2426.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 13,
+              "timestamp": 1794700865359,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "referenceId": "effect:12:171"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865359, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:12:170",
+        "effectId": "effect:mount:9:9",
+        "observationId": "observation:1",
+        "commitId": 5,
+        "documentCommitId": 12,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 9,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2426.6,
+          "completedAt": 2426.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 13,
+              "timestamp": 1794700865359,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "referenceId": "effect:12:170"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865359, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:12:169",
+        "effectId": "effect:mount:9:7",
+        "observationId": "observation:1",
+        "commitId": 5,
+        "documentCommitId": 12,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 7,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2426.6,
+          "completedAt": 2426.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 13,
+              "timestamp": 1794700865359,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "referenceId": "effect:12:169"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865359, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:12:168",
+        "effectId": "effect:mount:9:6",
+        "observationId": "observation:1",
+        "commitId": 5,
+        "documentCommitId": 12,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 6,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2426.6,
+          "completedAt": 2426.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 13,
+              "timestamp": 1794700865359,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "referenceId": "effect:12:168"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865359, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:12:167",
+        "effectId": "effect:mount:9:4",
+        "observationId": "observation:1",
+        "commitId": 5,
+        "documentCommitId": 12,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 4,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2426.6,
+          "completedAt": 2426.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 13,
+              "timestamp": 1794700865359,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "referenceId": "effect:12:167"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865359, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:12:166",
+        "effectId": "effect:mount:9:3",
+        "observationId": "observation:1",
+        "commitId": 5,
+        "documentCommitId": 12,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 3,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [0],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2426.6,
+          "completedAt": 2426.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 13,
+              "timestamp": 1794700865359,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "referenceId": "effect:12:166"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865359, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:12:165",
+        "effectId": "effect:mount:9:2",
+        "observationId": "observation:1",
+        "commitId": 5,
+        "documentCommitId": 12,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 2,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2426.6,
+          "completedAt": 2426.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 13,
+              "timestamp": 1794700865359,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "referenceId": "effect:12:165"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865056,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865359, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:11:163",
+        "effectId": "effect:mount:9:13",
+        "observationId": "observation:1",
+        "commitId": 4,
+        "documentCommitId": 11,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 13,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2388.7,
+          "completedAt": 2388.7,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 12,
+              "timestamp": 1794700865056,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "referenceId": "effect:11:163"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865056, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:11:162",
+        "effectId": "effect:mount:9:12",
+        "observationId": "observation:1",
+        "commitId": 4,
+        "documentCommitId": 11,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 12,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2388.7,
+          "completedAt": 2388.7,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 12,
+              "timestamp": 1794700865056,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "referenceId": "effect:11:162"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865056, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:11:161",
+        "effectId": "effect:mount:9:10",
+        "observationId": "observation:1",
+        "commitId": 4,
+        "documentCommitId": 11,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 10,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2388.7,
+          "completedAt": 2388.7,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 12,
+              "timestamp": 1794700865056,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "referenceId": "effect:11:161"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865056, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:11:160",
+        "effectId": "effect:mount:9:9",
+        "observationId": "observation:1",
+        "commitId": 4,
+        "documentCommitId": 11,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 9,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2388.7,
+          "completedAt": 2388.7,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 12,
+              "timestamp": 1794700865056,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "referenceId": "effect:11:160"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865056, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:11:159",
+        "effectId": "effect:mount:9:7",
+        "observationId": "observation:1",
+        "commitId": 4,
+        "documentCommitId": 11,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 7,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2388.7,
+          "completedAt": 2388.7,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 12,
+              "timestamp": 1794700865056,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "referenceId": "effect:11:159"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865056, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:11:158",
+        "effectId": "effect:mount:9:6",
+        "observationId": "observation:1",
+        "commitId": 4,
+        "documentCommitId": 11,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 6,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2388.7,
+          "completedAt": 2388.7,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 12,
+              "timestamp": 1794700865056,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "referenceId": "effect:11:158"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865056, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:11:157",
+        "effectId": "effect:mount:9:4",
+        "observationId": "observation:1",
+        "commitId": 4,
+        "documentCommitId": 11,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 4,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2388.7,
+          "completedAt": 2388.7,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 12,
+              "timestamp": 1794700865056,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "referenceId": "effect:11:157"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865056, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:11:156",
+        "effectId": "effect:mount:9:3",
+        "observationId": "observation:1",
+        "commitId": 4,
+        "documentCommitId": 11,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 3,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [0],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2388.6,
+          "completedAt": 2388.7,
+          "durationMs": 0.1,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 12,
+              "timestamp": 1794700865056,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "referenceId": "effect:11:156"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865056, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:11:155",
+        "effectId": "effect:mount:9:2",
+        "observationId": "observation:1",
+        "commitId": 4,
+        "documentCommitId": 11,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 2,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2388.6,
+          "completedAt": 2388.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 12,
+              "timestamp": 1794700865056,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "referenceId": "effect:11:155"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700865018,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865056, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:151",
+        "effectId": "effect:mount:10:2",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 69,
+        "componentName": "FlagsPanel",
+        "mountId": "mount:10",
+        "effectIndex": 2,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:151"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 238,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:150",
+        "effectId": "effect:mount:10:0",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 69,
+        "componentName": "FlagsPanel",
+        "mountId": "mount:10",
+        "effectIndex": 0,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:150"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 238,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:148",
+        "effectId": "effect:mount:9:13",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 13,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:148"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:147",
+        "effectId": "effect:mount:9:12",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 12,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:147"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:146",
+        "effectId": "effect:mount:9:10",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 10,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:146"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:145",
+        "effectId": "effect:mount:9:9",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 9,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:145"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:144",
+        "effectId": "effect:mount:9:7",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 7,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:144"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:143",
+        "effectId": "effect:mount:9:6",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 6,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:143"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:142",
+        "effectId": "effect:mount:9:4",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 4,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:142"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:141",
+        "effectId": "effect:mount:9:3",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 3,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [0],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:141"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:140",
+        "effectId": "effect:mount:9:2",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 2,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:140"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:138",
+        "effectId": "effect:mount:8:0",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 54,
+        "componentName": "Unmountable",
+        "mountId": "mount:8",
+        "effectIndex": 0,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:138"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 229,
+          "column": 28,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:132",
+        "effectId": "effect:mount:4:0",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 28,
+        "componentName": "HotEffectProbe",
+        "mountId": "mount:4",
+        "effectIndex": 0,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [0],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:132"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 195,
+          "column": 8,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:129",
+        "effectId": "effect:mount:2:6",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 4,
+        "componentName": "App",
+        "mountId": "mount:2",
+        "effectIndex": 6,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:129"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 168,
+          "column": 4,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:128",
+        "effectId": "effect:mount:2:4",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 4,
+        "componentName": "App",
+        "mountId": "mount:2",
+        "effectIndex": 4,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:128"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 168,
+          "column": 4,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:127",
+        "effectId": "effect:mount:2:3",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 4,
+        "componentName": "App",
+        "mountId": "mount:2",
+        "effectIndex": 3,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [0],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:127"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 168,
+          "column": 4,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:10:126",
+        "effectId": "effect:mount:2:2",
+        "observationId": "observation:1",
+        "commitId": 3,
+        "documentCommitId": 10,
+        "componentId": 4,
+        "componentName": "App",
+        "mountId": "mount:2",
+        "effectIndex": 2,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 2228.5,
+          "completedAt": 2228.5,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 11,
+              "timestamp": 1794700865018,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "referenceId": "effect:10:126"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864858,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700865018, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 168,
+          "column": 4,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:121",
+        "effectId": "effect:mount:10:2",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 69,
+        "componentName": "FlagsPanel",
+        "mountId": "mount:10",
+        "effectIndex": 2,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "referenceId": "effect:8:121"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 238,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:120",
+        "effectId": "effect:mount:10:0",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 69,
+        "componentName": "FlagsPanel",
+        "mountId": "mount:10",
+        "effectIndex": 0,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "referenceId": "effect:8:120"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 238,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:118",
+        "effectId": "effect:mount:9:13",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 13,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "referenceId": "effect:8:118"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:117",
+        "effectId": "effect:mount:9:12",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 12,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "referenceId": "effect:8:117"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:116",
+        "effectId": "effect:mount:9:10",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 10,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "referenceId": "effect:8:116"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:115",
+        "effectId": "effect:mount:9:9",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 9,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "referenceId": "effect:8:115"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:114",
+        "effectId": "effect:mount:9:7",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 7,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "referenceId": "effect:8:114"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:113",
+        "effectId": "effect:mount:9:6",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 6,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "referenceId": "effect:8:113"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:112",
+        "effectId": "effect:mount:9:4",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 4,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "referenceId": "effect:8:112"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:111",
+        "effectId": "effect:mount:9:3",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 3,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [0],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "referenceId": "effect:8:111"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:110",
+        "effectId": "effect:mount:9:2",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 57,
+        "componentName": "TaskPanel",
+        "mountId": "mount:9",
+        "effectIndex": 2,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "referenceId": "effect:8:110"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 234,
+          "column": 6,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:108",
+        "effectId": "effect:mount:8:0",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 54,
+        "componentName": "Unmountable",
+        "mountId": "mount:8",
+        "effectIndex": 0,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "referenceId": "effect:8:108"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 229,
+          "column": 28,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:102",
+        "effectId": "effect:mount:4:0",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 28,
+        "componentName": "HotEffectProbe",
+        "mountId": "mount:4",
+        "effectIndex": 0,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [0],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "referenceId": "effect:8:102"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 195,
+          "column": 8,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:99",
+        "effectId": "effect:mount:2:6",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 4,
+        "componentName": "App",
+        "mountId": "mount:2",
+        "effectIndex": 6,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864492,
+            "evidence": "exact",
+            "referenceId": "effect:8:99"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 168,
+          "column": 4,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:98",
+        "effectId": "effect:mount:2:4",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 4,
+        "componentName": "App",
+        "mountId": "mount:2",
+        "effectIndex": 4,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [1],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864492,
+            "evidence": "exact",
+            "referenceId": "effect:8:98"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 168,
+          "column": 4,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:97",
+        "effectId": "effect:mount:2:3",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 4,
+        "componentName": "App",
+        "mountId": "mount:2",
+        "effectIndex": 3,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [0],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864492,
+            "evidence": "exact",
+            "referenceId": "effect:8:97"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 168,
+          "column": 4,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      },
+      {
+        "effectEventId": "effect:8:96",
+        "effectId": "effect:mount:2:2",
+        "observationId": "observation:1",
+        "commitId": 1,
+        "documentCommitId": 8,
+        "componentId": 4,
+        "componentName": "App",
+        "mountId": "mount:2",
+        "effectIndex": 2,
+        "kind": "effect",
+        "phase": "update",
+        "event": "scheduled",
+        "evidence": "exact",
+        "changedDependencySlots": [],
+        "changedDependencySlotsOmitted": 0,
+        "dependencySlotsUnscanned": 0,
+        "execution": {
+          "status": "observed",
+          "evidence": "exact",
+          "startedAt": 1863.6,
+          "completedAt": 1863.6,
+          "durationMs": 0,
+          "outcome": "completed"
+        },
+        "cleanupExecution": { "status": "unobserved", "reason": "no-cleanup-returned" },
+        "consequences": {
+          "status": "instrumented",
+          "observedDomains": ["query-notification", "router-notification", "react-commit"],
+          "unobservedDomains": [
+            "state-update",
+            "external-store-write",
+            "network",
+            "event-listener",
+            "navigation"
+          ],
+          "events": [
+            {
+              "kind": "resulting-commit",
+              "documentCommitId": 9,
+              "timestamp": 1794700864672,
+              "evidence": "inferred",
+              "reason": "next-commit-after-effect-execution"
+            }
+          ]
+        },
+        "timeline": [
+          {
+            "stage": "schedule",
+            "timestamp": 1794700864492,
+            "evidence": "exact",
+            "referenceId": "effect:8:96"
+          },
+          {
+            "stage": "execution",
+            "timestamp": 1794700864493,
+            "evidence": "exact",
+            "outcome": "completed"
+          },
+          { "stage": "resulting-commit", "timestamp": 1794700864672, "evidence": "inferred" }
+        ],
+        "sourceOwnership": "app",
+        "source": {
+          "file": "App.tsx",
+          "line": 168,
+          "column": 4,
+          "functionName": "App",
+          "sourceMapConfidence": "mapped"
+        }
+      }
+    ],
+    "omittedByLimit": 0,
+    "evictedEvents": 0,
+    "droppedEvents": 0,
+    "ownershipCoverage": {
+      "complete": true,
+      "totalCandidates": 61,
+      "app": 61,
+      "library": 0,
+      "unknown": 0
+    },
+    "coverage": {
+      "skippedCommitFibers": 0,
+      "droppedUnmountFibers": 0,
+      "analysisFailedFibers": 0,
+      "truncatedInputFibers": 0,
+      "propsNotEnumeratedFibers": 0,
+      "budgetExhaustedCommits": 0,
+      "budgetExhaustedSubsystems": [],
+      "complete": true,
+      "inputAttributionComplete": true,
+      "semantics": "exact",
+      "coverageDomain": "render-measurement",
+      "targeted": {
+        "components": [],
+        "roots": [],
+        "processedFibers": 0,
+        "skippedFibers": 0,
+        "complete": true
+      },
+      "observationBudget": {
+        "adaptive": true,
+        "adaptiveScale": 1,
+        "fiberLimit": 250,
+        "operationLimit": 20000,
+        "timeLimitMs": 8,
+        "targetOperationReserve": 4000,
+        "targetTimeReserveMs": 4,
+        "lifecycleBufferLimit": 1000,
+        "lifecycleTargetReserve": 100
+      },
+      "truncatedEffectLists": 0
+    }
+  }
+}

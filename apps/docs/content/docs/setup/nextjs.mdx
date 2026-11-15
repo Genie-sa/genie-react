@@ -137,9 +137,9 @@ Open the page that mounts the Query provider and has fetched at least one query.
 `http://localhost:3000/query-demo?_genie=next-check`.
 
 ```bash title="Terminal 2"
-status_json="$(npx @genie-react/cli status --session next-check)"
-tools_json="$(npx @genie-react/cli tools --session next-check)"
-query_json="$(npx @genie-react/cli call query_list --session next-check '{"limit":10}')"
+status_json="$(npx @genie-react/cli status --session next-check --json)"
+tools_json="$(npx @genie-react/cli tools --session next-check --json)"
+query_json="$(npx @genie-react/cli call query_list --session next-check '{"limit":10}' --json)"
 jq '{
   connected,
   ready,

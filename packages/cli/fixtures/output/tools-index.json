@@ -1,0 +1,131 @@
+{
+  "argv": ["tools"],
+  "exitCode": 0,
+  "result": {
+    "app": "vite-demo",
+    "total": 77,
+    "groups": [
+      {
+        "group": "action",
+        "count": 20,
+        "tools": [
+          "react_override_props",
+          "react_override_hook_state",
+          "react_override_context",
+          "react_toggle_suspense_fallback",
+          "react_force_error_boundary",
+          "react_list_overrides",
+          "react_reset_overrides",
+          "plugin_emit",
+          "query_invalidate",
+          "query_refetch",
+          "query_cancel",
+          "query_reset",
+          "query_remove",
+          "query_clear",
+          "query_set_data",
+          "query_simulate_state",
+          "query_restore_state",
+          "query_fetch",
+          "query_ensure",
+          "mutation_rerun"
+        ]
+      },
+      {
+        "group": "app",
+        "count": 8,
+        "tools": [
+          "app_unmountable_ping",
+          "app_session",
+          "app_login_as",
+          "app_seed_tasks",
+          "app_reset_tasks",
+          "app_chaos",
+          "app_flags",
+          "app_set_flag"
+        ]
+      },
+      { "group": "memory", "count": 2, "tools": ["browser_get_memory", "browser_measure_memory"] },
+      {
+        "group": "meta",
+        "count": 9,
+        "tools": [
+          "devtools_status",
+          "devtools_wait",
+          "devtools_capture_create",
+          "devtools_capture_list",
+          "devtools_capture_read",
+          "devtools_capture_pin",
+          "devtools_capture_compare",
+          "devtools_interaction_begin",
+          "devtools_interaction_stop"
+        ]
+      },
+      { "group": "perf", "count": 1, "tools": ["browser_fps"] },
+      { "group": "plugin", "count": 2, "tools": ["plugin_list", "plugin_get_events"] },
+      {
+        "group": "query",
+        "count": 7,
+        "tools": [
+          "query_notifications",
+          "query_list",
+          "query_get",
+          "query_get_data",
+          "query_is_fetching",
+          "query_list_mutations",
+          "mutation_get"
+        ]
+      },
+      {
+        "group": "react.inspect",
+        "count": 5,
+        "tools": [
+          "react_inspect_component",
+          "react_dom_for_component",
+          "react_component_for_dom",
+          "stylex_inspect",
+          "react_inspect_context"
+        ]
+      },
+      {
+        "group": "react.profile",
+        "count": 5,
+        "tools": [
+          "react_profile_start",
+          "react_profile_stop",
+          "react_profile_snapshot",
+          "react_renders_diff",
+          "react_profile_report"
+        ]
+      },
+      {
+        "group": "react.render",
+        "count": 12,
+        "tools": [
+          "react_measure",
+          "react_renders_since",
+          "react_get_renders",
+          "react_render_causes",
+          "react_component_cohort",
+          "react_effect_audit",
+          "react_effect_events",
+          "react_effect_timeline",
+          "react_error_state",
+          "react_refresh_events",
+          "react_clear_renders",
+          "react_quiesce"
+        ]
+      },
+      {
+        "group": "react.tree",
+        "count": 3,
+        "tools": ["react_get_tree", "react_provenance", "react_find_components"]
+      },
+      {
+        "group": "timeline",
+        "count": 3,
+        "tools": ["timeline_start", "timeline_read", "timeline_stop"]
+      }
+    ]
+  }
+}
