@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { transformSync } from '@babel/core'
+import { version as babelVersion, transformSync } from '@babel/core'
 import { describe, expect, it } from 'vitest'
 import genieComponentNames from './index'
 
@@ -94,7 +94,8 @@ describe('development memo names', () => {
   })
 })
 
-describe('Expo preset integration', () => {
+// babel-preset-expo and the Babel 7 plugins it loads assert Babel 7, so Metro never runs this plugin on Babel 8.
+describe.runIf(babelVersion.startsWith('7.'))('Expo preset integration', () => {
   it.each([true, false])(
     'preserves lexical memo names only in a Metro development build: %s',
     (isDev) => {

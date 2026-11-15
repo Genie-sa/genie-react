@@ -1,8 +1,21 @@
 import type * as Babel from '@babel/core'
 
+/** The plugin API members read here; Babel 7 and 8 both provide them, unlike their differently named `ConfigAPI`/`PluginObj` types. */
+interface GenieBabelApi {
+  assertVersion(range: string): void
+  env(envName: string): boolean
+  caller(read: (caller: { name: string } | undefined) => boolean): boolean
+  types: typeof Babel.types
+}
+
+interface GenieBabelPlugin {
+  name: string
+  visitor: { Program?(program: Babel.NodePath<Babel.types.Program>): void }
+}
+
 /** Supply lexical names that anonymous React.memo arguments do not retain at runtime. */
-export default function genieComponentNames(api: Babel.ConfigAPI & typeof Babel): Babel.PluginObj {
-  api.assertVersion(7)
+export default function genieComponentNames(api: GenieBabelApi): GenieBabelPlugin {
+  api.assertVersion('^7.0.0 || ^8.0.0')
   const development =
     api.env('development') &&
     api.caller((caller) => !caller || !('isDev' in caller) || caller.isDev !== false)
