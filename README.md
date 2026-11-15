@@ -17,10 +17,10 @@ Your agent already drives the app with [agent-browser](https://github.com/vercel
 Declare what the fix must make true, drive the interaction, and let Genie decide:
 
 ```bash
-genie-react verify begin --session my-agent --name "put one order on hold" \
+pnpm exec genie-react verify begin --session my-agent --name "put one order on hold" \
   --claim 'render OrderRow only props.order' --claim 'render OrderRow min 1' --claim 'boundaries clean'
 # Put one order on hold with agent-browser.
-genie-react verify end <id> --session my-agent
+pnpm exec genie-react verify end <id> --session my-agent
 ```
 
 This is a real run on the [dashboard demo](apps/realworld-dashboard), trimmed to the first claim. Before the fix, putting one order on hold re-rendered every row because each row received a new `onStatusChange` callback:

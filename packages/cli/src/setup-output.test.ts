@@ -201,3 +201,50 @@ it('points the receipt at the detected package manager', async () => {
     },
   })
 })
+
+it('reports <Genie /> as an optional step on plain React + Vite, and drops it once the app renders it', async () => {
+  cwd = await mkdtemp(join(tmpdir(), 'genie-json-vite-'))
+  await writeFile(join(cwd, 'package.json'), JSON.stringify({ dependencies: { vite: '*' } }))
+  await writeFile(join(cwd, 'vite.config.ts'), 'export default { plugins: [genie()] }')
+  await writeFile(join(cwd, 'index.html'), '<script type="module" src="/src/main.tsx"></script>')
+  await mkdir(join(cwd, 'src'))
+  await writeFile(join(cwd, 'src/main.tsx'), "import { createRoot } from 'react-dom/client'\n")
+  const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+  const receipt = () => JSON.parse(String(stdout.mock.lastCall?.[0]))
+
+  expect(runInitCommand({ cwd, dryRun: true })).toBe(0)
+  expect(receipt()).toMatchObject({
+    status: 'ok',
+    userActionRequired: false,
+    data: {
+      framework: 'react-vite',
+      manualSteps: [],
+      optionalSteps: [
+        {
+          kind: 'root_route',
+          module: 'genie-react',
+          export: 'Genie',
+          reason: 'Adds the Query, Router, memory and timeline tools',
+        },
+      ],
+    },
+  })
+  expect(receipt().data.artifacts).toContainEqual(
+    expect.objectContaining({ kind: 'root_route', status: 'skipped' }),
+  )
+
+  await writeFile(
+    join(cwd, 'src/main.tsx'),
+    "import { Genie } from 'genie-react'\ncreateRoot(root).render(<>{import.meta.env.DEV && <Genie />}</>)\n",
+  )
+  expect(runInitCommand({ cwd, dryRun: true })).toBe(0)
+  expect(receipt()).toMatchObject({
+    userActionRequired: false,
+    data: { manualSteps: [], optionalSteps: [] },
+  })
+  expect(receipt().data.artifacts).toContainEqual({
+    kind: 'root_route',
+    status: 'already',
+    path: join(cwd, 'src/main.tsx'),
+  })
+})

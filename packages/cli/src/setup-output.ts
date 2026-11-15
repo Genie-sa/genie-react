@@ -48,13 +48,19 @@ export function runInitCommand(options: InitCommandOptions = {}): number {
       ...(result.instrumentation ? [outcome('instrumentation', result.instrumentation)] : []),
       ...result.artifacts,
     ]
-    if (!universal && result.framework !== 'nextjs' && result.rootRoute.action === 'skip') {
-      const root = artifacts.find(({ kind }) => kind === 'root_route')
-      if (root) {
-        root.status = 'manual'
-        root.reason = 'Render Genie near the app root in development to expose collector tools.'
-      }
-    }
+    // Plain React + Vite: genie() already connects the app, so <Genie /> is optional there.
+    const optionalSteps =
+      !universal && result.framework !== 'nextjs' && result.rootRoute.action === 'skip'
+        ? [
+            {
+              kind: 'root_route',
+              module: 'genie-react',
+              export: 'Genie',
+              placement: 'Render near the app root in development only',
+              reason: 'Adds the Query, Router, memory and timeline tools',
+            },
+          ]
+        : []
     const manual = artifacts.some(({ status }) => status === 'manual' || status === 'missing')
     const manualSteps = artifacts
       .filter(({ status }) => status === 'manual' || status === 'missing')
@@ -113,6 +119,7 @@ export function runInitCommand(options: InitCommandOptions = {}): number {
           dryRun: result.dryRun,
           artifacts,
           manualSteps,
+          optionalSteps,
           commands: {
             ...initNextCommands(cwd, result.framework),
             ...(universal ? { hub: universal.hub.start } : {}),
