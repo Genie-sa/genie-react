@@ -1,0 +1,43 @@
+{
+  "id": "comment-edit-follows-index",
+  "kind": "bug",
+  "category": "fix",
+  "prompt": "If I am editing one of my comments and a new comment is posted, the edit box jumps to a different comment, sometimes one written by someone else.",
+  "truth": {
+    "components": ["CommentThread", "CommentItem"],
+    "files": ["src/features/issue-detail/comment-thread.tsx"],
+    "causePatterns": ["key", "index|position|order"],
+    "summary": "CommentThread keys CommentItem by array index. Comments are listed newest first, so a new comment shifts every index by one and each CommentItem keeps the local isEditing/draft state of the comment that used to be at its position."
+  },
+  "referenceAnswer": {
+    "component": "CommentThread",
+    "cause": "CommentItem is keyed by index; prepending a new comment shifts the indexes, so the local edit state stays at the old position and attaches to another comment.",
+    "file": "src/features/issue-detail/comment-thread.tsx"
+  },
+  "decoyAnswers": [
+    {
+      "component": "CommentItem",
+      "cause": "The draft is initialised from props only once.",
+      "file": "src/features/issue-detail/comment-item.tsx"
+    },
+    {
+      "component": "CommentThread",
+      "cause": "RTK Query refetches comments in a different order.",
+      "file": "src/api/service.ts"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/features/issue-detail/comment-thread.tsx",
+      "find": "      {comments.map((comment, index) => (\n        <CommentItem key={index}",
+      "replace": "      {comments.map((comment) => (\n        <CommentItem key={comment.id}"
+    }
+  ],
+  "probe": {
+    "script": "probes/comment-edit-follows-index.mjs"
+  },
+  "genieEvidence": {
+    "observability": "full",
+    "notes": "react_find_components plus react_inspect_component show which CommentItem instance holds isEditing:true and its props.comment.id, which proves the state moved. Custom hook names in the hook list are reported as 'eval' under webpack's eval source maps."
+  }
+}

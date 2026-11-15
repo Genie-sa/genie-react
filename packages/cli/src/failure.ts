@@ -756,15 +756,28 @@ function conflictFailure(details: ToolErrorDetails, context: FailureContext): Fa
   const ownership = safeOwnership(details.ownership)
   return {
     reason: 'conflict',
-    message: hubCode
-      ? HUB_GUIDANCE[hubCode].message
-      : 'Another agent owns or changed per-tab state this call depends on. Use your own tab with ?_genie=<your-name> and --session.',
+    message: conflictMessage(hubCode, ownership),
     userActionRequired: true,
     ...(context.session === undefined
       ? {}
       : { next: withSession(nextCommand('status'), context.session) }),
     details: present({ hubCode, ownership }),
   }
+}
+
+const WINDOW_LOST_TO_RELOAD =
+  'The tab reloaded after you started the render window or recording this read depends on, so that evidence is gone. No other agent was involved. Start a new window (react_clear_renders, devtools_interaction_begin or timeline_start) and repeat the interaction.'
+
+function conflictMessage(
+  hubCode: 'OBSERVATION_SUPERSEDED' | 'STATE_HELD' | undefined,
+  ownership: OwnershipConflict | undefined,
+): string {
+  if (hubCode === 'OBSERVATION_SUPERSEDED' && ownership?.cause === 'reloaded') {
+    return WINDOW_LOST_TO_RELOAD
+  }
+  return hubCode
+    ? HUB_GUIDANCE[hubCode].message
+    : 'Another agent owns or changed per-tab state this call depends on. Use your own tab with ?_genie=<your-name> and --session.'
 }
 
 function safeOwnership(ownership: ToolErrorDetails['ownership']): OwnershipConflict | undefined {

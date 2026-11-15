@@ -897,6 +897,26 @@ describe('agent failure output', () => {
     expect(failure.message).not.toContain('raw')
   })
 
+  it('says the tab reloaded, not that another agent interfered, when a reload ended the window', async () => {
+    const failure = await describeFailure(
+      new BridgeCallError('raw', {
+        errorCode: 'conflict',
+        details: {
+          hubCode: 'OBSERVATION_SUPERSEDED',
+          ownership: { resource: 'render-window', cause: 'reloaded' },
+        },
+      }),
+      { tool: 'react_component_cohort', session: 'agent-a' },
+    )
+    expect(failure).toMatchObject({
+      reason: 'conflict',
+      details: { ownership: { resource: 'render-window', cause: 'reloaded' } },
+    })
+    expect(failure.message).toContain('The tab reloaded')
+    expect(failure.message).toContain('Start a new window')
+    expect(failure.message).not.toContain('Another agent')
+  })
+
   it('drops an ownership tool name that is not identifier-shaped', async () => {
     const failure = await describeFailure(
       new BridgeCallError('raw', {

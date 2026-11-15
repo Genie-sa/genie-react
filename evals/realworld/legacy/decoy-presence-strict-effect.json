@@ -1,0 +1,18 @@
+{
+  "id": "decoy-presence-strict-effect",
+  "kind": "decoy",
+  "category": "decoy",
+  "prompt": "In development the \"Viewing now\" panel subscribes, unsubscribes and subscribes again when an issue opens. Is the presence effect leaking?",
+  "truth": {
+    "components": ["IssuePresence"],
+    "files": ["src/features/issue-detail/issue-presence.tsx"],
+    "summary": "React 18 StrictMode runs mount, cleanup, mount for every effect in development. usePresence returns its unsubscribe function, so the replay is expected and nothing leaks."
+  },
+  "flaggedWhen": "Genie reports the app's presence effect without a cleanup, labels it hot, or does not label the second run as a StrictMode replay.",
+  "probe": {
+    "script": "probes/decoy-presence-strict-effect.mjs"
+  },
+  "genieEvidence": {
+    "notes": "react_effect_timeline labels the stages commit → cleanup(strict-mode-replay) → execution(strict-mode-replay). react_effect_audit also lists two react-redux useSelector internal effects on the same component, one with hasCleanup:false, with no hook provenance and ownership reported as app."
+  }
+}

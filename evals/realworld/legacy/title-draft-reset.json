@@ -1,0 +1,43 @@
+{
+  "id": "title-draft-reset",
+  "kind": "bug",
+  "category": "fix",
+  "prompt": "I started renaming an issue, added a comment to explain why, and my unsaved title edit was replaced by the old title.",
+  "truth": {
+    "components": ["IssueTitleEditor"],
+    "files": ["src/features/issue-detail/issue-title-editor.tsx"],
+    "causePatterns": ["componentDidUpdate", "issue|prop|reference|identity|refetch|updatedAt"],
+    "summary": "IssueTitleEditor's componentDidUpdate resets the draft whenever the issue prop's reference changes. Posting a comment invalidates the Issue tag, RTK Query refetches it with a new updatedAt, and the new object wipes the draft."
+  },
+  "referenceAnswer": {
+    "component": "IssueTitleEditor",
+    "cause": "componentDidUpdate resets draft whenever the issue object reference changes; the refetch after posting a comment delivers a new object with the same title.",
+    "file": "src/features/issue-detail/issue-title-editor.tsx"
+  },
+  "decoyAnswers": [
+    {
+      "component": "IssueDetailPage",
+      "cause": "The page remounts IssueTitleEditor after a comment.",
+      "file": "src/features/issue-detail/issue-detail-page.tsx"
+    },
+    {
+      "component": "IssueTitleEditor",
+      "cause": "getDerivedStateFromProps overwrites the draft.",
+      "file": "src/features/issue-detail/issue-title-editor.tsx"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/features/issue-detail/issue-title-editor.tsx",
+      "find": "if (prevProps.issue !== this.props.issue) {",
+      "replace": "if (prevProps.issue.title !== this.props.issue.title) {"
+    }
+  ],
+  "probe": {
+    "script": "probes/title-draft-reset.mjs"
+  },
+  "genieEvidence": {
+    "observability": "full",
+    "notes": "react_inspect_component shows the class state { isEditing: true, draft: <original title> } after the refetch. react_render_causes (appOnly:false) shows the class rendering for prop 'issue' (exact) and then for 'class state' (exact) in the next commit. It does not name the state field or link the update to componentDidUpdate. The connect(null, ...) wrapper is also given an external-store cause even though it never subscribes to the store."
+  }
+}
