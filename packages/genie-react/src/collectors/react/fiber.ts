@@ -792,7 +792,7 @@ export interface FindMatch {
 
 export function findByName(root: Fiber, query: string, exact: boolean, limit: number): FindMatch[] {
   const matches: FindMatch[] = []
-  const needle = query.toLowerCase()
+  const named = componentNameMatcher({ component: query, exact })
 
   // Paths are derived per hit from return links (≤limit hits), so the walk itself carries no per-node ancestor copies.
   const pathTo = (fiber: Fiber, name: string): string => {
@@ -811,8 +811,7 @@ export function findByName(root: Fiber, query: string, exact: boolean, limit: nu
       if (matches.length >= limit) return
       if (isTreeEntryFiber(child)) {
         const name = nameOf(child)
-        const hit = exact ? name === query : name.toLowerCase().includes(needle)
-        if (hit)
+        if (named(name))
           matches.push({
             id: registerFiber(child),
             name,

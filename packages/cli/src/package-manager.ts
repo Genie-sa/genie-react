@@ -18,14 +18,36 @@ interface PackageManagerCommands {
   exec: readonly string[]
   add: readonly string[]
   dev: readonly string[]
+  /** Runs a package.json script by name. */
+  run: readonly string[]
 }
 
 const COMMANDS: Record<PackageManager, PackageManagerCommands> = {
-  npm: { exec: ['npx'], add: ['npm', 'install', '-D'], dev: ['npm', 'run', 'dev'] },
-  pnpm: { exec: ['pnpm', 'exec'], add: ['pnpm', 'add', '-D'], dev: ['pnpm', 'dev'] },
-  'yarn-berry': { exec: ['yarn'], add: ['yarn', 'add', '-D'], dev: ['yarn', 'dev'] },
-  'yarn-classic': { exec: ['yarn', '--silent'], add: ['yarn', 'add', '-D'], dev: ['yarn', 'dev'] },
-  bun: { exec: ['bunx'], add: ['bun', 'add', '-d'], dev: ['bun', 'dev'] },
+  npm: {
+    exec: ['npx'],
+    add: ['npm', 'install', '-D'],
+    dev: ['npm', 'run', 'dev'],
+    run: ['npm', 'run'],
+  },
+  pnpm: {
+    exec: ['pnpm', 'exec'],
+    add: ['pnpm', 'add', '-D'],
+    dev: ['pnpm', 'dev'],
+    run: ['pnpm', 'run'],
+  },
+  'yarn-berry': {
+    exec: ['yarn'],
+    add: ['yarn', 'add', '-D'],
+    dev: ['yarn', 'dev'],
+    run: ['yarn', 'run'],
+  },
+  'yarn-classic': {
+    exec: ['yarn', '--silent'],
+    add: ['yarn', 'add', '-D'],
+    dev: ['yarn', 'dev'],
+    run: ['yarn', 'run'],
+  },
+  bun: { exec: ['bunx'], add: ['bun', 'add', '-d'], dev: ['bun', 'dev'], run: ['bun', 'run'] },
 }
 
 /** Lockfile walk-up so a monorepo app dir reports the repo's real package manager. */

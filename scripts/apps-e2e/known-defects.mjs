@@ -1,19 +1,7 @@
 import { CheckFailure } from './harness.mjs'
 
 /** Product defects the matrix proves on every run. A `probe` defect runs an assertion of the correct behaviour on each listed app; a `claim` defect explains findings of one kind at the listed tool sites, from the contract sweep or any later call. A reproduced defect keeps the run green only because it is listed here; one that stops reproducing on a listed app fails the run until that app is removed. */
-const KNOWN_DEFECTS = {
-  'KD-9': {
-    apps: ['plain-demo'],
-    severity: 'low',
-    tool: 'component names in react_* tools for esbuild bundles',
-    expected:
-      'const MemoChildWithUnstableProp = memo(function MemoChildWithUnstableProp…) is reported under its source name, which its source map records.',
-    actual:
-      'It is reported as MemoChildWithUnstableProp2, the name esbuild gives the inner function to avoid the collision, so react_find_components {"component":"MemoChildWithUnstableProp","exact":true} finds nothing while the source location is right.',
-    repro:
-      'cd apps/plain-demo && pnpm dev plus genie-react hub; genie-react call react_find_components \'{"component":"MemoChildWithUnstableProp","exact":true}\' --json',
-  },
-}
+const KNOWN_DEFECTS = {}
 
 function defectApps(defect) {
   return defect.apps ?? [...new Set(defect.claim.sites.flatMap((site) => site.apps))]

@@ -3,8 +3,9 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { removeAgentToken, startGenieHub, writeAgentToken } from 'genie-react/hub'
-import { GENIE_DISCOVERY_FILE } from 'genie-react/protocol'
+import { decodeFrame, encodeMessage, GENIE_DISCOVERY_FILE } from 'genie-react/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { WebSocket } from 'ws'
 import {
   detectFramework,
   type Logger,
@@ -226,8 +227,9 @@ describe('runInit — universal (no Vite, no Next)', () => {
 
     expect(result.framework).toBe('unknown')
     expect(result.ok).toBe(true)
-    expect(text).toContain('universal setup')
-    expect(text).toContain('client.js')
+    expect(text).toContain('setup with the standalone hub')
+    expect(text).toContain('<script src="http://127.0.0.1:4390/__genie/client.js"></script>')
+    expect(text).toContain("import 'genie-react/hook'")
     expect(text).not.toContain('add the plugin to your Vite config manually')
     expect(text).not.toContain('<Genie />}')
   })
@@ -403,7 +405,7 @@ describe('runDoctor — discovery and skill checks', () => {
 
     expect(result.bridge?.url).toBe('ws://127.0.0.1:4390/__genie/ws')
     expect(result.checks).toContainEqual(
-      expect.objectContaining({ label: expect.stringContaining('hub discovery file'), ok: true }),
+      expect.objectContaining({ label: 'hub is running', ok: true, detail: 'port 4390' }),
     )
   })
 
@@ -852,6 +854,44 @@ async function startTestHub(rootDir: string) {
   return startGenieHub({ rootDir, port: 0, strictPort: true, clientBundlePath })
 }
 
+/** An app session with only the React tools the live doctor calls, answering react_get_renders with `renderCollection`. */
+async function connectReactApp(dir: string, renderCollection: string): Promise<WebSocket> {
+  const discovery = JSON.parse(await readFile(join(dir, GENIE_DISCOVERY_FILE), 'utf8')) as {
+    url: string
+  }
+  const app = new WebSocket(`${discovery.url}?role=app`)
+  await new Promise<void>((resolve, reject) => {
+    app.once('open', resolve)
+    app.once('error', reject)
+  })
+  app.on('message', (data) => {
+    const message = decodeFrame(data.toString()) as { kind?: string; id?: string; tool?: string }
+    if (message.kind !== 'bridge/request') return
+    const result =
+      message.tool === 'react_get_renders' ? { renderCollection, components: [] } : { matches: [] }
+    app.send(encodeMessage({ kind: 'app/response', id: message.id, ok: true, result }))
+  })
+  const sessionId = 'live-doctor-react'
+  app.send(
+    encodeMessage({
+      kind: 'app/hello',
+      protocol: 1,
+      sessionId,
+      app: { name: 'Live doctor fixture' },
+      capabilities: ['react'],
+      tools: ['react_find_components', 'react_provenance', 'react_get_renders'].map((name) => ({
+        name,
+        title: name,
+        description: 'Fixture tool.',
+        group: 'react',
+        annotations: { readOnlyHint: true },
+      })),
+    }),
+  )
+  app.send(encodeMessage({ kind: 'app/ready', sessionId }))
+  return app
+}
+
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer()
@@ -906,6 +946,37 @@ describe('runLiveDoctor', () => {
       if (hub.status === 'started') await hub.handle.close()
     }
   }, 15_000)
+
+  it.each([
+    ['available', { ok: true, critical: true }],
+    [
+      'unavailable (hook installed after React initialised — import genie-react/hook, or genie-react/native on React Native, before React)',
+      { ok: false, critical: true },
+    ],
+    [
+      'degraded (hook installed after React initialised — commits before that point were not observed)',
+      { ok: false, critical: false },
+    ],
+  ])(
+    'reports whether the hook loaded before React from a connected session: %s',
+    async (renderCollection, verdict) => {
+      const dir = await project({ 'package.json': pkg({ react: '^19' }) })
+      const hub = await startTestHub(dir)
+      const app = await connectReactApp(dir, renderCollection)
+      try {
+        const live = await runLiveDoctor({ cwd: dir, logger: silent })
+        expect(live.checks).toContainEqual({
+          label: 'genie-react/hook loaded before React',
+          ...verdict,
+          detail: `render collection ${renderCollection}`,
+        })
+      } finally {
+        app.close()
+        if (hub.status === 'started') await hub.handle.close()
+      }
+    },
+    15_000,
+  )
 
   it('probes the requested --session and names an unknown one', async () => {
     const dir = await project({ 'package.json': pkg({ react: '^19' }) })

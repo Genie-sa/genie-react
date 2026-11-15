@@ -759,6 +759,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
       jsdom:
         specifier: ^28.1.0
         version: 28.1.0(@noble/hashes@1.8.0)
@@ -789,6 +792,9 @@ importers:
       vite:
         specifier: ^8.3.3
         version: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.1)
+      zod-version-skew:
+        specifier: npm:zod@4.6.5
+        version: zod@4.6.5
 
 packages:
 

@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url'
 import {
   devtoolsStatusContract,
   GENIE_CLIENT_PATH,
-  GENIE_DEFAULT_HUB_PORT,
   GENIE_DISCOVERY_FILE,
   GENIE_INFO_PATH,
 } from 'genie-react/protocol'
@@ -41,6 +40,16 @@ import {
 } from './discovery'
 import { isRecord } from './guards'
 import { genieCommand, packageManagerCommands } from './package-manager'
+import {
+  CLIENT_MODULE,
+  clientScriptUrl,
+  clientWebSocketUrl,
+  HOOK_MODULE,
+  inspectWebSetup,
+  OTHER_WEB_GUIDE,
+  type WebSetup,
+  webSetupChecks,
+} from './web-setup'
 
 export interface Logger {
   info: (message: string) => void
@@ -137,6 +146,8 @@ export interface InitResult {
   rootRoute: RootRouteOutcome
   /** Next.js only: outcome for the instrumentation.ts that auto-starts the hub. */
   instrumentation?: RootRouteOutcome
+  /** Neither Vite nor Next.js: the hub port and client wiring found in the project. */
+  webSetup?: WebSetup
 }
 
 export interface DoctorOptions {
@@ -193,18 +204,23 @@ export function runInit(options: InitOptions = {}): InitResult {
   const viteConfig = planViteEdit(cwd)
   const rootRoute = planRootRouteEdit(cwd, framework)
 
-  // No Vite, no Next: the hub + script-tag path IS the setup, so don't fail or print Vite-only guidance.
+  // No Vite, no Next: the standalone hub plus a development client IS the setup, so don't fail or print Vite-only guidance.
   if (framework === 'unknown' && viteConfig.action === 'missing') {
-    printUniversalSetup(log)
+    const webSetup = inspectWebSetup(cwd, liveBridgeDiscovery(cwd))
+    printUniversalSetup(log, webSetup)
     const artifacts = [...ensureGenieIgnored(ctx), ...ensureAgentSkill(ctx)]
-    printUniversalNextSteps(log, cwd)
+    printUniversalNextSteps(log, cwd, webSetup)
     return {
       ok: true,
       dryRun,
       framework,
       artifacts,
       viteConfig,
-      rootRoute: { action: 'skip', reason: 'universal hub + script-tag setup' },
+      rootRoute: {
+        action: 'skip',
+        reason: 'other web bundler: standalone hub and development client',
+      },
+      webSetup,
     }
   }
 
@@ -248,15 +264,9 @@ export function runDoctor(options: DoctorOptions = {}): DoctorResult {
   } else {
     const vitePath = detectViteConfig(cwd)
     if (!vitePath) {
-      // Universal (hub + script tag) hosts have no Vite config to check; the hub's discovery file is the wiring proof.
+      // Other web bundlers have no config Genie edits; the project's client wiring and hub port are what can be wrong.
       if (framework === 'unknown') {
-        const discovered = findBridgeDiscovery(cwd) !== null
-        checks.push({
-          label: `universal setup: hub discovery file (${GENIE_DISCOVERY_FILE})`,
-          ok: discovered,
-          critical: true,
-          detail: discovered ? undefined : `not found — run: npx ${CLI_PACKAGE} hub`,
-        })
+        checks.push(...webSetupChecks(inspectWebSetup(cwd, liveBridgeDiscovery(cwd))))
       } else {
         checks.push({
           label: `Vite config references ${VITE_PLUGIN_SPECIFIER}`,
@@ -496,6 +506,14 @@ export async function runLiveDoctor(options: LiveDoctorOptions = {}): Promise<Do
             detail: `react_find_components answered in ${session.roundTripMs}ms`,
           })
         }
+        if (session.renderCollection) {
+          checks.push({
+            label: `${HOOK_MODULE} loaded before React`,
+            ok: session.renderCollection === 'available',
+            critical: !session.renderCollection.startsWith('degraded'),
+            detail: `render collection ${session.renderCollection}`,
+          })
+        }
         if (session.sourceMapHealth) {
           checks.push({
             label: 'React source-map health',
@@ -578,6 +596,8 @@ interface SessionProbe {
   reactVersion: string | null
   roundTripMs: number | null
   sourceMapHealth: SourceMapHealth | null
+  /** The React collector's own account of whether its hook was installed before React. */
+  renderCollection: string | null
 }
 
 interface SourceMapHealth {
@@ -615,6 +635,7 @@ async function probeSession(
     const status = await link.invoke(devtoolsStatusContract, {})
     let roundTripMs: number | null = null
     let sourceMapHealth: SourceMapHealth | null = null
+    let renderCollection: string | null = null
     if (status.connected && status.domains.includes('react')) {
       const started = Date.now()
       roundTripMs = await link
@@ -625,6 +646,14 @@ async function probeSession(
         .invoke('react_provenance', { limit: 50, appOnly: false })
         .catch(() => null)
       sourceMapHealth = sourceMapHealthOf(provenance)
+      renderCollection = await link
+        .invoke('react_get_renders', { limit: 1, appOnly: false })
+        .then((report) =>
+          isRecord(report) && typeof report.renderCollection === 'string'
+            ? report.renderCollection
+            : null,
+        )
+        .catch(() => null)
     }
     return {
       connected: status.connected,
@@ -633,6 +662,7 @@ async function probeSession(
       reactVersion: status.app?.reactVersion ?? null,
       roundTripMs,
       sourceMapHealth,
+      renderCollection,
     }
   } catch (error) {
     return {
@@ -1126,23 +1156,33 @@ function printNextStepsForNext(log: Logger, cwd: string): void {
   printLiveToolCommands(log, cwd, step)
 }
 
-/** Runs before Genie is installed, so it names the CLI package rather than the project's local bin. */
-function printUniversalSetup(log: Logger): void {
-  log.info(`${PREVIEW}No Vite config or Next.js detected — universal setup for any React app:`)
-  log.info(`  1. run the hub: npx ${CLI_PACKAGE} hub`)
+function printUniversalSetup(log: Logger, setup: WebSetup): void {
+  const bundler = setup.bundler ?? 'another web bundler'
   log.info(
-    `  2. add first in <head>: <script src="http://127.0.0.1:${GENIE_DEFAULT_HUB_PORT}${GENIE_CLIENT_PATH}"></script>`,
+    `${PREVIEW}No Vite config or Next.js detected — ${bundler} setup with the standalone hub (${OTHER_WEB_GUIDE}):`,
   )
-  log.info('     (the hub prints this tag with its actual port if 4390 was busy)')
+  log.info(`  1. run the hub on port ${setup.hub.port}: ${setup.hub.start.command}`)
+  if (setup.wired) {
+    log.info(
+      `  2. development client already wired (${setup.scriptTags.length > 0 ? 'script tag' : 'bundled client'})`,
+    )
+    return
+  }
+  log.info('  2. in development only, load one client:')
+  log.info(`     first in <head>: <script src="${clientScriptUrl(setup.hub.port)}"></script>`)
+  log.info(
+    `     or, first in the entry, before React: import '${HOOK_MODULE}', then start createGenieClient from '${CLIENT_MODULE}' with url ${clientWebSocketUrl(setup.hub.port)}`,
+  )
 }
 
-function printUniversalNextSteps(log: Logger, cwd: string): void {
+function printUniversalNextSteps(log: Logger, cwd: string, setup: WebSetup): void {
   const pm = packageManagerHints(cwd)
   let step = 1
   log.info('\nNext steps:')
   log.info(`  ${step++}. install Genie (if you have not yet):`)
   log.info(`       ${pm.add} ${GENIE_PACKAGE} ${CLI_PACKAGE}`)
-  log.info(`  ${step++}. start the hub and your dev server, open the app in a browser`)
+  log.info(`  ${step++}. start the hub and your dev server, open the app in a browser:`)
+  log.info(`       ${setup.hub.start.command}`)
   printLiveToolCommands(log, cwd, step)
 }
 
@@ -1162,6 +1202,12 @@ function referencesVitePlugin(code: string): boolean {
 function isCommonJs(code: string): boolean {
   if (/^\s*import\s/m.test(code) || /export\s+default/.test(code)) return false
   return /\bmodule\.exports\b|\brequire\s*\(/.test(code)
+}
+
+/** The discovery file of a hub that is still running; a stale file names a port nothing listens on. */
+function liveBridgeDiscovery(cwd: string): BridgeDiscovery | null {
+  const discovery = findBridgeDiscovery(cwd)?.discovery ?? null
+  return discovery && (discovery.pid === undefined || isPidAlive(discovery.pid)) ? discovery : null
 }
 
 /** Nearest readable discovery file from `cwd` upward, matching how the agent commands find the bridge. */

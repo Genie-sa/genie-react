@@ -4,6 +4,7 @@ export {
   type GenieAppTool,
   type GenieToolDefinition,
   GenieToolError,
+  type GenieToolSchema,
   registerGenieTools,
 } from './app-tools'
 export * from './client'

@@ -243,7 +243,7 @@ async function safeFiberSource(fiber: Fiber): Promise<SafeFiberSource | null> {
   return frame ? symbolicateCapturedFrame(frame, 'element-callsite') : null
 }
 
-function capturedDebugFrames(fiber: Fiber): ReturnType<typeof parseStack> {
+export function capturedDebugFrames(fiber: Fiber): ReturnType<typeof parseStack> {
   const debugStack = dataPropertyValue(fiber, '_debugStack')
   if (!(debugStack instanceof Error)) return []
   // Hermes exposes Error.stack lazily; this React-created Error is the only accessor read, so app-object reads stay descriptor-safe.
@@ -461,7 +461,7 @@ function frameFunctionMatchesComponent(
   )
 }
 
-function dataPropertyValue(value: object, key: PropertyKey): unknown {
+export function dataPropertyValue(value: object, key: PropertyKey): unknown {
   const descriptor = safeOwnPropertyDescriptor(value, key)
   return isDataDescriptor(descriptor) ? descriptor.value : undefined
 }
@@ -911,7 +911,7 @@ function boundFetch(): SourceFetch {
 let generationFetch: SourceFetch = boundFetch()
 
 // Guards a synchronous throw as well as a rejection, so a hostile bundle can't break classification.
-async function sourceMapFor(url: string): Promise<SourceMap | null> {
+export async function sourceMapFor(url: string): Promise<SourceMap | null> {
   try {
     return await getSourceMap(url, true, generationFetch)
   } catch {

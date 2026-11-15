@@ -18,15 +18,22 @@ export type GenieToolKindOptions =
       idempotent?: boolean
     }
 
+/** The part of a Zod 4 schema the tool types read. Constraining by `z.ZodType` would make TypeScript compare the app's zod classes with genie-react's member by member whenever the two resolve to different copies of zod, which exhausted the checker's memory; reading only the schema's output type keeps that check shallow across zod 4 releases. */
+export interface GenieToolSchema<Output = unknown> {
+  readonly _zod: { readonly output: Output }
+}
+
+type SchemaOutput<S extends GenieToolSchema> = S['_zod']['output']
+
 /** Inferred arg type when `input` is omitted: a no-arg tool. */
-export type DefaultToolInput = z.ZodType<Record<string, never>>
+export type DefaultToolInput = GenieToolSchema<Record<string, never>>
 /** Inferred result type when `output` is omitted: anything serializable. */
-export type DefaultToolOutput = z.ZodType<unknown>
+export type DefaultToolOutput = GenieToolSchema<unknown>
 
 /** What a dev writes to expose one custom tool; the zod schemas drive validation, TS types, and the advertised JSON Schema. */
 export type GenieToolDefinition<
-  I extends z.ZodType = DefaultToolInput,
-  O extends z.ZodType = DefaultToolOutput,
+  I extends GenieToolSchema = DefaultToolInput,
+  O extends GenieToolSchema = DefaultToolOutput,
 > = GenieToolKindOptions & {
   /** snake_case (kebab-case accepted); advertised to agents as `app_<name>`. */
   name: string
@@ -43,7 +50,7 @@ export type GenieToolDefinition<
   /** Raises this tool's result-size cap (default 128KB) when it legitimately returns more; results are agent context, so prefer summaries and limit args. */
   maxResultBytes?: number
   /** Receives args parsed by `input` (defaults applied); may be async. Keep sync work well under a second (a blocked main thread trips the CLI's busy detection) and throw {@link GenieToolError} for failures the agent should act on. */
-  handler: (args: z.output<I>) => z.output<O> | Promise<z.output<O>>
+  handler: (args: SchemaOutput<I>) => SchemaOutput<O> | Promise<SchemaOutput<O>>
 }
 
 /** A defined app tool, ready for `registerGenieTools`, `useGenieTools`, or `<Genie tools={...}>`. */
@@ -58,8 +65,8 @@ const DESCRIPTION_SOFT_CAP = 500
 
 /** Defines a custom app tool from one declaration — name, agent-facing description, zod input schema, handler; validation, discovery docs, and the advertised JSON Schema all derive from it. */
 export function defineGenieTool<
-  I extends z.ZodType = DefaultToolInput,
-  O extends z.ZodType = DefaultToolOutput,
+  I extends GenieToolSchema = DefaultToolInput,
+  O extends GenieToolSchema = DefaultToolOutput,
 >(definition: GenieToolDefinition<I, O>): GenieAppTool {
   const name = normalizeAppToolName(definition.name)
   validateDefinition(name, definition)
@@ -68,8 +75,8 @@ export function defineGenieTool<
     title: definition.title ?? defaultTitle(name),
     description: definition.description,
     group: appGroup(name, definition.group),
-    input: definition.input ?? z.object({}),
-    output: definition.output ?? z.unknown(),
+    input: zodSchema(name, 'input', definition.input) ?? z.object({}),
+    output: zodSchema(name, 'output', definition.output) ?? z.unknown(),
     annotations: annotationsOf(definition),
   }
   return {
@@ -78,6 +85,29 @@ export function defineGenieTool<
     handler: definition.handler as (args: never) => unknown,
     maxResultBytes: definition.maxResultBytes,
   }
+}
+
+/** Runtime counterpart of {@link GenieToolSchema}: a plain JavaScript caller, or a Zod 3 schema, gets a named error here instead of a failure on the first call. */
+function zodSchema(
+  name: string,
+  field: 'input' | 'output',
+  schema: GenieToolSchema | undefined,
+): z.ZodType | undefined {
+  if (schema === undefined || isZodSchema(schema)) return schema
+  throw new Error(
+    `defineGenieTool: "${name}" ${field} must be a Zod 4 schema, e.g. z.object({ id: z.string() }) imported from "zod"`,
+  )
+}
+
+function isZodSchema(schema: GenieToolSchema): schema is GenieToolSchema & z.ZodType {
+  const internals: unknown = schema._zod
+  return (
+    typeof internals === 'object' &&
+    internals !== null &&
+    'def' in internals &&
+    'safeParse' in schema &&
+    typeof schema.safeParse === 'function'
+  )
 }
 
 function annotationsOf(definition: GenieToolKindOptions): AgentToolContract['annotations'] {

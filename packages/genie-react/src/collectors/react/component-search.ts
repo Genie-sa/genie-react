@@ -1,4 +1,5 @@
 import { newId, type ToolOutput } from '../../protocol'
+import { sourceNameOf } from './component-name'
 import type { NodeId, reactFindComponentsContract } from './contracts'
 import { findAllRootFibers, findByName, findFiberById, matchDetail } from './fiber'
 import { classifyFibersWithinBudget, type FiberClassification, ownershipCoverage } from './source'
@@ -104,9 +105,11 @@ function page(
     }
     const { kind, props } = matchDetail(fiber, 1)
     const { source, isLibrary } = match.classification
+    const sourceName = sourceNameOf(match.name)
     matches.push({
       id: match.id,
       name: match.name,
+      ...(sourceName === undefined ? {} : { sourceName }),
       path: match.path,
       kind,
       props,

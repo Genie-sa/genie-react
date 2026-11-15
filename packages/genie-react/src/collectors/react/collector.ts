@@ -1,6 +1,7 @@
 import { type Fiber, getRDTHook } from 'bippy'
 import { defineCollector, defineCollectorTool, type GenieCollector } from '../../client'
 import { reactPendingWorkContract, roundMilliseconds } from '../../protocol'
+import { withBundlerRenameProof } from './bundler-renames'
 import { findComponents } from './component-search'
 import type { NodeId } from './contracts'
 import {
@@ -890,7 +891,7 @@ export function reactCollector(): GenieCollector {
           }
         },
       }),
-    ],
+    ].map(withBundlerRenameProof),
   })
 }
 

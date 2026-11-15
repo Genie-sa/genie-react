@@ -120,10 +120,17 @@ it('gives universal hosts hub integration data without Vite-only manual instruct
   expect(result).toMatchObject({
     data: {
       framework: 'unknown',
-      integration: { scriptUrl: 'http://127.0.0.1:4390/__genie/client.js', developmentOnly: true },
+      integration: {
+        scriptUrl: 'http://127.0.0.1:4390/__genie/client.js',
+        websocketUrl: 'ws://127.0.0.1:4390/__genie/ws',
+        hookModule: 'genie-react/hook',
+        developmentOnly: true,
+      },
     },
-    next: { argv: ['npx', 'genie-react', 'hub'] },
+    next: { argv: ['npx', 'genie-react', 'hub', '--port', '4390'] },
   })
+  expect(result.data.integration).not.toHaveProperty('export')
+  expect(result.data.artifacts).not.toContainEqual(expect.objectContaining({ kind: 'vite_config' }))
   expect(result.data.manualSteps).not.toContainEqual(
     expect.objectContaining({ module: 'genie-react/vite' }),
   )

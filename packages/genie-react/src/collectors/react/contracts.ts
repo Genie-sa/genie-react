@@ -235,6 +235,12 @@ export const reactFindComponentsContract = defineAgentToolContract({
       z.object({
         id: z.number(),
         name: z.string(),
+        sourceName: z
+          .string()
+          .optional()
+          .describe(
+            'The name in source when the bundler renamed the component to avoid a collision (esbuild emits MemoRow2 for MemoRow), as its source map records. Present only for such a rename; an exact component selector matches either name.',
+          ),
         path: z.string(),
         kind: z.string(),
         props: appValueSchema(

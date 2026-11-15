@@ -26,7 +26,7 @@ It needs `pnpm build` and `pnpm exec playwright install chromium`. Every server 
 | `vite-demo` | `genie()` Vite plugin | render causes for state, memo props, context; hot effect audit; JSX callsites; Query data and mutation; app tools (roles, flags, fixtures, fault injection, tombstones); StyleX rules; every override kind; error boundary |
 | `router-demo` | `genie()` Vite plugin | render causes; effect dependency slots; JSX callsites; Query refetch counters; simulated states; Router navigation against the URL; route-scoped app tools; every override kind; error boundary; plugin bus |
 | `demo` | `genie()` under TanStack Start SSR | app name; Query and keyed mutation; render causes by value and by reference; effect runs; cohort of 50 rows filtered to 5; DevTools plugin events; Suspense and error state; every override kind |
-| `plain-demo` | standalone `genie-react hub`, `<script>` tag and manual `createGenieClient` | render causes; both effects; unmount tombstone; esbuild source maps; Suspense lifecycle; every override kind; two tabs with separate sessions |
+| `plain-demo` | standalone `genie-react hub`, `<script>` tag and manual `createGenieClient` | render causes; both effects; unmount tombstone; esbuild source maps; a memo child esbuild renamed, found by its source name; Suspense lifecycle; every override kind; two tabs with separate sessions |
 | `next-demo` | `registerGenie()` in `instrumentation.ts` | render causes; memo reference-only props; effect cleanup order; a server component's JSX callsite mapped through the Next.js source-map endpoint; Query against the DOM; Suspense and error state; every override kind |
 
 ## Known defects
