@@ -360,3 +360,80 @@ describe('isTokenTransportSafe', () => {
     }
   })
 })
+
+describe('resolveBridge across git worktrees', () => {
+  let root: string
+  const savedUrl = process.env.GENIE_BRIDGE_URL
+
+  beforeEach(async () => {
+    delete process.env.GENIE_BRIDGE_URL
+    root = await mkdtemp(join(tmpdir(), 'genie-worktrees-'))
+    await mkdir(join(root, '.git'))
+  })
+
+  afterEach(async () => {
+    if (savedUrl === undefined) delete process.env.GENIE_BRIDGE_URL
+    else process.env.GENIE_BRIDGE_URL = savedUrl
+    await rm(root, { recursive: true, force: true })
+  })
+
+  const publish = async (appRoot: string, port: number) => {
+    await mkdir(join(appRoot, '.genie'), { recursive: true })
+    await writeFile(
+      join(appRoot, GENIE_DISCOVERY_FILE),
+      JSON.stringify({ url: `ws://127.0.0.1:${port}${GENIE_WS_PATH}`, port, pid: process.pid }),
+    )
+  }
+
+  /** A linked worktree nested inside the main checkout, as agent harnesses create them: its `.git` is a file. */
+  const linkedWorktree = async (name: string) => {
+    const worktree = join(root, '.claude', 'worktrees', name)
+    await mkdir(worktree, { recursive: true })
+    await writeFile(join(worktree, '.git'), `gitdir: ${join(root, '.git', 'worktrees', name)}\n`)
+    return worktree
+  }
+
+  it('never walks out of a linked worktree into the hub of the checkout that contains it', async () => {
+    await publish(root, 41001)
+    const worktree = await linkedWorktree('feature')
+    const nested = join(worktree, 'src', 'components')
+    await mkdir(nested, { recursive: true })
+
+    const resolved = await resolveBridge(nested)
+    expect(resolved.source).toBe('fallback')
+    expect(resolved.url).not.toContain('41001')
+  })
+
+  it('finds the worktree own hub from anywhere inside it', async () => {
+    await publish(root, 41001)
+    const worktree = await linkedWorktree('feature')
+    await publish(worktree, 41002)
+    const nested = join(worktree, 'src')
+    await mkdir(nested, { recursive: true })
+
+    expect(await resolveBridge(nested)).toMatchObject({
+      source: 'file',
+      url: `ws://127.0.0.1:41002${GENIE_WS_PATH}`,
+    })
+  })
+
+  it('does not adopt a nested worktree hub from the main checkout root', async () => {
+    const worktree = await linkedWorktree('feature')
+    await publish(join(worktree, 'apps', 'web'), 41003)
+
+    expect((await resolveBridge(root)).source).toBe('fallback')
+  })
+
+  it('lists every live hub of the checkout itself when several apps run below the root', async () => {
+    await publish(join(root, 'apps', 'web'), 41004)
+    await publish(join(root, 'apps', 'admin'), 41005)
+    await publish(join(await linkedWorktree('feature'), 'apps', 'web'), 41006)
+
+    const failure = await resolveBridge(root).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(BridgeConfigError)
+    const message = (failure as Error).message
+    expect(message).toContain(join('apps', 'web', '.genie', 'bridge.json'))
+    expect(message).toContain(join('apps', 'admin', '.genie', 'bridge.json'))
+    expect(message).not.toContain('41006')
+  })
+})

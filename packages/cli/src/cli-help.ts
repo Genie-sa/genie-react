@@ -305,6 +305,8 @@ export function cliHelp(name?: string): unknown {
             GENIE_BRIDGE_TOKEN:
               'Agent token for --url or GENIE_BRIDGE_URL; wins over the token of a discovered hub at that URL and is ignored for discovered URLs',
             GENIE_SESSION: 'Default app session target',
+            GENIE_AGENT:
+              'Name this agent for the hub (1 to 64 letters, digits, ".", "_" or "-"); defaults to a hash of the Claude Code or Codex session, else of the git worktree. The hub keeps the default tab, render windows, recordings and overrides per agent',
             GENIE_SKILL_DIR:
               'Directory holding the agent skill when it is installed outside the project; doctor checks it instead of the project skill locations',
             GENIE_OUTPUT:
