@@ -6,6 +6,8 @@ import {
   INPUT_ATTRIBUTION_REASONS,
   type ToolInput,
 } from '../protocol'
+import type { RendererBundle } from './verify/evidence'
+import { hostingRendererProblem } from './verify/guards'
 
 type ComparisonInput = ToolInput<typeof devtoolsCaptureCompareContract>
 type ParsedComparisonInput = ComparisonInput & {
@@ -37,6 +39,14 @@ const CAUSE_DEPENDENT_METRICS: ReadonlySet<CaptureMetric> = new Set(['react.unne
 
 // Partial render-cause attribution leaves render counts and timings exact, so only cause-derived metrics are gated by it.
 const ATTRIBUTION_ONLY_REASONS: ReadonlySet<string> = new Set(INPUT_ATTRIBUTION_REASONS)
+
+// appOnly totals keep unknown-ownership components, so they are exact for whichever components are unknown; commits do not depend on ownership at all.
+const CLASSIFICATION_INCOMPLETE = 'app-source-classification-incomplete'
+const OWNERSHIP_INDEPENDENT_METRICS: ReadonlySet<CaptureMetric> = new Set(['react.commits'])
+
+// A commit by a renderer Genie does not analyze (the Next.js dev overlay's production React) counts as a failed fiber analysis without touching any counted component.
+const ANALYSIS_FAILED = 'fiber-analysis-failed'
+const RENDERER_NOT_ANALYZED = 'renderer-not-analyzed'
 
 export function compareCaptureCohorts(
   baseline: CaptureArtifact[],
@@ -100,7 +110,9 @@ export function compareCaptureCohorts(
     notComparableReasons: hygiene.reasons,
     metrics,
     violations,
-    warnings: hygiene.warnings,
+    warnings: input.metrics.some((metric) => metric.startsWith('react.'))
+      ? [...hygiene.warnings, ...renderScopeWarnings([...baseline, ...candidate])]
+      : hygiene.warnings,
   }
 }
 
@@ -224,6 +236,7 @@ function samplesFor(metric: CaptureMetric, captures: CaptureArtifact[]): SampleC
   const notComparableReasons: string[] = []
   const refreshRates: number[] = []
   const coverageSignatures: string[] = []
+  const ownershipSignatures: string[] = []
   for (const capture of captures) {
     const evidence = metricEvidence(capture, metric)
     if (metric.startsWith('react.')) {
@@ -243,8 +256,17 @@ function samplesFor(metric: CaptureMetric, captures: CaptureArtifact[]): SampleC
       samples.push({ captureId: capture.captureId, value })
     }
     if (evidence.refreshRate !== null) refreshRates.push(evidence.refreshRate)
+    if (evidence.ownershipSignature !== null) ownershipSignatures.push(evidence.ownershipSignature)
   }
-  return { samples, missing, excluded, notComparableReasons, refreshRates, coverageSignatures }
+  return {
+    samples,
+    missing,
+    excluded,
+    notComparableReasons,
+    refreshRates,
+    coverageSignatures,
+    ownershipSignatures,
+  }
 }
 
 interface MetricSample {
@@ -259,61 +281,70 @@ interface SampleCollection {
   notComparableReasons: string[]
   refreshRates: number[]
   coverageSignatures: string[]
+  /** The unknown-ownership components each comparable sample counted, for metrics that sum components. */
+  ownershipSignatures: string[]
 }
 
-function metricEvidence(
-  capture: CaptureArtifact,
-  metric: CaptureMetric,
-): {
+interface MetricEvidence {
   comparable: boolean
   reasons: string[]
   refreshRate: number | null
   coverageSignature: string | null
-} {
+  ownershipSignature: string | null
+}
+
+function metricEvidence(capture: CaptureArtifact, metric: CaptureMetric): MetricEvidence {
+  const neutral = { refreshRate: null, coverageSignature: null, ownershipSignature: null }
   if (metric.startsWith('react.')) {
     const result = toolResult(capture, 'react', 'react_get_renders')
-    if (!isRecord(result)) {
-      return { comparable: true, reasons: [], refreshRate: null, coverageSignature: null }
-    }
+    if (!isRecord(result)) return { comparable: true, reasons: [], ...neutral }
     const causeDependent = CAUSE_DEPENDENT_METRICS.has(metric)
     const coverageSignature = renderCoverageSignature(result, causeDependent)
+    const withCoverage = { ...neutral, coverageSignature }
     if (
       (metric === 'react.unnecessary' || metric === 'react.selfTimeMs') &&
       finiteNumber(result.omittedByLimit) !== null &&
       (finiteNumber(result.omittedByLimit) ?? 0) > 0
     ) {
-      return {
-        comparable: false,
-        reasons: ['render-component-list-truncated'],
-        refreshRate: null,
-        coverageSignature,
-      }
+      return { comparable: false, reasons: ['render-component-list-truncated'], ...withCoverage }
     }
-    if (result.comparable === false) {
-      const reasons = stringArray(
-        result.notComparableReasons,
-        'render-evidence-not-comparable',
-      ).filter((reason) => causeDependent || !ATTRIBUTION_ONLY_REASONS.has(reason))
-      if (reasons.length > 0) {
-        return { comparable: false, reasons, refreshRate: null, coverageSignature }
-      }
-    }
+    const reported =
+      result.comparable === false
+        ? stringArray(result.notComparableReasons, 'render-evidence-not-comparable')
+        : []
+    const unknownComponents = reported.includes(CLASSIFICATION_INCOMPLETE)
+      ? countedUnknownComponents(result)
+      : []
+    const ownershipSignature = unknownComponents === null ? null : JSON.stringify(unknownComponents)
+    const excused = (reason: string): boolean =>
+      (!causeDependent && ATTRIBUTION_ONLY_REASONS.has(reason)) ||
+      (reason === CLASSIFICATION_INCOMPLETE &&
+        (OWNERSHIP_INDEPENDENT_METRICS.has(metric) || ownershipSignature !== null)) ||
+      (reason === ANALYSIS_FAILED && onlyUnanalyzedRenderersFailed(result))
+    const reasons = reported.filter((reason) => !excused(reason))
+    if (reasons.length > 0) return { comparable: false, reasons, ...withCoverage }
+    // Both excused reasons downgrade the summary's semantics on their own, so they also explain a non-exact summary.
+    const summaryExplained = reported.some(
+      (reason) => reason === CLASSIFICATION_INCOMPLETE || reason === ANALYSIS_FAILED,
+    )
     const semantics = isRecord(result.summary) ? result.summary.semantics : undefined
-    if (semantics !== 'exact') {
+    if (semantics !== 'exact' && !summaryExplained) {
       return {
         comparable: false,
         reasons: ['render-evidence-semantics-not-exact'],
-        refreshRate: null,
-        coverageSignature,
+        ...withCoverage,
       }
     }
-    return { comparable: true, reasons: [], refreshRate: null, coverageSignature }
+    return {
+      comparable: true,
+      reasons: [],
+      ...withCoverage,
+      ownershipSignature: OWNERSHIP_INDEPENDENT_METRICS.has(metric) ? null : ownershipSignature,
+    }
   }
   if (metric.startsWith('performance.')) {
     const result = toolResult(capture, 'performance', 'browser_fps')
-    if (!isRecord(result)) {
-      return { comparable: true, reasons: [], refreshRate: null, coverageSignature: null }
-    }
+    if (!isRecord(result)) return { comparable: true, reasons: [], ...neutral }
     const refreshRate = finiteNumber(result.refreshRate)
     if (result.hidden === true || result.comparable === false) {
       return {
@@ -322,13 +353,75 @@ function metricEvidence(
           result.notComparableReasons,
           result.hidden === true ? 'document-hidden-during-sample' : 'fps-not-comparable',
         ),
+        ...neutral,
         refreshRate,
-        coverageSignature: null,
       }
     }
-    return { comparable: true, reasons: [], refreshRate, coverageSignature: null }
+    return { comparable: true, reasons: [], ...neutral, refreshRate }
   }
-  return { comparable: true, reasons: [], refreshRate: null, coverageSignature: null }
+  return { comparable: true, reasons: [], ...neutral }
+}
+
+/** The unknown-ownership components a capture counted, or null when the capture did not name all of them. */
+function countedUnknownComponents(result: Record<string, unknown>): string[] | null {
+  const classification = isRecord(result.sourceClassification) ? result.sourceClassification : null
+  if (!classification || !Array.isArray(classification.unknownComponents)) return null
+  if (finiteNumber(classification.unknownComponentsOmitted) !== 0) return null
+  return stringArray(classification.unknownComponents, '').filter(Boolean).sort()
+}
+
+/** Whether every failed fiber analysis was a commit by a renderer Genie does not analyze, and verify's renderer rule accepts the page. */
+function onlyUnanalyzedRenderersFailed(result: Record<string, unknown>): boolean {
+  const coverage = isRecord(result.coverage) ? result.coverage : null
+  const failed = finiteNumber(coverage?.analysisFailedFibers)
+  if (!coverage || !failed || !Array.isArray(coverage.incompleteBecause)) return false
+  const unanalyzed = coverage.incompleteBecause.reduce(
+    (sum: number, entry: unknown) =>
+      isRecord(entry) && entry.reason === RENDERER_NOT_ANALYZED
+        ? sum + (finiteNumber(entry.fibers) ?? 0)
+        : sum,
+    0,
+  )
+  // Counts only ever include components on the development renderers Genie analyzes, so those host everything compared.
+  return (
+    unanalyzed === failed && hostingRendererProblem(pageBundle(result), ['development']) === null
+  )
+}
+
+function pageBundle(result: Record<string, unknown>): RendererBundle {
+  const { bundle } = result
+  return bundle === 'development' || bundle === 'mixed' || bundle === 'production'
+    ? bundle
+    : 'unknown'
+}
+
+/** What render metrics did and did not count, when a capture relied on an excused gap. */
+function renderScopeWarnings(captures: CaptureArtifact[]): string[] {
+  const unanalyzed: string[] = []
+  const unknown = new Set<string>()
+  for (const capture of captures) {
+    const result = toolResult(capture, 'react', 'react_get_renders')
+    if (!isRecord(result) || result.comparable !== false) continue
+    const reported = stringArray(result.notComparableReasons, '')
+    if (reported.includes(ANALYSIS_FAILED) && onlyUnanalyzedRenderersFailed(result)) {
+      unanalyzed.push(capture.captureId)
+    }
+    if (reported.includes(CLASSIFICATION_INCOMPLETE)) {
+      for (const name of countedUnknownComponents(result) ?? []) unknown.add(name)
+    }
+  }
+  const warnings: string[] = []
+  if (unanalyzed.length > 0) {
+    warnings.push(
+      `A React renderer Genie does not analyze (a production build, such as the Next.js dev overlay) committed in ${unanalyzed.join(', ')}; it hosts none of the counted components, so render metrics cover the development renderer only.`,
+    )
+  }
+  if (unknown.size > 0) {
+    warnings.push(
+      `Ownership of ${[...unknown].sort().join(', ')} is unknown; app-only render totals count them, and component metrics are compared only when every capture names the same ones.`,
+    )
+  }
+  return warnings
 }
 
 function crossCohortReasons(
@@ -340,6 +433,8 @@ function crossCohortReasons(
   if (metric.startsWith('react.')) {
     const signatures = new Set([...baseline.coverageSignatures, ...candidate.coverageSignatures])
     if (signatures.size > 1) reasons.push('render-coverage-policy-mismatch-between-cohorts')
+    const ownership = new Set([...baseline.ownershipSignatures, ...candidate.ownershipSignatures])
+    if (ownership.size > 1) reasons.push('unknown-ownership-differs-between-captures')
   }
   if (metric.startsWith('performance.')) {
     const rates = new Set([...baseline.refreshRates, ...candidate.refreshRates])
