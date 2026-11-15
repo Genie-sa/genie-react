@@ -8,10 +8,11 @@ import {
   changedDependencySlots,
   clearEffectEvents,
   getEffectScheduleEvents,
+  type PassiveEffectBinding,
   recordEffectSchedule,
   recordResultingEffectCommit,
   runObservedEffectCleanup,
-  runObservedEffectCreate,
+  runObservedPassiveEffect,
 } from './effect-events'
 import { clearInstanceIdentityForTests } from './instance-identity'
 import { beginObservation, resetObservationStateForTests } from './observation'
@@ -29,6 +30,14 @@ const fiber = (): Fiber => {
     alternate: null,
   } as Fiber
 }
+
+const binding = (effectEventId: string): PassiveEffectBinding => ({
+  effectEventId,
+  fiber: fiber(),
+  effectIndex: 0,
+  onCleanupReturned: () => {},
+  ran: false,
+})
 
 beforeEach(() => {
   clearEffectEvents()
@@ -66,7 +75,7 @@ describe('effect schedule events', () => {
     expect(event?.effectId).toMatch(/^effect:mount:/)
   })
 
-  it('joins passive execution, cleanup, notifications, and the next commit by causal ID', () => {
+  it('joins passive execution, cleanup, and notifications by causal ID without inventing a resulting commit', () => {
     const observer = {}
     recordEffectSchedule({
       fiber: fiber(),
@@ -80,7 +89,7 @@ describe('effect schedule events', () => {
     const effectEventId = getEffectScheduleEvents({ limit: 10 }).events[0]?.effectEventId
     if (!effectEventId) throw new Error('expected a retained effect event')
 
-    runObservedEffectCreate(effectEventId, () => {
+    runObservedPassiveEffect(binding(effectEventId), () => {
       recordQueryNotification(
         observer,
         { data: null },
@@ -116,11 +125,6 @@ describe('effect schedule events', () => {
             notificationId: 'query-notification:1',
             evidence: 'exact',
           },
-          {
-            kind: 'resulting-commit',
-            documentCommitId: 4,
-            evidence: 'inferred',
-          },
         ],
       },
     })
@@ -129,7 +133,6 @@ describe('effect schedule events', () => {
       'execution',
       'consequence',
       'cleanup',
-      'resulting-commit',
     ])
   })
 
@@ -149,8 +152,8 @@ describe('effect schedule events', () => {
     for (let index = 0; index < 1_000; index += 1) schedule()
     const retainedId = getEffectScheduleEvents({ limit: 1 }).events[0]?.effectEventId
 
-    expect(runObservedEffectCreate(evictedId ?? '', () => 'ran')).toBe('ran')
-    runObservedEffectCreate(retainedId ?? '', () => undefined)
+    expect(runObservedPassiveEffect(binding(evictedId ?? ''), () => 'ran')).toBe('ran')
+    runObservedPassiveEffect(binding(retainedId ?? ''), () => undefined)
 
     const retained = getEffectScheduleEvents({ limit: 1_000 }).events
     expect(retained.some((event) => event.effectEventId === evictedId)).toBe(false)

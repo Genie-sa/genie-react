@@ -42,7 +42,11 @@ const effectHotnessSchema = z.object({
 })
 
 const effectFindingSchema = z.object({
-  index: z.number().describe('Position of the effect among the component’s hooks.'),
+  index: z
+    .number()
+    .describe(
+      'Position among the component’s effect hooks (useEffect, useLayoutEffect, useInsertionEffect, useImperativeHandle, and hooks built on them) in call order. Effects React pushes without a hook, such as useSyncExternalStore’s snapshot check, are not reported.',
+    ),
   kind: z.enum(['effect', 'layout', 'insertion']),
   depsMode: z
     .enum(['none', 'empty', 'list'])
@@ -263,6 +267,12 @@ const observedEffectRunSchema = z.object({
   error: z.string().optional(),
 })
 
+const effectRunTriggerSchema = z
+  .enum(['commit', 'strict-mode-replay', 'reconnect'])
+  .describe(
+    'commit = the run React scheduled; strict-mode-replay = StrictMode’s development re-run of a fresh mount, not an app bug; reconnect = a hidden Activity or offscreen subtree was shown again.',
+  )
+
 const effectEventSchema = z.object({
   sourceOwnership: z.enum(['app', 'library', 'unknown']),
   source: sourceSchema,
@@ -277,13 +287,17 @@ const effectEventSchema = z.object({
   effectIndex: z.number().int().nonnegative(),
   kind: z.enum(['effect', 'layout', 'insertion']),
   phase: z.enum(['mount', 'update']),
-  event: z.literal('scheduled'),
+  event: z
+    .enum(['scheduled', 'reconnected'])
+    .describe(
+      'scheduled = React flagged the effect in this commit; reconnected = React re-ran an unscheduled effect because its hidden subtree became visible.',
+    ),
   evidence: z.literal('exact'),
   changedDependencySlots: z.array(z.number().int().nonnegative()),
   changedDependencySlotsOmitted: z.number().int().nonnegative(),
   dependencySlotsUnscanned: z.number().int().nonnegative(),
   execution: z.union([
-    observedEffectRunSchema,
+    observedEffectRunSchema.extend({ trigger: effectRunTriggerSchema }),
     z.object({
       status: z.literal('unobserved'),
       reason: z.enum([
@@ -293,22 +307,32 @@ const effectEventSchema = z.object({
       ]),
     }),
   ]),
-  cleanupExecution: z.union([
-    observedEffectRunSchema,
-    z.object({
-      status: z.literal('unobserved'),
-      reason: z.enum(['not-yet-observed', 'no-cleanup-returned', 'instrumentation-unavailable']),
-    }),
-  ]),
+  cleanupExecution: z
+    .union([
+      observedEffectRunSchema.extend({ trigger: z.literal('strict-mode-replay').optional() }),
+      z.object({
+        status: z.literal('unobserved'),
+        reason: z.enum([
+          'not-yet-observed',
+          'no-cleanup-returned',
+          'unsupported-effect-kind',
+          'instrumentation-unavailable',
+        ]),
+      }),
+    ])
+    .describe(
+      'Cleanup of the latest execution. A new execution resets it to not-yet-observed, so an observed cleanup always belongs to the current run.',
+    ),
   consequences: z.object({
     status: z.literal('instrumented'),
     observedDomains: z.tuple([
       z.literal('query-notification'),
       z.literal('router-notification'),
+      z.literal('react-update'),
       z.literal('react-commit'),
     ]),
     unobservedDomains: z.tuple([
-      z.literal('state-update'),
+      z.literal('asynchronous-react-update'),
       z.literal('external-store-write'),
       z.literal('network'),
       z.literal('event-listener'),
@@ -323,13 +347,38 @@ const effectEventSchema = z.object({
           timestamp: z.number(),
           evidence: z.literal('exact'),
         }),
-        z.object({
-          kind: z.literal('resulting-commit'),
-          documentCommitId: z.number().int().nonnegative(),
-          timestamp: z.number(),
-          evidence: z.literal('inferred'),
-          reason: z.literal('next-commit-after-effect-execution'),
-        }),
+        z
+          .object({
+            kind: z.literal('react-update'),
+            stage: z.enum(['execution', 'cleanup']),
+            status: z.literal('scheduled'),
+            timestamp: z.number(),
+            evidence: z.literal('exact'),
+          })
+          .describe('React work was scheduled synchronously while this run executed.'),
+        z
+          .object({
+            kind: z.literal('react-update'),
+            stage: z.enum(['execution', 'cleanup']),
+            status: z.literal('undetermined'),
+            timestamp: z.number(),
+            evidence: z.literal('unknown'),
+            reason: z.literal('work-already-pending'),
+          })
+          .describe(
+            'React work was already pending, so an update this run scheduled on the same lane cannot be detected.',
+          ),
+        z
+          .object({
+            kind: z.literal('resulting-commit'),
+            documentCommitId: z.number().int().nonnegative(),
+            timestamp: z.number(),
+            evidence: z.literal('inferred'),
+            reason: z.enum(['commit-retired-update-lanes', 'committed-during-run']),
+          })
+          .describe(
+            'The commit that retired the lanes this run scheduled. Present only after a scheduled react-update; other updates can share that commit.',
+          ),
       ]),
     ),
   }),
@@ -340,6 +389,7 @@ const effectEventSchema = z.object({
       evidence: z.enum(['exact', 'inferred']),
       referenceId: z.string().optional(),
       outcome: z.enum(['completed', 'threw']).optional(),
+      trigger: effectRunTriggerSchema.optional(),
     }),
   ),
 })
@@ -357,6 +407,13 @@ const effectEventsOutputSchema = z.object({
     .nonnegative()
     .describe('Schedule events evicted from the retained history.'),
   droppedEvents: z.number().int().nonnegative().describe('Legacy alias for evictedEvents.'),
+  refreshCommitsExcluded: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe(
+      'Fast Refresh commits since the observation started. Genie does not analyse them, so effects they re-ran are missing and coverage.complete is false.',
+    ),
   coverage: effectCoverageSchema,
 })
 
@@ -375,7 +432,7 @@ export const reactEffectTimelineContract = defineAgentToolContract({
   name: 'react_effect_timeline',
   title: 'Effect causal timeline',
   description:
-    'Report bounded effect schedules joined to exact passive execution and cleanup observations, exact Query/Router notification consequences, and the next resulting React commit as an explicitly inferred edge. Unsupported or unavailable stages carry a reason; state updates, external-store writes, network, event-listener, and navigation consequences remain explicitly unobserved.',
+    'Report bounded effect schedules and reconnects joined to exact passive execution and cleanup observations (each run labelled commit, strict-mode-replay, or reconnect), exact Query/Router notification consequences, React updates scheduled synchronously during a run, and the commit that retired them as an explicitly inferred edge. Layout and insertion effects run before Genie sees the commit, so their execution and cleanup stay unobserved. Unsupported or unavailable stages carry a reason; asynchronous updates, external-store writes, network, event-listener, and navigation consequences remain explicitly unobserved.',
   group: 'react.render',
   input: effectEventsInputSchema,
   output: effectEventsOutputSchema,

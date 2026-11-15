@@ -564,6 +564,9 @@ importers:
       react-freeze:
         specifier: 1.0.4
         version: 1.0.4(react@19.3.1)
+      react-refresh:
+        specifier: 0.14.2
+        version: 0.14.2
       tanstack-query-core-minimum:
         specifier: npm:@tanstack/query-core@5.0.0
         version: '@tanstack/query-core@5.0.0'
