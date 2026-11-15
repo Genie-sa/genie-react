@@ -31,8 +31,22 @@ export async function waitForText(page, selector, expected, timeout = 10_000) {
   )
 }
 
-/** Clears render evidence, runs one interaction, requires React to go idle, then returns the full render report. */
+const SETTLE_DOMAINS = ['react', 'query', 'router']
+
+/** Waits until the app's own loading (lazy routes, first queries) is over, so the window holds only the interaction's renders. */
+async function settleBeforeWindow(ctx) {
+  const domains = SETTLE_DOMAINS.filter((domain) => ctx.spec.domains.includes(domain))
+  const settled = await ctx.call('devtools_wait', {
+    condition: 'settled',
+    domains,
+    timeoutMs: 15_000,
+  })
+  check(settled.ok === true, 'the app did not settle before the interaction', settled)
+}
+
+/** Settles the app, clears render evidence, runs one interaction, requires React to go idle, then returns the full render report. */
 export async function measure(ctx, action, { appOnly = false } = {}) {
+  await settleBeforeWindow(ctx)
   const cleared = await ctx.call('react_clear_renders', {})
   check(
     cleared.ok === true && cleared.tracking === true,
