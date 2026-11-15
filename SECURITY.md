@@ -12,8 +12,15 @@ open a public issue for a suspected vulnerability. Include the affected package 
 (`genie-react`, `@genie-react/cli`), the integration (Vite, Next.js, standalone hub, React Native),
 and the steps to reproduce.
 
-Fixes ship in the latest release line. `genie-react` and `@genie-react/cli` are released together
-with the same version; use matching versions.
+## Supported versions
+
+| Version | Supported |
+| --- | --- |
+| 1.x | Yes |
+| < 1.0 | No |
+
+Security fixes ship in the latest 1.x release. `genie-react` and `@genie-react/cli` are released
+together with the same version; use matching versions.
 
 ## Components
 
