@@ -138,9 +138,7 @@ export function evaluateRenders(
     remounts: remounts.length,
     semantics,
     instances: matched.mountIds.size,
-    activeInstances: [...matched.beginInstances, ...matched.endInstances].filter(
-      (instance) => instance.renderingState === 'mounted-rendering',
-    ).length,
+    activeInstances: activeInstances(matched).length,
   }
   const busiest = [...records]
     .filter((record) => record.renders > 0)

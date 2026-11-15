@@ -20,7 +20,7 @@ Text is the default because an agent's context is the scarce resource: the same 
 | --- | --- | --- |
 | `call`, `status`, `tools`, `doctor`, `init`, `link`, `capture export` | one text document | one compact JSON value |
 | `--help`, no command | help text: usage, commands, arguments, every option with its type, default, limits, enum and conflicts, output, notes and examples | JSON command metadata |
-| `--version` | the version, such as `0.20.0` | `{schemaVersion, status, version}` |
+| `--version` | the version, such as `1.0.0` | `{schemaVersion, status, version}` |
 | `call --fields` | the projected rows as one text array; zero rows print zero bytes | JSONL rows; zero rows print zero bytes |
 | `call --select`, `tools --select`, `doctor --select` | the selection envelope as text | the selection envelope |
 | `batch` | one block per result, printed as each call completes | `--json`: one array; `--ndjson` or `GENIE_OUTPUT=json`: JSONL |
@@ -197,7 +197,7 @@ Tool listings save the least because their descriptions are prose that text keep
 
 ## Migration
 
-0.20 makes text the default. A script that parses CLI output adds `--json` to each invocation, or sets `GENIE_OUTPUT=json` once to keep the 0.19 behavior, including JSONL for `batch`, `call --fields` and `hub`. Help is text; `--help --json` returns the JSON metadata, whose `output` object now states `default: "text"` and the `json` format. Diagnostics follow the output format. Tool result schemas, failure reasons, exit codes, byte limits and the hub wire protocol are unchanged.
+1.0 makes text the default. A script that parses CLI output adds `--json` to each invocation, or sets `GENIE_OUTPUT=json` once to keep the 0.19 behavior, including JSONL for `batch`, `call --fields` and `hub`. Help is text; `--help --json` returns the JSON metadata, whose `output` object now states `default: "text"` and the `json` format. Diagnostics follow the output format. Tool result schemas, failure reasons, exit codes, byte limits and the hub wire protocol are unchanged.
 
 The 0.14 migration from human summaries to JSON is described in the CLI changelog. The executable routes every result through shared bounded serializers and derives command help and accepted options from the same registry. Collector APIs remain unchanged. Low-level setup logger injection remains available to library callers; it is not the executable's output contract.
 
