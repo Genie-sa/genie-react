@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { defineAgentToolContract } from '../../protocol'
+import { componentMatchSchema, componentSelectorInputShape } from './component-name'
 import {
   appOnlySchema,
   ownershipCoverageSchema,
@@ -102,7 +103,7 @@ export const reactProvenanceContract = defineAgentToolContract({
     'Scan a bounded set of mounted components and report recursive wrapper ancestry, app/library/unknown ownership, split source roles, source-map confidence, and explicit failure reasons. This diagnostic never promotes an ambiguous fallback to a definition or allocation callsite.',
   group: 'react.tree',
   input: z.object({
-    component: z.string().optional(),
+    ...componentSelectorInputShape,
     limit: z.number().int().min(1).max(500).default(200),
     appOnly: z
       .boolean()
@@ -110,6 +111,7 @@ export const reactProvenanceContract = defineAgentToolContract({
       .describe('When true, include only components with resolved app ownership.'),
   }),
   output: z.object({
+    componentMatch: componentMatchSchema.optional(),
     records: z.array(
       z.object({
         id: z.number(),
@@ -923,11 +925,12 @@ export const reactProfileReportContract = defineAgentToolContract({
     'Timing fields are bundle-dependent; counts describe the observed run, not a production estimate. Summarize peak render cost, render counts, and no-observed-input updates when causal attribution is complete. Check coverage.inputAttributionComplete before using causal leaderboards. The report never calls a render safe to remove.',
   group: 'react.profile',
   input: z.object({
-    component: z.string().optional(),
+    ...componentSelectorInputShape,
     appOnly: appOnlySchema,
     limit: z.number().int().min(1).max(100).default(20),
   }),
   output: z.object({
+    componentMatch: componentMatchSchema.optional(),
     ...renderMeasurementEnvironmentSchema.shape,
     commits: z.number(),
     tracking: z.boolean(),

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { defineAgentToolContract, outputViewSchema } from '../../protocol'
 import { renderObservationBudgetInputSchema } from '../../protocol/react-observation-schema'
+import { componentMatchSchema, componentSelectorInputShape } from './component-name'
 import {
   appOnlySchema,
   ownershipCoverageSchema,
@@ -747,6 +748,7 @@ const renderSourceClassificationSchema = z.object({
 })
 
 const renderReportBaseSchema = z.object({
+  componentMatch: componentMatchSchema.optional(),
   nextCursor: z
     .string()
     .nullable()
@@ -791,7 +793,7 @@ export const reactGetRendersContract = defineAgentToolContract({
   group: 'react.render',
   input: z
     .object({
-      component: z.string().optional().describe('Only components whose name contains this string.'),
+      ...componentSelectorInputShape,
       nameFilter: z
         .string()
         .min(1)
@@ -904,6 +906,7 @@ export const renderCauseEventSummarySchema = z.object({
 })
 
 const renderCauseReportBaseSchema = z.object({
+  componentMatch: componentMatchSchema.optional(),
   tracking: z.boolean(),
   commits: z.number().int().nonnegative(),
   documentCommitId: z.number().int().nonnegative(),
@@ -941,7 +944,7 @@ export const reactRenderCausesContract = defineAgentToolContract({
         .nonnegative()
         .optional()
         .describe('Only events with a documentCommitId greater than this.'),
-      component: z.string().optional().describe('Only components whose name contains this string.'),
+      ...componentSelectorInputShape,
       limit: z.number().int().min(1).max(500).default(100),
       appOnly: z
         .boolean()
@@ -990,6 +993,7 @@ export const reactComponentCohortContract = defineAgentToolContract({
     ownershipCoverage: ownershipCoverageSchema,
     observation: observationSchema.nullable(),
     query: z.object({ component: z.string(), exact: z.boolean() }),
+    componentMatch: componentMatchSchema,
     status: z.enum([
       'not-started',
       'absent',
@@ -1113,7 +1117,7 @@ export const reactRendersSinceContract = defineAgentToolContract({
   input: z.object({
     handle: z.string().min(1).max(100),
     close: z.boolean().default(false),
-    component: z.string().optional().describe('Only components whose name contains this string.'),
+    ...componentSelectorInputShape,
     appOnly: z
       .boolean()
       .default(true)
@@ -1124,6 +1128,7 @@ export const reactRendersSinceContract = defineAgentToolContract({
   }),
   output: measurementSpanSchema.extend({
     ...renderMeasurementEnvironmentSchema.shape,
+    componentMatch: componentMatchSchema.optional(),
     commitIds: z.array(z.number().int().nonnegative()),
     commits: z.number().int().nonnegative(),
     excludedCommits: z.number().int().nonnegative(),

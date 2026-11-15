@@ -21,6 +21,7 @@ import {
 import { safeStructuredClone } from '../structured-clone'
 import { getTimings } from './bippy-compat'
 import { type CommitWorkBudget, commitWorkExhaustions, consumeCommitWork } from './commit-budget'
+import type { ComponentMatch } from './component-name'
 import { recordResultingEffectCommit } from './effect-events'
 import {
   clearEffects,
@@ -105,6 +106,7 @@ import {
   buildRendersLeaderboards,
   buildRendersMeasurementReport,
   buildRendersReport,
+  describeRecordMatch,
   type RenderCauseQuery,
   type RenderQuery,
   renderRecordFilter,
@@ -734,6 +736,7 @@ interface RenderMeasurement {
   documentCommitId: number
   observation: ObservationWindow | null
   attribution: ReportAttribution
+  componentMatch: ComponentMatch | undefined
   summary: RenderSummary
   sourceClassification: SourceClassificationCoverage
   components: RenderReport[]
@@ -818,6 +821,7 @@ export async function getRendersMeasurement(
     }
     candidates.push(record)
   }
+  const componentMatch = describeRecordMatch(records, query)
   const recordsAtStart = snapshotRenderRecords(candidates)
   const commitsAtStart = commits
   const epoch = captureReportEpoch()
@@ -859,6 +863,7 @@ export async function getRendersMeasurement(
     observation,
     attribution: reportAttribution(epoch),
     ...report,
+    componentMatch,
     skippedCommitFibers: skippedAtStart,
     droppedUnmountFibers: droppedUnmountsAtStart,
     analysisFailedFibers: failedAtStart,
@@ -992,7 +997,7 @@ export async function getRendersLeaderboards(limit: number): Promise<{
 
 export async function getRendersLeaderboardsMeasurement(
   limit: number,
-  selection: Pick<RenderQuery, 'component' | 'appOnly'> = {},
+  selection: Pick<RenderQuery, 'component' | 'exact' | 'appOnly'> = {},
 ): Promise<{
   commits: number
   tracking: boolean
