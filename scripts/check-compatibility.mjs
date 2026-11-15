@@ -38,8 +38,20 @@ const PROFILES = {
     vite: '8.1.0',
     '@tanstack/react-query': '5.101.2',
     '@tanstack/react-router': '1.170.17',
-    zod: '4.4.3',
+    zod: '4.6.7',
   },
+}
+// npm resolves genie-react's own zod to the newest release its range admits; the minimum profile pins it to the range's floor so CI covers the oldest release a user can install.
+const RUNTIME_ZOD = {
+  minimum: lowestRelease(
+    JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')).dependencies.zod,
+  ),
+}
+
+function lowestRelease(range) {
+  const floor = /^\^(\d+\.\d+\.\d+)$/.exec(range)?.[1]
+  if (!floor) throw new Error(`Expected a caret range for genie-react's zod, found ${range}`)
+  return floor
 }
 
 function selectedProfiles(argv) {
@@ -64,10 +76,12 @@ function packRuntime(directory) {
 
 function writeConsumer(directory, profile, versions, tarball) {
   mkdirSync(join(directory, 'src'), { recursive: true })
+  const runtimeZod = RUNTIME_ZOD[profile]
   writeJson(join(directory, 'package.json'), {
     name: `genie-compatibility-${profile}`,
     private: true,
     type: 'module',
+    ...(runtimeZod ? { overrides: { 'genie-react': { zod: runtimeZod } } } : {}),
   })
   writeFileSync(
     join(directory, 'index.html'),
@@ -348,6 +362,11 @@ try {
       ...TYPESCRIPT_COMPILERS,
       ...REACT_TYPE_PROFILES[profile],
     })
+    if (RUNTIME_ZOD[profile]) {
+      assertInstalledVersions(join(directory, 'node_modules/genie-react'), {
+        zod: RUNTIME_ZOD[profile],
+      })
+    }
     verifyConsumer(directory)
     process.stdout.write(
       `Compatibility ${profile} passed on Node ${process.version}: ${Object.entries({
@@ -355,7 +374,7 @@ try {
         ...TYPESCRIPT_COMPILERS,
       })
         .map(([name, version]) => `${name}@${version}`)
-        .join(', ')}\n`,
+        .join(', ')}${RUNTIME_ZOD[profile] ? `, genie-react's zod@${RUNTIME_ZOD[profile]}` : ''}\n`,
     )
   }
 } finally {

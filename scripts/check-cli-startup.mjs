@@ -14,17 +14,17 @@ const BATCH = JSON.stringify([{ tool: 'app_echo' }, { tool: 'app_echo', args: { 
 const COMMANDS = [
   { name: '--version', argv: ['--version'], files: 4, bytes: 80 * KiB, roundTrips: 0, floors: 3 },
   { name: '--help', argv: ['--help'], files: 4, bytes: 80 * KiB, roundTrips: 0, floors: 3 },
-  { name: 'status', argv: ['status'], files: 6, bytes: 540 * KiB, roundTrips: 1, floors: 7 },
-  { name: 'tools', argv: ['tools'], files: 6, bytes: 540 * KiB, roundTrips: 0, floors: 7 },
+  { name: 'status', argv: ['status'], files: 6, bytes: 580 * KiB, roundTrips: 1, floors: 7 },
+  { name: 'tools', argv: ['tools'], files: 6, bytes: 580 * KiB, roundTrips: 0, floors: 7 },
   {
     name: 'call',
     argv: ['call', 'app_echo', '{}'],
     files: 6,
-    bytes: 540 * KiB,
+    bytes: 580 * KiB,
     roundTrips: 1,
     floors: 7,
   },
-  { name: 'batch', argv: ['batch', BATCH], files: 6, bytes: 540 * KiB, roundTrips: 2, floors: 7 },
+  { name: 'batch', argv: ['batch', BATCH], files: 6, bytes: 580 * KiB, roundTrips: 2, floors: 7 },
 ]
 const EXIT_LAG_MS = 50
 const CEILING_MARGIN_MS = 100

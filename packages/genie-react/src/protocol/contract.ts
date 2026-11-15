@@ -34,10 +34,15 @@ export interface AgentToolAnnotations {
   openWorldHint?: boolean
 }
 
+/** The part of a Zod 4 schema that tool types read. Constraining by `z.ZodType` would make TypeScript compare the app's zod classes with genie-react's member by member whenever the two resolve to different copies of zod, which exhausted the checker's memory; reading only the schema's output type keeps that check shallow across zod 4 releases. */
+export interface GenieToolSchema<Output = unknown> {
+  readonly _zod: { readonly output: Output }
+}
+
 /** Single source of truth per tool: one declaration drives the advertised JSON Schema, the TS types, and the wire descriptor. */
 export interface AgentToolContract<
-  Input extends z.ZodType = z.ZodType,
-  Output extends z.ZodType = z.ZodType,
+  Input extends GenieToolSchema = z.ZodType,
+  Output extends GenieToolSchema = z.ZodType,
 > {
   name: string
   title: string
@@ -48,17 +53,22 @@ export interface AgentToolContract<
   annotations?: AgentToolAnnotations
 }
 
-export function defineAgentToolContract<Input extends z.ZodType, Output extends z.ZodType>(
-  contract: AgentToolContract<Input, Output>,
-): AgentToolContract<Input, Output> {
+export function defineAgentToolContract<
+  Input extends GenieToolSchema,
+  Output extends GenieToolSchema,
+>(contract: AgentToolContract<Input, Output>): AgentToolContract<Input, Output> {
   return contract
 }
 
 /** Wire argument shape — `z.input`, so fields with a Zod `.default()` stay optional (the app applies defaults on parse). */
-export type ToolInput<C extends AgentToolContract> = z.input<C['input']>
+export type ToolInput<C extends AgentToolContract<GenieToolSchema, GenieToolSchema>> = z.input<
+  C['input']
+>
 
 /** The result shape a contract produces — `z.output` of its output schema. */
-export type ToolOutput<C extends AgentToolContract> = z.output<C['output']>
+export type ToolOutput<C extends AgentToolContract<GenieToolSchema, GenieToolSchema>> = z.output<
+  C['output']
+>
 
 /** A collector contributing live data and/or agent tools; third-party plugins implement this too, so no forking. */
 export interface CollectorMeta {

@@ -1,7 +1,9 @@
 import { z } from 'zod'
-import type { AgentToolContract } from '../protocol'
+import type { AgentToolContract, GenieToolSchema } from '../protocol'
+import { isZodSchema, notZodSchemaError } from '../protocol/zod-schema'
 
 export { GenieToolError } from './errors'
+export type { GenieToolSchema }
 
 /** Kind-specific options: retry and caution hints are only expressible where they mean something. */
 export type GenieToolKindOptions =
@@ -17,11 +19,6 @@ export type GenieToolKindOptions =
       /** Declares that repeating the action with the same args is safe, so agents can retry after a timeout. */
       idempotent?: boolean
     }
-
-/** The part of a Zod 4 schema the tool types read. Constraining by `z.ZodType` would make TypeScript compare the app's zod classes with genie-react's member by member whenever the two resolve to different copies of zod, which exhausted the checker's memory; reading only the schema's output type keeps that check shallow across zod 4 releases. */
-export interface GenieToolSchema<Output = unknown> {
-  readonly _zod: { readonly output: Output }
-}
 
 type SchemaOutput<S extends GenieToolSchema> = S['_zod']['output']
 
@@ -87,27 +84,13 @@ export function defineGenieTool<
   }
 }
 
-/** Runtime counterpart of {@link GenieToolSchema}: a plain JavaScript caller, or a Zod 3 schema, gets a named error here instead of a failure on the first call. */
 function zodSchema(
   name: string,
   field: 'input' | 'output',
   schema: GenieToolSchema | undefined,
 ): z.ZodType | undefined {
   if (schema === undefined || isZodSchema(schema)) return schema
-  throw new Error(
-    `defineGenieTool: "${name}" ${field} must be a Zod 4 schema, e.g. z.object({ id: z.string() }) imported from "zod"`,
-  )
-}
-
-function isZodSchema(schema: GenieToolSchema): schema is GenieToolSchema & z.ZodType {
-  const internals: unknown = schema._zod
-  return (
-    typeof internals === 'object' &&
-    internals !== null &&
-    'def' in internals &&
-    'safeParse' in schema &&
-    typeof schema.safeParse === 'function'
-  )
+  throw notZodSchemaError('defineGenieTool', name, field)
 }
 
 function annotationsOf(definition: GenieToolKindOptions): AgentToolContract['annotations'] {
