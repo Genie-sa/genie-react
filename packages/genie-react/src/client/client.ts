@@ -90,6 +90,7 @@ export class GenieClient {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private heartbeatFrame: string | null = null
   private lastHeartbeatSentAt = 0
+  private helloScheduled = false
 
   constructor(options: GenieClientOptions) {
     this.url = options.url ?? defaultBridgeUrl()
@@ -168,7 +169,7 @@ export class GenieClient {
 
     if (this.socket?.readyState === SOCKET_OPEN) {
       this.rebuildCollectorTools()
-      this.sendHello()
+      this.scheduleHello()
       this.runCollectorStart(collector)
     }
   }
@@ -273,13 +274,23 @@ export class GenieClient {
       pushEvent: () => this.sendLivenessAfterReady(),
       refreshTools: () => {
         this.rebuildCollectorTools()
-        this.sendHello()
+        this.scheduleHello()
       },
       markActivity: () => this.sendHeartbeat(),
     }
   }
 
+  /** The hub keeps only the newest hello, and each one encodes the whole tool catalog, so the registrations and refreshes of one task share a single re-hello. */
+  private scheduleHello(): void {
+    if (this.helloScheduled) return
+    this.helloScheduled = true
+    queueMicrotask(() => {
+      if (this.helloScheduled) this.sendHello()
+    })
+  }
+
   private sendHello(): void {
+    this.helloScheduled = false
     this.send({
       kind: 'app/hello',
       protocol: GENIE_PROTOCOL_VERSION,
