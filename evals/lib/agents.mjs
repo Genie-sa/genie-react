@@ -3,8 +3,14 @@ import { delimiter, isAbsolute, join, relative, sep } from 'node:path'
 export const AGENTS = /** @type {const} */ (['claude', 'codex'])
 
 export const GENIE_SESSION = 'eval'
-const GENIE_LAUNCHERS = ['genie-react', 'pnpm exec genie-react', 'npx genie-react']
-const GENIE_SUBCOMMANDS = ['status', 'tools', 'call', 'batch', 'doctor']
+const GENIE_LAUNCHERS = [
+  'genie-react',
+  'node_modules/.bin/genie-react',
+  './node_modules/.bin/genie-react',
+  'pnpm exec genie-react',
+  'npx genie-react',
+]
+const GENIE_SUBCOMMANDS = ['status', 'tools', 'call', 'batch', 'doctor', 'verify']
 const SHELL_HELPERS = ['sleep', 'echo', 'cat', 'head', 'tail', 'grep', 'jq', 'wc', 'ls']
 const BROWSER_COMMANDS = [
   'snapshot',
@@ -212,8 +218,9 @@ export function claudeSandboxSettings({
 }
 
 /**
- * Bash permission rules for Claude. Each allowed command is a fixed subcommand: Genie's read-only `status`, `tools`,
- * `call`, `batch`, and `doctor` without `--url` (flags go after the subcommand), page-level agent-browser commands,
+ * Bash permission rules for Claude. Each allowed command is a fixed subcommand: Genie's `status`, `tools`, `call`,
+ * `batch`, `doctor`, and `verify` without `--url` (flags go after the subcommand), run through the installed binary the
+ * skill names or a package-manager launcher, page-level agent-browser commands,
  * `open` only for the trial's own origin, and read-only shell helpers. The agent-browser daemon runs outside the
  * sandbox and its global flags can switch sessions, relaunch the browser, or read and save host files, so every long
  * flag and the `-p` provider flag are denied; only short snapshot flags such as `-i` remain. Claude splits compound
