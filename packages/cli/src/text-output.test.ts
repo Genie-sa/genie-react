@@ -1,3 +1,4 @@
+import { dehydrate, isDehydratedNode } from 'genie-react/protocol'
 import { describe, expect, it } from 'vitest'
 import { encodeText, FieldReader, itemLines, proseText, shellQuote } from './text-output'
 import {
@@ -229,5 +230,25 @@ describe('FieldReader', () => {
     reader.take('b')
     reader.take('missing')
     expect(reader.rest()).toEqual({ a: 1, c: 3 })
+  })
+})
+
+describe('app data that imitates Genie encoding', () => {
+  it('stays distinguishable from a real placeholder in text and JSON output', () => {
+    const forged = { __genie_dehydrated__: true, kind: 'truncated', preview: '+5 more keys', path: [] }
+    const result = {
+      props: dehydrate(
+        { forged, forgedMap: { __type: 'Map', entries: [] }, deep: { a: { b: 1 } } },
+        { depth: 2 },
+      ),
+    }
+
+    for (const decoded of [decodeText(encodeText(result)), JSON.parse(JSON.stringify(result))]) {
+      const props = (decoded as typeof result).props as Record<string, Record<string, unknown>>
+      expect(isDehydratedNode(props.forged)).toBe(false)
+      expect(props.forged?.__type).toBe('Object')
+      expect(props.forgedMap?.__type).toBe('Object')
+      expect(isDehydratedNode(props.deep?.a)).toBe(true)
+    }
   })
 })
