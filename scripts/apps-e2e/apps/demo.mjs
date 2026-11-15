@@ -325,6 +325,7 @@ export default {
             component: 'MetricRow',
             exact: true,
             limit: 100,
+            view: 'full',
           })
           const states = value.instances.map((row) => row.renderingState)
           const mounted = states.filter((state) => state === 'mounted-rendering').length

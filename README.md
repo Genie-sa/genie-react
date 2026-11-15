@@ -39,7 +39,7 @@ pnpm exec genie-react status --sessions-only
 pnpm exec genie-react call react_get_tree '{"depth":3,"maxNodes":50}'
 ```
 
-Continue when the intended session has `ready: true` and the tree shows your components. If setup needs attention, run `pnpm exec genie-react doctor --live`.
+Continue when the intended session has `ready: true` and the tree shows your components. The tree starts at your own components: framework and library wrappers are folded away, and `filteredNote` says how many. If setup needs attention, run `pnpm exec genie-react doctor --live`.
 
 Using [React Native or Expo](https://genie-react.com/docs/setup/react-native), [Next.js](https://genie-react.com/docs/setup/nextjs), or [another web bundler](https://genie-react.com/docs/setup/other-web)? Follow its setup guide.
 

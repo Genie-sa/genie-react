@@ -25,8 +25,9 @@ const { classifyFiber, clearSourceCache } = sourceTools
 const { getRenderCohort } = await import('./render-cohort')
 const { reactFindComponentsContract } = await import('./contracts')
 
+/** A component whose own code lives in `file`: like a real one, it renders a host element whose React 18 `_debugSource` names that file. Without a file it renders nothing of its own, so its ownership is unknown. */
 function row(name: string, file: string | null): Fiber {
-  return {
+  const component = {
     tag: 0,
     type: Object.assign(() => null, { displayName: name }),
     memoizedProps: {},
@@ -36,13 +37,29 @@ function row(name: string, file: string | null): Fiber {
     sibling: null,
     return: null,
     key: null,
-    _debugSource: file ? { fileName: file, lineNumber: 1, columnNumber: 0 } : null,
+    _debugSource: null,
   } as unknown as Fiber
+  if (file) {
+    const host = {
+      tag: 5,
+      type: 'div',
+      child: null,
+      sibling: null,
+      return: component,
+      alternate: null,
+      _debugOwner: component,
+      _debugSource: { fileName: file, lineNumber: 1, columnNumber: 0 },
+    }
+    Object.assign(component, { child: host })
+  }
+  return component
 }
+/** Nests children inside the element the parent renders, as a DOM container would hold them. */
 function attach(parent: Fiber, children: Fiber[]) {
-  Object.assign(parent, { child: children[0] ?? null })
+  const container = parent.child?.tag === 5 ? parent.child : parent
+  Object.assign(container, { child: children[0] ?? null })
   children.forEach((child, index) => {
-    Object.assign(child, { return: parent, sibling: children[index + 1] ?? null })
+    Object.assign(child, { return: container, sibling: children[index + 1] ?? null })
   })
 }
 const gaps = {
@@ -72,7 +89,7 @@ it('accepts the canonical find selector while preserving the legacy alias and re
     reactFindComponentsContract.input.safeParse({ component: 'Row', query: 'Other' }).success,
   ).toBe(false)
 })
-it('returns app-owned descendants through library and unknown wrappers with explicit ownership coverage', async () => {
+it('folds library wrappers away and keeps unknown ownership visible, with explicit coverage', async () => {
   const root = row('Root', null),
     library = row('Library', '/node_modules/ui/index.tsx'),
     unknown = row('Unknown', null),
@@ -85,12 +102,15 @@ it('returns app-owned descendants through library and unknown wrappers with expl
     includeHost: false,
     appOnly: true,
   })
-  expect(result.nodes.map((node) => [node.name, node.parentId])).toEqual([['AppRow', null]])
+  expect(result.nodes.map((node) => [node.name, node.parentId, node.ownership])).toEqual([
+    ['AppRow', null, 'app'],
+    ['Unknown', null, 'unknown'],
+  ])
   expect(result).toMatchObject({
     ownershipCoverage: { app: 1, library: 1, unknown: 1, complete: false },
   })
 })
-it('retains app ownership on unmounted cohorts after source caches clear and excludes unknown tombstones honestly', async () => {
+it('retains app ownership on unmounted cohorts after source caches clear and labels unknown tombstones', async () => {
   const root = row('Root', null),
     app = row('AppRow', '/src/App.tsx'),
     unknown = row('UnknownRow', null)
@@ -106,7 +126,12 @@ it('retains app ownership on unmounted cohorts after source caches clear and exc
     { component: 'Row', exact: false, limit: 20, appOnly: true },
     gaps,
   )
-  expect(result.instances.map((instance) => instance.componentName)).toEqual(['AppRow'])
+  expect(
+    result.instances.map((instance) => [instance.componentName, instance.sourceOwnership]),
+  ).toEqual([
+    ['AppRow', 'app'],
+    ['UnknownRow', 'unknown'],
+  ])
   expect(result).toMatchObject({
     ownershipCoverage: { app: 1, unknown: 1, complete: false },
     coverage: { complete: false },
@@ -160,15 +185,18 @@ it('keeps source incompleteness on filtered leaderboards and both sides of profi
   recordRender(app, 'update')
   recordRender(library, 'update')
   recordRender(unknown, 'update')
-  const board = await getRendersLeaderboardsMeasurement(1, { appOnly: true })
-  expect(board.boards.mostRerendered.map((row) => row.name)).toEqual(['AppRow'])
+  const board = await getRendersLeaderboardsMeasurement(3, { appOnly: true })
+  expect(board.boards.mostRerendered.map((row) => row.name).sort()).toEqual([
+    'AppRow',
+    'UnknownRow',
+  ])
   expect(board.coverage).toMatchObject({
     complete: false,
     semantics: 'lower-bound',
     sourceClassification: { app: 1, library: 1, unknown: 1 },
   })
   const snapshot = await takeSnapshot('ownership', true)
-  expect(snapshot.components).toBe(1)
+  expect(snapshot.components).toBe(2)
   expect(snapshot.coverage).toMatchObject({ complete: false, sourceClassification: { unknown: 1 } })
   const diff = await rendersDiff('ownership', 0.5, true)
   expect(diff.coverage).toMatchObject({
@@ -254,6 +282,6 @@ it('marks a cohort stale when its observation clears during source lookup', asyn
     attribution: { status: 'stale' },
     ownershipCoverage: { unknown: 1, complete: false },
     coverage: { complete: false },
-    instances: [],
+    instances: [{ componentName: 'AppRow', sourceOwnership: 'unknown' }],
   })
 })

@@ -12,7 +12,7 @@ Returns a bounded flat view of the mounted React tree.
 
 **Input:** `rootId` is an optional integer. `depth` is an integer from 1 to 80 and defaults to 30.
 `includeHost` defaults to `false`. `maxNodes` is an integer from 1 to 2000 and defaults to 400.
-`appOnly` defaults to `true`: keep proven app-owned nodes and reconnect their parent links through excluded library/unknown ancestors. Ownership is resolved on at most 5000 candidates before `maxNodes` caps the output; depth still bounds traversal. `ownershipCoverage` describes that candidate set, and `truncated` discloses omitted tree structure. Use `appOnly:false` for the raw tree.
+`appOnly` defaults to `true`: fold away components known to be library code (framework routers, providers, icon and link components) and reconnect parent links through them, so the tree starts where your own components start. `depth` then counts only the levels shown. Components whose ownership is unresolved stay, marked `ownership: "unknown"`, and `filteredNote` counts what was hidden and what is unknown. Ownership comes from each component's own code: the frames of its body that React records when it creates elements, or the React 18 `_debugSource` of the elements it renders, never from the parent JSX that created it. Ownership is resolved on at most 5000 candidates before `maxNodes` caps the output. `ownershipCoverage` describes that candidate set, and `truncated` discloses omitted tree structure. Use `appOnly:false` for the raw tree.
 
 ```bash
 npx @genie-react/cli call react_get_tree \
@@ -71,8 +71,8 @@ root's tree.
 Reports wrapper ancestry, source roles, ownership, and source-map health for mounted components.
 
 **Input:** `component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. `limit` is an integer from 1 to 500
-and defaults to 200. `appOnly` defaults to `false`; `true` keeps only records with resolved app
-ownership.
+and defaults to 200. `appOnly` defaults to `false`; `true` hides records known to be library code
+and keeps unresolved ones as `unknown`.
 
 ```bash
 npx @genie-react/cli call react_provenance \

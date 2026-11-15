@@ -125,8 +125,10 @@ describe('memo-aware render causes against a live React tree', () => {
 
     const reports = await getRenders({ sort: 'renders', limit: 20 })
     const byName = new Map(reports.map((entry) => [entry.name, entry]))
+    // The parent rendered without scheduling an update on Plain, and its only changed prop kept equal contents.
     expect(byName.get('Plain')).toMatchObject({
-      necessity: 'unknown',
+      necessity: 'unnecessary',
+      necessityReason: 'inputs-unchanged',
       referenceOnlyPropRenders: 0,
       causes: [
         { kind: 'parent', parentName: 'App' },
@@ -134,7 +136,8 @@ describe('memo-aware render causes against a live React tree', () => {
       ],
     })
     expect(byName.get('SimpleMemoRow')).toMatchObject({
-      necessity: 'unknown',
+      necessity: 'unnecessary',
+      necessityReason: 'inputs-unchanged',
       referenceOnlyPropRenders: 1,
       causes: [{ kind: 'props', name: 'style', referenceOnly: true }],
     })
@@ -150,7 +153,8 @@ describe('memo-aware render causes against a live React tree', () => {
     })
     expect(byName.get('ForwardMemoRow')).toMatchObject({ referenceOnlyPropRenders: 1 })
     expect(byName.get('PureRow')).toMatchObject({
-      necessity: 'unknown',
+      necessity: 'unnecessary',
+      necessityReason: 'inputs-unchanged',
       referenceOnlyPropRenders: 1,
       causes: [{ kind: 'props', name: 'style', referenceOnly: true }],
     })

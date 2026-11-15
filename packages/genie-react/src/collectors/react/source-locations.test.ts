@@ -93,14 +93,22 @@ describe('React 19 component sources (owner stacks)', () => {
     }
   })
 
-  it('fills only the provenance role it observed', async () => {
+  it('fills each provenance role it observed, the definition from the elements the component created', async () => {
     const report = await call<{
-      records: { name: string; provenance: Record<string, unknown> }[]
+      records: { name: string; ownership: string; provenance: Record<string, unknown> }[]
     }>('react_provenance', { component: 'CardTitle' })
-    expect(report.records[0]?.provenance).toMatchObject({
-      allocationCallsite: { file: FIXTURE, ...locate('h(CardTitle, null)') },
-      definitionSource: null,
-      failureReason: null,
+    expect(report.records[0]).toMatchObject({
+      ownership: 'app',
+      provenance: {
+        allocationCallsite: { file: FIXTURE, ...locate('h(CardTitle, null)') },
+        definitionSource: {
+          file: FIXTURE,
+          line: locate("return h('h2', null, 'title')").line,
+          role: 'component-body',
+        },
+        hookCallsite: null,
+        failureReason: null,
+      },
     })
   })
 

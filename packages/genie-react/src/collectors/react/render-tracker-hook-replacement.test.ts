@@ -52,6 +52,7 @@ import {
   clearRenders,
   disposeRenderTracking,
   getCommitCount,
+  getRenderTrackingCoverage,
   renderCollectionStatus,
   startRenderTracking,
 } from './render-tracker'
@@ -131,4 +132,27 @@ it('marks the newest open span incomplete for an excluded renderer before its fi
   const query = { sort: 'renders' as const, appOnly: false, limit: 20 }
   expect((await readMeasurementSpan(newer.handle, true, query)).coverage.complete).toBe(false)
   expect((await readMeasurementSpan(older.handle, true, query)).coverage.complete).toBe(true)
+})
+
+it('says a second renderer it does not analyze is why coverage is incomplete', () => {
+  startRenderTracking()
+  clearRenders()
+  harness.safe = false
+  for (let commit = 0; commit < 3; commit += 1) {
+    harness.installations[0]?.options.onCommitFiberRoot?.(2, {
+      current: { child: null },
+    } as FiberRoot)
+  }
+
+  expect(getRenderTrackingCoverage('measurement')).toMatchObject({
+    complete: false,
+    analysisFailedFibers: 3,
+    incompleteBecause: [
+      {
+        reason: 'renderer-not-analyzed',
+        fibers: 3,
+        detail: expect.stringContaining('production build'),
+      },
+    ],
+  })
 })

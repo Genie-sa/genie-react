@@ -1,4 +1,5 @@
 import { type Fiber, getReactWorkTags, getReactWorkTagsForFiber } from 'bippy'
+import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 
 // React renumbers work tags between majors, so a tag only means something relative to its renderer; bippy memoizes the per-fiber lookup in a WeakMap filled at commit time.
 
@@ -64,4 +65,14 @@ export const canBailOutOnProps = (fiber: Fiber): boolean => {
   } catch {
     return false
   }
+}
+
+/** React 19 types a provider fiber with the Context itself; React 18 with an object whose `_context` is the Context. */
+export function isProviderOf(fiber: Fiber, context: unknown): boolean {
+  if (!isContextProviderFiber(fiber)) return false
+  const type: unknown = fiber.type
+  if (type === context) return true
+  if (typeof type !== 'object' || type === null) return false
+  const nested = safeOwnPropertyDescriptor(type, '_context')
+  return isDataDescriptor(nested) && nested.value === context
 }

@@ -1,6 +1,6 @@
 import type { Fiber } from 'bippy'
 import { describe, expect, it } from 'vitest'
-import { assessRender, inputComparisonComplete, scanSubtreeHostMutations } from './render-outcomes'
+import { applyOutputAssessment, assessRender, inputComparisonComplete } from './render-outcomes'
 
 const asFiber = (value: Record<string, unknown>): Fiber =>
   ({
@@ -16,80 +16,7 @@ const asFiber = (value: Record<string, unknown>): Fiber =>
     ...value,
   }) as unknown as Fiber
 
-const commitEvidence = (hostMutationFibers: Fiber[] = [], renderedFibers: Fiber[] = []) => ({
-  renderedFibers: new Set(renderedFibers),
-  hostMutationFibers: new Set(hostMutationFibers),
-  hostMutationCaptureComplete: true,
-})
-
 describe('render outcome evidence', () => {
-  it('scans only descendants and never attributes the component sibling', () => {
-    const siblingHost = asFiber({ tag: 5, flags: 0b100 })
-    const descendantHost = asFiber({ tag: 5, flags: 0b100, sibling: null })
-    const child = asFiber({ child: descendantHost, sibling: siblingHost })
-    const component = asFiber({ child })
-
-    // A sibling of a descendant is still inside the component. A sibling of the component is not.
-    component.sibling = asFiber({ tag: 5, flags: 0b100 })
-    expect(
-      scanSubtreeHostMutations(
-        component,
-        500,
-        undefined,
-        commitEvidence([siblingHost, descendantHost], [child]),
-      ),
-    ).toMatchObject({ count: 2, complete: true })
-  })
-
-  it('ignores host work under a child React skipped this commit', () => {
-    const staleHost = asFiber({ tag: 5, flags: 0b100 })
-    const skippedChild = asFiber({ child: staleHost })
-    const component = asFiber({ child: skippedChild })
-
-    expect(
-      scanSubtreeHostMutations(component, 500, undefined, commitEvidence([staleHost])),
-    ).toMatchObject({ count: 0, complete: true })
-  })
-
-  it('marks a bounded host scan incomplete instead of claiming no behavior', () => {
-    const second = asFiber({ tag: 5, flags: 0b100 })
-    const first = asFiber({ tag: 5, flags: 0, sibling: second })
-    const result = scanSubtreeHostMutations(
-      asFiber({ child: first }),
-      1,
-      undefined,
-      commitEvidence([second]),
-    )
-    expect(result).toEqual({ count: 0, pendingSubtrees: 1, complete: false })
-  })
-
-  it('does not reuse a host mutation observed in an earlier commit', () => {
-    const host = asFiber({ tag: 5, flags: 0b100 })
-    const component = asFiber({ child: host })
-
-    expect(scanSubtreeHostMutations(component, 500, undefined, commitEvidence([host])).count).toBe(
-      1,
-    )
-    expect(scanSubtreeHostMutations(component, 500, undefined, commitEvidence())).toEqual({
-      count: 0,
-      pendingSubtrees: 0,
-      complete: true,
-    })
-  })
-
-  it('never reports none-observed for a direct HostText mutation', () => {
-    const text = asFiber({ tag: 6, flags: 0b100 })
-    const component = asFiber({ child: text, alternate: asFiber({}) })
-
-    expect(
-      assessRender(component, 'update', [], 0, true, undefined, true, commitEvidence([text])),
-    ).toMatchObject({
-      behaviorEvidence: {
-        subtreeHostMutations: { status: 'observed', count: 1 },
-      },
-    })
-  })
-
   it('treats mismatched context identity as incomplete input evidence', () => {
     const currentContext = { displayName: 'Current' }
     const previousContext = { displayName: 'Previous' }
@@ -120,5 +47,23 @@ describe('render outcome evidence', () => {
       count: 2,
     })
     expect(assessment.behaviorEvidence.unobservedDomains).toContain('effect-execution')
+  })
+
+  it('reports host writes only after the commit was attributed, never as a guess', () => {
+    const assessment = assessRender(asFiber({ alternate: asFiber({}) }), 'update', [], 0)
+    expect(assessment.behaviorEvidence.subtreeHostMutations.status).toBe('incomplete')
+
+    applyOutputAssessment(assessment, {
+      writes: 0,
+      callbackOnlyUpdates: 1,
+      effects: 0,
+      complete: true,
+      writeLabels: [],
+      callbackLabels: ['button.onClick'],
+    })
+    expect(assessment.behaviorEvidence).toMatchObject({
+      subtreeHostMutations: { status: 'none-observed', count: 0, callbackOnlyUpdates: 1 },
+      subtreeScheduledEffects: { status: 'none-observed', count: 0 },
+    })
   })
 })

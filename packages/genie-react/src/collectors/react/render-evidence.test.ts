@@ -25,6 +25,7 @@ const externalCause = (externalStoreIndex: number): RenderCause => ({
   externalStoreIndex,
   subscriberId: `subscriber:${externalStoreIndex}`,
   selectionEqual: false,
+  subscriptionFired: true,
   before: false,
   after: true,
   changedFields: ['$value'],

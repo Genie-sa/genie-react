@@ -49,12 +49,15 @@ export function summarizeRenderComponent(
     latestDocumentCommitId: component.latestDocumentCommitId,
     causeCounts: nonZeroCounts(component.causeCounts),
     causes: component.causes.map(compactRenderCause),
+    necessity: component.necessity,
+    necessityReason: component.necessityReason,
     inputEvidence: component.assessment.inputEvidence,
     ...incompleteInputCoverage(component.inputCoverage),
     ...(component.compiler.memoCacheObserved ? { memoCacheObserved: true as const } : {}),
     ...(component.wrapperAncestry.length > 0
       ? { wrappers: component.wrapperAncestry.map((frame) => frame.name) }
       : {}),
+    ...wrapperRelation(component),
     source: compactSource(component.source, component.sourceOwnership),
   }
 }
@@ -72,9 +75,21 @@ export function summarizeRenderCauseEvent(
     componentName: event.componentName,
     ...identity(event.instance),
     causes: event.causes.map(compactRenderCause),
+    necessity: event.necessity,
+    necessityReason: event.necessityReason,
     inputEvidence: event.assessment.inputEvidence,
     ...incompleteInputCoverage(event.inputCoverage),
+    ...wrapperRelation(event),
     source: compactSource(event.source, event.sourceOwnership),
+  }
+}
+
+function wrapperRelation(
+  value: Pick<RenderReport, 'wraps' | 'wrappedBy'>,
+): Pick<RenderComponentSummary, 'wraps' | 'wrappedBy'> {
+  return {
+    ...(value.wraps ? { wraps: value.wraps } : {}),
+    ...(value.wrappedBy ? { wrappedBy: value.wrappedBy } : {}),
   }
 }
 
@@ -82,7 +97,10 @@ function compactSource(
   source: ResolvedSource | null | undefined,
   ownership: RenderComponentSummary['source']['ownership'],
 ): RenderComponentSummary['source'] {
-  return { location: formatSourceLocation(source ?? null), ownership }
+  const location = formatSourceLocation(source ?? null)
+  return location !== null && source?.role
+    ? { location, role: source.role, ownership }
+    : { location, ownership }
 }
 
 function identity(instance: InstanceDescriptor): { mountId: string; key?: string } {

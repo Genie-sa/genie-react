@@ -20,7 +20,7 @@ export default async function probe({ session, page }) {
   const audit = await session.call('react_effect_audit', { component: 'ActivityLog' })
   const effect = audit.components
     .find((entry) => entry.name === 'ActivityLog')
-    ?.effects.find((entry) => entry.depCount === 2)
+    ?.effects.find((entry) => entry.customHooks?.[0] === 'useActivity')
   return [
     check(
       'timeline.activityRequests',
@@ -31,6 +31,11 @@ export default async function probe({ session, page }) {
       'effects.ActivityLog',
       (effect?.fired ?? 0) === 0,
       `effect fired=${effect?.fired}, lastChangedDep=${effect?.lastChangedDep}, hotness=${effect?.hotness?.label}`,
+    ),
+    check(
+      'effects.ActivityLog.hotness',
+      effect !== undefined && effect.hotness.label !== 'hot',
+      `useActivity effect hotness=${effect?.hotness?.label} (${effect?.hotness?.basis}, ${JSON.stringify(effect?.hotness?.reruns)})`,
     ),
   ]
 }

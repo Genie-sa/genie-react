@@ -68,8 +68,9 @@ export function createCommitAnalysisBudget(
     targetAttributionWork: createTargetReserve(),
     currentCommitEvidence: {
       renderedFibers: new Set<Fiber>(),
-      hostMutationFibers: new Set<Fiber>(),
-      hostMutationCaptureComplete: false,
+      cascadeOrigins: new Map(),
+      renderFacts: new Map(),
+      pendingGrades: [],
     },
   }
 }

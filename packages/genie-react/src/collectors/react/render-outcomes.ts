@@ -1,8 +1,10 @@
-import { type Fiber, type MemoizedState, ReactFiberFlags, type RenderPhase } from 'bippy'
+import type { Fiber, MemoizedState, RenderPhase } from 'bippy'
+import type { CompactRenderCause } from '../../protocol'
 import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
 import type { RenderCause } from './render-causes'
+import type { CommitRenderFacts, NecessityGrade, OutputTally } from './render-output'
+import type { RenderedComponentRef } from './render-wrappers'
 
-const HOST_SCAN_LIMIT = 500
 const HOOK_SCAN_LIMIT = 1_000
 
 export const UNOBSERVED_BEHAVIOR_DOMAINS = [
@@ -23,13 +25,22 @@ export interface RenderAssessment {
   behaviorEvidence: {
     subtreeHostMutations: {
       status: 'observed' | 'none-observed' | 'incomplete'
+      /** Host writes this render's subtree performed: changed attributes, styles or text, inserts, moves and removals. */
       count: number
-      /** Frontier subtrees not scanned after the bound was reached. */
+      /** Legacy field, always 0: the commit is attributed in one pass with no per-component bound. */
       pendingSubtrees: number
-      /** Legacy alias for pendingSubtrees; not an exact omitted-Fiber count. */
+      /** Legacy alias for pendingSubtrees. */
       omittedByLimit: number
+      /** Host updates whose only change was a new event handler, ref or other function. */
+      callbackOnlyUpdates: number
+      writes: string[]
+      callbacks: string[]
     }
     scheduledEffects: {
+      status: 'observed' | 'none-observed' | 'incomplete'
+      count: number
+    }
+    subtreeScheduledEffects: {
       status: 'observed' | 'none-observed' | 'incomplete'
       count: number
     }
@@ -39,16 +50,36 @@ export interface RenderAssessment {
   requiredValidation: ('dom' | 'aria' | 'focus' | 'url' | 'network' | 'transition')[]
 }
 
-interface HostMutationScan {
-  count: number
-  pendingSubtrees: number
-  complete: boolean
-}
-
 export interface CurrentCommitEvidence {
   renderedFibers: Set<Fiber>
-  hostMutationFibers: Set<Fiber>
-  hostMutationCaptureComplete: boolean
+  /** The ancestor whose update started each cascade, shared by the components it reached. */
+  cascadeOrigins: Map<Fiber, RenderedComponentRef | null>
+  /** Facts each analyzed component contributes when this commit's output is attributed. */
+  renderFacts: Map<Fiber, CommitRenderFacts>
+  /** Renders recorded in this commit whose necessity waits for the output attribution. */
+  pendingGrades: PendingRenderGrade[]
+}
+
+export interface PendingRenderGrade {
+  fiber: Fiber
+  phase: 'mount' | 'update'
+  inputsEquivalent: boolean
+  assessment: RenderAssessment
+  /** The higher-order component or memo wrapper rendering this one, if any. */
+  wrapper: Fiber | null
+  publish: (grade: NecessityGrade) => void
+  relate: (relation: 'wraps' | 'wrappedBy', related: RelatedRender) => void
+  describe: () => RelatedRender
+}
+
+/** The other half of a wrapper relation in the same commit, reduced to the evidence an agent needs. */
+export interface RelatedRender {
+  componentId: number
+  componentName: string
+  renderEventId: string
+  causes: CompactRenderCause<RenderCause['kind'], RenderCause['evidence']>[]
+  necessity: 'necessary' | 'unnecessary' | 'unknown'
+  necessityReason: NecessityGrade['necessityReason']
 }
 
 /** Internal initialization value; recordRender replaces it before publishing the record. */
@@ -57,13 +88,9 @@ export function pendingRenderAssessment(): RenderAssessment {
     inputEvidence: 'incomplete',
     observedInputKinds: [],
     behaviorEvidence: {
-      subtreeHostMutations: {
-        status: 'incomplete',
-        count: 0,
-        pendingSubtrees: 0,
-        omittedByLimit: 0,
-      },
+      subtreeHostMutations: unobservedHostMutations(),
       scheduledEffects: { status: 'none-observed', count: 0 },
+      subtreeScheduledEffects: { status: 'incomplete', count: 0 },
       unobservedDomains: [...UNOBSERVED_BEHAVIOR_DOMAINS],
     },
     optimizationSafety: 'not-proven-safe',
@@ -71,46 +98,32 @@ export function pendingRenderAssessment(): RenderAssessment {
   }
 }
 
-const HOST_MUTATION_FLAGS =
-  ReactFiberFlags.Placement | ReactFiberFlags.Update | ReactFiberFlags.ChildDeletion
-
-/** A host or text fiber's own DOM work; subtree flags and flags left over from earlier commits are not evidence. */
-export function hasOwnHostMutation(fiber: Fiber): boolean {
-  return (fiber.flags & HOST_MUTATION_FLAGS) !== 0
+function unobservedHostMutations(): RenderAssessment['behaviorEvidence']['subtreeHostMutations'] {
+  return {
+    status: 'incomplete',
+    count: 0,
+    pendingSubtrees: 0,
+    omittedByLimit: 0,
+    callbackOnlyUpdates: 0,
+    writes: [],
+    callbacks: [],
+  }
 }
 
-/** Inspect only this component's rendered descendants so sibling or stale mutations are never misattributed. */
-export function scanSubtreeHostMutations(
-  fiber: Fiber,
-  limit = HOST_SCAN_LIMIT,
-  budget?: CommitWorkBudget,
-  commitEvidence?: CurrentCommitEvidence,
-): HostMutationScan {
-  if (!commitEvidence) return { count: 0, pendingSubtrees: 0, complete: false }
-  try {
-    const stack: Fiber[] = []
-    if (fiber.child) stack.push(fiber.child)
-    let visited = 0
-    let count = 0
-
-    while (stack.length > 0 && visited < limit) {
-      if (!consumeCommitWork(budget, 'host-mutations')) break
-      const node = stack.pop()
-      if (!node) continue
-      visited += 1
-      if (commitEvidence.hostMutationFibers.has(node)) count += 1
-      if (node.sibling) stack.push(node.sibling)
-      // A subtree React skipped this commit cannot hold this commit's host work.
-      if (node.child && commitEvidence.renderedFibers.has(node)) stack.push(node.child)
-    }
-
-    return {
-      count,
-      pendingSubtrees: stack.length,
-      complete: stack.length === 0 && commitEvidence.hostMutationCaptureComplete,
-    }
-  } catch {
-    return { count: 0, pendingSubtrees: 0, complete: false }
+/** Record what this commit wrote below the component once the whole commit has been attributed. */
+export function applyOutputAssessment(assessment: RenderAssessment, output: OutputTally): void {
+  assessment.behaviorEvidence.subtreeHostMutations = {
+    status: output.writes > 0 ? 'observed' : output.complete ? 'none-observed' : 'incomplete',
+    count: output.writes,
+    pendingSubtrees: 0,
+    omittedByLimit: 0,
+    callbackOnlyUpdates: output.callbackOnlyUpdates,
+    writes: output.writeLabels,
+    callbacks: output.callbackLabels,
+  }
+  assessment.behaviorEvidence.subtreeScheduledEffects = {
+    status: output.effects > 0 ? 'observed' : output.complete ? 'none-observed' : 'incomplete',
+    count: output.effects,
   }
 }
 
@@ -161,7 +174,6 @@ export function assessRender(
   inputComplete = true,
   budget?: CommitWorkBudget,
   effectAnalysisComplete = true,
-  commitEvidence?: CurrentCommitEvidence,
 ): RenderAssessment {
   const observedInputKinds = causes
     .filter(
@@ -180,18 +192,11 @@ export function assessRender(
           : inputComparisonComplete(fiber, budget)
             ? 'none-observed'
             : 'incomplete'
-  const host = scanSubtreeHostMutations(fiber, HOST_SCAN_LIMIT, budget, commitEvidence)
-
   return {
     inputEvidence,
     observedInputKinds: [...new Set(observedInputKinds)],
     behaviorEvidence: {
-      subtreeHostMutations: {
-        status: host.complete ? (host.count > 0 ? 'observed' : 'none-observed') : 'incomplete',
-        count: host.count,
-        pendingSubtrees: host.pendingSubtrees,
-        omittedByLimit: host.pendingSubtrees,
-      },
+      subtreeHostMutations: unobservedHostMutations(),
       scheduledEffects: {
         status: !effectAnalysisComplete
           ? 'incomplete'
@@ -200,6 +205,7 @@ export function assessRender(
             : 'none-observed',
         count: scheduledEffects,
       },
+      subtreeScheduledEffects: { status: 'incomplete', count: 0 },
       unobservedDomains: [...UNOBSERVED_BEHAVIOR_DOMAINS],
     },
     optimizationSafety: 'not-proven-safe',

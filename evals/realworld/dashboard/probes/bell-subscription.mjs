@@ -1,22 +1,16 @@
-import { effectOrdinal } from './helpers.mjs'
+import { effectRuns } from './helpers.mjs'
 
 /** @param {import('../../lib/probe-context.mjs').ProbeContext} ctx */
 export default async function probe(ctx) {
   await ctx.signIn()
   await ctx.open('/')
   await ctx.settle()
-  const ordinal = effectOrdinal(
-    await ctx.inspect('NotificationBell'),
-    (hooks) => hooks.length === 0,
-  )
   const timeline = await ctx.genie.call('react_effect_timeline', {
     component: 'NotificationBell',
+    appOnly: true,
     limit: 200,
   })
-  const runs = (timeline.events ?? []).filter(
-    (/** @type {any} */ event) =>
-      event.effectIndex === ordinal && event.execution?.status === 'observed',
-  )
+  const runs = effectRuns(timeline, (hooks) => hooks.length === 0)
   const replayed = runs.some(
     (/** @type {any} */ event) => event.execution?.trigger === 'strict-mode-replay',
   )

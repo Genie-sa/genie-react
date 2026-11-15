@@ -1,5 +1,4 @@
 import { type Fiber, getDisplayName, getFiberId, type RenderPhase } from 'bippy'
-import type { HooksNode } from 'bippy/source'
 import type { Effect } from './bippy-compat'
 import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
 import {
@@ -8,6 +7,17 @@ import {
   componentNameMatcher,
   describeComponentMatch,
 } from './component-name'
+import {
+  type EffectDeclaration,
+  type EffectDeclarationReason,
+  type EffectHookAncestryFrame,
+  resolveEffectDeclarations,
+} from './effect-declarations'
+import {
+  compareDependencies,
+  type DependencyChange,
+  type DependencyComparison,
+} from './effect-dependencies'
 import {
   clearEffectEvents,
   markEffectInstrumentationUnavailable,
@@ -20,12 +30,11 @@ import {
 import type { InstanceDescriptor } from './instance-identity'
 import {
   classifyFibersWithinBudget,
-  type EffectSourceResolution,
   type FiberClassification,
+  isHiddenByAppOnly,
+  type OwnershipBasis,
   type ResolvedSource,
-  resolveEffectSourceResolutionBeforeDeadline,
   sourceLabel,
-  sourceOwnershipForSource,
 } from './source'
 import { ownsEffectList } from './work-tags'
 
@@ -37,7 +46,6 @@ const HOOK_PASSIVE = 0b1000
 
 const EFFECT_WALK_LIMIT = 100
 const HOOK_WALK_LIMIT = 300
-const EFFECT_DEP_SCAN_LIMIT = 200
 const EFFECT_REPORT_LIMIT = 500
 const EFFECT_SOURCE_ATTRIBUTION_LIMIT = 80
 const EFFECT_SOURCE_ATTRIBUTION_BUDGET_MS = 500
@@ -55,6 +63,8 @@ export type DepsMode = 'none' | 'empty' | 'list'
 
 interface EffectStat {
   index: number
+  /** Flat position in the component's hook list, the index react_inspect_component reports. */
+  hookIndex: number
   kind: EffectKind
   depsMode: DepsMode
   depCount: number
@@ -64,6 +74,8 @@ interface EffectStat {
   lastChangedDep: number | null
   /** Whether the last changed dep held a primitive — a value that legitimately changed, not an unstable reference. */
   lastChangedDepIsPrimitive: boolean | null
+  /** Update schedules by what their changed dependencies did: a value changed, only identities changed, or the values could not be compared. */
+  reruns: Record<DependencyChange, number>
 }
 
 interface EffectRecord {
@@ -85,6 +97,8 @@ export function clearEffects(): void {
 
 export interface EffectScheduleObservation {
   scheduled: number
+  /** Scheduled effects that occupy a hook slot, so the component or a hook it calls declared them; React's own slotless effects, such as useSyncExternalStore's snapshot bookkeeping, are excluded. */
+  declaredScheduled: number
   complete: boolean
 }
 
@@ -112,23 +126,32 @@ export function prepareEffect(
   profileCommitId = 0,
   budget?: CommitWorkBudget,
 ): PreparedEffectObservation {
-  if (!ownsEffectList(fiber)) return preparedEffect({ scheduled: 0, complete: true }, null)
+  if (!ownsEffectList(fiber)) {
+    return preparedEffect({ scheduled: 0, declaredScheduled: 0, complete: true }, null)
+  }
 
   const id = getFiberId(fiber)
   if (phase === 'unmount') {
     // Traversal unmounts can be Suspense visibility changes; the DevTools unmount callback owns exact deletion.
-    return preparedEffect({ scheduled: 0, complete: true }, null)
+    return preparedEffect({ scheduled: 0, declaredScheduled: 0, complete: true }, null)
   }
 
   const currentList = effectHookSlots(fiber, budget)
   let truncations = currentList.truncated ? 1 : 0
   if (currentList.effects.length === 0) {
-    return preparedEffect({ scheduled: 0, complete: !currentList.truncated }, null, [], truncations)
+    return preparedEffect(
+      { scheduled: 0, declaredScheduled: 0, complete: !currentList.truncated },
+      null,
+      [],
+      truncations,
+    )
   }
-  const previousList = effectHookSlots(fiber.alternate, budget)
+  const previousList =
+    phase === 'update'
+      ? previousEffectsByHookIndex(fiber.alternate, currentList.lastHookIndex, budget)
+      : { effects: new Map<number, Effect>(), truncated: false }
   if (previousList.truncated) truncations += 1
   const effects = currentList.effects
-  const prev = previousList.effects
 
   const existing = records.get(id)
   const record: EffectRecord = existing
@@ -140,20 +163,22 @@ export function prepareEffect(
   record.fiber = fiber
   const schedules: PreparedEffectSchedule[] = []
   const passiveInstrumentation: { effect: Effect; binding: PassiveEffectBinding }[] = []
+  let declaredScheduled = 0
 
   for (let i = 0; i < effects.length; i++) {
     if (!consumeCommitWork(budget, 'effects')) {
       truncations += 1
       return preparedEffect(
-        { scheduled: currentList.scheduled, complete: false },
+        { scheduled: currentList.scheduled, declaredScheduled, complete: false },
         record,
         schedules,
         truncations,
         passiveInstrumentation,
       )
     }
-    const effect = effects[i]
-    if (!effect) continue
+    const slot = effects[i]
+    if (!slot) continue
+    const { effect, hookIndex } = slot
     const kind = effectKind(effect.tag)
     if (!kind) continue
     const depsMode = depsModeOf(effect.deps)
@@ -163,6 +188,7 @@ export function prepareEffect(
     if (!stat) {
       stat = {
         index: i,
+        hookIndex,
         kind,
         depsMode,
         depCount,
@@ -171,9 +197,11 @@ export function prepareEffect(
         hasCleanup: false,
         lastChangedDep: null,
         lastChangedDepIsPrimitive: null,
+        reruns: { value: 0, 'reference-only': 0, undetermined: 0 },
       }
       record.stats[i] = stat
     } else {
+      stat.hookIndex = hookIndex
       stat.kind = kind
       stat.depsMode = depsMode
       stat.depCount = depCount
@@ -183,6 +211,11 @@ export function prepareEffect(
     if (hasCleanupFn(effect)) stat.hasCleanup = true
 
     const scheduled = (effect.tag & HOOK_HAS_EFFECT) !== 0
+    const dependencyChanges =
+      scheduled && phase === 'update'
+        ? compareDependencies(effect.deps, previousList.effects.get(hookIndex)?.deps, budget)
+        : null
+    if (scheduled) declaredScheduled += 1
     let effectEventId: string | null = null
     if (scheduled) {
       const prepared = prepareEffectSchedule({
@@ -190,9 +223,9 @@ export function prepareEffect(
         profileCommitId,
         phase,
         effectIndex: i,
+        hookIndex,
         kind,
-        dependencies: effect.deps,
-        previousDependencies: prev[i]?.deps ?? null,
+        dependencyChanges,
         budget,
       })
       if (prepared) {
@@ -207,6 +240,7 @@ export function prepareEffect(
           effectEventId,
           fiber,
           effectIndex: i,
+          hookIndex,
           onCleanupReturned: () => markCleanupFunctionObserved(id, i),
           ran: false,
         },
@@ -217,17 +251,20 @@ export function prepareEffect(
       stat.updates += 1
       if (scheduled) {
         stat.scheduled += 1
-        stat.lastChangedDep = changedDepIndex(effect.deps, prev[i]?.deps ?? null, budget)
+        stat.lastChangedDep = dependencyChanges?.changes[0]?.slot ?? null
         stat.lastChangedDepIsPrimitive =
           stat.lastChangedDep === null
             ? null
             : dependencyIsPrimitive(effect.deps, stat.lastChangedDep)
+        const rerun = dependencyChanges ? rerunKind(dependencyChanges) : null
+        if (rerun) stat.reruns[rerun] += 1
       }
     }
   }
   return preparedEffect(
     {
       scheduled: currentList.scheduled,
+      declaredScheduled,
       complete: !currentList.truncated && !previousList.truncated,
     },
     record,
@@ -325,23 +362,12 @@ export interface EffectAuditQuery extends ComponentNameSelector {
   minScheduleRate?: number
   /** Internal guard: false means live Fiber attribution advanced while this report awaited source maps. */
   isAttributionCurrent?: () => boolean
-  /** Internal dependency injection for a hook tree retained without re-running the component. */
-  getRetainedHookTree?: (fiber: Fiber) => HooksNode[] | null
 }
 
 export type EffectOwnership = 'app' | 'library' | 'unknown'
 export type ProvenanceEvidence = 'exact' | 'inferred' | 'unknown'
-export type EffectProvenanceReason =
-  | 'exact-hook-order'
-  | 'no-user-effect-callsite'
-  | 'library-only-hook-tree'
-  | 'hook-count-mismatch'
-  | 'hook-source-unresolved'
-  | 'hook-inspection-unavailable'
-  | 'inspection-truncated'
-  | 'shadow-render-disabled'
-  | 'attribution-budget-exhausted'
-  | 'report-state-advanced'
+export type EffectProvenanceReason = EffectDeclarationReason
+export type { EffectHookAncestryFrame }
 
 export interface EffectProvenance {
   ownership: EffectOwnership
@@ -359,21 +385,27 @@ export interface EffectProvenance {
   failureReason: 'hook-provenance-unavailable' | null
 }
 
-export interface EffectHookAncestryFrame {
-  name: string
-  source: ResolvedSource | null
-  ownership: EffectOwnership
-  packageName: string | null
-}
-
 export type EffectHotnessLabel = 'hot' | 'not-hot' | 'insufficient-data'
 export type EffectScheduleReason =
   | 'meets-threshold'
   | 'below-schedule-rate'
   | 'below-minimum-updates'
 
+/** Why the label holds, from the question "does this effect run more often than its inputs justify?". */
+export type EffectHotnessBasis =
+  | 'reference-only-reruns'
+  | 'no-dependency-array'
+  | 'value-change-reruns'
+  | 'dependency-values-not-compared'
+  | 'not-rescheduled'
+  | 'below-schedule-rate'
+  | 'below-minimum-updates'
+
 export interface EffectHotness {
   label: EffectHotnessLabel
+  basis: EffectHotnessBasis
+  /** Update re-runs by what their changed dependencies did. */
+  reruns: { valueChanged: number; referenceOnly: number; undetermined: number }
   samples: number
   observedRate: number
   minUpdates: number
@@ -388,6 +420,12 @@ export interface EffectHotness {
 
 export interface EffectFinding {
   index: number
+  /** Flat hook index, the one react_inspect_component and react_effect_timeline report. */
+  hookIndex: number
+  /** The React hook that created this effect, e.g. useEffect or useSyncExternalStore. */
+  hook: string | null
+  /** Custom hooks around the call, outermost first; null when the hook inspector could not attribute it. */
+  customHooks: string[] | null
   kind: EffectKind
   depsMode: DepsMode
   depCount: number
@@ -419,6 +457,7 @@ export interface EffectAuditRecord {
     ownership: EffectOwnership
     evidence: 'inferred' | 'unknown'
     reason: 'nearest-symbolicated-fiber' | 'source-unresolved'
+    basis: OwnershipBasis | null
     source: ResolvedSource | null
   }
   effects: EffectFinding[]
@@ -443,7 +482,8 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
   omittedByLimit: number
   effectsOmittedByLimit: number
   libraryEffectsHidden: number
-  appEffectsAfterAppOnly: number
+  /** Effects appOnly kept, by ownership, before onlyHot narrows them further. */
+  shownByAppOnly: { app: number; unknown: number }
   hotnessCriteria: EffectHotnessCriteria
   packageFilter?: {
     packageName: string
@@ -469,26 +509,25 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
     minFireRate: minScheduleRate,
     confidenceLevel: HOTNESS_CONFIDENCE_LEVEL,
   }
-  const [{ classes: resolvedClasses }, resolvedEffectSourcesByIndex] = await Promise.all([
-    classifyFibersWithinBudget(
-      list.map((record) => record.fiber),
-      {
-        limit: EFFECT_SOURCE_ATTRIBUTION_LIMIT,
-        budgetMs: EFFECT_SOURCE_ATTRIBUTION_BUDGET_MS,
-      },
-    ),
-    resolveEffectSourcesWithinBudget(list, query.getRetainedHookTree),
-  ])
-  const attributionCurrent = query.isAttributionCurrent?.() !== false
-  const classes = attributionCurrent ? resolvedClasses : list.map(() => UNCLASSIFIED_FIBER)
-  const effectSourcesByIndex = attributionCurrent
-    ? resolvedEffectSourcesByIndex
-    : list.map(staleReportResolution)
+  const isCurrent = () => query.isAttributionCurrent?.() !== false
+  const { classes: resolvedClasses } = await classifyFibersWithinBudget(
+    list.map((record) => record.fiber),
+    { limit: EFFECT_SOURCE_ATTRIBUTION_LIMIT, budgetMs: EFFECT_SOURCE_ATTRIBUTION_BUDGET_MS },
+  )
+  const declarationsByRecord = await resolveEffectDeclarations(
+    list.map((record, index) => ({
+      fiber: record.fiber,
+      hookIndices: record.stats.filter(Boolean).map((stat) => stat.hookIndex),
+      componentOwnership: resolvedClasses[index]?.ownership ?? 'unknown',
+    })),
+    isCurrent,
+  )
+  const classes = isCurrent() ? resolvedClasses : list.map(() => UNCLASSIFIED_FIBER)
   const all: EffectAuditRecord[] = list.map((record, index) => {
-    const { source, ownership, isLibrary } = classes[index] ?? UNCLASSIFIED_FIBER
+    const classification = classes[index] ?? UNCLASSIFIED_FIBER
+    const { source, ownership, isLibrary } = classification
     const name = record.name === 'Anonymous' ? (sourceLabel(source) ?? record.name) : record.name
-    const stats = record.stats.filter(Boolean)
-    const effectSourceResolution = effectSourcesByIndex[index] ?? budgetExceededResolution()
+    const declarations = declarationsByRecord[index]
     return {
       id: record.id,
       name,
@@ -498,12 +537,16 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
         ownership,
         evidence: ownership === 'unknown' ? 'unknown' : 'inferred',
         reason: ownership === 'unknown' ? 'source-unresolved' : 'nearest-symbolicated-fiber',
+        basis: classification.ownershipBasis ?? null,
         source,
       },
-      effects: stats.map((stat, position) => {
-        const provenance = effectProvenance(effectSourceResolution, stats.length, position)
+      effects: record.stats.filter(Boolean).map((stat) => {
+        const declaration = declarations?.get(stat.hookIndex)
+        const provenance = effectProvenance(declaration)
         return {
           ...toFinding(stat, hotnessCriteria),
+          hook: declaration?.hook ?? null,
+          customHooks: declaration?.customHooks ?? null,
           source: provenance.hookSource,
           isLibrary: provenance.ownership === 'library',
           provenance,
@@ -515,7 +558,7 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
 
   let findings = all
   let libraryEffectsHidden = 0
-  let appEffectsAfterAppOnly = totalEffects(findings)
+  let shownByAppOnly = { app: 0, unknown: 0 }
   let packageFilter:
     | {
         packageName: string
@@ -550,12 +593,16 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
     findings = all
       .map((record) => ({
         ...record,
-        effects: record.effects.filter((effect) => isAppOwnedEffect(record, effect)),
+        effects: record.effects.filter(isAppOwnedEffect),
         effectsOmitted: record.effectsOmitted,
       }))
       .filter((record) => record.effects.length > 0)
     libraryEffectsHidden = totalEffects(all) - totalEffects(findings)
-    appEffectsAfterAppOnly = totalEffects(findings)
+    const kept = findings.flatMap((record) => record.effects)
+    shownByAppOnly = {
+      app: kept.filter((effect) => effect.provenance.ownership === 'app').length,
+      unknown: kept.filter((effect) => effect.provenance.ownership === 'unknown').length,
+    }
   }
   if (query.onlyHot) {
     findings = findings
@@ -584,22 +631,15 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
     omittedByLimit,
     effectsOmittedByLimit,
     libraryEffectsHidden,
-    appEffectsAfterAppOnly,
+    shownByAppOnly,
     hotnessCriteria,
     ...(packageFilter === undefined ? {} : { packageFilter }),
   }
 }
 
-/** An effect whose own hook source is unresolved belongs to its component, so app components keep their effects. */
-function isAppOwnedEffect(
-  record: EffectAuditRecord,
-  effect: EffectAuditRecord['effects'][number],
-): boolean {
-  const ownership = effect.provenance.ownership
-  return (
-    ownership === 'app' ||
-    (ownership === 'unknown' && record.componentProvenance.ownership === 'app')
-  )
+/** The effect's own declaration decides; an unresolved declaration stays visible and labelled unknown. */
+function isAppOwnedEffect(effect: EffectAuditRecord['effects'][number]): boolean {
+  return !isHiddenByAppOnly(effect.provenance.ownership)
 }
 
 function snapshotEffectRecords(): EffectRecord[] {
@@ -607,38 +647,6 @@ function snapshotEffectRecords(): EffectRecord[] {
     ...record,
     stats: record.stats.map((stat) => (stat ? { ...stat } : stat)),
   }))
-}
-
-async function resolveEffectSourcesWithinBudget(
-  recordsToAttribute: EffectRecord[],
-  getRetainedHookTree?: (fiber: Fiber) => HooksNode[] | null,
-): Promise<EffectSourceResolution[]> {
-  const sources = recordsToAttribute.map(budgetExceededResolution)
-  const startedAt = Date.now()
-  const limit = Math.min(recordsToAttribute.length, EFFECT_SOURCE_ATTRIBUTION_LIMIT)
-
-  for (let index = 0; index < limit; index += 1) {
-    const remaining = EFFECT_SOURCE_ATTRIBUTION_BUDGET_MS - (Date.now() - startedAt)
-    if (remaining <= 0) break
-
-    const record = recordsToAttribute[index]
-    if (!record) break
-    let retainedHooks: HooksNode[] | null | undefined
-    if (getRetainedHookTree) {
-      try {
-        retainedHooks = getRetainedHookTree(record.fiber)
-      } catch {
-        retainedHooks = null
-      }
-    }
-    sources[index] = await resolveEffectSourceResolutionBeforeDeadline(
-      record.fiber,
-      remaining,
-      retainedHooks,
-    )
-  }
-
-  return sources
 }
 
 // Surface re-run/loop smells first, then the most active effects.
@@ -654,11 +662,12 @@ function score(record: EffectAuditRecord): number {
 function toFinding(
   stat: EffectStat,
   criteria: EffectHotnessCriteria,
-): Omit<EffectFinding, 'source' | 'isLibrary' | 'provenance'> {
+): Omit<EffectFinding, 'source' | 'isLibrary' | 'provenance' | 'hook' | 'customHooks'> {
   const schedulesEveryUpdate = stat.updates > 0 && stat.scheduled === stat.updates
   const hotness = classifyHotness(stat, criteria)
   return {
     index: stat.index,
+    hookIndex: stat.hookIndex,
     kind: stat.kind,
     depsMode: stat.depsMode,
     depCount: stat.depCount,
@@ -684,18 +693,11 @@ const EFFECT_HOOK_NAMES: Record<EffectKind, string> = {
 function noteFor(stat: EffectStat, hotness: EffectHotness): string | undefined {
   if (hotness.label !== 'hot') return undefined
   const hookName = EFFECT_HOOK_NAMES[stat.kind]
-  if (stat.depsMode === 'none' && stat.scheduled > 0) {
+  if (hotness.basis === 'no-dependency-array') {
     return `no dependency array — React scheduled this ${hookName} on ${stat.scheduled}/${stat.updates} updates; add dependencies only if repeated scheduling is unintended`
   }
-  if (stat.depsMode === 'list') {
-    const slot =
-      stat.lastChangedDep === null ? 'a dependency' : `dependency [${stat.lastChangedDep}]`
-    // A changed primitive is a real value change (maybe intended); only reference churn is fixable with memoization.
-    return stat.lastChangedDepIsPrimitive
-      ? `scheduled on ${stat.scheduled}/${stat.updates} updates — ${slot} changes value; verify whether that synchronization is intended and whether it writes the same value`
-      : `scheduled on ${stat.scheduled}/${stat.updates} updates — ${slot} changes reference; trace its producer before deciding whether to stabilize it`
-  }
-  return undefined
+  const slot = stat.lastChangedDep === null ? 'a dependency' : `dependency [${stat.lastChangedDep}]`
+  return `re-ran ${hotness.reruns.referenceOnly} times when no dependency changed value — ${slot} is a new reference with equal contents; trace its producer and stabilize it or depend on its primitive fields`
 }
 
 function classifyHotness(stat: EffectStat, criteria: EffectHotnessCriteria): EffectHotness {
@@ -707,15 +709,23 @@ function classifyHotness(stat: EffectStat, criteria: EffectHotnessCriteria): Eff
       : observedRate >= criteria.minScheduleRate
         ? 'meets-threshold'
         : 'below-schedule-rate'
+  const reruns = {
+    valueChanged: stat.reruns.value,
+    referenceOnly: stat.reruns['reference-only'],
+    undetermined: stat.reruns.undetermined,
+  }
+  const basis = hotnessBasis(stat, reruns, criteria, scheduleReason)
   const label: EffectHotnessLabel =
-    scheduleReason === 'below-minimum-updates'
-      ? 'insufficient-data'
-      : scheduleReason === 'meets-threshold'
-        ? 'hot'
+    basis === 'reference-only-reruns' || basis === 'no-dependency-array'
+      ? 'hot'
+      : basis === 'below-minimum-updates' || basis === 'dependency-values-not-compared'
+        ? 'insufficient-data'
         : 'not-hot'
   const [lower, upper] = wilsonInterval(stat.scheduled, samples)
   return {
     label,
+    basis,
+    reruns,
     samples,
     observedRate: roundRate(observedRate),
     minUpdates: criteria.minUpdates,
@@ -729,6 +739,25 @@ function classifyHotness(stat: EffectStat, criteria: EffectHotnessCriteria): Eff
     scheduleReason,
     reason: scheduleReason === 'below-schedule-rate' ? 'below-fire-rate' : scheduleReason,
   }
+}
+
+/** An effect with dependencies is hot when it keeps re-running while none of them changed value; one without dependencies runs after every render by design, so only its rate can make it hot. */
+function hotnessBasis(
+  stat: EffectStat,
+  reruns: EffectHotness['reruns'],
+  criteria: EffectHotnessCriteria,
+  scheduleReason: EffectScheduleReason,
+): EffectHotnessBasis {
+  if (stat.depsMode === 'none') {
+    if (scheduleReason === 'below-minimum-updates') return 'below-minimum-updates'
+    return scheduleReason === 'meets-threshold' ? 'no-dependency-array' : 'below-schedule-rate'
+  }
+  if (reruns.referenceOnly >= criteria.minUpdates) return 'reference-only-reruns'
+  if (reruns.referenceOnly + reruns.undetermined >= criteria.minUpdates) {
+    return 'dependency-values-not-compared'
+  }
+  if (stat.updates < criteria.minUpdates) return 'below-minimum-updates'
+  return stat.scheduled === 0 ? 'not-rescheduled' : 'value-change-reruns'
 }
 
 /** 95% Wilson score interval for a binomial schedule rate; stable even at 0/n and n/n. */
@@ -748,179 +777,27 @@ function roundRate(value: number): number {
   return Math.round(value * 10_000) / 10_000
 }
 
-function budgetExceededResolution(): EffectSourceResolution {
-  return { status: 'deadline-exceeded', sources: null, callsites: null }
-}
-
-function staleReportResolution(): EffectSourceResolution {
-  return { status: 'report-state-advanced', sources: null, callsites: null }
-}
-
-function effectProvenance(
-  resolution: EffectSourceResolution,
-  effectCount: number,
-  position: number,
-): EffectProvenance {
-  if (resolution.status === 'report-state-advanced') {
-    return unknownProvenance('report-state-advanced')
-  }
-  if (resolution.status === 'deadline-exceeded') {
-    return unknownProvenance('attribution-budget-exhausted')
-  }
-  if (resolution.status === 'inspection-unavailable') {
-    return unknownProvenance('hook-inspection-unavailable')
-  }
-  if (resolution.status === 'inspection-truncated') {
-    return unknownProvenance('inspection-truncated')
-  }
-  if (resolution.status === 'shadow-render-disabled') {
-    return unknownProvenance('shadow-render-disabled')
-  }
-  if (resolution.status === 'no-user-effects') {
-    return {
-      ownership: 'library',
-      evidence: 'inferred',
-      reason: 'no-user-effect-callsite',
-      hookSource: null,
-      packageName: null,
-      hookAncestry: [],
-      ...splitEffectProvenance(null, [], null),
-    }
-  }
-
-  const sources = resolution.sources ?? []
-  if (sources.length === effectCount) {
-    const hookSource = sources[position] ?? null
-    const hookAncestry = effectHookAncestry(resolution, position)
-    if (!hookSource) return unknownProvenance('hook-source-unresolved', hookAncestry)
-    const ownership = sourceOwnershipForSource(hookSource)
-    if (ownership === 'unknown') {
-      return {
-        ownership,
-        evidence: 'unknown',
-        reason: 'hook-source-unresolved',
-        hookSource,
-        packageName: null,
-        hookAncestry,
-        ...splitEffectProvenance(null, hookAncestry, null),
-      }
-    }
-    return {
-      ownership,
-      evidence: 'exact',
-      reason: 'exact-hook-order',
-      hookSource,
-      packageName: ownership === 'library' ? packageNameFromFile(hookSource.file) : null,
-      hookAncestry,
-      ...splitEffectProvenance(
-        hookSource,
-        hookAncestry,
-        ownership === 'library' ? packageNameFromFile(hookSource.file) : null,
-      ),
-    }
-  }
-
-  if (
-    sources.length > 0 &&
-    sources.every((source) => sourceOwnershipForSource(source) === 'library')
-  ) {
-    return {
-      ownership: 'library',
-      evidence: 'inferred',
-      reason: 'library-only-hook-tree',
-      hookSource: null,
-      packageName: commonPackageName(sources),
-      hookAncestry: [],
-      ...splitEffectProvenance(null, [], commonPackageName(sources)),
-    }
-  }
-  return unknownProvenance('hook-count-mismatch')
-}
-
-function unknownProvenance(
-  reason: EffectProvenanceReason,
-  hookAncestry: EffectHookAncestryFrame[] = [],
-): EffectProvenance {
-  return {
-    ownership: 'unknown',
-    evidence: 'unknown',
-    reason,
-    hookSource: null,
-    packageName: null,
-    hookAncestry,
-    ...splitEffectProvenance(null, hookAncestry, null),
-  }
-}
-
-function splitEffectProvenance(
-  hookCallsite: ResolvedSource | null,
-  hookAncestry: EffectHookAncestryFrame[],
-  packageName: string | null,
-): Pick<
-  EffectProvenance,
-  | 'definitionSource'
-  | 'allocationCallsite'
-  | 'hookDefinitionOwner'
-  | 'hookCallsite'
-  | 'package'
-  | 'sourceMapConfidence'
-  | 'failureReason'
-> {
+function effectProvenance(declaration: EffectDeclaration | undefined): EffectProvenance {
+  const hookAncestry = declaration?.hookAncestry ?? []
+  const hookCallsite = declaration?.evidence === 'exact' ? declaration.source : null
   const hookDefinitionOwner =
     [...hookAncestry].reverse().find((frame) => frame.source)?.source ?? null
   const strongest = hookCallsite ?? hookDefinitionOwner
   return {
+    ownership: declaration?.ownership ?? 'unknown',
+    evidence: declaration?.evidence ?? 'unknown',
+    reason: declaration?.reason ?? 'attribution-budget-exhausted',
+    hookSource: declaration?.source ?? null,
+    packageName: declaration?.packageName ?? null,
+    hookAncestry,
     definitionSource: null,
     allocationCallsite: null,
     hookDefinitionOwner,
     hookCallsite,
-    package: packageName,
+    package: declaration?.packageName ?? null,
     sourceMapConfidence: strongest?.sourceMapConfidence ?? (strongest ? 'served' : 'unknown'),
     failureReason: hookCallsite ? null : 'hook-provenance-unavailable',
   }
-}
-
-function effectHookAncestry(
-  resolution: EffectSourceResolution,
-  position: number,
-): EffectHookAncestryFrame[] {
-  return (resolution.callsites?.[position]?.hookAncestry ?? []).map((frame) => {
-    const ownership = sourceOwnershipForSource(frame.source)
-    return {
-      name: frame.name,
-      source: frame.source,
-      ownership,
-      packageName:
-        ownership === 'library' && frame.source ? packageNameFromFile(frame.source.file) : null,
-    }
-  })
-}
-
-function commonPackageName(sources: (ResolvedSource | null)[]): string | null {
-  const packages = new Set(
-    sources
-      .map((source) => (source ? packageNameFromFile(source.file) : null))
-      .filter((name): name is string => name !== null),
-  )
-  return packages.size === 1 ? ([...packages][0] ?? null) : null
-}
-
-function packageNameFromFile(file: string): string | null {
-  const normalized = file.replaceAll('\\', '/')
-  const nodeModules = normalized.lastIndexOf('/node_modules/')
-  if (nodeModules < 0) return null
-  const path = normalized.slice(nodeModules + '/node_modules/'.length)
-  if (path.startsWith('.vite/deps/')) {
-    const base = path
-      .slice('.vite/deps/'.length)
-      .split('/')[0]
-      ?.replace(/\.[cm]?js.*$/, '')
-    if (!base || base.startsWith('chunk-') || /-[A-Za-z0-9_]{8}$/.test(base)) return null
-    return base.startsWith('@') ? base.replace('_', '/') : base
-  }
-  const [first, second] = path.split('/')
-  if (!first) return null
-  return first.startsWith('@') && second ? `${first}/${second}` : first
 }
 
 function listEffects(
@@ -954,24 +831,65 @@ interface HookNode {
   next: HookNode | null
 }
 
+interface EffectSlot {
+  effect: Effect
+  hookIndex: number
+}
+
 /** Effects in hook call order, keyed by hook slot: React also pushes hookless effects (useSyncExternalStore's snapshot check, useActionState's action sync) on only some renders, so list positions shift; those count as scheduled work but are never reported as app effects. */
 function effectHookSlots(
   fiber: Fiber | null | undefined,
   budget?: CommitWorkBudget,
-): { effects: Effect[]; scheduled: number; truncated: boolean } {
+): { effects: EffectSlot[]; scheduled: number; truncated: boolean; lastHookIndex: number } {
   const list = listEffects(fiber, budget)
   const scheduled = countScheduled(list.effects)
   const listed = new Set<unknown>(list.effects)
-  const effects: Effect[] = []
+  const effects: EffectSlot[] = []
   let hook = (list.effects.length > 0 ? (fiber?.memoizedState ?? null) : null) as HookNode | null
   for (let walked = 0; hook; walked += 1) {
     if (walked >= HOOK_WALK_LIMIT || !consumeCommitWork(budget, 'effect-list')) {
-      return { effects, scheduled, truncated: true }
+      return { effects, scheduled, truncated: true, lastHookIndex: walked - 1 }
     }
-    if (listed.has(hook.memoizedState)) effects.push(hook.memoizedState as Effect)
+    if (listed.has(hook.memoizedState)) {
+      effects.push({ effect: hook.memoizedState as Effect, hookIndex: walked })
+    }
     hook = hook.next
   }
-  return { effects, scheduled, truncated: list.truncated }
+  return {
+    effects,
+    scheduled,
+    truncated: list.truncated,
+    lastHookIndex: effects.at(-1)?.hookIndex ?? -1,
+  }
+}
+
+/** The effect each hook slot held in the previous render, read from the hook list React compares against: after a render that bailed out, the previous fiber keeps an older effect queue beside its new hooks. */
+function previousEffectsByHookIndex(
+  fiber: Fiber | null | undefined,
+  lastHookIndex: number,
+  budget?: CommitWorkBudget,
+): { effects: Map<number, Effect>; truncated: boolean } {
+  const effects = new Map<number, Effect>()
+  let hook = (fiber?.memoizedState ?? null) as HookNode | null
+  for (let index = 0; hook && index <= lastHookIndex; index += 1) {
+    if (index >= HOOK_WALK_LIMIT || !consumeCommitWork(budget, 'effect-list')) {
+      return { effects, truncated: true }
+    }
+    if (isEffectObject(hook.memoizedState)) effects.set(index, hook.memoizedState)
+    hook = hook.next
+  }
+  return { effects, truncated: false }
+}
+
+function isEffectObject(value: unknown): value is Effect {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'tag' in value &&
+    typeof value.tag === 'number' &&
+    'deps' in value &&
+    'create' in value
+  )
 }
 
 function hasCleanupFn(effect: Effect): boolean {
@@ -996,22 +914,12 @@ function isPrimitive(value: unknown): boolean {
   return (typeof value !== 'object' && typeof value !== 'function') || value === null
 }
 
-function changedDepIndex(
-  next: unknown[] | null,
-  prev: unknown[] | null,
-  budget?: CommitWorkBudget,
-): number | null {
-  if (!Array.isArray(next) || !Array.isArray(prev)) return null
-  const len = Math.min(next.length, prev.length, EFFECT_DEP_SCAN_LIMIT)
-  for (let i = 0; i < len; i++) {
-    if (!consumeCommitWork(budget, 'effect-dependencies')) return null
-    try {
-      if (!Object.is(next[i], prev[i])) return i
-    } catch {
-      return null
-    }
-  }
-  return null
+function rerunKind(comparison: DependencyComparison): DependencyChange | null {
+  if (comparison.status !== 'compared') return 'undetermined'
+  if (comparison.changes.length === 0) return null
+  if (comparison.changes.some((change) => change.change === 'value')) return 'value'
+  if (comparison.changes.some((change) => change.change === 'undetermined')) return 'undetermined'
+  return 'reference-only'
 }
 
 function dependencyIsPrimitive(dependencies: unknown[] | null, index: number): boolean | null {

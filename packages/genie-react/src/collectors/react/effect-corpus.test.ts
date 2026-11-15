@@ -45,6 +45,7 @@ interface EffectEvent {
   event: 'scheduled' | 'reconnected'
   documentCommitId: number
   changedDependencySlots: number[]
+  dependencyChanges: { slot: number; change: string }[]
   execution: Run
   cleanupExecution: Run
   consequences: {
@@ -73,7 +74,7 @@ interface AuditEffect {
   updates: number
   lastChangedDep: number | null
   cleanupFunctionObserved: boolean
-  hotness: { label: string }
+  hotness: { label: string; basis: string }
   note?: string
   provenance: { ownership: string; reason: string }
 }
@@ -197,8 +198,24 @@ describe('dependencies', () => {
       [5, 'empty', 0, 2],
       [6, 'list', 2, 2],
     ])
-    expect(audit[1]?.note).toContain('changes reference')
-    expect(audit[6]?.note).toContain('changes value')
+    expect(audit.map(({ hotness }) => hotness.basis)).toEqual([
+      'not-rescheduled',
+      'reference-only-reruns',
+      'value-change-reruns',
+      'dependency-values-not-compared',
+      'no-dependency-array',
+      'not-rescheduled',
+      'value-change-reruns',
+    ])
+    expect(audit[1]?.note).toContain('is a new reference with equal contents')
+    expect(audit[6]?.note).toBeUndefined()
+    expect(events.slice(0, 5).map((event) => event.dependencyChanges)).toEqual([
+      [{ slot: 0, change: 'reference-only' }],
+      [{ slot: 0, change: 'value' }],
+      [{ slot: 0, change: 'undetermined' }],
+      [],
+      [{ slot: 0, change: 'value' }],
+    ])
   })
 
   function Special({ value }: { value: unknown[] }): ReactNode {
@@ -344,7 +361,7 @@ describe('ordering and kinds', () => {
     return null
   }
 
-  it('records the cleanup a mount-only effect returned and keeps custom-hook provenance unknown', async () => {
+  it('records the cleanup a mount-only effect returned and leaves provenance unknown when the inspector sees no hooks', async () => {
     await mount(createElement(HookOwner))
 
     const [effect] = await auditOf('HookOwner')
@@ -352,7 +369,7 @@ describe('ordering and kinds', () => {
     expect(effect?.cleanupFunctionObserved).toBe(true)
     expect(effect?.provenance).toMatchObject({
       ownership: 'unknown',
-      reason: 'shadow-render-disabled',
+      reason: 'hook-count-mismatch',
     })
   })
 })

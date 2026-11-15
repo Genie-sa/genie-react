@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import { defineAgentToolContract, definedValueSchema, outputViewSchema } from '../../protocol'
-import { appOnlySchema, ownershipCoverageSchema, sourceSchema } from './contract-schemas'
+import {
+  appOnlySchema,
+  ownershipCoverageSchema,
+  sourceSchema,
+  stackFrameSchema,
+} from './contract-schemas'
 
 export const SUSPENSE_BOUNDARY_STATES = [
   'fallback',
@@ -62,13 +67,7 @@ const capabilitySchema = z
     "Describes the React roots that hold Suspense boundaries; a root without one, such as a framework's dev overlay bundling its own production React, cannot hold a blocker and does not count. Derived from each renderer's version and build type plus the presence of React's development-only `_debugInfo` fiber field.",
   )
 
-const frameSchema = z.object({
-  functionName: z.string().nullable(),
-  file: z.string().nullable(),
-  line: z.number().int().nullable(),
-  column: z.number().int().nullable(),
-  isLibrary: z.boolean(),
-})
+const frameSchema = stackFrameSchema
 
 const awaiterSchema = z
   .object({

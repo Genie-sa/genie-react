@@ -42,7 +42,7 @@
     "script": "probes/project-nav-store-updates.mjs"
   },
   "genieEvidence": {
-    "observability": "partial",
-    "notes": "react_get_renders reports Connect(ProjectNav) with cause external-store (inferred, storeLabel 'selector') and no link to the dispatched action. The inner class ProjectNav carries the exact evidence (prop 'projects' changed by reference only), but it has ownership 'unknown' and the default appOnly:true view hides it; appOnly:false shows it. The wrapper's source points at side-nav.tsx (the JSX call site), not project-nav.tsx."
+    "observability": "full",
+    "notes": "Connect(ProjectNav) reports an external-store cause with subscriptionFired true, changedFields ['projects'] and a reference-only deepDiff at /projects, and grades the render unnecessary (inputs-unchanged). Its wraps field carries the inner ProjectNav's exact cause (prop 'projects' changed by reference only), so the default appOnly view answers the question even though the inner class has ownership 'unknown' and stays hidden there. The dispatched action is still not named, and the wrapper's source points at side-nav.tsx (the JSX call site), not project-nav.tsx."
   }
 }

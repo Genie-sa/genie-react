@@ -115,7 +115,10 @@ describe('app source classification coverage', () => {
     expect(filtered.comparable).toBe(false)
     expect(filtered.notComparableReasons).toContain('app-source-classification-incomplete')
     expect(filtered.summary.semantics).toBe('unknown')
-    expect(filtered.filteredNote).toContain('1 components with unknown ownership and 0 library')
+    expect(filtered.components).toHaveLength(1)
+    expect(filtered.filteredNote).toBe(
+      '1 components shown; 1 shown with ownership "unknown" because their source is unresolved',
+    )
 
     const unfiltered = await read(false)
     expect(unfiltered.summary.totalRenders).toBe(1)

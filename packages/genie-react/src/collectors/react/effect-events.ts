@@ -7,13 +7,19 @@ import {
 import { isKnownProxy } from '../causal/proxy-tagging'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 import { safeStructuredClone } from '../structured-clone'
-import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
+import type { CommitWorkBudget } from './commit-budget'
 import {
   type ComponentMatch,
   type ComponentNameSelector,
   componentNameMatcher,
   describeComponentMatch,
 } from './component-name'
+import { resolveEffectDeclarations } from './effect-declarations'
+import {
+  compareDependencies,
+  type DependencyComparison,
+  type DependencyComparisonStatus,
+} from './effect-dependencies'
 import { nameOf } from './fiber'
 import { type InstanceDescriptor, instanceForMountedFiber } from './instance-identity'
 import {
@@ -23,7 +29,7 @@ import {
   type ObservationWindow,
 } from './observation'
 import { getExcludedRefreshCommitTotal } from './refresh-commit-count'
-import { classifyFibersWithinBudget, ownershipCoverage } from './source'
+import { classifyFibersWithinBudget, isHiddenByAppOnly, ownershipCoverage } from './source'
 
 export type ScheduledEffectKind = 'effect' | 'layout' | 'insertion'
 
@@ -81,11 +87,15 @@ export interface EffectScheduleEvent {
   componentName: string
   mountId: string
   effectIndex: number
+  hookIndex: number
   kind: ScheduledEffectKind
   phase: 'mount' | 'update'
   event: 'scheduled' | 'reconnected'
   evidence: 'exact'
+  /** `not-applicable` for a mount or a reconnect, which React runs without comparing dependencies. */
+  dependencyComparison: DependencyComparisonStatus | 'not-applicable'
   changedDependencySlots: number[]
+  dependencyChanges: DependencyComparison['changes']
   changedDependencySlotsOmitted: number
   dependencySlotsUnscanned: number
   execution:
@@ -131,6 +141,7 @@ export interface PassiveEffectBinding {
   effectEventId: string | null
   fiber: Fiber
   effectIndex: number
+  hookIndex: number
   onCleanupReturned: () => void
   ran: boolean
 }
@@ -141,8 +152,6 @@ interface PendingLanes {
 }
 
 const EFFECT_EVENT_LIMIT = 1_000
-const DEPENDENCY_SCAN_LIMIT = 200
-const CHANGED_DEPENDENCY_LIMIT = 50
 const ERROR_MESSAGE_LIMIT = 500
 // React's StrictEffectsMode fiber mode bit, unchanged from 18.0 through 19.x.
 const STRICT_EFFECTS_MODE = 0b1_0000
@@ -169,12 +178,20 @@ export function recordEffectSchedule(input: {
   profileCommitId: number
   phase: RenderPhase
   effectIndex: number
+  hookIndex?: number
   kind: ScheduledEffectKind
   dependencies: unknown[] | null
   previousDependencies: unknown[] | null
   budget?: CommitWorkBudget
 }): void {
-  const prepared = prepareEffectSchedule(input)
+  const prepared = prepareEffectSchedule({
+    ...input,
+    hookIndex: input.hookIndex ?? input.effectIndex,
+    dependencyChanges:
+      input.phase === 'update'
+        ? compareDependencies(input.dependencies, input.previousDependencies, input.budget)
+        : null,
+  })
   if (prepared) publishEffectSchedule(prepared)
 }
 
@@ -187,9 +204,10 @@ export interface PreparedEffectSchedule {
   documentCommitId: number
   componentName: string
   effectIndex: number
+  hookIndex: number
   kind: ScheduledEffectKind
   phase: 'mount' | 'update'
-  dependencyChanges: { slots: number[]; omitted: number; unscanned: number }
+  dependencyChanges: DependencyComparison | null
 }
 
 /** Read dependency evidence without exposing a global event until its render publishes. */
@@ -198,17 +216,14 @@ export function prepareEffectSchedule(input: {
   profileCommitId: number
   phase: RenderPhase
   effectIndex: number
+  hookIndex: number
   kind: ScheduledEffectKind
-  dependencies: unknown[] | null
-  previousDependencies: unknown[] | null
+  /** The dependency comparison for an update schedule; null on mount. */
+  dependencyChanges: DependencyComparison | null
   budget?: CommitWorkBudget
 }): PreparedEffectSchedule | null {
   if (input.phase === 'unmount') return null
   latestProfileCommitId = input.profileCommitId
-  const dependencyChanges =
-    input.phase === 'update'
-      ? changedDependencySlots(input.dependencies, input.previousDependencies, input.budget)
-      : { slots: [], omitted: 0, unscanned: 0 }
   return {
     fiber: input.fiber,
     budget: input.budget,
@@ -218,9 +233,10 @@ export function prepareEffectSchedule(input: {
     documentCommitId: getDocumentCommitId(),
     componentName: nameOf(input.fiber),
     effectIndex: input.effectIndex,
+    hookIndex: input.hookIndex,
     kind: input.kind,
     phase: input.phase,
-    dependencyChanges,
+    dependencyChanges: input.dependencyChanges,
   }
 }
 
@@ -239,6 +255,7 @@ function publishEvent(
 ): EffectScheduleEvent {
   const instance = publishedInstance ?? instanceForMountedFiber(prepared.fiber, prepared.budget)
   const unsupportedKind = prepared.kind !== 'effect'
+  const dependencies = prepared.dependencyChanges
   const event: EffectScheduleEvent = {
     effectEventId: prepared.effectEventId,
     effectId: `effect:${instance.mountId}:${prepared.effectIndex}`,
@@ -249,13 +266,16 @@ function publishEvent(
     componentName: prepared.componentName,
     mountId: instance.mountId,
     effectIndex: prepared.effectIndex,
+    hookIndex: prepared.hookIndex,
     kind: prepared.kind,
     phase: prepared.phase,
     event: occurrence,
     evidence: 'exact',
-    changedDependencySlots: prepared.dependencyChanges.slots,
-    changedDependencySlotsOmitted: prepared.dependencyChanges.omitted,
-    dependencySlotsUnscanned: prepared.dependencyChanges.unscanned,
+    dependencyComparison: dependencies?.status ?? 'not-applicable',
+    changedDependencySlots: dependencies?.changes.map((change) => change.slot) ?? [],
+    dependencyChanges: dependencies?.changes ?? [],
+    changedDependencySlotsOmitted: dependencies?.omitted ?? 0,
+    dependencySlotsUnscanned: dependencies?.unscanned ?? 0,
     execution: {
       status: 'unobserved',
       reason: unsupportedKind ? 'unsupported-effect-kind' : 'not-yet-observed',
@@ -406,9 +426,10 @@ function publishReconnectedEvent(
       documentCommitId: getDocumentCommitId(),
       componentName: nameOf(binding.fiber),
       effectIndex: binding.effectIndex,
+      hookIndex: binding.hookIndex,
       kind: 'effect',
       phase: 'update',
-      dependencyChanges: { slots: [], omitted: 0, unscanned: 0 },
+      dependencyChanges: null,
     },
     'reconnected',
     instance,
@@ -687,35 +708,7 @@ export function getEffectScheduleEvents(
   }
 }
 
-export function changedDependencySlots(
-  current: unknown[] | null,
-  previous: unknown[] | null,
-  budget?: CommitWorkBudget,
-): { slots: number[]; omitted: number; unscanned: number } {
-  if (!Array.isArray(current) || !Array.isArray(previous)) {
-    return { slots: [], omitted: 0, unscanned: 0 }
-  }
-  const length = Math.max(current.length, previous.length)
-  const scanned = Math.min(length, DEPENDENCY_SCAN_LIMIT)
-  const slots: number[] = []
-  let omitted = 0
-  for (let index = 0; index < scanned; index += 1) {
-    if (!consumeCommitWork(budget, 'effect-dependencies')) {
-      return { slots, omitted, unscanned: length - index }
-    }
-    let changed = false
-    try {
-      changed = !Object.is(current[index], previous[index])
-    } catch {
-      return { slots, omitted, unscanned: length - index }
-    }
-    if (!changed) continue
-    if (slots.length < CHANGED_DEPENDENCY_LIMIT) slots.push(index)
-    else omitted += 1
-  }
-  return { slots, omitted, unscanned: Math.max(0, length - scanned) }
-}
-
+/** Events joined to the same declaration react_effect_audit reports: each effect's own hook call decides its ownership, not the component that called it. */
 export async function getEffectScheduleEventsWithOwnership(
   query: ComponentNameSelector & {
     afterDocumentCommitId?: number
@@ -724,24 +717,55 @@ export async function getEffectScheduleEventsWithOwnership(
   },
 ) {
   const report = getEffectScheduleEvents({ ...query, limit: EFFECT_EVENT_LIMIT })
-  const fibers = report.events.map((event) => eventFibers.get(event))
   const captured = safeStructuredClone(report)
-  const present = fibers.filter((fiber): fiber is Fiber => fiber !== undefined)
-  const { classes } = await classifyFibersWithinBudget(present)
-  let index = 0
-  const enriched = captured.events.map((event, eventIndex) => {
-    const source = fibers[eventIndex] ? classes[index++] : undefined
+  const componentFibers = new Map<number, Fiber>()
+  const hookIndicesByComponent = new Map<number, Set<number>>()
+  for (const event of report.events) {
+    const fiber = eventFibers.get(event)
+    if (!fiber) continue
+    if (!componentFibers.has(event.componentId)) componentFibers.set(event.componentId, fiber)
+    const hookIndices = hookIndicesByComponent.get(event.componentId) ?? new Set<number>()
+    hookIndices.add(event.hookIndex)
+    hookIndicesByComponent.set(event.componentId, hookIndices)
+  }
+  const components = [...componentFibers]
+  const { classes } = await classifyFibersWithinBudget(components.map(([, fiber]) => fiber))
+  const declarations = await resolveEffectDeclarations(
+    components.map(([componentId, fiber], index) => ({
+      fiber,
+      hookIndices: [...(hookIndicesByComponent.get(componentId) ?? [])],
+      componentOwnership: classes[index]?.ownership ?? 'unknown',
+    })),
+  )
+  const byComponent = new Map(
+    components.map(([componentId], index) => [
+      componentId,
+      { classification: classes[index], declarations: declarations[index] },
+    ]),
+  )
+  const enriched = captured.events.map((event) => {
+    const component = byComponent.get(event.componentId)
+    const declaration = component?.declarations?.get(event.hookIndex)
     return {
       ...event,
-      sourceOwnership: source?.ownership ?? ('unknown' as const),
-      source: source?.source ?? null,
+      hook: declaration?.hook ?? null,
+      customHooks: declaration?.customHooks ?? null,
+      sourceOwnership: declaration?.ownership ?? ('unknown' as const),
+      ownershipEvidence: declaration?.evidence ?? ('unknown' as const),
+      ownershipReason: declaration?.reason ?? ('attribution-budget-exhausted' as const),
+      source: declaration?.source ?? null,
+      componentOwnership: component?.classification?.ownership ?? ('unknown' as const),
+      componentSource: component?.classification?.source ?? null,
     }
   })
-  const selected = enriched.filter((event) => !query.appOnly || event.sourceOwnership === 'app')
+  const selected = enriched.filter(
+    (event) => !query.appOnly || !isHiddenByAppOnly(event.sourceOwnership),
+  )
   return {
     ...captured,
     events: selected.slice(0, query.limit),
     omittedByLimit: Math.max(0, selected.length - query.limit),
+    libraryEventsHidden: enriched.length - selected.length,
     ownershipCoverage: ownershipCoverage(enriched.map((event) => event.sourceOwnership)),
   }
 }

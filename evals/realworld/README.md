@@ -76,7 +76,7 @@ A probe receives a context with `page` (Playwright), `genie.call(tool, args)`, `
 | `orders-sync-clock-ticks`               | not flagged                | A label re-renders every second                         |
 | `permissions-context-stable`            | not flagged                | A provider wraps the whole authenticated app            |
 | `stat-card-memo-partial`                | not flagged                | Two of four memoised cards re-render on a range change |
-| `query-observer-effects-rerun`          | known false positive (F10) | An effect re-runs on every render of a page            |
+| `query-observer-effects-rerun`          | not flagged                | An effect re-runs on every render of a page            |
 
 [`dashboard/genie-findings.md`](dashboard/genie-findings.md) lists the Genie defects and friction found
 while building the app and its probes.

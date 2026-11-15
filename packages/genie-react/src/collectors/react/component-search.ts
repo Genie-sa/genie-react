@@ -2,7 +2,12 @@ import { newId, type ToolOutput } from '../../protocol'
 import { sourceNameOf } from './component-name'
 import type { NodeId, reactFindComponentsContract } from './contracts'
 import { findAllRootFibers, findByName, findFiberById, matchDetail } from './fiber'
-import { classifyFibersWithinBudget, type FiberClassification, ownershipCoverage } from './source'
+import {
+  classifyFibersWithinBudget,
+  type FiberClassification,
+  isHiddenByAppOnly,
+  ownershipCoverage,
+} from './source'
 
 type FindComponentsOutput = ToolOutput<typeof reactFindComponentsContract>
 
@@ -52,7 +57,7 @@ export async function findComponents(query: FindComponentsQuery): Promise<FindCo
   const { classes } = await classifyFibersWithinBudget(found.map(({ fiber }) => fiber))
   const matches = found.flatMap(({ id, name, path }, index) => {
     const classification = classes[index] ?? UNCLASSIFIED
-    if (query.appOnly && classification.ownership !== 'app') return []
+    if (query.appOnly && isHiddenByAppOnly(classification.ownership)) return []
     return [{ id, name, path, classification }]
   })
   const snapshot: SearchSnapshot = {

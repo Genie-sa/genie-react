@@ -1168,7 +1168,13 @@ function settledCommit(settle: InteractionSettleResult): number | null {
 }
 
 function cohortArgs(target: VerifyTarget) {
-  return { component: target.component, exact: true, appOnly: false, limit: COHORT_LIMIT }
+  return {
+    component: target.component,
+    exact: true,
+    appOnly: false,
+    limit: COHORT_LIMIT,
+    view: 'full',
+  }
 }
 
 function nextCursorOf(tool: RetainedTool): string | null {

@@ -4,8 +4,8 @@ import {
   recordQueryNotification,
   resetExternalStoreRegistryForTests,
 } from '../causal/external-store-registry'
+import { compareDependencies } from './effect-dependencies'
 import {
-  changedDependencySlots,
   clearEffectEvents,
   getEffectScheduleEvents,
   type PassiveEffectBinding,
@@ -35,6 +35,7 @@ const binding = (effectEventId: string): PassiveEffectBinding => ({
   effectEventId,
   fiber: fiber(),
   effectIndex: 0,
+  hookIndex: 0,
   onCleanupReturned: () => {},
   ran: false,
 })
@@ -164,13 +165,15 @@ describe('effect schedule events', () => {
   })
 
   it('does not invent changed slots for mount or non-list dependencies', () => {
-    expect(changedDependencySlots(null, null)).toEqual({
-      slots: [],
+    expect(compareDependencies(null, null)).toEqual({
+      status: 'no-dependency-array',
+      changes: [],
       omitted: 0,
       unscanned: 0,
     })
-    expect(changedDependencySlots([1, 3], [1, 2])).toEqual({
-      slots: [1],
+    expect(compareDependencies([1, 3], [1, 2])).toEqual({
+      status: 'compared',
+      changes: [{ slot: 1, change: 'value' }],
       omitted: 0,
       unscanned: 0,
     })
@@ -190,8 +193,9 @@ describe('effect schedule events', () => {
     const previous = Array.from({ length: 300 }, () => 0)
     const current = Array.from({ length: 300 }, () => 1)
 
-    expect(changedDependencySlots(current, previous)).toEqual({
-      slots: Array.from({ length: 50 }, (_, index) => index),
+    expect(compareDependencies(current, previous)).toEqual({
+      status: 'compared',
+      changes: Array.from({ length: 50 }, (_, slot) => ({ slot, change: 'value' })),
       omitted: 150,
       unscanned: 100,
     })

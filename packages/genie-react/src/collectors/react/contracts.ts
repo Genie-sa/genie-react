@@ -6,9 +6,11 @@ import {
   ownershipCoverageSchema,
   sourceProvenanceSchema,
   sourceSchema,
+  stackFrameSchema,
   wrapperFrameSchema,
 } from './contract-schemas'
 import {
+  deprecationsSchema,
   observationSchema,
   renderCoverageSchema,
   renderMeasurementEnvironmentSchema,
@@ -57,7 +59,12 @@ const treeNodeSchema = z.object({
     .describe('A class component that catches render errors, reported by react_error_state.'),
   source: sourceSchema.optional(),
   isLibrary: z.boolean().optional(),
-  ownership: z.enum(['app', 'library', 'unknown']).optional(),
+  ownership: z
+    .enum(['app', 'library', 'unknown'])
+    .optional()
+    .describe(
+      "app or library from the component's own code (where it is defined, or what it renders); unknown when that code could not be located, e.g. a component that renders only its children.",
+    ),
   wrapperAncestry: z.array(wrapperFrameSchema).max(9).optional(),
   omittedDescendants: z
     .number()
@@ -73,7 +80,7 @@ export const reactGetTreeContract = defineAgentToolContract({
   name: 'react_get_tree',
   title: 'React component tree',
   description:
-    'Get the live React component tree as a flat node list (id, parentId, name, key, kind). Suspense boundaries are nodes of kind suspense and error boundaries carry errorBoundary:true, under the ids react_suspense and react_error_state report. Reconstruct the hierarchy from parentId; pass node ids to react_inspect_component. For a dense tree, pass a returned node id as rootId to read that component and its descendants without dumping unrelated branches. Framework wrappers can be deep, so raise `depth` if your own components do not appear and `truncatedBy` is "depth". `otherRoots` lists separate React roots (widgets bundling their own React, createRoot islands); pass one\'s rootId to read it.',
+    "Get the live React component tree as a flat node list (id, parentId, name, key, kind). Suspense boundaries are nodes of kind suspense and error boundaries carry errorBoundary:true, under the ids react_suspense and react_error_state report. Reconstruct the hierarchy from parentId; pass node ids to react_inspect_component. With appOnly (the default), framework and library wrappers are folded away: parentId skips them, `depth` counts only the levels shown, so the tree starts where your own components start, and filteredNote says how many were hidden. For a dense tree, pass a returned node id as rootId to read that component and its descendants without dumping unrelated branches. `otherRoots` lists separate React roots (widgets bundling their own React, createRoot islands); pass one's rootId to read it.",
   group: 'react.tree',
   input: z.object({
     rootId: nodeIdSchema
@@ -81,7 +88,15 @@ export const reactGetTreeContract = defineAgentToolContract({
       .describe(
         'Read only this mounted component/host node and its descendants. The selected node is included with parentId:null. Omit for the full root.',
       ),
-    depth: z.number().int().min(1).max(80).default(30),
+    depth: z
+      .number()
+      .int()
+      .min(1)
+      .max(80)
+      .default(30)
+      .describe(
+        'Levels below the top node to list. With appOnly, folded library wrappers do not count as levels.',
+      ),
     includeHost: z
       .boolean()
       .default(false)
@@ -119,7 +134,7 @@ export const reactGetTreeContract = defineAgentToolContract({
       .string()
       .optional()
       .describe(
-        'Present only when appOnly folded library subtrees away; names how many components were hidden and how to include them.',
+        'Present when appOnly folded library components away or kept components of unknown ownership; counts each and says how to include the hidden ones.',
       ),
   }),
   annotations: { readOnlyHint: true },
@@ -294,7 +309,7 @@ export const hookEntrySchema = z.object({
     .nullable()
     .optional()
     .describe(
-      'Custom hooks that called this hook, outermost first (e.g. ["useCart","useQuery"]); absent when the component called it directly; null when the hook inspector could not see this hook (useEffectEvent), so its caller is unknown.',
+      'Custom hooks that called this hook, outermost first, named as the caller wrote them (e.g. ["useCart","useQuery"]); absent when the component called it directly; null when the hook inspector could not see this hook (useEffectEvent), so its caller is unknown. A custom hook whose function has no name (an anonymous factory result, or eval-bundled code) appears as "(anonymous)" rather than a guessed name.',
     ),
   value: z
     .unknown()
@@ -309,7 +324,7 @@ export const hookEntrySchema = z.object({
 export const customHookGroupingSchema = z
   .enum(['exact', 'partial', 'unavailable'])
   .describe(
-    'exact: every hook carries its custom-hook chain. partial: hooks with customHooks null have an unknown caller; the rest are exact. unavailable: the hook inspector failed or did not match the mounted hooks (conditional hooks, render that throws), so no hook carries customHooks.',
+    'exact: every hook carries its named custom-hook chain. partial: hooks with customHooks null have an unknown caller, and "(anonymous)" entries are custom hooks without a name; the rest are exact. unavailable: the hook inspector failed or did not match the mounted hooks (conditional hooks, render that throws), so no hook carries customHooks.',
   )
 
 export const reactInspectComponentContract = defineAgentToolContract({
@@ -788,7 +803,15 @@ export const reactErrorStateContract = defineAgentToolContract({
         boundarySource: sourceSchema,
         throwingComponent: z.string().nullable(),
         message: z.string().nullable(),
-        stack: z.string().nullable().describe('The thrower’s file:line is in this stack.'),
+        stack: z
+          .string()
+          .nullable()
+          .describe('The thrower’s file:line is in this stack, at the positions the browser ran.'),
+        stackFrames: z
+          .array(stackFrameSchema)
+          .describe(
+            'The same stack parsed and source-mapped: the throwing line in your file where a source map exists. mapping says how far to trust each position.',
+          ),
         isLibraryBoundary: z.boolean(),
         forced: z
           .boolean()
@@ -950,6 +973,7 @@ export const reactProfileStartContract = defineAgentToolContract({
     observation: observationSchema,
     observationConfig: renderCoverageSchema.shape.observationBudget.unwrap(),
     strictMode: strictModeStatusSchema,
+    deprecations: deprecationsSchema,
   }),
   annotations: { idempotentHint: false },
 })
