@@ -7,6 +7,7 @@ import {
   createElement,
   Fragment,
   memo,
+  PureComponent,
   type ReactNode,
   StrictMode,
   Suspense,
@@ -633,6 +634,73 @@ describe('render causes match the update that triggered them', () => {
       necessity: 'unknown',
       noObservedInputChange: 0,
       causes: [{ kind: 'unknown', reason: 'no-observable-fiber-input-change' }],
+    })
+  })
+
+  describe('a component that bails out on equal props, rendering in the same commit as its parent', () => {
+    let rerenderParent: () => void = () => {}
+    function Parent({ child }: { child: (label: string) => ReactNode }): ReactNode {
+      const [count, setCount] = useState(0)
+      rerenderParent = () => setCount((value) => value + 1)
+      return createElement('section', null, count, child('stable'))
+    }
+
+    it('reports a PureComponent forceUpdate as an unseen input, not a parent cascade', async () => {
+      let instance: PureRow | null = null
+      class PureRow extends PureComponent<{ label: string }> {
+        override componentDidMount(): void {
+          instance = this
+        }
+        override render(): ReactNode {
+          return createElement('p', null, this.props.label)
+        }
+      }
+      mount(createElement(Parent, { child: (label) => createElement(PureRow, { label }) }))
+      observe()
+
+      await act(async () => {
+        rerenderParent()
+        instance?.forceUpdate()
+      })
+
+      expect(await reportFor('PureRow')).toMatchObject({
+        renders: 1,
+        necessity: 'unknown',
+        causes: [{ kind: 'unknown', reason: 'no-observable-fiber-input-change' }],
+      })
+    })
+
+    it('still names the parent when a custom comparator decides to re-render', async () => {
+      const Row = memo(
+        function Row({ label }: { label: string }): ReactNode {
+          return createElement('p', null, label)
+        },
+        () => false,
+      )
+      mount(createElement(Parent, { child: (label) => createElement(Row, { label }) }))
+      observe()
+
+      await act(async () => rerenderParent())
+
+      expect((await reportFor('Row'))?.causes).toMatchObject([
+        { kind: 'parent', evidence: 'inferred', parentName: 'Parent' },
+      ])
+    })
+
+    it('reports a changed prop as the cause when the PureComponent receives one', async () => {
+      class PureLabel extends PureComponent<{ label: string }> {
+        override render(): ReactNode {
+          return createElement('p', null, this.props.label)
+        }
+      }
+      let label = 'before'
+      mount(createElement(Parent, { child: () => createElement(PureLabel, { label }) }))
+      observe()
+
+      label = 'after'
+      await act(async () => rerenderParent())
+
+      expect(kinds((await reportFor('PureLabel'))?.causes ?? [])).toEqual(['props'])
     })
   })
 

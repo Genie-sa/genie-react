@@ -124,7 +124,12 @@ import {
 import { captureReportEpoch, reportAttribution, reportStateMatches } from './report-attribution'
 import { isSafeRenderer, supportedCommitHandler } from './safe-instrumentation'
 import { clearSourceCache } from './source'
-import { canBailOutOnProps, isHostTextFiber, isSuspenseFiber } from './work-tags'
+import {
+  canBailOutOnProps,
+  comparesPropsShallowly,
+  isHostTextFiber,
+  isSuspenseFiber,
+} from './work-tags'
 
 export type {
   RenderCause,
@@ -1323,8 +1328,11 @@ function recordRenderAtomic(
     ...externalStoreChanges,
   ]
   const propsCauseRender = bailsOutOnProps && propCauses.length > 0
+  // With every prop equal, React bails out of such a fiber however its parent rendered, so the trigger is an input Genie cannot see, such as forceUpdate.
+  const parentCannotExplain =
+    coverage.complete && propChanges.length === 0 && comparesPropsShallowly(fiber)
   const parentResult =
-    otherCauses.length === 0 && !propsCauseRender
+    otherCauses.length === 0 && !propsCauseRender && !parentCannotExplain
       ? renderedParentCause(fiber, commitWork, commitEvidence?.renderedFibers)
       : { cause: null, complete: true }
   const parentCause = parentResult.cause
