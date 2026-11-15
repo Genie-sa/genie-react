@@ -855,9 +855,57 @@ async function toOriginalPosition(
   return { file: null, line, column }
 }
 
-// Bippy keys its map cache weakly by `fetchFn`, so a fresh function per generation is how `clearSourceCache` drops maps for rebuilt modules.
+const PAGE_LOADABLE_SCHEMES = new Set(['http', 'https', 'data', 'blob'])
+const URL_SCHEME = /^([a-z][\w+.-]*):/i
+
+/** Whether the page itself can fetch this URL; a path without a scheme resolves against the page. Next.js names server-component frames `about://React/Server/file:///…` and server chunks `file:///…`; fetching those is refused, and every refusal is a console error in the developer's app. */
+export function isPageLoadableUrl(url: string): boolean {
+  const scheme = URL_SCHEME.exec(url)?.[1]?.toLowerCase()
+  return scheme === undefined || PAGE_LOADABLE_SCHEMES.has(scheme)
+}
+
+const NOT_LOADABLE = (): Promise<Response> =>
+  Promise.resolve(new Response(null, { status: 404, statusText: 'not loadable from the page' }))
+const REACT_SERVER_FRAME = /^about:\/\/React\/Server\/(.+?)(?:\?\d+)?$/
+const NEXT_STATIC_SEGMENT = '/_next/static/'
+
+/** The URL Next.js's dev server answers with a server chunk's source map: the endpoint its own client hands React as `findSourceMapURL`. The page's `/_next/static/` scripts prove it is a Next.js page and carry its basePath; without them there is no endpoint to ask. */
+function nextServerSourceMapUrl(frameUrl: string): string | null {
+  const filename =
+    REACT_SERVER_FRAME.exec(frameUrl)?.[1] ?? (frameUrl.startsWith('file://') ? frameUrl : null)
+  if (filename === null || typeof document === 'undefined') return null
+  const script = document.querySelector<HTMLScriptElement>(`script[src*="${NEXT_STATIC_SEGMENT}"]`)
+  if (!script) return null
+  const page = new URL(script.src, document.baseURI)
+  const basePath = page.pathname.slice(0, page.pathname.indexOf(NEXT_STATIC_SEGMENT))
+  const url = new URL(`${basePath}/__nextjs_source-map`, page.origin)
+  url.searchParams.set('filename', filename)
+  return url.href
+}
+
+/** A server-component frame cannot be fetched, but Next.js serves its map from the page's own origin. It answers as a stub module carrying that map inline, since bippy follows no external map from a module whose URL is not http(s). */
+async function unloadableFrame(url: string): Promise<Response> {
+  const endpoint = nextServerSourceMapUrl(url)
+  if (endpoint === null) return NOT_LOADABLE()
+  const map = await fetch(endpoint)
+  if (!map.ok) return NOT_LOADABLE()
+  const inline = `data:application/json;base64,${base64(await map.text())}`
+  return new Response(`//# sourceMappingURL=${inline}\n`, { status: 200 })
+}
+
+const BASE64_CHUNK = 0x8000
+
+function base64(text: string): string {
+  const bytes = new TextEncoder().encode(text)
+  let binary = ''
+  for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK)
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + BASE64_CHUNK))
+  return btoa(binary)
+}
+
+// Bippy keys its map cache weakly by `fetchFn`, so a fresh function per generation is how `clearSourceCache` drops maps for rebuilt modules. An unloadable URL answers a 404 instead of a rejection, which bippy would treat as transient and retry on every lookup.
 function boundFetch(): SourceFetch {
-  return (url, init) => fetch(url, init)
+  return (url, init) => (isPageLoadableUrl(url) ? fetch(url, init) : unloadableFrame(url))
 }
 
 let generationFetch: SourceFetch = boundFetch()

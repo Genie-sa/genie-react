@@ -59,6 +59,7 @@ const {
   classifyFibersWithinBudget,
   clearSourceCache,
   isLibraryFile,
+  isPageLoadableUrl,
   resolveEffectSourceResolution,
   resolveEffectSources,
   resolveExternalStoreSourceResolution,
@@ -102,6 +103,94 @@ beforeEach(() => {
   vi.stubGlobal('fetch', () => Promise.reject(new Error('no network in tests')))
 })
 afterEach(() => vi.unstubAllGlobals())
+
+describe('URLs the page cannot load', () => {
+  const SERVER_COMPONENT_FRAME =
+    'about://React/Server/file:///app/.next/server/chunks/ssr/app_page_tsx.js?17'
+  const SERVER_CHUNK = 'file:///app/.next/server/chunks/ssr/app_page_tsx.js'
+
+  it('classifies only page-relative paths and fetchable schemes as loadable', () => {
+    for (const url of [
+      '/src/App.tsx',
+      'src/App.tsx',
+      'http://localhost:3000/a.js',
+      'https://x.dev/a.js',
+      'data:text/javascript,1',
+      'blob:http://localhost/1',
+    ])
+      expect(isPageLoadableUrl(url), url).toBe(true)
+    for (const url of [
+      SERVER_COMPONENT_FRAME,
+      SERVER_CHUNK,
+      'webpack-internal:///./app/page.tsx',
+      'chrome-extension://abc/a.js',
+    ])
+      expect(isPageLoadableUrl(url), url).toBe(false)
+  })
+
+  it.each([
+    ['a server-component frame', SERVER_COMPONENT_FRAME],
+    ['a server chunk frame', SERVER_CHUNK],
+  ])('never fetches %s and keeps its served position on disk', async (_label, frame) => {
+    const fetchMock = vi.fn(() => Promise.reject(new Error('refused')))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { source } = await classifyFiber(asFiber({ _debugSource: at(frame, 12) }))
+
+    expect(source).toMatchObject({
+      file: expect.stringContaining('/app/.next/server/chunks/ssr/app_page_tsx.js'),
+      line: 12,
+      sourceMapConfidence: 'served',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  async function genieFetchFor(url: string) {
+    const fetchFns: Array<(input: string) => Promise<Response>> = []
+    getSourceMap.mockImplementation(async (_url, _cache, fetchFn) => {
+      if (fetchFn) fetchFns.push(fetchFn)
+      return null
+    })
+    await classifyFiber(asFiber({ _debugSource: at(url, 4) }))
+    const [genieFetch] = fetchFns
+    if (!genieFetch) throw new Error('source resolution never handed bippy its fetch')
+    return genieFetch
+  }
+
+  it('answers an unloadable URL off a Next.js page with a cached miss, never a fetch', async () => {
+    const fetchMock = vi.fn(() => Promise.reject(new Error('refused')))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const answer = await (await genieFetchFor('http://localhost:3000/assets/page.js'))(SERVER_CHUNK)
+
+    expect(answer.ok).toBe(false)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("maps a server-component frame through Next.js's source-map endpoint under the page's basePath", async () => {
+    const map = { version: 3, sources: ['app/page.tsx'], names: [], mappings: 'AAAA' }
+    const fetchMock = vi.fn(async (_url: string) => new Response(JSON.stringify(map)))
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('document', {
+      baseURI: 'http://localhost:3000/shop/',
+      querySelector: (selector: string) =>
+        selector.includes('/_next/static/')
+          ? { src: 'http://localhost:3000/shop/_next/static/chunks/main.js' }
+          : null,
+    })
+
+    const genieFetch = await genieFetchFor('http://localhost:3000/shop/_next/static/chunks/page.js')
+    const stub = await (await genieFetch(SERVER_COMPONENT_FRAME)).text()
+
+    const [requested] = fetchMock.mock.calls.map(([url]) => new URL(url))
+    expect(`${requested?.origin}${requested?.pathname}`).toBe(
+      'http://localhost:3000/shop/__nextjs_source-map',
+    )
+    expect(requested?.searchParams.get('filename')).toBe(SERVER_CHUNK)
+    const inline = /sourceMappingURL=data:application\/json;base64,(\S+)/.exec(stub)?.[1] ?? ''
+    expect(JSON.parse(Buffer.from(inline, 'base64').toString('utf8'))).toEqual(map)
+  })
+})
 
 describe('isLibraryFile', () => {
   it('recognizes dependency files without treating opaque bundler chunks as libraries', () => {

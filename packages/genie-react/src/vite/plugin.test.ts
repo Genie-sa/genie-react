@@ -1,8 +1,9 @@
 import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { type Plugin, parseAst } from 'vite'
 import { describe, expect, it } from 'vitest'
 import { GENIE_DISCOVERY_FILE } from '../protocol'
@@ -44,15 +45,25 @@ type ConfigFn = (
     }
   | undefined
 
-const present: ResolveCtx = {
-  resolve: async () => ({ id: '/node_modules/@tanstack/react-router' }),
-}
 const absent: ResolveCtx = { resolve: async () => null }
-// Vite resolves an unresolved optional peer to this synthetic placeholder, not null.
-const optionalPeerPlaceholder: ResolveCtx = {
-  resolve: async () => ({
-    id: '__vite-optional-peer-dep:@tanstack/react-router:genie-react',
+const GENIE_IMPORTER = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'dist', 'index.js')
+const APP_IMPORTER = '/app/src/main.tsx'
+// What Vite answers in a workspace or linked checkout: genie-react's devDependency, not anything the app installed.
+const resolvesFromGenieCheckout: ResolveCtx = {
+  resolve: async (source) => ({
+    id: join(GENIE_IMPORTER, '..', '..', 'node_modules', source, 'dist', 'esm', 'index.js'),
   }),
+}
+
+/** A throwaway app root that installs exactly `peers`, as an app with its own node_modules does. */
+async function appRoot(peers: readonly string[]): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'genie-vite-app-'))
+  await writeFile(join(root, 'package.json'), '{"name":"app","private":true}')
+  for (const peer of peers) {
+    await mkdir(join(root, 'node_modules', peer), { recursive: true })
+    await writeFile(join(root, 'node_modules', peer, 'package.json'), `{"name":"${peer}"}`)
+  }
+  return root
 }
 
 describe('genie() plugin array', () => {
@@ -149,48 +160,85 @@ useTool({ description: 'react_get_tree', handler: () => tool })
 })
 
 describe('optional-peer stubs', () => {
-  const optional = genie()[1] as Plugin
-  const resolveId = getHook<ResolveIdFn>(optional, 'resolveId')
-  const load = getHook<LoadFn>(optional, 'load')
+  type ConfigResolvedFn = (this: unknown, config: { root: string }) => void
 
-  it('stubs @tanstack/react-router when Vite cannot resolve it', async () => {
-    const id = await resolveId.call(absent, '@tanstack/react-router', undefined, {})
-    expect(id).toBe('\0virtual:genie-optional-router')
+  async function stubsFor(peers: readonly string[]) {
+    const optional = genie()[1] as Plugin
+    const root = await appRoot(peers)
+    getHook<ConfigResolvedFn>(optional, 'configResolved').call(null, { root })
+    const resolveId = getHook<ResolveIdFn>(optional, 'resolveId')
+    return {
+      resolve: (source: string, importer: string | undefined) =>
+        resolveId.call(resolvesFromGenieCheckout, source, importer, {}),
+      load: getHook<LoadFn>(optional, 'load'),
+      cleanup: () => rm(root, { recursive: true, force: true }),
+    }
+  }
+
+  it("stubs genie-react's router import when the app does not install the router, even though genie-react's own directory resolves it", async () => {
+    const stubs = await stubsFor(['@tanstack/react-query'])
+    try {
+      expect(await stubs.resolve('@tanstack/react-router', GENIE_IMPORTER)).toBe(
+        '\0virtual:genie-optional-router',
+      )
+      expect(await stubs.resolve('@tanstack/react-query', GENIE_IMPORTER)).toBeNull()
+    } finally {
+      await stubs.cleanup()
+    }
   })
 
-  it('stubs when Vite returns its optional-peer-dep placeholder for the absent peer', async () => {
-    const id = await resolveId.call(
-      optionalPeerPlaceholder,
-      '@tanstack/react-router',
-      undefined,
-      {},
-    )
-    expect(id).toBe('\0virtual:genie-optional-router')
+  it('stubs @tanstack/react-query with a bare QueryClientContext when the app lacks it', async () => {
+    const stubs = await stubsFor([])
+    try {
+      expect(await stubs.resolve('@tanstack/react-query', GENIE_IMPORTER)).toBe(
+        '\0virtual:genie-optional-query',
+      )
+      const code = stubs.load.call(null, '\0virtual:genie-optional-query')
+      expect(code).toContain('export const QueryClientContext')
+      expect(code).toContain('createContext(undefined)')
+    } finally {
+      await stubs.cleanup()
+    }
   })
 
-  it('defers to the real module when it resolves', async () => {
-    const id = await resolveId.call(present, '@tanstack/react-router', undefined, {})
-    expect(id).toBeNull()
+  it("defers to the app's own router when the app installs it", async () => {
+    const stubs = await stubsFor(['@tanstack/react-router'])
+    try {
+      expect(await stubs.resolve('@tanstack/react-router', GENIE_IMPORTER)).toBeNull()
+    } finally {
+      await stubs.cleanup()
+    }
   })
 
-  it('stubs @tanstack/react-query with a bare QueryClientContext when absent', async () => {
-    const id = await resolveId.call(absent, '@tanstack/react-query', undefined, {})
-    expect(id).toBe('\0virtual:genie-optional-query')
-    const code = load.call(null, '\0virtual:genie-optional-query')
-    expect(code).toContain('export const QueryClientContext')
-    expect(code).toContain('createContext(undefined)')
+  it("never stubs the app's own import, so a missing dependency still fails loudly", async () => {
+    const stubs = await stubsFor([])
+    try {
+      expect(await stubs.resolve('@tanstack/react-router', APP_IMPORTER)).toBeNull()
+      expect(await stubs.resolve('@tanstack/react-router', undefined)).toBeNull()
+    } finally {
+      await stubs.cleanup()
+    }
   })
 
   it('ignores any other specifier', async () => {
-    const id = await resolveId.call(absent, '@tanstack/query-core', undefined, {})
-    expect(id).toBeNull()
+    const stubs = await stubsFor([])
+    try {
+      expect(await stubs.resolve('@tanstack/query-core', GENIE_IMPORTER)).toBeNull()
+    } finally {
+      await stubs.cleanup()
+    }
   })
 
   it('serves a no-op useRouter for the stub id and nothing else', async () => {
-    const code = load.call(null, '\0virtual:genie-optional-router')
-    expect(code).toContain('export const useRouter')
-    expect(code).toContain('undefined')
-    expect(load.call(null, '/some/other/module.ts')).toBeNull()
+    const stubs = await stubsFor([])
+    try {
+      expect(stubs.load.call(null, '\0virtual:genie-optional-router')).toContain(
+        'export const useRouter = () => undefined',
+      )
+      expect(stubs.load.call(null, '/some/other/module.ts')).toBeNull()
+    } finally {
+      await stubs.cleanup()
+    }
   })
 })
 
@@ -353,20 +401,59 @@ describe('cloudflare coexistence', () => {
 })
 
 describe('config optimizeDeps (dep optimizer bypasses the peer stubs)', () => {
-  const main = genie()[0] as Plugin
-  const config = getHook<ConfigFn>(main, 'config')
+  type ConfigEnvironmentFn = (
+    this: unknown,
+    name: string,
+    environment: { consumer?: string; optimizeDeps?: { exclude?: string[] } },
+  ) => { optimizeDeps: { include: string[] } } | undefined
 
-  it('excludes genie-react so esbuild never pre-bundles the bare @tanstack imports', () => {
-    const cfg = config.call(null, {})
+  async function configured(peers: readonly string[]) {
+    const main = genie()[0] as Plugin
+    const root = await appRoot(peers)
+    const cfg = getHook<ConfigFn>(main, 'config').call(null, { root })
+    return {
+      cfg,
+      environment: getHook<ConfigEnvironmentFn>(main, 'configEnvironment'),
+      cleanup: () => rm(root, { recursive: true, force: true }),
+    }
+  }
+
+  it('excludes genie-react so esbuild never pre-bundles the bare @tanstack imports', async () => {
+    const { cfg, cleanup } = await configured([])
+    await cleanup()
     expect(cfg?.optimizeDeps?.exclude).toContain('genie-react')
   })
 
-  it('pre-lists nested hard deps so the first post-install boot avoids a mid-run re-optimize', () => {
-    const cfg = config.call(null, {})
+  it('pre-lists nested hard deps so the first post-install boot avoids a mid-run re-optimize', async () => {
+    const { cfg, cleanup } = await configured([])
+    await cleanup()
     expect(cfg?.optimizeDeps?.include).toContain('genie-react > bippy')
     expect(cfg?.optimizeDeps?.include).toContain('genie-react > bippy/source')
     expect(cfg?.optimizeDeps?.include).toContain('genie-react > superjson')
     expect(cfg?.optimizeDeps?.include).not.toContain('genie-react > zod')
     expect(cfg?.optimizeDeps?.include).toContain('react')
+  })
+
+  it('pre-bundles only the TanStack peers the app installs, in the client environment', async () => {
+    const { environment, cleanup } = await configured(['@tanstack/react-query'])
+    await cleanup()
+    expect(environment.call(null, 'client', {})?.optimizeDeps.include).toEqual([
+      'genie-react > @tanstack/react-query',
+    ])
+    expect(environment.call(null, 'ssr', {})).toBeUndefined()
+  })
+
+  it('leaves out a peer the client environment excludes, as TanStack Start does for the router', async () => {
+    const { environment, cleanup } = await configured([
+      '@tanstack/react-router',
+      '@tanstack/react-query',
+    ])
+    await cleanup()
+    const startClient = {
+      optimizeDeps: { exclude: ['@tanstack/react-start', '@tanstack/react-router'] },
+    }
+    expect(environment.call(null, 'client', startClient)?.optimizeDeps.include).toEqual([
+      'genie-react > @tanstack/react-query',
+    ])
   })
 })

@@ -1,6 +1,11 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { z } from 'zod'
-import { defineAgentToolContract, dehydrate } from '../../protocol'
+import {
+  appValueSchema,
+  defineAgentToolContract,
+  definedValueSchema,
+  dehydrate,
+} from '../../protocol'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 
 type CachedQuery = ReturnType<ReturnType<QueryClient['getQueryCache']>['getAll']>[number]
@@ -38,7 +43,7 @@ interface FilterCall {
 
 const matchedSchema = z.object({
   queryHash: z.string(),
-  queryKey: z.unknown(),
+  queryKey: definedValueSchema('The matched query key.'),
   isActive: z
     .boolean()
     .describe(
@@ -67,7 +72,7 @@ export const queryFilterCallsContract = defineAgentToolContract({
           .boolean()
           .describe('Made by a Genie tool such as query_invalidate, not the app.'),
         filters: z.object({
-          queryKey: z.unknown(),
+          queryKey: appValueSchema('The filter key; a call without one matches every query.'),
           exact: z.boolean(),
           type: z.string().nullable(),
           refetchType: z.string().nullable(),

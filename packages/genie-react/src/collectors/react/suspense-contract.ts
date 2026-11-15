@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { defineAgentToolContract, outputViewSchema } from '../../protocol'
+import { defineAgentToolContract, definedValueSchema, outputViewSchema } from '../../protocol'
 import { appOnlySchema, ownershipCoverageSchema, sourceSchema } from './contract-schemas'
 
 export const SUSPENSE_BOUNDARY_STATES = [
@@ -118,7 +118,7 @@ const blockerSummarySchema = z.object({
     .nullable()
     .describe('file:line of the first app frame in the await or I/O stack.'),
   query: z
-    .object({ queryHash: z.string(), queryKey: z.unknown() })
+    .object({ queryHash: z.string(), queryKey: definedValueSchema('The owning query key.') })
     .nullable()
     .describe(
       'The TanStack Query this thrown promise waits on, inferred: a component under this boundary started fetching it with suspense while React rendered it, and it is still fetching. Joined only when the boundary has as many such queries as unidentified pending blockers; requires the Query collector.',

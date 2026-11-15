@@ -226,11 +226,19 @@ describe('query_simulate_state restoration', () => {
     expect(outcome).toMatchObject({ outcome: 'merged' })
   })
 
-  it('replays an app invalidation that the pending simulation suppressed', async () => {
-    const outcome = await compareWithUntouchedApp(async (queryClient) => {
+  it('replays an app invalidation the pending simulation suppressed, or keeps the data it fetched', async () => {
+    let fetchedDuringSimulation = false
+    const outcome = await compareWithUntouchedApp(async (queryClient, server) => {
+      const before = server.version
       await queryClient.invalidateQueries({ queryKey: ['user'] })
+      fetchedDuringSimulation = server.version > before
     }, 'pending')
-    expect(outcome).toMatchObject({ outcome: 'merged', refetched: true })
+    // Query-core 5.101 suppresses the invalidation's fetch under a simulated pending state; 5.104 runs it.
+    expect(outcome).toMatchObject(
+      fetchedDuringSimulation
+        ? { outcome: 'superseded', refetched: false }
+        : { outcome: 'merged', refetched: true },
+    )
   })
 
   it('keeps a real fetch that is still in flight when the simulation ends', async () => {

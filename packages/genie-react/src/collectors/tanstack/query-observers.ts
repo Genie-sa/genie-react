@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { dehydrate } from '../../protocol'
+import { definedValueSchema, dehydrate } from '../../protocol'
 import {
   queryObservedTracking,
   querySubscriberObservationFor,
@@ -65,7 +65,7 @@ export const queryObserverSummarySchema = z.object({
   ]),
   hasSelect: z.boolean(),
   enabled: z.union([z.boolean(), z.enum(['default', 'dynamic'])]),
-  currentResult: z.unknown(),
+  currentResult: definedValueSchema(),
   resultFields: z.array(z.string()),
   subscriberObservationStatus: z
     .enum(['current-observation', 'previous-observation', 'no-active-observation', 'not-observed'])

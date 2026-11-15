@@ -1,6 +1,7 @@
 import { type Fiber, isCompositeFiber, isHostFiber, type RenderPhase } from 'bippy'
 import { type CommitWorkBudget, consumeCommitWork } from './commit-budget'
 import { firstHostSelector, nameOf, registerFiber } from './fiber'
+import { LruMap } from './lru-map'
 import { classifyFiberFromCache, type FiberClassification } from './source'
 
 export type LogicalIdentityEvidence = 'keyed' | 'positional' | 'unknown'
@@ -52,7 +53,6 @@ const UNANALYZED_RENDER_IDENTITY_LIMIT = 1_000
 let mountSequence = 0
 let activeObservationId: string | null = null
 const liveInstances = new Map<number, InstanceDescriptor>()
-const generationsByPath = new Map<string, number>()
 const observedInstanceIds = new Set<number>()
 const unanalyzedRenderIds = new Set<number>()
 let seenUnanalyzedFibers = new WeakSet<Fiber>()
@@ -60,6 +60,9 @@ const tombstones: InstanceTombstone[] = []
 let droppedTombstones = 0
 let excludedLifecycleFibers = 0
 let generationHistoryEvictions = 0
+const generationsByPath = new LruMap<string, number>(GENERATION_HISTORY_LIMIT, () => {
+  generationHistoryEvictions += 1
+})
 let unanalyzedRenderIdentityRegistrations = 0
 let unanalyzedRenderIdentityComplete = true
 
@@ -211,9 +214,11 @@ export function getInstanceIdentityCoverage(): {
   }
 }
 
-/** Remove HMR-invalidated identity without claiming a user-visible unmount in the cohort. */
-export function discardExcludedInstanceUnmount(fiber: Fiber): void {
-  const fiberId = registerFiber(fiber) as number
+/** Remove HMR-invalidated identity without claiming a user-visible unmount in the cohort; a caller that kept the mounted id passes it, since bippy releases the fiber's own id at unmount. */
+export function discardExcludedInstanceUnmount(
+  fiber: Fiber,
+  fiberId: number = registerFiber(fiber),
+): void {
   liveInstances.delete(fiberId)
   observedInstanceIds.delete(fiberId)
   forgetUnanalyzedInstance(fiber, fiberId)
@@ -326,13 +331,7 @@ function prepareInstanceDescription(
     publish() {
       if (published) return
       published = true
-      generationsByPath.delete(structure.logicalPath)
       generationsByPath.set(structure.logicalPath, mountGeneration)
-      if (generationsByPath.size > GENERATION_HISTORY_LIMIT) {
-        const oldest = generationsByPath.keys().next().value
-        if (typeof oldest === 'string') generationsByPath.delete(oldest)
-        generationHistoryEvictions += 1
-      }
       mountSequence += 1
       liveInstances.set(fiberId, created)
     },
@@ -351,40 +350,171 @@ function structuralIdentity(
   const keyUnique = key !== null && isUniqueSiblingKey(fiber, key, budget)
   const parentFiber = nearestComposite(fiber.return, budget)
   const keyedParentFiber = nearestKeyedComposite(fiber.return, budget)
-
-  const lineage: Fiber[] = []
-  let current: Fiber | null = fiber
-  while (current && lineage.length < ANCESTRY_LIMIT) {
-    if (!consumeCommitWork(budget, 'instance-ancestry')) break
-    if (isCompositeFiber(current) || isHostFiber(current)) lineage.push(current)
-    current = current.return
-  }
-  lineage.reverse()
-
-  let evidence: LogicalIdentityEvidence = keyUnique
+  const reused = budget && reuseCommitLineage ? lineageFromCommitPrefix(fiber, budget) : null
+  const lineage = reused ?? walkLineage(fiber, budget)
+  const ownEvidence: LogicalIdentityEvidence = keyUnique
     ? 'keyed'
     : siblingIndex === null
       ? 'unknown'
       : 'positional'
-  const segments = lineage.map((node) => {
-    const nodeKey = typeof node.key === 'string' ? node.key : null
-    const nodeIndex = indexAmongSiblings(node, budget)
-    if (nodeKey !== null && isUniqueSiblingKey(node, nodeKey, budget)) {
-      return `${identityName(node)}[key=${JSON.stringify(nodeKey)}]`
-    }
-    if (nodeIndex === null) evidence = 'unknown'
-    return `${identityName(node)}[index=${nodeIndex ?? '?'}]`
-  })
-  if (current) evidence = 'unknown'
 
   return {
     key,
     siblingIndex,
     parent: parentFiber ? parentOf(parentFiber) : null,
     keyedParent: keyedParentFiber ? parentOf(keyedParentFiber) : null,
-    logicalPath: segments.join(' > '),
-    logicalIdentityEvidence: evidence,
+    logicalPath: lineage.path,
+    logicalIdentityEvidence: lineage.unknown ? 'unknown' : ownEvidence,
   }
+}
+
+interface ResolvedLineage {
+  path: string
+  /** A segment had no position, or the walk stopped before the root. */
+  unknown: boolean
+}
+
+/** A lineage node's path from the root within one commit, with the operations a fresh walk from that node charges once its sibling scans are done. */
+interface LineagePrefix extends ResolvedLineage {
+  /** Ancestor-loop steps from this node to the root, inclusive. */
+  steps: number
+  /** Composite and host nodes from this node to the root, inclusive. */
+  nodes: number
+  /** One position lookup per node, plus one uniqueness check per keyed node. */
+  siblingOperations: number
+}
+
+// Sibling order and keys are fixed within one commit, so prefixes are reused only under the commit's own work budget, like the sibling scans.
+const lineagePrefixes = new WeakMap<CommitWorkBudget, WeakMap<Fiber, LineagePrefix>>()
+let reuseCommitLineage = true
+
+/** Test-only: resolve every lineage with a fresh walk, the reference the commit-scoped reuse must match. */
+export function setCommitLineageReuseForTests(enabled: boolean): void {
+  reuseCommitLineage = enabled
+}
+
+const isLineageNode = (fiber: Fiber): boolean => isCompositeFiber(fiber) || isHostFiber(fiber)
+
+interface ResolvedSegment {
+  segment: string
+  unknown: boolean
+  operations: number
+}
+
+/** The same position and uniqueness calls a walk makes for one lineage node, charged to the same budget. */
+function resolveSegment(node: Fiber, budget?: CommitWorkBudget): ResolvedSegment {
+  const key = typeof node.key === 'string' ? node.key : null
+  const index = indexAmongSiblings(node, budget)
+  const unique = key !== null && isUniqueSiblingKey(node, key, budget)
+  return {
+    segment: unique
+      ? `${identityName(node)}[key=${JSON.stringify(key)}]`
+      : `${identityName(node)}[index=${index ?? '?'}]`,
+    unknown: !unique && index === null,
+    operations: key === null ? 1 : 2,
+  }
+}
+
+function rememberPrefixes(budget: CommitWorkBudget, resolved: [Fiber, LineagePrefix][]): void {
+  if (budget.exhaustedLimit !== null) return
+  let prefixes = lineagePrefixes.get(budget)
+  if (!prefixes) {
+    prefixes = new WeakMap()
+    lineagePrefixes.set(budget, prefixes)
+  }
+  for (const [node, prefix] of resolved) prefixes.set(node, prefix)
+}
+
+/** Continues the nearest ancestor prefix already resolved in this commit. A walk charges every ancestor step, then each node's sibling lookups root first, so the cached prefix is charged in bulk and only the nodes below it are resolved; anything a walk could resolve differently falls back to the walk. */
+function lineageFromCommitPrefix(fiber: Fiber, budget: CommitWorkBudget): ResolvedLineage | null {
+  const prefixes = lineagePrefixes.get(budget)
+  if (!prefixes) return null
+  const below: Fiber[] = []
+  const stepsBelow: number[] = []
+  let steps = 0
+  let prefix: LineagePrefix | undefined
+  for (let current: Fiber | null = fiber; current; current = current.return) {
+    if (isLineageNode(current)) {
+      prefix = prefixes.get(current)
+      if (prefix) break
+      if (below.length >= ANCESTRY_LIMIT) return null
+      below.push(current)
+      stepsBelow.push(steps)
+    }
+    steps += 1
+  }
+  if (!prefix || prefix.nodes + below.length >= ANCESTRY_LIMIT) return null
+  const totalSteps = steps + prefix.steps
+  if (budget.remainingOperations < totalSteps + prefix.siblingOperations) return null
+  if (
+    !consumeCommitWork(budget, 'instance-ancestry', totalSteps) ||
+    !consumeCommitWork(budget, 'instance-siblings', prefix.siblingOperations)
+  ) {
+    return { path: '', unknown: true }
+  }
+  let { path, unknown, siblingOperations } = prefix
+  const resolved: [Fiber, LineagePrefix][] = []
+  for (let position = below.length - 1; position >= 0; position -= 1) {
+    const node = below[position] as Fiber
+    const segment = resolveSegment(node, budget)
+    path = `${path} > ${segment.segment}`
+    unknown ||= segment.unknown
+    siblingOperations += segment.operations
+    resolved.push([
+      node,
+      {
+        path,
+        unknown,
+        steps: totalSteps - (stepsBelow[position] ?? 0),
+        nodes: prefix.nodes + below.length - position,
+        siblingOperations,
+      },
+    ])
+  }
+  rememberPrefixes(budget, resolved)
+  return { path, unknown }
+}
+
+function walkLineage(fiber: Fiber, budget?: CommitWorkBudget): ResolvedLineage {
+  const lineage: Fiber[] = []
+  const stepOfNode: number[] = []
+  let steps = 0
+  let current: Fiber | null = fiber
+  while (current && lineage.length < ANCESTRY_LIMIT) {
+    if (!consumeCommitWork(budget, 'instance-ancestry')) break
+    steps += 1
+    if (isLineageNode(current)) {
+      lineage.push(current)
+      stepOfNode.push(steps)
+    }
+    current = current.return
+  }
+  lineage.reverse()
+  stepOfNode.reverse()
+
+  const resolved: [Fiber, LineagePrefix][] = []
+  let path = ''
+  let unknown = false
+  let siblingOperations = 0
+  for (const [position, node] of lineage.entries()) {
+    const segment = resolveSegment(node, budget)
+    path = position === 0 ? segment.segment : `${path} > ${segment.segment}`
+    unknown ||= segment.unknown
+    siblingOperations += segment.operations
+    resolved.push([
+      node,
+      {
+        path,
+        unknown,
+        steps: steps - (stepOfNode[position] ?? steps) + 1,
+        nodes: position + 1,
+        siblingOperations,
+      },
+    ])
+  }
+  if (current) unknown = true
+  else if (budget) rememberPrefixes(budget, resolved)
+  return { path, unknown }
 }
 
 function identityName(fiber: Fiber): string {

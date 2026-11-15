@@ -1,7 +1,14 @@
 import type { QueryClient, QueryFunction } from '@tanstack/react-query'
 import { z } from 'zod'
 import { defineCollector, defineCollectorTool, type GenieCollector } from '../../client'
-import { defineAgentToolContract, dehydrate, readOwnPath } from '../../protocol'
+import {
+  appValueSchema,
+  defineAgentToolContract,
+  definedValueSchema,
+  dehydrate,
+  readOwnPath,
+  requiresOneOf,
+} from '../../protocol'
 import {
   instrumentQueryObserver,
   listQueryNotifications,
@@ -69,7 +76,7 @@ function describeQueryIdentifier(id: QueryIdentifier): string {
 
 const querySummarySchema = z.object({
   queryHash: z.string(),
-  queryKey: z.unknown(),
+  queryKey: definedValueSchema(),
   status: z.string(),
   fetchStatus: z.string(),
   isStale: z.boolean(),
@@ -120,7 +127,7 @@ const refreshOutput = filterOutput.extend({
     .array(
       z.object({
         queryHash: z.string(),
-        queryKey: z.unknown(),
+        queryKey: definedValueSchema(),
         status: z.enum(['pending', 'error', 'success']),
         fetchStatus: z.enum(['fetching', 'paused', 'idle']),
         error: z.string().optional(),
@@ -173,7 +180,7 @@ const queryNotificationsContract = defineAgentToolContract({
           .string()
           .nullable()
           .describe('The query the observer was attached to when it notified.'),
-        queryKey: z.unknown(),
+        queryKey: appValueSchema('That query key, when queryHash is set.'),
         observationId: z.string().nullable(),
         timestamp: z.number(),
         trackedFields: z.array(z.string()),
@@ -240,7 +247,7 @@ const selectionSchema = z
       .describe(`More than ${SELECTION_SCAN_LIMIT} entries; later ones were not compared.`),
     containerFound: z.boolean().describe('false: nothing iterable at `path`.'),
     matches: z
-      .array(z.object({ path: pathSegmentsSchema, value: z.unknown() }))
+      .array(z.object({ path: pathSegmentsSchema, value: appValueSchema('The matched entry.') }))
       .describe(`First ${SELECTION_MATCH_LIMIT} matches, depth-bounded.`),
   })
   .optional()
@@ -302,10 +309,11 @@ const queryGetContract = defineAgentToolContract({
       depth: z.number().int().min(1).max(6).default(3),
       where: whereSchema,
     })
-    .refine((value) => hasQueryIdentifier(value), requireQueryIdentifier),
+    .refine((value) => hasQueryIdentifier(value), requireQueryIdentifier)
+    .meta(requiresOneOf('queryHash', 'queryKey')),
   output: z.object({
     queryHash: z.string(),
-    queryKey: z.unknown(),
+    queryKey: definedValueSchema(),
     status: z.string(),
     fetchStatus: z.string(),
     isStale: z.boolean(),
@@ -335,9 +343,9 @@ const queryGetContract = defineAgentToolContract({
       .enum(['pending', 'error'])
       .optional()
       .describe('Present when query_simulate_state currently controls this cache entry.'),
-    fetchMeta: z.unknown(),
+    fetchMeta: appValueSchema('The meta object of the latest fetch.'),
     error: z.string().optional(),
-    data: z.unknown(),
+    data: appValueSchema('The cached data; a query with no data yet has none.'),
     selection: selectionSchema,
     observers: z.array(queryObserverSummarySchema),
   }),
@@ -357,12 +365,15 @@ const queryGetDataContract = defineAgentToolContract({
       depth: z.number().int().min(1).max(6).default(3),
       where: whereSchema,
     })
-    .refine((value) => hasQueryIdentifier(value), requireQueryIdentifier),
+    .refine((value) => hasQueryIdentifier(value), requireQueryIdentifier)
+    .meta(requiresOneOf('queryHash', 'queryKey')),
   output: z.object({
     found: z.boolean(),
     status: z.string().optional(),
     dataUpdatedAt: z.number().optional(),
-    data: z.unknown(),
+    data: appValueSchema(
+      'The cached data; absent when found is false or the query has no data yet.',
+    ),
     selection: selectionSchema,
   }),
   annotations: { readOnlyHint: true },
@@ -401,7 +412,7 @@ const queryListMutationsContract = defineAgentToolContract({
           .string()
           .nullable()
           .describe('Mutations sharing a scope id run one at a time, in submission order.'),
-        variables: z.unknown(),
+        variables: appValueSchema('The variables the mutation ran with.'),
         error: z.string().optional(),
         submittedAt: z.number().optional(),
       }),
@@ -423,9 +434,9 @@ const mutationGetContract = defineAgentToolContract({
   output: z.object({
     mutationId: z.number(),
     status: z.string(),
-    mutationKey: z.unknown(),
-    variables: z.unknown(),
-    data: z.unknown(),
+    mutationKey: definedValueSchema('The mutationKey the app set; null when it set none.'),
+    variables: appValueSchema('The variables the mutation ran with.'),
+    data: appValueSchema('The mutation result.'),
     isPaused: z.boolean(),
     failureCount: z.number(),
     failureReason: z.string().optional(),
@@ -535,7 +546,8 @@ const querySimulateStateContract = defineAgentToolContract({
         .default('Simulated query error')
         .describe('Error message used when state=error; ignored for pending.'),
     })
-    .refine((value) => hasQueryIdentifier(value), requireQueryIdentifier),
+    .refine((value) => hasQueryIdentifier(value), requireQueryIdentifier)
+    .meta(requiresOneOf('queryHash', 'queryKey')),
   output: z.object({
     ok: z.boolean(),
     queryHash: z.string(),
@@ -559,7 +571,8 @@ const queryRestoreStateContract = defineAgentToolContract({
     .refine(
       (value) => (value.all ? !hasQueryIdentifier(value) : hasQueryIdentifier(value)),
       'Provide exactly one query identifier, or all=true without an identifier.',
-    ),
+    )
+    .meta(requiresOneOf('queryHash', 'queryKey', 'all')),
   output: z.object({
     ok: z.boolean(),
     restored: z
@@ -595,7 +608,7 @@ const queryFetchContract = defineAgentToolContract({
     depth: z.number().int().min(1).max(6).default(3),
   }),
   output: z.object({
-    data: z.unknown(),
+    data: appValueSchema('The data the query resolved with.'),
     status: z.string(),
     dataUpdatedAt: z.number(),
   }),
@@ -617,7 +630,7 @@ const queryEnsureContract = defineAgentToolContract({
     depth: z.number().int().min(1).max(6).default(3),
   }),
   output: z.object({
-    data: z.unknown(),
+    data: appValueSchema('The data the query resolved with.'),
     status: z.string(),
     dataUpdatedAt: z.number(),
   }),
@@ -641,7 +654,7 @@ const mutationRerunContract = defineAgentToolContract({
     ok: z.boolean(),
     mutationId: z.number(),
     status: z.string(),
-    data: z.unknown(),
+    data: appValueSchema('The data the query resolved with.'),
     error: z.string().optional(),
   }),
   annotations: { idempotentHint: false },
@@ -1218,7 +1231,10 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
           return {
             mutationId: mutation.mutationId,
             status: state.status,
-            mutationKey: dehydrate(mutation.options.mutationKey, { depth: 2 }),
+            mutationKey:
+              mutation.options.mutationKey === undefined
+                ? null
+                : dehydrate(mutation.options.mutationKey, { depth: 2 }),
             variables: dehydrate(state.variables, { depth }),
             data: dehydrate(state.data, { depth }),
             isPaused: state.isPaused,
