@@ -1,0 +1,48 @@
+{
+  "id": "project-nav-store-updates",
+  "kind": "bug",
+  "category": "optimise",
+  "prompt": "The project list in the left sidebar re-renders on every keystroke in the issue filter, and every few seconds while I am idle, even though the projects never change. Why?",
+  "truth": {
+    "components": ["ProjectNav", "Connect(ProjectNav)"],
+    "files": ["src/layout/project-nav.tsx"],
+    "causePatterns": ["mapStateToProps|mapState|connect", "Object\\.values|array|@identity"],
+    "summary": "ProjectNav's mapStateToProps returns Object.values(state.projects.byKey), a new array on every call, so connect's shallow equality fails after every dispatched action."
+  },
+  "referenceAnswer": {
+    "component": "ProjectNav",
+    "cause": "mapStateToProps builds the projects array with Object.values on every call, so connect sees a new array after every action and re-renders the class.",
+    "file": "src/layout/project-nav.tsx"
+  },
+  "decoyAnswers": [
+    {
+      "component": "ProjectNav",
+      "cause": "The Link onClick handlers are inline arrows.",
+      "file": "src/layout/project-nav.tsx"
+    },
+    {
+      "component": "SideNav",
+      "cause": "SideNav re-renders ProjectNav because it is not memoized.",
+      "file": "src/layout/side-nav.tsx"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/layout/project-nav.tsx",
+      "find": "import { Link } from 'react-router-dom'\n",
+      "replace": "import { Link } from 'react-router-dom'\nimport { createSelector } from 'reselect'\n"
+    },
+    {
+      "file": "src/layout/project-nav.tsx",
+      "find": "const mapStateToProps = (state: RootState) => ({\n  projects: Object.values(state.projects.byKey),",
+      "replace": "const selectProjectList = createSelector([(state: RootState) => state.projects.byKey], (byKey) =>\n  Object.values(byKey),\n)\n\nconst mapStateToProps = (state: RootState) => ({\n  projects: selectProjectList(state),"
+    }
+  ],
+  "probe": {
+    "script": "probes/project-nav-store-updates.mjs"
+  },
+  "genieEvidence": {
+    "observability": "partial",
+    "notes": "react_get_renders reports Connect(ProjectNav) with cause external-store (inferred, storeLabel 'selector') and no link to the dispatched action. The inner class ProjectNav carries the exact evidence (prop 'projects' changed by reference only), but it has ownership 'unknown' and the default appOnly:true view hides it; appOnly:false shows it. The wrapper's source points at side-nav.tsx (the JSX call site), not project-nav.tsx."
+  }
+}

@@ -13,6 +13,7 @@
     "@genie-react/router-demo",
     "@genie-react/vite-demo",
     "@genie-react/plain-demo",
-    "@genie-react/realworld-dashboard"
+    "@genie-react/realworld-dashboard",
+    "@genie-react/realworld-legacy"
   ]
 }
