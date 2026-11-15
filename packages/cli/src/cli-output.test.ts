@@ -12,7 +12,8 @@ import {
 import { agentFailure, formatAgentFailure } from './failure-format'
 import { renderBoundedText } from './result-selection'
 
-const UNSAFE = /[\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g
+const UNSAFE =
+  /[\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g
 
 function unsafeCodePoints(text: string): string[] {
   return text.match(UNSAFE) ?? []

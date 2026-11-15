@@ -768,7 +768,10 @@ describe('compareCaptureCohorts sample hygiene', () => {
     for (const artifact of baseline) renderResult(artifact).bundle = 'development'
     for (const artifact of candidate) renderResult(artifact).bundle = 'production'
 
-    expectNotComparable(compare(baseline, candidate, metrics, budgets), 'runtime-environment-mismatch')
+    expectNotComparable(
+      compare(baseline, candidate, metrics, budgets),
+      'runtime-environment-mismatch',
+    )
   })
 
   it('counts two snapshots of one observation window as one run, never two samples', () => {
@@ -821,9 +824,9 @@ describe('compareCaptureCohorts sample hygiene', () => {
       artifact.session = { ...artifact.session, sessionId: 'session-9', logicalSessionId: 'tab-9' }
     }
 
-    expect(compare(runs('b', [10, 10, 10]), candidate, metrics, budgets).notComparableReasons).toEqual(
-      [],
-    )
+    expect(
+      compare(runs('b', [10, 10, 10]), candidate, metrics, budgets).notComparableReasons,
+    ).toEqual([])
   })
 
   it('refuses a capture a stand-in tab answered for a silent default tab', () => {

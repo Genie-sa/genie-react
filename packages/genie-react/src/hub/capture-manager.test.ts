@@ -197,7 +197,7 @@ describe('capture manager artifacts', () => {
 
     const { argsEcho: _, ...sent } = stored as typeof renders & { argsEcho?: unknown }
     expect(sent).toEqual(renders)
-    let cursor: unknown = (stored.components[0]?.props as { props: unknown }).props
+    let cursor: unknown = (stored.components[0] as { props: { props: unknown } }).props.props
     while (typeof cursor === 'object' && cursor !== null && 'child' in cursor) {
       cursor = (cursor as { child: unknown }).child
     }

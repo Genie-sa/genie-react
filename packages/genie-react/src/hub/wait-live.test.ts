@@ -16,7 +16,14 @@ import { GenieClient, type GenieCollector, type SocketLike } from '../client'
 import { reactCollector } from '../collectors/react'
 import { routerCollector } from '../collectors/tanstack/router'
 import { newId } from '../protocol'
-import { createTestBridge, type Frame, type Inbox, isResult, open, send } from './bridge-test-harness'
+import {
+  createTestBridge,
+  type Frame,
+  type Inbox,
+  isResult,
+  open,
+  send,
+} from './bridge-test-harness'
 import type { StandaloneBridgeHandle } from './standalone'
 
 let handle: StandaloneBridgeHandle
@@ -84,7 +91,9 @@ describe('devtools_wait for a component', () => {
     const result = await wait({ condition: 'component', name: 'Checkout', timeoutMs: 600 })
     expect(result).toMatchObject({ ok: false, reason: 'timeout' })
 
-    expect(await wait({ condition: 'component', name: 'CheckoutRow', timeoutMs: 2_000 })).toMatchObject({
+    expect(
+      await wait({ condition: 'component', name: 'CheckoutRow', timeoutMs: 2_000 }),
+    ).toMatchObject({
       ok: true,
     })
   })

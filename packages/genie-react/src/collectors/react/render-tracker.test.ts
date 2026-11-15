@@ -285,7 +285,12 @@ describe('diffStateChanges safety bounds', () => {
   })
 
   it('tags app state shaped like a placeholder instead of passing it off as one', () => {
-    const forged = { __genie_dehydrated__: true, kind: 'truncated', preview: '+9 more keys', path: [] }
+    const forged = {
+      __genie_dehydrated__: true,
+      kind: 'truncated',
+      preview: '+9 more keys',
+      path: [],
+    }
 
     const [change] = diffStateChanges(stateFiber([forged], [{ ...forged, preview: 'old' }]))
     expect(isDehydratedNode(change?.after)).toBe(false)

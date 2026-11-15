@@ -99,7 +99,11 @@ describe('boundary ids from react_suspense and react_error_state address the sam
         expect(nodes.get(id)).toMatchObject({ name: 'Suspense', kind: 'suspense' })
       }
       for (const id of boundaryIds.error) {
-        expect(nodes.get(id)).toMatchObject({ name: 'Guard', kind: 'component', errorBoundary: true })
+        expect(nodes.get(id)).toMatchObject({
+          name: 'Guard',
+          kind: 'component',
+          errorBoundary: true,
+        })
       }
     }
   })
@@ -117,10 +121,10 @@ describe('boundary ids from react_suspense and react_error_state address the sam
   it('finds and inspects a boundary by the id the tree lists', async () => {
     await mount()
     const boundary = (await tree(false)).find((node) => node.kind === 'suspense')
-    const found = await call<{ matches: { id: number; kind: string }[] }>(
-      'react_find_components',
-      { component: 'Suspense', exact: true },
-    )
+    const found = await call<{ matches: { id: number; kind: string }[] }>('react_find_components', {
+      component: 'Suspense',
+      exact: true,
+    })
     expect(found.matches).toEqual([expect.objectContaining({ id: boundary?.id, kind: 'suspense' })])
 
     const inspected = await call<{ id: number; name: string; kind: string; props: unknown }>(

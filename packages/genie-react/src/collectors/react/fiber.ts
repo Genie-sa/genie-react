@@ -19,18 +19,18 @@ import { dehydrate, isDehydratedNode } from '../../protocol'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 import { getNearestHostFibers } from './bippy-compat'
 import {
+  type ComponentMatch,
+  type ComponentNameSelector,
+  componentNameMatcher,
+  describeComponentMatch,
+} from './component-name'
+import {
   type customHookGroupingSchema,
   type hookEntrySchema,
   type hookKindSchema,
   MAX_HOOKS,
   type NodeId,
 } from './contracts'
-import {
-  type ComponentMatch,
-  type ComponentNameSelector,
-  componentNameMatcher,
-  describeComponentMatch,
-} from './component-name'
 import { type HookSlot, hookSlots } from './hook-groups'
 import {
   classifyFibersWithinBudget,

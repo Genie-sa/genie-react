@@ -66,6 +66,7 @@ import {
   type OverflowRecovery,
   selectResult,
 } from './result-selection'
+import { jsonText } from './text-output'
 import {
   groupIndex,
   resolveToolsSelector,
@@ -73,7 +74,6 @@ import {
   type ToolDescriptor,
   toolDetail,
 } from './tool-output'
-import { jsonText } from './text-output'
 import { renderToolText } from './tool-text-output'
 
 export {
@@ -925,12 +925,7 @@ export async function runBatch(
       if (opts.maxBytes !== undefined) out(renderOutputLines(texts.join('\n'), opts.maxBytes))
     } else if (opts.json) writeOutput(results, { maxBytes: opts.maxBytes })
     else if (opts.maxBytes !== undefined) {
-      out(
-        renderOutputLines(
-          results.map((result) => jsonText(result)).join('\n'),
-          opts.maxBytes,
-        ),
-      )
+      out(renderOutputLines(results.map((result) => jsonText(result)).join('\n'), opts.maxBytes))
     }
     return anyFailed ? 1 : 0
   } catch (error) {

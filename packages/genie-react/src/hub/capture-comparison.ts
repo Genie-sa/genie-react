@@ -638,7 +638,9 @@ function sampleHygiene(
     const tabs = new Set(cohort.map(tabOf))
     if (tabs.size > 1) {
       reasons.push('cohort-spans-multiple-tabs')
-      warnings.push(`The ${label} cohort mixes captures from ${tabs.size} tabs: ${[...tabs].join(', ')}.`)
+      warnings.push(
+        `The ${label} cohort mixes captures from ${tabs.size} tabs: ${[...tabs].join(', ')}.`,
+      )
     }
   }
 

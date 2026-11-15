@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+
+// biome-ignore-all lint/correctness/useExhaustiveDependencies: fixture effects depend on values chosen so React schedules them on the updates under test
 import 'bippy/install-hook-only'
 import { act, render } from '@testing-library/react'
 import { createElement, useEffect, useState } from 'react'
@@ -94,24 +96,27 @@ describe('tools that take a component name match it exactly by default', () => {
     expect(substring.componentMatch).toMatchObject({ exact: false })
   })
 
-  it.each(NAME_TOOLS)('$tool reports a missing name and the names it nearly matched', async (entry) => {
-    const handle = await rowOnlyWindow()
-    const result = await call(entry.tool, {
-      appOnly: false,
-      ...entry.args,
-      handle,
-      component: 'checkoutrow',
-    })
+  it.each(NAME_TOOLS)(
+    '$tool reports a missing name and the names it nearly matched',
+    async (entry) => {
+      const handle = await rowOnlyWindow()
+      const result = await call(entry.tool, {
+        appOnly: false,
+        ...entry.args,
+        handle,
+        component: 'checkoutrow',
+      })
 
-    expect(entry.names(result)).toEqual([])
-    expect(result.componentMatch).toMatchObject({
-      component: 'checkoutrow',
-      exact: true,
-      status: 'no-match',
-      matchedNames: [],
-      similarNames: expect.arrayContaining(['CheckoutRow']),
-    })
-  })
+      expect(entry.names(result)).toEqual([])
+      expect(result.componentMatch).toMatchObject({
+        component: 'checkoutrow',
+        exact: true,
+        status: 'no-match',
+        matchedNames: [],
+        similarNames: expect.arrayContaining(['CheckoutRow']),
+      })
+    },
+  )
 
   it('reports a substring that selects several components as ambiguous', async () => {
     const handle = await rowOnlyWindow()

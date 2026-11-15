@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+
+// biome-ignore-all lint/correctness/useExhaustiveDependencies: fixture effects depend on values chosen so React schedules them on the updates under test
 import 'bippy/install-hook-only'
 import { act, render } from '@testing-library/react'
 import {
@@ -76,7 +78,10 @@ function EveryHook() {
   const [isPending, startPending] = useTransition()
   const deferred = useDeferredValue(count)
   const external = useSyncExternalStore(subscribe, () => store.value)
-  const [optimistic, addOptimistic] = useOptimistic(total, (value: number, delta: number) => value + delta)
+  const [optimistic, addOptimistic] = useOptimistic(
+    total,
+    (value: number, delta: number) => value + delta,
+  )
   const [actionState, runAction] = useActionState((state: number) => state + 1, 3)
   const doubled = useMemo(() => count * 2, [count])
   const onClick = useCallback(() => count, [count])

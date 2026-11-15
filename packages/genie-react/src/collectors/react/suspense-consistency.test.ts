@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import 'bippy/install-hook-only'
 import { Activity, createElement as h, type ReactNode, Suspense, use, useState } from 'react'
+import { jsx } from 'react/jsx-runtime'
 import { createRoot, hydrateRoot, type Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -129,7 +130,7 @@ describe('react_suspense, react_pending_work and react_error_state agree on what
     function Tabs(): ReactNode {
       const [mode, setMode] = useState<'visible' | 'hidden'>('visible')
       hide = () => setMode('hidden')
-      return h(Activity, {
+      return jsx(Activity, {
         mode,
         children: h(Suspense, { name: 'hidden-tab', fallback: h('p', null, 'loading') }, h(Waits)),
       })
@@ -170,9 +171,7 @@ describe('react_suspense, react_pending_work and react_error_state agree on what
     )
 
     const seen = await views()
-    expect(
-      seen.suspense.map((boundary) => [boundary.name, boundary.state]).sort(),
-    ).toEqual([
+    expect(seen.suspense.map((boundary) => [boundary.name, boundary.state]).sort()).toEqual([
       ['done', 'content'],
       ['inner', 'fallback'],
       ['outer', 'content'],

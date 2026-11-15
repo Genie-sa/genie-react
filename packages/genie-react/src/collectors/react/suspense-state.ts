@@ -17,7 +17,7 @@ export function visibleChildOf(fiber: Fiber, state: CommittedSuspenseState | nul
   return state === 'fallback' ? (fiber.child?.sibling ?? null) : fiber.child
 }
 
-/** Visits every committed Suspense boundary that can be on screen: hidden Offscreen and Activity subtrees, and the primary tree behind a fallback, are skipped. */
+/** Visits every committed Suspense boundary under the given root fibers that can be on screen: hidden Offscreen and Activity subtrees, and the primary tree behind a fallback, are skipped. */
 export function forEachVisibleSuspenseBoundary(
   roots: Iterable<Fiber>,
   fiberLimit: number,
@@ -29,7 +29,7 @@ export function forEachVisibleSuspenseBoundary(
     while (stack.length > 0) {
       const fiber = stack.pop() as Fiber
       if (++visited > fiberLimit) return { scanTruncated: true }
-      if (fiber.sibling && fiber !== root) stack.push(fiber.sibling)
+      if (fiber.sibling) stack.push(fiber.sibling)
       if (isHiddenOffscreen(fiber)) continue
       if (isSuspenseFiber(fiber)) {
         const state = committedSuspenseState(fiber)

@@ -235,7 +235,12 @@ describe('FieldReader', () => {
 
 describe('app data that imitates Genie encoding', () => {
   it('stays distinguishable from a real placeholder in text and JSON output', () => {
-    const forged = { __genie_dehydrated__: true, kind: 'truncated', preview: '+5 more keys', path: [] }
+    const forged = {
+      __genie_dehydrated__: true,
+      kind: 'truncated',
+      preview: '+5 more keys',
+      path: [],
+    }
     const result = {
       props: dehydrate(
         { forged, forgedMap: { __type: 'Map', entries: [] }, deep: { a: { b: 1 } } },

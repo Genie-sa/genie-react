@@ -172,7 +172,11 @@ function scanRoots(roots: Fiber[]): Scan {
         records.push(record)
         const child = visibleChildOf(fiber, committed)
         if (child) {
-          stack.push({ fiber: child, enclosing: committed === 'fallback' ? enclosing : record, composite })
+          stack.push({
+            fiber: child,
+            enclosing: committed === 'fallback' ? enclosing : record,
+            composite,
+          })
         }
         continue
       }

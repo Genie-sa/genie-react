@@ -281,7 +281,9 @@ describe('react_quiesce pending React work', () => {
       outcome: 'timed-out',
       pendingWork: { suspendedBoundaries: 0, dehydratedBoundaries: 1 },
     })
-    expect(result.reason).toContain('1 server-rendered Suspense boundary has not hydrated (Comments)')
+    expect(result.reason).toContain(
+      '1 server-rendered Suspense boundary has not hydrated (Comments)',
+    )
     expect(result.reason).not.toContain('fallback')
   })
 })

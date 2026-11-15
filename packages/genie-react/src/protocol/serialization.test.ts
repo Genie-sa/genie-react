@@ -212,12 +212,15 @@ describe('dehydrate never lets app data pass for its own encoding', () => {
   })
 
   it('still encodes real Maps, Sets, Errors and placeholders as its own', () => {
-    const result = dehydrate({
-      map: new Map([['a', 1]]),
-      set: new Set([1]),
-      error: new Error('boom'),
-      deep: { a: { b: {} } },
-    }, { depth: 2 }) as Record<string, Record<string, unknown>>
+    const result = dehydrate(
+      {
+        map: new Map([['a', 1]]),
+        set: new Set([1]),
+        error: new Error('boom'),
+        deep: { a: { b: {} } },
+      },
+      { depth: 2 },
+    ) as Record<string, Record<string, unknown>>
 
     expect(result.map).toEqual({ __type: 'Map', entries: [['a', 1]] })
     expect(result.set).toEqual({ __type: 'Set', values: [1] })
