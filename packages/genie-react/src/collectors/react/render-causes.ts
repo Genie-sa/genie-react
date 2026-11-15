@@ -29,6 +29,7 @@ import {
   queryObserverIdentity,
   queryObserverOptions,
 } from '../causal/query-observer'
+import { reduxRenderLink } from '../causal/redux-store-registry'
 import { isWalkablePlainObject, plainOwnKeys } from '../causal/safe-object'
 import { type DeepDiffResult, isDataDescriptor, safeOwnPropertyDescriptor } from './deep-diff'
 import { nameOf } from './fiber'
@@ -624,6 +625,12 @@ export function diffExternalStoreChanges(
           ...common,
         })
       } else {
+        const redux = reduxRenderLink({
+          fiber,
+          subscribe: subscribeFunctionOf(current),
+          subscriptionFired,
+          renderEventId: causalIds?.renderEventId ?? null,
+        })
         causes.push({
           kind: 'external-store',
           evidence: 'inferred',
@@ -633,6 +640,7 @@ export function diffExternalStoreChanges(
             current,
             mutationObserverNearHook(fiber, index, current.memoizedState, evidence),
           ),
+          ...(redux ? { redux } : {}),
         })
       }
       externalStoreIndex += 1

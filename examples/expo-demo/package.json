@@ -10,7 +10,7 @@
     "ios": "pnpm build:genie && expo start --ios",
     "export:android": "pnpm build:genie && expo export --platform android --output-dir dist/android",
     "export:ios": "pnpm build:genie && expo export --platform ios --output-dir dist/ios",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsrs --noEmit",
     "check": "pnpm typecheck && pnpm export:ios && pnpm export:android",
     "hub": "pnpm --filter @genie-react/cli... build && genie-react hub --port 4390"
   },

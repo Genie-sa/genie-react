@@ -24,6 +24,8 @@ export default defineConfig([
       collectors: 'src/collectors/index.ts',
       'collectors/query': 'src/collectors/query.ts',
       'collectors/router': 'src/collectors/router.ts',
+      'collectors/redux': 'src/collectors/redux.ts',
+      'collectors/redux-production': 'src/collectors/redux-production.ts',
       native: 'src/native/index.ts',
       navigation: 'src/navigation/index.ts',
       'react-freeze': 'src/react-freeze.ts',

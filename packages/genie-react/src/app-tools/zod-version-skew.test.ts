@@ -13,7 +13,7 @@ function versionOf(name: string): string {
   return JSON.parse(readFileSync(require.resolve(`${name}/package.json`), 'utf8')).version
 }
 
-it('type-checks app tools whose schemas come from a different zod 4 copy than genie-react', () => {
+it('type-checks app tools and collector tools whose schemas come from a different zod 4 copy than genie-react', () => {
   expect(versionOf('zod-version-skew')).not.toBe(versionOf('zod'))
 
   const result = spawnSync(

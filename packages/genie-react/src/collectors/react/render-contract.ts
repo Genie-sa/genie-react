@@ -170,6 +170,51 @@ const renderClassStateChangeSchema = renderStateChangeBase.extend({
     .describe('Top-level fields of this.state whose value or reference changed.'),
 })
 
+const reduxRenderLinkSchema = z
+  .object({
+    storeId: z.string().describe('The collected Redux store, as redux_actions reports it.'),
+    link: z
+      .enum(['subscription', 'connect', 'context'])
+      .describe(
+        "How this hook was tied to the store: subscription (its subscribe is the store's or the react-redux Provider's), connect (a connect() wrapper of that store) or context (the component only reads the store's react-redux context).",
+      ),
+    evidence: z
+      .enum(['exact', 'inferred'])
+      .describe(
+        'exact: these are every recorded state change that finished after this component last rendered and before this render began, measured on React’s own render clock. inferred: a lead; reason says what is unproven.',
+      ),
+    reason: z.enum([
+      'dispatched-between-renders',
+      'store-link-from-context',
+      'subscription-unconfirmed',
+      'render-timing-unavailable',
+      'previous-render-unavailable',
+      'recording-started-after-previous-render',
+      'history-evicted',
+      'ordering-ambiguous',
+      'unrecorded-state-change',
+      'unrecorded-nested-dispatch',
+      'no-recorded-change-between-renders',
+    ]),
+    actions: z
+      .array(
+        z.object({
+          actionId: z.string(),
+          sequence: z.number().int().positive(),
+          kind: z.enum(['action', 'unrecorded-change']),
+          type: z.string().nullable(),
+          changedSlices: z.array(z.string()),
+        }),
+      )
+      .describe(
+        'Oldest first, last 10. Several actions mean React batched them into this render; any of them may have changed the selected value.',
+      ),
+    omittedActions: z.number().int().nonnegative(),
+  })
+  .describe(
+    'The Redux actions that produced this snapshot change, when the store is collected with reduxCollector.',
+  )
+
 const renderExternalStoreCauseBase = z.object({
   hookIndex: z.number().int().nonnegative(),
   externalStoreIndex: z.number().int().nonnegative(),
@@ -396,6 +441,7 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
     fanout: z.number().int().nonnegative().nullable(),
     notificationId: z.null(),
     competingCandidates: z.array(z.string()),
+    redux: reduxRenderLinkSchema.optional(),
   }),
   renderExternalStoreCauseBase.extend({
     kind: z.literal('query'),
@@ -593,6 +639,15 @@ const compactCauseSchema = z.object({
     .optional()
     .describe(
       'For class state or forceUpdate, the calls this render applied and where each ran; view:"full" adds fields and the full caller frame.',
+    ),
+  redux: z
+    .object({
+      evidence: z.enum(['exact', 'inferred']),
+      actions: z.array(z.string()).max(5),
+    })
+    .optional()
+    .describe(
+      'For a collected Redux store, the last five action types that produced the snapshot change; view full has IDs and the reason.',
     ),
 })
 
