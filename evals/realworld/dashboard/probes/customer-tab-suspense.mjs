@@ -21,6 +21,15 @@ export default async function probe(ctx) {
     fallbacks.length > 0,
     `boundaries showing a fallback: ${fallbacks.length}`,
   )
+  const blockers = fallbacks.flatMap((/** @type {any} */ boundary) => boundary.blockers)
+  const waitsOn = blockers.map(
+    (/** @type {any} */ blocker) => blocker.query?.queryHash ?? blocker.kind,
+  )
+  ctx.check(
+    'blocker-names-query',
+    waitsOn.includes('["customers","detail","c-0042","orders"]'),
+    `fallback waits on: ${waitsOn.join(', ') || 'nothing'}`,
+  )
   ctx.check(
     'fallback-inside-page',
     fallbacks.length > 0 &&

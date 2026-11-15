@@ -15,6 +15,19 @@ export default async function probe(ctx) {
       ? 'no caught render errors'
       : `caught: ${caught.map((/** @type {any} */ entry) => `${entry.throwingComponent} → ${entry.boundaryName}: ${entry.message}`).join('; ')}`,
   )
+  const swallowed = caught.filter((/** @type {any} */ entry) => entry.rendered.output === 'nothing')
+  ctx.check(
+    'no-error-swallowed-silently',
+    swallowed.length === 0,
+    swallowed.length === 0
+      ? 'no boundary hides a failure by rendering nothing'
+      : swallowed
+          .map(
+            (/** @type {any} */ entry) =>
+              `${entry.boundaryName} renders nothing for "${entry.message}"`,
+          )
+          .join('; '),
+  )
   const card = await ctx.genie.call('react_find_components', {
     component: 'CarrierPerformanceCard',
     exact: true,

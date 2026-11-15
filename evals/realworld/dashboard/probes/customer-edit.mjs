@@ -14,6 +14,16 @@ export default async function probe(ctx) {
   await dialog.getByRole('button', { name: 'Save' }).click()
   await dialog.waitFor({ state: 'detached' })
   await ctx.settle()
+  const { calls } = await ctx.genie.call('query_invalidations', { method: 'invalidateQueries' })
+  const invalidation = calls.find((/** @type {any} */ call) => !call.byGenie)
+  const reached = invalidation?.matched.map((/** @type {any} */ query) => query.queryHash) ?? []
+  ctx.check(
+    'save-invalidates-detail',
+    reached.includes('["customers","detail","c-0042"]'),
+    invalidation
+      ? `invalidateQueries(${JSON.stringify(invalidation.filters.queryKey)}) matched ${invalidation.matchedCount} queries: ${reached.join(', ') || 'none'}${invalidation.nearMisses.length > 0 ? `; cached keys it missed: ${invalidation.nearMisses.join(', ')}` : ''}`
+      : 'the save made no invalidateQueries call',
+  )
   const detail = await queryState(ctx, ['customers', 'detail', 'c-0042'])
   ctx.check(
     'detail-query-refreshed',

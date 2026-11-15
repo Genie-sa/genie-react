@@ -1,12 +1,10 @@
-import { queryState } from './helpers.mjs'
-
 const LIST_KEY = ['orders', 'list', { status: 'processing' }]
 const ROW = 3
 
 /** @param {import('../../lib/probe-context.mjs').ProbeContext} ctx */
 export default async function probe(ctx) {
   await ctx.signIn()
-  await ctx.open('/orders?status=processing&sort=placedAt&dir=asc')
+  await ctx.open('/orders?status=processing')
   const rows = ctx.page.locator('[role=row][data-order-id]')
   await rows.nth(ROW).waitFor()
   await ctx.settle()
@@ -26,12 +24,16 @@ export default async function probe(ctx) {
     .filter({ hasText: `Could not update ${number}` })
     .waitFor()
   await ctx.settle()
-  const list = await queryState(ctx, LIST_KEY)
-  const cached = list.data?.items?.find((/** @type {any} */ item) => item.id === orderId)
+  const { selection } = await ctx.genie.call('query_get', {
+    queryKey: LIST_KEY,
+    path: ['items'],
+    where: { field: 'id', equals: orderId },
+  })
+  const cached = selection?.matches?.[0]?.value
   ctx.check(
     'order-in-cache',
     cached !== undefined,
-    `${number} present in the processing list cache`,
+    `${number} present in the processing list cache at ${JSON.stringify(selection?.matches?.[0]?.path ?? null)}`,
   )
   ctx.check(
     'status-rolled-back',

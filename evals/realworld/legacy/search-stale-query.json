@@ -42,7 +42,7 @@
     "script": "probes/search-stale-query.mjs"
   },
   "genieEvidence": {
-    "observability": "app-tools-only",
-    "notes": "Genie's React tools cannot show a closure's captured value: react_inspect_component shows the current query state and an opaque debounced function. The timeline request lane strips query strings, so /api/search?q= and /api/search?q=webhook look the same. The probe relies on the app_redux_actions tool, which records the search thunk's argument."
+    "observability": "full",
+    "notes": "The timeline request lane reports each search request's query: with queryValues plain the last /api/search request carries no query at all (toQueryString drops the empty q) while the input holds 'webhook'; with the default hashed values the empty query is still told apart from a typed one. react_inspect_component still cannot show the closure's captured value, so the cause is read from the code."
   }
 }
