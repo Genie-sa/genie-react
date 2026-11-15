@@ -571,7 +571,7 @@ describe('render causes match the update that triggered them', () => {
           kind: 'state',
           before: false,
           after: true,
-          hook: { index: 0, stateIndex: 0, kind: 'state' },
+          hook: { index: 0, stateIndex: null, kind: 'state' },
         }),
       ])
       expect(pending?.necessity).toBe('necessary')

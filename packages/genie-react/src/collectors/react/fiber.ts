@@ -889,9 +889,13 @@ const isBasicStateReducer = (queue: { lastRenderedReducer?: unknown }): boolean 
   return typeof reducer === 'function' && reducer.name === 'basicStateReducer'
 }
 
-// useOptimistic's queue carries a null reducer and useActionState's action slot has no reducer at all: neither is state an override can drive.
+// useActionState's action slot has no reducer at all: it is not state an override can drive.
 const hasReducer = (queue: { lastRenderedReducer?: unknown }): boolean =>
   typeof queue.lastRenderedReducer === 'function'
+
+// useOptimistic's queue holds a null reducer after mount but the app's reducer, or React's basic one, after every update, so only its bound dispatcher tells it from useState and useReducer.
+const isOptimisticQueue = (queue: { dispatch: unknown }): boolean =>
+  typeof queue.dispatch === 'function' && queue.dispatch.name.endsWith('dispatchOptimisticSetState')
 
 // A single-key { current } object is the useRef signature; useMemo/useCallback store [value, deps] arrays, checked before this so they don't fall through to ref.
 const isRefState = (v: unknown): boolean =>
@@ -914,7 +918,7 @@ export function isStatefulHook(hook: MemoizedState): boolean {
 /** Structurally classify a hook from its runtime shape (React 18/19). Never throws — unknown shapes fall to 'other'. */
 export function classifyHook(hook: MemoizedState): HookKind {
   if (hasDispatchQueue(hook)) {
-    if (!hasReducer(hook.queue)) return 'other'
+    if (!hasReducer(hook.queue) || isOptimisticQueue(hook.queue)) return 'other'
     return isBasicStateReducer(hook.queue) ? 'state' : 'reducer'
   }
   const ms = hook.memoizedState

@@ -109,7 +109,10 @@ const renderHookStateChangeSchema = renderStateChangeBase.extend({
     stateIndex: z
       .number()
       .int()
-      .describe('Position among useState/useReducer hooks; accepted by react_override_hook_state.'),
+      .nullable()
+      .describe(
+        "The hook's stateIndex in react_inspect_component, accepted by react_override_hook_state. null for the pending flag React keeps inside useTransition and useActionState, which has no stateIndex.",
+      ),
     kind: z.enum(['state', 'reducer']),
   }),
 })
