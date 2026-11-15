@@ -98,7 +98,8 @@ async function cohort(
   await mount(table)
   const ids: string[] = []
   for (let run = 0; run < 6; run += 1) {
-    await call('react_clear_renders', {})
+    // A loaded test runner can exceed the default 8ms commit budget, which marks the run not comparable.
+    await call('react_clear_renders', { budget: { timeLimitMs: 500, adaptive: false } })
     await act(async () => refresh())
     if (commitOverlay) {
       overlayCommits += 1
