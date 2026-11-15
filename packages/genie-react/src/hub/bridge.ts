@@ -56,7 +56,13 @@ import {
   type UpgradePolicyOptions,
   type UpgradeVerdict,
 } from './upgrade-policy'
-import { matchesOf, parseQueryList, queryStateOf, routerStateOf } from './wire-guards'
+import {
+  matchesOf,
+  parseQueryList,
+  queryStateOf,
+  routerSettlement,
+  routerStateOf,
+} from './wire-guards'
 import { ws } from './ws-env'
 
 type BridgeLogLevel = 'info' | 'warn' | 'error'
@@ -1427,7 +1433,11 @@ export class GenieBridge {
     request: (tool: string, args: unknown) => Promise<AppResponse>,
   ): Promise<WaitCheck> {
     if (input.condition === 'component') {
-      const res = await request('react_find_components', { query: input.name ?? '', limit: 1 })
+      const res = await request('react_find_components', {
+        component: input.name ?? '',
+        exact: true,
+        limit: 1,
+      })
       const matches = matchesOf(res.result)
       return {
         state: res.ok && matches !== undefined && matches.length > 0 ? 'met' : 'pending',
@@ -1485,15 +1495,13 @@ export class GenieBridge {
       const res = await request('router_get_state', {})
       const state = routerStateOf(res.result)
       if (!res.ok || !state) return { state: 'pending' }
+      const settlement = routerSettlement(state)
       return {
         state:
-          (input.name ? state.pathname === input.name : true) && !state.isLoading
+          (input.name ? state.pathname === input.name : true) && settlement.settled
             ? 'met'
             : 'pending',
-        lastObserved: {
-          pathname: state.pathname ?? null,
-          isLoading: state.isLoading ?? null,
-        },
+        lastObserved: settlement.observed,
       }
     }
     return { state: 'pending' }
@@ -1623,12 +1631,10 @@ export class GenieBridge {
         input.deadline,
       )
       const result = routerStateOf(response.result)
+      const settlement = result ? routerSettlement(result) : null
       return {
-        status: response.ok && result?.isLoading === false ? 'met' : 'pending',
-        lastObserved: {
-          isLoading: result?.isLoading ?? null,
-          pathname: result?.pathname ?? null,
-        },
+        status: response.ok && settlement?.settled === true ? 'met' : 'pending',
+        lastObserved: settlement?.observed ?? null,
       }
     }
     if (!toolDescriptor(session, 'browser_fps')) return unsupported('browser_fps')

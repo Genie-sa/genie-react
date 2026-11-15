@@ -57,6 +57,14 @@ export function componentNameMatcher(selector: ComponentNameSelector): (name: st
 }
 
 export function describeComponentMatch(
+  selector: ComponentNameSelector & { component: string },
+  names: Iterable<string>,
+): ComponentMatch
+export function describeComponentMatch(
+  selector: ComponentNameSelector,
+  names: Iterable<string>,
+): ComponentMatch | undefined
+export function describeComponentMatch(
   selector: ComponentNameSelector,
   names: Iterable<string>,
 ): ComponentMatch | undefined {

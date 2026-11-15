@@ -539,7 +539,7 @@ export const devtoolsWaitContract = defineAgentToolContract({
         .string()
         .optional()
         .describe(
-          'Component name or route. For query-settled, a legacy exact queryHash, JSON array key, or one-item string key; prefer queryHash/queryKey.',
+          'For component, the exact display name. For navigation, the pathname the router must settle on. For query-settled, a legacy exact queryHash, JSON array key, or one-item string key; prefer queryHash/queryKey.',
         ),
       queryHash: z
         .string()
@@ -621,7 +621,13 @@ export const devtoolsWaitContract = defineAgentToolContract({
 export const INTERACTION_SCHEMA_VERSION = '1.0' as const
 
 const interactionObservationInputSchema = z.object({
-  components: z.array(z.string().trim().min(1).max(160)).max(20).default([]),
+  components: z
+    .array(z.string().trim().min(1).max(160))
+    .max(20)
+    .default([])
+    .describe(
+      'Exact display names to follow: each gets a react_component_cohort, and render analysis work is reserved for names containing it.',
+    ),
   roots: z.array(z.number().int()).max(20).default([]),
   budget: renderObservationBudgetInputSchema,
   lifecycle: z

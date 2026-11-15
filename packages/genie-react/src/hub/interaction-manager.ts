@@ -386,7 +386,7 @@ export class InteractionManager<TSession extends InteractionSession> {
         component,
         evidence: await this.captureTool(active.session, 'react_component_cohort', {
           component,
-          exact: false,
+          exact: true,
           limit: 100,
         }),
       })

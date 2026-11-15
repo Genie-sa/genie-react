@@ -923,6 +923,7 @@ export async function getRenderCauseEventsReport(query: RenderCauseQuery): Promi
 }
 
 export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promise<{
+  componentMatch: ComponentMatch | undefined
   tracking: boolean
   commits: number
   documentCommitId: number

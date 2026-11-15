@@ -828,7 +828,11 @@ describe('causal render attribution', () => {
   it('returns bounded recent cause events newest first and filters by component', async () => {
     render(causalFiber('FirstRow', [externalStoreHook(2)], [externalStoreHook(1)]), 'update')
     render(causalFiber('SecondRow', [externalStoreHook(3)], [externalStoreHook(2)]), 'update')
-    const result = await getRenderCauseEventsReport({ component: 'second', limit: 1 })
+    const result = await getRenderCauseEventsReport({
+      component: 'second',
+      exact: false,
+      limit: 1,
+    })
     expect(result.libraryHidden).toBe(0)
     expect(result.omittedByLimit).toBe(0)
     expect(result.events).toMatchObject([
@@ -1914,10 +1918,13 @@ describe('getRenders', () => {
     expect((await getRenders({ sort: 'renders', limit: 1 })).map((r) => r.name)).toEqual(['Alpha'])
   })
 
-  it('filters by a case-insensitive component substring', async () => {
-    expect(
-      (await getRenders({ sort: 'renders', component: 'ETA', limit: 10 })).map((r) => r.name),
-    ).toEqual(['Beta'])
+  it('filters by exact component name unless a substring match is requested', async () => {
+    const names = async (query: { component: string; exact?: boolean }) =>
+      (await getRenders({ sort: 'renders', limit: 10, ...query })).map((r) => r.name)
+    expect(await names({ component: 'Beta' })).toEqual(['Beta'])
+    expect(await names({ component: 'ETA' })).toEqual([])
+    expect(await names({ component: 'beta' })).toEqual([])
+    expect(await names({ component: 'ETA', exact: false })).toEqual(['Beta'])
   })
 
   it('sorts by self time when requested', async () => {

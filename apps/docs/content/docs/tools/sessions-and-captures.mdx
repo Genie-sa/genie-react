@@ -62,8 +62,11 @@ the document within the logical session. The list contains connected tabs only; 
 Blocks the caller until one runtime condition succeeds, fails, or reaches its timeout.
 
 **Input:** `condition` is optional and defaults to `connected`; it accepts `connected`, `ready`,
-`component`, `query-settled`, `navigation`, `react-quiet`, or `settled`. `name` is an optional string
-for a component, route, or legacy exact query selector. `queryHash` is an optional non-empty string,
+`component`, `query-settled`, `navigation`, `react-quiet`, or `settled`. `name` is an optional string:
+the exact display name for `component`, the pathname for `navigation`, or a legacy exact query
+selector. `navigation` and the `router` domain of `settled` wait for `router_get_state` to report
+`settled`, which stays false while a stale-while-revalidate loader or the render transition runs
+after `isLoading` turns false; `lastObserved` carries `settled` and `pendingWork`. `queryHash` is an optional non-empty string,
 and `queryKey` is an optional array; use only one, only with `query-settled`, and not with `name`.
 `timeoutMs` is an optional positive integer up to 60,000 and defaults to 10,000. `domains` is an
 optional list of 1–5 unique values from `react`, `query`, `router`, `frames`, and `network`; it

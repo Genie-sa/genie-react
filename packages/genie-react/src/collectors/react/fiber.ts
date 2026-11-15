@@ -25,6 +25,12 @@ import {
   MAX_HOOKS,
   type NodeId,
 } from './contracts'
+import {
+  type ComponentMatch,
+  type ComponentNameSelector,
+  componentNameMatcher,
+  describeComponentMatch,
+} from './component-name'
 import { type HookSlot, hookSlots } from './hook-groups'
 import {
   classifyFibersWithinBudget,
@@ -81,6 +87,7 @@ export interface TreeResult {
 }
 
 export interface ProvenanceReport {
+  componentMatch?: ComponentMatch
   records: {
     id: NodeId
     name: string
@@ -639,12 +646,13 @@ const PROVENANCE_SCAN_LIMIT = 5_000
 
 export async function buildProvenanceReport(
   roots: readonly Fiber[],
-  options: { component?: string; limit: number; appOnly: boolean },
+  options: ComponentNameSelector & { limit: number; appOnly: boolean },
 ): Promise<ProvenanceReport> {
   const candidates: Fiber[] = []
   let scanned = 0
   let scanTruncated = false
-  const needle = options.component?.toLowerCase()
+  const named = componentNameMatcher(options)
+  const seenNames = new Set<string>()
   const stack: Fiber[] = [...roots].reverse()
   while (stack.length > 0) {
     const fiber = stack.pop()
@@ -657,7 +665,8 @@ export async function buildProvenanceReport(
     if (fiber.child) stack.push(fiber.child)
     if (!isCompositeFiber(fiber)) continue
     const name = nameOf(fiber)
-    if (needle && !name.toLowerCase().includes(needle)) continue
+    if (options.component !== undefined) seenNames.add(name)
+    if (!named(name)) continue
     scanned += 1
     candidates.push(fiber)
   }
@@ -695,7 +704,9 @@ export async function buildProvenanceReport(
       : unresolved > 0 || sourceMaps.served > 0 || partial
         ? 'degraded'
         : 'healthy'
+  const componentMatch = describeComponentMatch(options, seenNames)
   return {
+    ...(componentMatch === undefined ? {} : { componentMatch }),
     records,
     summary: {
       scanned,
