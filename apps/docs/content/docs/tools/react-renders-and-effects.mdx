@@ -798,13 +798,19 @@ npx @genie-react/cli call react_error_state \
       "isLibraryBoundary": false,
       "forced": false,
       "status": "active",
-      "statusReason": "state-unchanged-since-catch"
+      "statusReason": "state-unchanged-since-catch",
+      "rendered": { "output": "nothing", "hostNodes": 0, "text": null }
     }
   ],
   "suspended": [],
-  "blankTreeHint": "error boundary <CheckoutErrorBoundary> at /src/CheckoutErrorBoundary.tsx:7 caught \"Payment failed\" thrown by <PaymentForm> — the subtree below it did not render"
+  "blankTreeHint": "error boundary <CheckoutErrorBoundary> at /src/CheckoutErrorBoundary.tsx:7 caught \"Payment failed\" thrown by <PaymentForm> — its children did not render and it renders nothing in its place, so the failure is invisible on screen"
 }
 ```
+
+`rendered` reads the committed DOM below the boundary. `output:"nothing"` means it renders no DOM at
+all, so the user sees no sign of the failure: a swallowed error. `visible` means it shows text or an
+element with size, such as an error message, and `text` quotes it. `empty` means elements without
+text or size, and `unknown` means a renderer without a DOM, such as React Native.
 
 Each call re-checks recorded catches against the live tree: a boundary that recovered drops out, and
 `react_clear_renders` does not hide one that is still showing its fallback. `status:"unknown"` means
@@ -824,7 +830,7 @@ Lists Suspense boundaries, their state, and what each one is waiting on.
 boundary at or above that component. `waitingOnly` defaults to `false`; with `true`, only boundaries in
 `fallback`, `transition-pending`, or `dehydrated` state are returned. `limit` is an integer from 1 to
 200 and defaults to 20 boundaries. `blockerLimit` is an integer from 1 to 50 and defaults to 10
-blockers per boundary, pending ones first. `includeSource` defaults to `true` and source-maps boundary
+blockers per boundary, ordered by what held the boundary longest. `includeSource` defaults to `true` and source-maps boundary
 and stack locations. `appOnly` defaults to `false`. `view` defaults to `summary`; `full` adds stacks,
 start and end times, the server environment and owner, and how React recorded each blocker.
 
@@ -906,12 +912,28 @@ screen while an uncommitted render of the boundary waits, so its `stateEvidence`
 screen awaited it before it committed. `kind` is `lazy`, `use`, `data-library`, `server-io`,
 `server-stream`, `asset` (a stylesheet), or `unknown`, and `kindEvidence` says whether React
 recorded that mechanism (`exact`) or a stack frame points to it (`inferred`). A promise thrown
-without `use()`, as some Suspense data libraries do, stays `unknown`.
+without `use()`, as some Suspense data libraries do, stays `unknown`, except for TanStack Query:
+with the Query collector, a promise `useSuspenseQuery` threw is named by its query (`query` with
+`queryHash` and `queryKey`, `kind: "data-library"`, `kindEvidence: "inferred"`), joined through the
+component under the boundary whose render started that query's fetch, while it is still fetching.
 
-`capability.asyncDebugInfo` decides what can be named. React 19.2 and later development builds are
-`available`. React 19.0 and 19.1 are `partial`: `use()` and `React.lazy` are recognized, but client
-promises carry no name or timing. React 18 and production builds are `unavailable`; boundaries and
-states are still listed, and `blockerStatus` is `unavailable`. Images and fonts are not observed.
+Blockers are ordered by what held the boundary longest: pending ones by how long they have waited,
+then settled ones by duration, with the RSC stream entry, which spans the whole request, after the
+awaits it carried. `blockersOmitted` counts the shorter ones past `blockerLimit`.
+`serverComponents` names the server components React recorded for the boundary and its content.
+For an `await` on several promises at once, such as `Promise.all`, React records only the I/O that
+settled last, so `coverage.serverAwaits` is `last-settled-per-await` whenever server I/O is listed:
+a read that ran beside another can be absent. Measure a waterfall fix by the critical path, from the
+earliest start to the latest end. `hydration` is `client-rendered` when React discarded the
+boundary's server HTML; see [`react_hydration`](#react_hydration).
+
+`capability.asyncDebugInfo` decides what can be named. It describes the React roots that hold
+Suspense boundaries, so a framework overlay bundling its own production React, as Next.js does in
+development, does not count. React 19.2 and later development builds are `available`. React 19.0
+and 19.1 are `partial`: `use()` and `React.lazy` are recognized, but client promises carry no name
+or timing. React 18 and production builds are `unavailable`; boundaries and states are still listed,
+and `blockerStatus` is `unavailable`. Development and production roots that both hold boundaries
+make it `partial` with `reason: "some-roots-without-debug-info"`. Images and fonts are not observed.
 
 **Agent use:** Check `capability` first, then read the waiting boundaries. Fix the pending blocker
 with `exact` evidence; treat `inferred` and `unknown` as leads. `not-observable` means the boundary
@@ -919,6 +941,78 @@ waits but React kept nothing to read, and `unrecorded` means a fallback committe
 debug information. Read again when `coverage.changedDuringRead` or `coverage.commitScheduled` is
 `true`. After the content appears, the same boundary lists what it awaited and for how long, which
 verifies that a change shortened or removed the wait.
+
+## `react_hydration`
+
+Reports whether server-rendered HTML hydrated, or React threw it away and rendered on the client,
+and what React said differed.
+
+**Input:** `limit` is an integer from 1 to 100 and defaults to 20 reports and client renders.
+
+```bash
+npx @genie-react/cli call react_hydration '{}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "roots": [{ "rootComponent": "Root", "outcome": "hydrated" }],
+  "counts": {
+    "boundariesHydrated": 2,
+    "boundariesClientRendered": 1,
+    "rootsClientRendered": 0,
+    "reports": 1
+  },
+  "clientRendered": [
+    {
+      "scope": "boundary",
+      "boundaryId": 41,
+      "name": "Product",
+      "evidence": "exact",
+      "basis": "server-html-deleted",
+      "reportIndexes": [0]
+    }
+  ],
+  "reports": [
+    {
+      "index": 0,
+      "kind": "text-mismatch",
+      "regenerated": true,
+      "message": "Hydration failed because the server rendered text didn't match the client. …",
+      "differences": [
+        { "under": "strong", "client": "Mittwoch, 18. November", "server": "Wednesday, November 18" }
+      ],
+      "component": { "id": 57, "name": "DeliveryEstimate" },
+      "element": "strong",
+      "boundaryId": 41
+    }
+  ],
+  "coverage": { "complete": true, "hydrationInProgress": false, "rootsSeenLate": 0 },
+  "hint": "React discarded the server HTML of <Suspense name=\"Product\"> #41 and rendered it on the client after \"Hydration failed …\" in <DeliveryEstimate>: server sent \"Wednesday, November 18\", client rendered \"Mittwoch, 18. November\""
+}
+```
+
+`clientRendered` is read from the fibers and is `exact`: React deleted a boundary's
+`DehydratedFragment`, which holds its server HTML, or flagged the whole root to render on the client
+after a mismatch outside every boundary. Each entry lists the `reports` React raised for it. An empty
+`reportIndexes` means React discarded the server HTML without reporting anything; in React 19 that
+happens when an update, such as state set in a provider's mount effect, reaches a boundary whose
+server content has not arrived. `reports` holds the hydration errors React passed to
+`onRecoverableError` and its warnings: `text-mismatch` and `html-mismatch` regenerate the tree;
+`attribute-mismatch` keeps the server attributes without patching them; `server-render-error` is a
+boundary the server gave up on. `differences` pairs client and server values from React's
+development diff, and `component` is the component above the element React named. A
+`digest` of `BAILOUT_TO_CLIENT_SIDE_RENDERING` is Next.js rendering a client-only part on purpose.
+
+**Agent use:** When the console mentions hydration, read this tool. Fix the component that renders
+different output on the server and the client, then reload and check that `clientRendered` and the
+mismatch reports are empty.
+
+**Limits:** Genie must load before React hydrates; a root first seen later is `unknown` and
+`coverage.complete` is `false`. React 18 reports errors without a component, so they are joined to
+the boundary React rendered on the client in the same commit, and it warns about only the first
+mismatch on a page. The latest 100 reports and outcomes are kept.
 
 ## `react_refresh_events`
 

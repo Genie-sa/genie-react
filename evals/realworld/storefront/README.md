@@ -31,7 +31,7 @@ Without `--url` the runner starts `next dev` on free ports with a private `XDG_R
 | `home-featured-wait` | optimise | One Suspense boundary holds the fast featured row and the slow personalised row | `react_suspense` server-io blockers of the featured boundary |
 | `product-await-overlap` | optimise | Product page awaits two independent reads in sequence | `react_suspense` server-io start/end times on `ProductPage` |
 | `product-static-sections` | optimise | A `'use client'` parent imports the static product sections | `react_find_components` finds client fibers for server-only sections |
-| `delivery-date-hydration` | fix | Date formatted with the visitor's locale during SSR and hydration | Blocked: no hydration or recoverable-error evidence; a `reportError` control proves it |
+| `delivery-date-hydration` | fix | Date formatted with the visitor's locale during SSR and hydration | `react_hydration` text mismatch and the boundary React rendered again on the client |
 | `drawer-price-renders` | optimise | Locale context value recreated when the bag preview opens | `react_get_renders` context-caused `Price` updates |
 | `cart-quantity-rollback` | fix | Rejected quantity change is committed to base state behind `useOptimistic` | `react_inspect_component` hook state vs `app_store_state` |
 | `bag-count-after-add` | fix | Add-to-bag server action does not revalidate the layout | `react_find_components` props of `CartButton` vs `app_store_state` |

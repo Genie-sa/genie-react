@@ -252,8 +252,8 @@ function createSession({ page, name, baseUrl, hubRoot }) {
     async inspect(id) {
       return call('react_inspect_component', { id })
     },
-    async recordTimeline(label, action) {
-      const { id } = await call('timeline_start', { name: label })
+    async recordTimeline(label, action, options = {}) {
+      const { id } = await call('timeline_start', { name: label, ...options })
       try {
         await action()
       } finally {

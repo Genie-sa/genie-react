@@ -26,8 +26,8 @@ TMPDIR=$(mktemp -d) node evals/realworld/run-probes.mjs legacy
 | `activity-refetch-on-typing` | optimise | Every keystroke in a comment fetches activity | Effect depends on an inline array prop | full |
 | `feature-flags-provider-value` | optimise | Collapsing the sidebar freezes the board | Context provider value recreated every render | full |
 | `title-draft-reset` | fix | Unsaved title edit is lost after commenting | `componentDidUpdate` resets state when the prop's reference changes | full |
-| `search-stale-query` | fix | Global search ignores what you type | Debounced callback in `useMemo([])` captures the first query | app-tools-only |
-| `report-range-race` | fix | 7-day button selected, 90-day data shown | Hand-written thunk lets the slower response win | app-tools-only |
+| `search-stale-query` | fix | Global search ignores what you type | Debounced callback in `useMemo([])` captures the first query | full |
+| `report-range-race` | fix | 7-day button selected, 90-day data shown | Hand-written thunk lets the slower response win | full |
 | `report-notes-mutation` | fix | Added notes do not appear | Hand-written reducer mutates and returns the same state | app-tools-only |
 | `lazy-route-blank-shell` | fix | Whole screen blanks while a lazy route loads | Only Suspense boundary sits above the shell with `fallback={null}` | full |
 | `comment-edit-follows-index` | fix | Edit box jumps to another comment | List keyed by index, new comments are prepended | full |
@@ -47,4 +47,4 @@ TMPDIR=$(mktemp -d) node evals/realworld/run-probes.mjs legacy
 
 ## What Genie could not show
 
-Genie has no Redux awareness. A store-driven render is reported as `external-store` with `inferred` evidence and no link to the dispatched action, the selector, or the field that changed. Three bugs (stale search argument, out-of-order thunk response, mutating reducer) are observable only through the app's `app_redux_state` and `app_redux_actions` tools. The timeline request lane drops query strings and the HTTP method, so it cannot separate `?q=` from `?q=webhook`, `range=7d` from `range=90d`, or `GET` from `DELETE /api/session`. Class lifecycle timers are invisible to the effect tools, so the leaked poller shows up only as network traffic.
+Genie has no Redux awareness. A store-driven render is reported as `external-store` with `inferred` evidence and no link to the dispatched action, the selector, or the field that changed. The mutating reducer (`report-notes-mutation`) is observable only through the app's `app_redux_state` and `app_redux_actions` tools. The stale search and the out-of-order report response are now proven through the timeline request lane, which reports each request's method and query (values hashed by default, plain on request) and marks an older request that finished after a newer one; which result the app applied still comes from React props. Class lifecycle timers are invisible to the effect tools, so the leaked poller shows up only as network traffic.

@@ -27,8 +27,6 @@
     }
   ],
   "probe": {
-    "status": "blocked",
-    "missingEvidence": "React reports the mismatch through onRecoverableError/reportError ('Hydration failed because the server rendered text didn't match the client'), but Genie records only errors caught by error boundaries: react_error_state returns caughtErrors:[] and no tool or timeline lane reports recoverable or hydration errors, nor which subtree React regenerated on the client.",
-    "control": "probes/delivery-date-control.mjs"
+    "module": "probes/delivery-date-hydration.mjs"
   }
 }

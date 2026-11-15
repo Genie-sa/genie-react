@@ -18,6 +18,6 @@
   "probe": {
     "script": "probes/customer-edit.mjs",
     "genie": "observable",
-    "evidence": ["query_get", "query_notifications"]
+    "evidence": ["query_invalidations", "query_get"]
   }
 }

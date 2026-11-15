@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { defineAgentToolContract, outputViewSchema } from '../../protocol'
+import { defineAgentToolContract, definedValueSchema, outputViewSchema } from '../../protocol'
 import { appOnlySchema, ownershipCoverageSchema, sourceSchema } from './contract-schemas'
 
 export const SUSPENSE_BOUNDARY_STATES = [
@@ -28,6 +28,7 @@ export const SUSPENSE_BLOCKER_BASES = [
   'rsc-stream-name',
   'host-stylesheet-resource',
   'data-library-frame',
+  'query-started-by-suspended-render',
   'debug-info-unclassified',
   'tracked-thenable-without-debug-info',
   'thrown-promise-without-debug-info',
@@ -40,7 +41,7 @@ const capabilitySchema = z
     asyncDebugInfo: z
       .enum(['available', 'partial', 'unavailable'])
       .describe(
-        'available: React 19.2+ development build, names and timings for use(), lazy and server I/O. partial: React 19.0-19.1 development, or an unrecognized version, which records use() and server data but not client names or timings. unavailable: blockers are never reported.',
+        "available: React 19.2+ development build, names and timings for use(), lazy and server I/O. partial: React 19.0-19.1 development, an unrecognized version, or some roots without debug information; those roots' boundaries report blockerStatus unavailable. unavailable: blockers are never reported.",
       ),
     reason: z
       .enum([
@@ -50,6 +51,7 @@ const capabilitySchema = z
         'unrecognized-react-version',
         'debug-fields-missing',
         'no-react-renderer',
+        'some-roots-without-debug-info',
       ])
       .nullable()
       .describe('Why the data is partial or unavailable; null when available.'),
@@ -57,7 +59,7 @@ const capabilitySchema = z
     bundle: z.enum(['development', 'production', 'unknown']),
   })
   .describe(
-    "Derived from the renderer version and build type plus the presence of React's development-only `_debugInfo` fiber field.",
+    "Describes the React roots that hold Suspense boundaries; a root without one, such as a framework's dev overlay bundling its own production React, cannot hold a blocker and does not count. Derived from each renderer's version and build type plus the presence of React's development-only `_debugInfo` fiber field.",
   )
 
 const frameSchema = z.object({
@@ -115,6 +117,12 @@ const blockerSummarySchema = z.object({
     .string()
     .nullable()
     .describe('file:line of the first app frame in the await or I/O stack.'),
+  query: z
+    .object({ queryHash: z.string(), queryKey: definedValueSchema('The owning query key.') })
+    .nullable()
+    .describe(
+      'The TanStack Query this thrown promise waits on, inferred: a component under this boundary started fetching it with suspense while React rendered it, and it is still fetching. Joined only when the boundary has as many such queries as unidentified pending blockers; requires the Query collector.',
+    ),
 })
 
 const blockerFullSchema = blockerSummarySchema.extend({
@@ -165,13 +173,31 @@ const boundaryBaseSchema = z.object({
     'exact for committed state; inferred for transition-pending, which reads an uncommitted render attempt.',
   ),
   forced: z.boolean().describe('Held in its fallback by react_toggle_suspense_fallback.'),
+  hydration: z
+    .enum(['hydrated', 'client-rendered'])
+    .nullable()
+    .describe(
+      'For a boundary that arrived as server HTML while Genie watched: hydrated, or client-rendered when React discarded that HTML and rendered it again on the client (see react_hydration). null otherwise.',
+    ),
   fallbackCommittedSinceMount: z
     .boolean()
     .describe(
       'React attached retry listeners in a committed fallback since this boundary mounted.',
     ),
   blockerStatus: blockerStatusSchema,
-  blockersOmitted: z.number().int().nonnegative(),
+  blockersOmitted: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe(
+      'Blockers past blockerLimit. Blockers are ordered by what held the boundary longest: pending ones by how long they have waited, then settled ones by duration, so omitted ones waited less.',
+    ),
+  serverComponents: z
+    .array(z.object({ name: z.string(), env: z.string().nullable() }))
+    .describe(
+      'Server components React recorded as rendering this boundary element or content inside it (nested boundaries list their own), in the order recorded, each once.',
+    ),
+  serverComponentsOmitted: z.number().int().nonnegative(),
   source: sourceSchema,
   sourceOwnership: z.enum(['app', 'library', 'unknown']),
 })
@@ -182,9 +208,6 @@ const boundarySummarySchema = boundaryBaseSchema.extend({
 
 const boundaryFullSchema = boundaryBaseSchema.extend({
   blockers: z.array(blockerFullSchema),
-  serverComponents: z
-    .array(z.object({ name: z.string(), env: z.string().nullable() }))
-    .describe('Server components React recorded as rendering this boundary element.'),
 })
 
 const reportBaseSchema = z.object({
@@ -235,6 +258,11 @@ const reportBaseSchema = z.object({
         'React finished a render and is holding its commit: Suspense reveal throttling (about 300ms) or a commit waiting on stylesheets, images or fonts. A fallback on screen may already be resolved; read again shortly.',
       ),
     sourcesPartial: z.boolean(),
+    serverAwaits: z
+      .enum(['none', 'last-settled-per-await'])
+      .describe(
+        'last-settled-per-await: listed boundaries have server-io blockers, and React records one I/O per server await. For an await on several promises at once, such as Promise.all, only the one that settled last is listed, so a read that ran beside it can be absent. Measure a fix by the critical path, from the earliest start to the latest end, not by which reads appear.',
+      ),
   }),
   ownershipCoverage: ownershipCoverageSchema,
   waitingHint: z.string().nullable(),

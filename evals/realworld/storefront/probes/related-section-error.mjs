@@ -19,6 +19,19 @@ export async function probe(ctx) {
           )
           .join('; '),
   )
+  const swallowed = caughtErrors.filter(
+    (/** @type {any} */ entry) => entry.rendered.output === 'nothing',
+  )
+  ctx.check(
+    'no failure is hidden by a boundary that renders nothing',
+    swallowed.length === 0,
+    swallowed
+      .map(
+        (/** @type {any} */ entry) =>
+          `${entry.boundaryName} renders nothing for "${entry.message}"`,
+      )
+      .join('; ') || 'no boundary hides a failure by rendering nothing',
+  )
   const related = await page.getByTestId('related').count()
   ctx.check('related products are visible', related === 1, `related rails: ${related}`, 'control')
 }

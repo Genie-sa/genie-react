@@ -97,6 +97,22 @@ createRoot(document.getElementById('root')).render(h(App))
             const timer = setTimeout(() => response.end('ok'), kind === 'abort' ? 5000 : 60)
             response.on('close', () => clearTimeout(timer))
           })
+          vite.middlewares.use('/api/race', (request, response) => {
+            const params = new URL(request.url ?? '', 'http://fixture').searchParams
+            const timer = setTimeout(
+              () => {
+                response.setHeader('Content-Type', 'application/json')
+                response.end(JSON.stringify({ range: params.get('range') }))
+              },
+              Number(params.get('ms') ?? 0),
+            )
+            response.on('close', () => clearTimeout(timer))
+          })
+          vite.middlewares.use('/api/headers-then-stall', (_request, response) => {
+            response.writeHead(200, { 'Content-Type': 'text/plain' })
+            response.write('partial')
+          })
+          vite.middlewares.use('/api/hang', () => {})
           vite.middlewares.use('/api/data', (request, response) => {
             const slow = request.url?.includes('mode=network')
             const timer = setTimeout(
@@ -256,6 +272,7 @@ createRoot(document.getElementById('root')).render(h(App))
     2,
     'only the aborted and reset requests lack a response',
   )
+  await checkRequestEvidence(page, call)
   await page.close()
   hub = createStandaloneBridge({
     clientBundlePath: join(root, 'packages/genie-react/dist/client.global.iife.js'),
@@ -291,4 +308,87 @@ createRoot(document.getElementById('root')).render(h(App))
   await hub?.close()
   await server?.close()
   await rm(fixture, { recursive: true, force: true })
+}
+
+/** Method, query, abort-after-headers, in-flight-at-stop and a stale response race, as the request lane reports them in Chromium. */
+async function checkRequestEvidence(page, call) {
+  const exercise = () =>
+    page.evaluate(async () => {
+      const shown = []
+      const slow = fetch('/api/race?range=90d&ms=300')
+        .then((response) => response.json())
+        .then((data) => shown.push(data.range))
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      const fast = fetch('/api/race?range=7d&ms=20')
+        .then((response) => response.json())
+        .then((data) => shown.push(data.range))
+      await Promise.all([slow, fast])
+      await fetch('/api/race?range=1d&ms=5', { method: 'DELETE' }).then((response) =>
+        response.text(),
+      )
+      const late = new AbortController()
+      const stalled = await fetch('/api/headers-then-stall', { signal: late.signal })
+      const body = stalled.text().catch(() => 'aborted')
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      late.abort()
+      await body
+      fetch('/api/hang').catch(() => {})
+      return shown
+    })
+  const recordRequests = async (queryValues) => {
+    const recording = await call('timeline_start', { name: `requests-${queryValues}`, queryValues })
+    const shown = await exercise()
+    await call('timeline_stop', { id: recording.id })
+    const report = await call('timeline_read', { id: recording.id, domains: ['request'] })
+    assert.equal(report.queryValues, queryValues)
+    return { shown, events: report.events }
+  }
+
+  const hashed = await recordRequests('hashed')
+  assert.deepEqual(hashed.shown, ['7d', '90d'], 'the slower, older response must land last')
+  const races = hashed.events
+    .filter((event) => event.details.url.endsWith('/api/race') && event.details.method === 'GET')
+    .sort((left, right) => left.details.startMs - right.details.startMs)
+  assert.equal(races.length, 2, 'both racing GETs must be recorded with their method')
+  const [older, newer] = races
+  assert.notEqual(older.details.query, newer.details.query, 'range=90d and range=7d must differ')
+  for (const event of races) {
+    assert.match(
+      event.details.query,
+      /^\?range=~[0-9a-f]{10}&ms=~[0-9a-f]{10}$/,
+      'hashed query values must not appear in the timeline',
+    )
+  }
+  assert.deepEqual(
+    [older, newer].map((event) => [
+      event.details.overlappingSameEndpoint,
+      event.details.finishedAfterNewer,
+      event.details.bodyReadLast,
+    ]),
+    [
+      [1, true, true],
+      [1, false, false],
+    ],
+    'the older request finished after the newer one, and its body was read last',
+  )
+  assert.ok(
+    hashed.events.some(
+      (event) => event.details.url.endsWith('/api/race') && event.details.method === 'DELETE',
+    ),
+    'a DELETE on the same path must be told apart from the GETs',
+  )
+  const stalled = hashed.events.find((event) =>
+    event.details.url.endsWith('/api/headers-then-stall'),
+  )
+  assert.equal(stalled?.details.outcome, 'aborted-after-response', JSON.stringify(stalled))
+  const hanging = hashed.events.find((event) => event.details.url.endsWith('/api/hang'))
+  assert.equal(hanging?.type, 'in-flight', JSON.stringify(hanging))
+  assert.equal(hanging?.details.endMs, null)
+
+  const plain = await recordRequests('plain')
+  const plainRaces = plain.events
+    .filter((event) => event.details.url.endsWith('/api/race') && event.details.method === 'GET')
+    .map((event) => event.details.query)
+    .sort()
+  assert.deepEqual(plainRaces, ['?range=7d&ms=20', '?range=90d&ms=300'])
 }

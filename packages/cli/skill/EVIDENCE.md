@@ -21,6 +21,9 @@ Load this reference before interpreting coverage, comparing performance, reporti
 - `appOnly:true` excludes unresolved ownership. Inspect `react_provenance` or use `appOnly:false` where supported to investigate that gap.
 - Exact Query and Router causes need the matching notification evidence. Nearby timestamps alone do not establish a cause.
 - Effect scheduling does not prove execution or cleanup. Inspect the execution evidence before changing effect behavior.
+- A caught error whose `rendered.output` is `nothing` was swallowed: the user sees no sign of it. `visible` means the boundary shows a fallback.
+- `react_suspense` lists one server I/O per `await`; for `Promise.all` only the one that settled last. Prove a waterfall fix by the critical path, not by which reads appear.
+- Timeline request `query` values are salted hashes unless the recording started with `"queryValues":"plain"`; equal hashes mean equal values within one page load. `finishedAfterNewer` marks an out-of-order response; confirm which result the app shows from the UI or component state.
 - Quote timings with bundle, device, visibility, and collection conditions. Development timings do not estimate release performance.
 
 ## 3. Compare before and after

@@ -42,7 +42,7 @@
     "script": "probes/report-range-race.mjs"
   },
   "genieEvidence": {
-    "observability": "app-tools-only",
-    "notes": "Genie has no Redux or thunk awareness. The timeline shows the two throughput requests completing out of order (paths only; the range query parameter is stripped, so the two are indistinguishable). app_redux_state shows reports.range '7d' with reports.throughput.range '90d', and app_redux_actions shows RECEIVED arriving after the second REQUESTED."
+    "observability": "full",
+    "notes": "The timeline request lane shows GET /api/reports/throughput?range=90d starting first and finishing after the newer ?range=7d request (finishedAfterNewer, bodyReadLast). The network lane cannot say which result the app applied, so the probe reads ThroughputWidget's report.range prop with react_inspect_component, which stays '90d' after choosing 7 days. The reference fix keeps the race but ignores the stale response."
   }
 }

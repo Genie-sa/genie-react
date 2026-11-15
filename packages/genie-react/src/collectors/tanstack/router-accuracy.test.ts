@@ -199,6 +199,25 @@ describe('router_get_state settlement', () => {
     expect(router.state.matches.at(-1)?.loaderData).toBe('second')
   })
 
+  it('stays unsettled while a revalidation outlives a second load that cleared isFetching', async () => {
+    const { router, collector, revalidation } = await mounted(
+      createMemoryHistory({ initialEntries: ['/stale'] }),
+    )
+    void router.invalidate()
+    await flush()
+    void router.load()
+    await flush()
+
+    const overlapped = await call<RouterState>(collector, 'router_get_state', {})
+    expect(router.state.matches.at(-1)?.loaderData).toBe('first')
+    expect(overlapped).toMatchObject({ isLoading: false, settled: false })
+    expect(overlapped.pendingWork).toContain('match-fetching:/stale')
+
+    revalidation.resolve()
+    expect(await settledState(collector)).toMatchObject({ settled: true, pendingWork: [] })
+    expect(router.state.matches.at(-1)?.loaderData).toBe('second')
+  })
+
   it('reports the hash-history location as in sync with the browser URL', async () => {
     window.history.replaceState(null, '', '/#/about')
     const { collector } = await mounted(createHashHistory())

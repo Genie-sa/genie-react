@@ -57,6 +57,8 @@ export interface RawBlocker {
   owner: AwaiterRef | null
   awaitStack: StackSource
   ioStack: StackSource
+  /** The data-library query a suspended render started, when joined to this blocker. */
+  query?: { queryHash: string; queryKey: unknown }
 }
 
 /** A client Error captured by React (source-mappable) or a server ReactStackTrace array. */
@@ -199,7 +201,8 @@ const CAPABILITY_RANK: Record<SuspenseCapability['asyncDebugInfo'], number> = {
   available: 2,
 }
 
-export function weakestCapability(capabilities: SuspenseCapability[]): SuspenseCapability | null {
+/** What a report over several roots can provide: the weakest root decides, except that roots without debug information beside roots with it make the report partial rather than unavailable, since the others still name their blockers. */
+export function combinedCapability(capabilities: SuspenseCapability[]): SuspenseCapability | null {
   let weakest: SuspenseCapability | null = null
   for (const capability of capabilities) {
     if (
@@ -208,6 +211,12 @@ export function weakestCapability(capabilities: SuspenseCapability[]): SuspenseC
     ) {
       weakest = capability
     }
+  }
+  if (
+    weakest?.asyncDebugInfo === 'unavailable' &&
+    capabilities.some((capability) => capability.asyncDebugInfo !== 'unavailable')
+  ) {
+    return { ...weakest, asyncDebugInfo: 'partial', reason: 'some-roots-without-debug-info' }
   }
   return weakest
 }

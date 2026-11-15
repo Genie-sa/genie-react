@@ -34,6 +34,50 @@ This changes live cache state and can start network requests for active matches.
 count captured before invalidation. Wait for the exact query to settle; no manual cleanup is needed
 after the refetch restores server data.
 
+## `query_invalidations`
+
+Lists the app's recent `invalidateQueries`, `refetchQueries`, `resetQueries` and `removeQueries`
+calls with the filter each passed and the queries it matched.
+
+**Input:** `method` optionally keeps one of those four. `limit` is an integer from 1 to 50 and
+defaults to 20.
+
+```bash
+npx @genie-react/cli call query_invalidations '{"method":"invalidateQueries"}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "calls": [
+    {
+      "sequence": 4,
+      "method": "invalidateQueries",
+      "byGenie": false,
+      "filters": { "queryKey": ["customers", "c-0042"], "exact": false, "predicate": false },
+      "matchedCount": 0,
+      "matched": [],
+      "nearMisses": ["[\"customers\",\"detail\",\"c-0042\"]"],
+      "stack": ["at onSuccess (http://localhost:5173/src/customers/edit-customer.tsx:31:20)"]
+    }
+  ],
+  "omittedByLimit": 0,
+  "coverage": { "methods": ["invalidateQueries", "refetchQueries", "resetQueries", "removeQueries"] }
+}
+```
+
+Matches are computed when the call is made, with TanStack Query's own `findAll` and the same filter,
+so `matchedCount: 0` is exact: the call reached no cached query. Each match says whether it was
+active, since `invalidateQueries` refetches only active queries by default. `nearMisses` lists cached
+keys that share the filter's first segment. Only the outermost call is recorded:
+`invalidateQueries` and `resetQueries` call `refetchQueries` themselves. `byGenie` marks calls made by
+Genie tools such as `query_invalidate`. `stack` is not source-mapped. Calls made before the collector
+started, or through a method reference the app saved before then, are not recorded.
+
+**Agent use:** When a list does not refresh after a save, compare the filter with the key the list
+reads, then fix the key and check that the next call matches it.
+
 ## `query_refetch`
 
 Fetches matching existing queries now.
