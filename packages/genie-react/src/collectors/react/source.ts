@@ -10,9 +10,11 @@ import {
   parseStack,
   type SourceFetch,
   type SourceMap,
-  symbolicateStack,
 } from 'bippy/source'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
+
+/** What a component source points at: where its element was created (`<Card />` in the parent), or a line inside the component's own body. */
+export type SourceRole = 'element-callsite' | 'component-body'
 
 export interface ResolvedSource {
   file: string
@@ -20,6 +22,7 @@ export interface ResolvedSource {
   column: number | null
   functionName: string | null
   sourceMapConfidence?: 'mapped' | 'served'
+  role?: SourceRole
 }
 
 export interface SourceProvenance {
@@ -113,6 +116,7 @@ export function clearSourceCache(): void {
   cache.clear()
   pendingSource.clear()
   metroFrameCache.clear()
+  rawSourceCache.clear()
   pendingMetroFrame.clear()
   warmupQueue = []
   activeWarmup = null
@@ -136,6 +140,8 @@ export async function resolveSource(fiber: Fiber): Promise<ResolvedSource | null
       if (!source?.fileName) return null
       let resolved = await resolveCapturedSource(source, generation)
       if (!resolved || generation !== cacheGeneration) return null
+      resolved = await verifyCallsiteLine(resolved, source, target)
+      if (generation !== cacheGeneration) return null
       let cacheable = sourceOwnershipForSource(resolved) !== 'unknown'
 
       // A React 19 child-owner edge can recover an app body frame from a framework-owned usage frame without invoking user code.
@@ -174,12 +180,16 @@ async function resolveCapturedSource(
   generation: number,
 ): Promise<ResolvedSource | null> {
   const servedFile = normalizeServedFileName(source.fileName)
-  const original = await toOriginalPosition(
-    source.fileName,
-    source.lineNumber ?? null,
-    source.columnNumber ?? null,
-    generation,
-  )
+  // A frame symbolicated already carries original coordinates; running them through a map again would treat them as generated ones.
+  const original =
+    source.sourceMapConfidence === 'mapped'
+      ? { file: null, line: source.lineNumber ?? null, column: source.columnNumber ?? null }
+      : await toOriginalPosition(
+          source.fileName,
+          source.lineNumber ?? null,
+          source.columnNumber ?? null,
+          generation,
+        )
   if (generation !== cacheGeneration) return null
   const position = selectSourcePosition(
     servedFile,
@@ -195,6 +205,7 @@ async function resolveCapturedSource(
       (original.file !== null && position.file === original.file)
         ? 'mapped'
         : 'served',
+    role: source.role,
   }
 }
 
@@ -204,6 +215,9 @@ interface SafeFiberSource {
   columnNumber?: number | null
   functionName?: string | null
   sourceMapConfidence?: 'mapped'
+  role: SourceRole
+  /** The module URL the frame ran in, before symbolication. */
+  servedUrl?: string
 }
 
 /** Read only React-captured debug metadata; never use bippy's component re-invocation fallback. */
@@ -219,12 +233,14 @@ async function safeFiberSource(fiber: Fiber): Promise<SafeFiberSource | null> {
         lineNumber,
         columnNumber: typeof columnNumber === 'number' ? columnNumber : null,
         functionName: null,
+        role: 'element-callsite',
       }
     }
   }
 
+  // React captures _debugStack where the element was created, so its first app frame is the JSX callsite.
   const frame = capturedDebugFrames(fiber).find((entry) => typeof entry.fileName === 'string')
-  return frame ? symbolicateCapturedFrame(frame) : null
+  return frame ? symbolicateCapturedFrame(frame, 'element-callsite') : null
 }
 
 function capturedDebugFrames(fiber: Fiber): ReturnType<typeof parseStack> {
@@ -244,12 +260,13 @@ function capturedDebugFrames(fiber: Fiber): ReturnType<typeof parseStack> {
 
 async function symbolicateCapturedFrame(
   frame: ReturnType<typeof parseStack>[number],
+  role: SourceRole,
 ): Promise<SafeFiberSource | null> {
   if (!frame.fileName) return null
   const symbolicated = METRO_BUNDLE_URL_RE.test(frame.fileName)
     ? undefined
-    : (await symbolicateStack([frame]))[0]
-  const resolved = symbolicated?.fileName ? symbolicated : frame
+    : await mapFrame(frame, frame.fileName)
+  const resolved = symbolicated ?? frame
   const symbolicationChangedPosition =
     symbolicated?.fileName !== undefined &&
     (normalizeFileName(symbolicated.fileName) !== normalizeFileName(frame.fileName) ||
@@ -262,8 +279,43 @@ async function symbolicateCapturedFrame(
         columnNumber: resolved.columnNumber ?? null,
         functionName: resolved.functionName ?? null,
         ...(symbolicationChangedPosition ? { sourceMapConfidence: 'mapped' as const } : {}),
+        role,
+        servedUrl: frame.fileName,
       }
     : null
+}
+
+async function mapFrame(
+  frame: ReturnType<typeof parseStack>[number],
+  moduleUrl: string,
+): Promise<ReturnType<typeof parseStack>[number] | undefined> {
+  if (typeof frame.lineNumber !== 'number' || typeof frame.columnNumber !== 'number')
+    return undefined
+  const map = await sourceMapFor(moduleUrl)
+  const original = map ? originalPositionFor(map, frame.lineNumber, frame.columnNumber) : null
+  if (!original?.fileName) return undefined
+  return {
+    ...frame,
+    fileName: resolveMapSource(original.fileName, moduleUrl),
+    lineNumber: original.lineNumber,
+    columnNumber: original.columnNumber,
+    functionName: original.functionName ?? frame.functionName,
+  }
+}
+
+/** bippy's map lookup takes and returns 0-based columns, while stack frames, `_debugSource` and hook sources count columns from 1. */
+function originalPositionFor(
+  map: SourceMap,
+  line: number,
+  column: number,
+): { fileName?: string; lineNumber: number; columnNumber: number; functionName?: string } | null {
+  const original = getSourceFromSourceMap(map, line, Math.max(0, column - 1))
+  if (!original || typeof original.lineNumber !== 'number') return null
+  return {
+    ...original,
+    lineNumber: original.lineNumber,
+    columnNumber: (original.columnNumber ?? column - 1) + 1,
+  }
 }
 
 async function safeOwnedDefinitionSource(fiber: Fiber): Promise<SafeFiberSource | null> {
@@ -291,14 +343,96 @@ async function safeOwnedDefinitionSource(fiber: Fiber): Promise<SafeFiberSource 
       ) {
         continue
       }
-      return symbolicateCapturedFrame({
-        ...frame,
-        lineNumber: frame.enclosingLineNumber || frame.lineNumber,
-        columnNumber: frame.enclosingColumnNumber || frame.columnNumber,
-      })
+      return symbolicateCapturedFrame(
+        {
+          ...frame,
+          lineNumber: frame.enclosingLineNumber || frame.lineNumber,
+          columnNumber: frame.enclosingColumnNumber || frame.columnNumber,
+        },
+        'component-body',
+      )
     }
   }
   return null
+}
+
+// bippy returns a map's `sources` entry as written, often relative to the module (`App.jsx` for `/src/App.jsx`).
+function resolveMapSource(source: string, moduleUrl: string): string {
+  if (/^[a-z][\w+.-]*:/i.test(source) || source.startsWith('/')) return source
+  try {
+    return new URL(source, moduleUrl).toString()
+  } catch {
+    return source
+  }
+}
+
+const rawSourceCache = new Map<string, Promise<string[] | null>>()
+
+/** The dev server's copy of a file as it is on disk. Vite answers `?raw` with `export default "<text>"`; anything else is not a raw file and verifies nothing. */
+function rawSourceLines(url: string): Promise<string[] | null> {
+  let pending = rawSourceCache.get(url)
+  if (!pending) {
+    pending = (async () => {
+      try {
+        const response = await fetch(url)
+        if (!response.ok) return null
+        const literal = /^export default ("(?:[^"\\]|\\.)*");?\s*$/s.exec(
+          await response.text(),
+        )?.[1]
+        const text: unknown = literal ? JSON.parse(literal) : null
+        return typeof text === 'string' ? text.split('\n') : null
+      } catch {
+        return null
+      }
+    })()
+    rawSourceCache.set(url, pending)
+  }
+  return pending
+}
+
+function rawSourceUrl(resolved: ResolvedSource, source: SafeFiberSource): string | null {
+  if (source.servedUrl && /^https?:\/\//.test(source.servedUrl)) {
+    if (normalizeServedFileName(source.servedUrl) !== resolved.file) return null
+    const url = new URL(source.servedUrl)
+    url.search = '?raw'
+    url.hash = ''
+    return url.toString()
+  }
+  const origin = typeof location === 'undefined' ? null : location.origin
+  if (source.servedUrl || !resolved.file.startsWith('/') || !origin?.startsWith('http')) return null
+  return `${origin}/@fs${resolved.file}?raw`
+}
+
+/** A plugin that transforms a file without a source map (StyleX's Vite plugin is one) shifts both the compiled JSX source and the map, so a callsite line is kept only when the file on disk shows the element there. */
+async function verifyCallsiteLine(
+  resolved: ResolvedSource,
+  source: SafeFiberSource,
+  fiber: Fiber,
+): Promise<ResolvedSource> {
+  if (resolved.role !== 'element-callsite' || resolved.line === null) return resolved
+  const url = rawSourceUrl(resolved, source)
+  const lines = url ? await rawSourceLines(url) : null
+  if (!lines) return resolved
+  const text = lines[resolved.line - 1] ?? ''
+  if (elementNames(fiber).some((name) => text.includes(name))) return resolved
+  return { ...resolved, line: null, column: null }
+}
+
+function elementNames(fiber: Fiber): string[] {
+  const names = new Set<string>()
+  for (const type of [fiber.elementType, fiber.type]) {
+    if (typeof type !== 'function' && !isRecord(type)) continue
+    for (const candidate of [
+      type,
+      dataPropertyValue(type, 'type'),
+      dataPropertyValue(type, 'render'),
+    ]) {
+      const name =
+        typeof candidate === 'function' || isRecord(candidate) ? getDisplayName(candidate) : null
+      if (name) names.add(name)
+    }
+  }
+  return [...names]
 }
 
 function stableCallableName(value: unknown): string | null {
@@ -486,16 +620,19 @@ export function sourceProvenanceForSource(
     >
   > = {},
 ): SourceProvenance {
+  const allocationCallsite =
+    exact.allocationCallsite ?? (source?.role === 'element-callsite' ? source : null)
   const roleSource =
     exact.hookCallsite ??
     exact.hookDefinitionOwner ??
-    exact.allocationCallsite ??
+    allocationCallsite ??
     exact.definitionSource ??
     source
-  const hasExactRole = Object.values(exact).some((value) => value != null)
+  const hasExactRole =
+    allocationCallsite !== null || Object.values(exact).some((value) => value != null)
   return {
     definitionSource: exact.definitionSource ?? null,
-    allocationCallsite: exact.allocationCallsite ?? null,
+    allocationCallsite,
     hookDefinitionOwner: exact.hookDefinitionOwner ?? null,
     hookCallsite: exact.hookCallsite ?? null,
     package:
@@ -705,12 +842,14 @@ async function toOriginalPosition(
   }
   // Resolves both shapes: Vite's inline data-URI map and Next/Turbopack's external sourceMappingURL.
   const map = await sourceMapFor(servedUrl)
-  const original = map ? getSourceFromSourceMap(map, line, column) : null
-  if (original && typeof original.lineNumber === 'number') {
+  const original = map ? originalPositionFor(map, line, column) : null
+  if (original) {
     return {
-      file: original.fileName ? normalizeFileName(original.fileName) : null,
+      file: original.fileName
+        ? normalizeFileName(resolveMapSource(original.fileName, servedUrl))
+        : null,
       line: original.lineNumber,
-      column: original.columnNumber ?? column,
+      column: original.columnNumber,
     }
   }
   return { file: null, line, column }

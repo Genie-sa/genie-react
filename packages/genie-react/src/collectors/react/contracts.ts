@@ -49,6 +49,14 @@ const treeNodeSchema = z.object({
   isLibrary: z.boolean().optional(),
   ownership: z.enum(['app', 'library', 'unknown']).optional(),
   wrapperAncestry: z.array(wrapperFrameSchema).max(9).optional(),
+  omittedDescendants: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      'Present when `depth` cut this node off: how many descendants are not listed. Pass this id as rootId to read them.',
+    ),
 })
 
 export const reactGetTreeContract = defineAgentToolContract({
@@ -85,7 +93,18 @@ export const reactGetTreeContract = defineAgentToolContract({
       .number()
       .describe('Total nodes reachable in the tree; `nodes` may be fewer when truncated.'),
     truncated: z.boolean(),
-    truncatedBy: z.enum(['depth', 'maxNodes']).nullable(),
+    truncatedBy: z
+      .enum(['depth', 'maxNodes'])
+      .nullable()
+      .describe('The limit that cut nodes; maxNodes when both did. `omitted` counts each.'),
+    omitted: z
+      .object({
+        depth: z.number().int().nonnegative(),
+        maxNodes: z.number().int().nonnegative(),
+      })
+      .describe(
+        'Nodes left out by each limit. Both can be non-zero: raising only one limit can still leave nodes out.',
+      ),
     filteredNote: z
       .string()
       .optional()
@@ -167,10 +186,16 @@ export const reactFindComponentsContract = defineAgentToolContract({
       exact: z.boolean().default(false),
       limit: z.number().int().min(1).max(200).default(50),
       appOnly: appOnlySchema,
+      cursor: z
+        .string()
+        .optional()
+        .describe(
+          'Continue a search with the nextCursor it returned. Pass only cursor and optional limit; the name, exact, and appOnly of the first page stay frozen. The match order is fixed when the search starts, so pages never repeat or skip a match; components mounted later are not included. Cursors expire after five minutes or three newer searches.',
+        ),
     })
     .refine(
-      (input) => Boolean(input.component || input.query),
-      'Provide component (or legacy query).',
+      (input) => Boolean(input.component || input.query || input.cursor),
+      'Provide component (or legacy query), or a cursor.',
     )
     .refine(
       (input) => !input.component || !input.query || input.component === input.query,
@@ -179,8 +204,23 @@ export const reactFindComponentsContract = defineAgentToolContract({
     .meta({ examples: [{ component: 'App' }] }),
   output: z.object({
     ownershipCoverage: ownershipCoverageSchema,
-    omittedByLimit: z.number().int().nonnegative(),
+    omittedByLimit: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe('Matches after this page; read them with nextCursor.'),
     scanTruncated: z.boolean(),
+    nextCursor: z
+      .string()
+      .nullable()
+      .describe('Pass as cursor to read the next page; null when this page is the last.'),
+    unmountedSinceSearch: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe(
+        'Matches from the search that unmounted before this page was read; they are skipped, never returned with a dead id.',
+      ),
     matches: z.array(
       z.object({
         id: z.number(),
@@ -213,11 +253,19 @@ export const hookKindSchema = z.enum([
 export const hookEntrySchema = z.object({
   index: z.number().describe('Flat position among all hooks (the raw hookIndex).'),
   kind: hookKindSchema.describe(
-    'Structural classification. memo vs callback is best-effort (both store [value,deps]; callback = value is a function), so a useMemo returning a function reads as callback.',
+    'Structural classification of the slot. memo vs callback is best-effort (both store [value,deps]; callback = value is a function), so a useMemo returning a function reads as callback. Read `hook` for the React hook that allocated it: useSyncExternalStore, for example, allocates an `other` slot and an `effect` slot.',
   ),
+  hook: z
+    .string()
+    .optional()
+    .describe(
+      'The React hook that allocated this slot (useState, useReducer, useTransition, useSyncExternalStore, useActionState, useOptimistic, useId, useEffectEvent, …), from the hook inspector. A hook that allocates several slots names each of them. Absent when the inspector could not attribute the slot.',
+    ),
   stateful: z
     .boolean()
-    .describe('True for useState/useReducer — the only hooks react_override_hook_state can drive.'),
+    .describe(
+      'True for slots that hold a state queue: useState and useReducer, and the internal state slots of useActionState and useOptimistic. react_override_hook_state accepts only kind state or reducer.',
+    ),
   stateIndex: z
     .number()
     .optional()
@@ -311,11 +359,15 @@ export const reactDomForComponentContract = defineAgentToolContract({
     name: z.string(),
     elements: z.array(
       z.object({
-        tag: z.string(),
+        tag: z
+          .string()
+          .describe(
+            'Element tag, or "#text" for a text node the component renders directly (outside any element of its own).',
+          ),
         selector: z
           .string()
           .describe(
-            'Best-effort CSS selector: #id or [data-testid] when present, else tag + simple classes. For utility-class-only nodes, prefer a semantic locator built from role / text.',
+            'Best-effort CSS selector: #id or [data-testid] when present, else tag + simple classes. For utility-class-only nodes, prefer a semantic locator built from role / text. A "#text" entry carries the selector of the element containing it.',
           ),
         domId: z.string().nullable(),
         testId: z.string().nullable(),
@@ -435,14 +487,24 @@ export const stylexInspectContract = defineAgentToolContract({
                 .describe('`:hover`, `@media (...)`, etc.; null when unconditional.'),
               className: z.string(),
               tokens: z.array(styleTokenSchema),
+              overriddenByInline: z
+                .boolean()
+                .describe(
+                  'True when the inline style sets this property too, so the browser renders the inline value instead (unless only this declaration is !important).',
+                ),
             }),
           )
           .describe(
-            'The winning declaration per property after the styling system merged the applied objects — what the browser is actually asked to render.',
+            'The winning declaration per property after the styling system merged the applied objects — what the browser is actually asked to render, unless `overriddenByInline` is true.',
           ),
         dynamic: z
           .array(z.object({ variable: z.string(), value: z.string() }))
           .describe('Inline custom properties written by runtime style functions.'),
+        inline: z
+          .array(z.object({ property: z.string(), value: z.string(), important: z.boolean() }))
+          .describe(
+            'Ordinary properties in the inline style attribute (a React `style` prop). They beat class rules, so a value here wins over the same property in `declarations`.',
+          ),
         unresolvedClasses: z
           .array(z.string())
           .describe(
@@ -471,6 +533,12 @@ export const reactInspectContextContract = defineAgentToolContract({
       z.object({
         name: z.string().describe('The context displayName, or "Context" when unnamed.'),
         value: z.unknown(),
+        provider: z
+          .object({ id: z.number(), name: z.string() })
+          .nullable()
+          .describe(
+            'The closest matching Provider above the component, whose value it reads; pass its id to react_override_context. null means no Provider is mounted above it, so the value is the context default.',
+          ),
       }),
     ),
   }),
@@ -633,7 +701,7 @@ export const reactResetOverridesContract = defineAgentToolContract({
   name: 'react_reset_overrides',
   title: 'Reset all overrides (dev)',
   description:
-    'Clear every override at once and return the app to its real state — the universal release and the recovery path when a forced-error/suspense boundary left the app stuck and the original id no longer resolves (react_force_error_boundary / react_toggle_suspense_fallback release by id, this does not need one). props, context, and hook overrides restore their captured pre-override value when the target is still mounted ("restored"); a hook target that unmounted or lost its renderer is "released" instead — the overridden value stays until the component\'s own next setState. Forced Suspense/error boundaries are released and re-rendered from module state even if unmounted. Each cleared override reports its outcome.',
+    'Clear every override at once and return the app to its real state — the universal release and the recovery path when a forced-error/suspense boundary left the app stuck and the original id no longer resolves (react_force_error_boundary / react_toggle_suspense_fallback release by id, this does not need one). props, context, and hook overrides restore their captured pre-override value when the target is still mounted and still shows the override ("restored"), and are left alone when the app has replaced the value since ("superseded"); a hook target that unmounted or lost its renderer is "released" instead — the overridden value stays until the component\'s own next setState. Forced Suspense/error boundaries are released and re-rendered from module state even if unmounted. Each cleared override reports its outcome.',
   group: 'action',
   input: z.object({}),
   output: z.object({
@@ -643,9 +711,9 @@ export const reactResetOverridesContract = defineAgentToolContract({
         kind: z.enum(['props', 'hook', 'context', 'suspense', 'error']),
         componentName: z.string(),
         outcome: z
-          .enum(['restored', 'released', 'skipped-unmounted'])
+          .enum(['restored', 'superseded', 'released', 'skipped-unmounted'])
           .describe(
-            'restored = pre-override value re-applied; released = cleared without restoring (forced boundaries, or a hook whose target/renderer is gone); skipped-unmounted = target gone, nothing to re-apply.',
+            'restored = pre-override value re-applied; superseded = the app replaced the overridden value since (its own setState, or a parent or Provider re-render), so the current value is the real one and was left alone; released = cleared without restoring (forced boundaries, or a hook whose target/renderer is gone); skipped-unmounted = target gone, nothing to re-apply.',
           ),
       }),
     ),

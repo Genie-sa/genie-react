@@ -101,6 +101,80 @@ describe('dehydrate', () => {
   })
 })
 
+describe('dehydrate never runs application code', () => {
+  const counting = () => {
+    const reads = { count: 0 }
+    const getter = () => {
+      reads.count += 1
+      return 'secret'
+    }
+    return { reads, getter }
+  }
+
+  it('does not invoke a getter on the hydration path', () => {
+    const { reads, getter } = counting()
+    const value = { user: Object.defineProperty({}, 'token', { get: getter, enumerable: true }) }
+    const result = dehydrate(value, { path: ['user', 'token'] }) as DehydratedNode
+    expect(reads.count).toBe(0)
+    expect(result.kind).toBe('getter-error')
+  })
+
+  it('does not invoke an index getter on an array', () => {
+    const { reads, getter } = counting()
+    const list = Object.defineProperty([1, 2], 1, { get: getter, enumerable: true })
+    const result = dehydrate({ list }) as { list: unknown[] }
+    expect(reads.count).toBe(0)
+    expect(result.list[0]).toBe(1)
+    expect((result.list[1] as DehydratedNode).kind).toBe('getter-error')
+  })
+
+  it('previews without reading accessors and never throws', () => {
+    const { reads, getter } = counting()
+    const revoked = Proxy.revocable({}, {})
+    revoked.revoke()
+    expect(previewValue(Object.defineProperty({}, 'constructor', { get: getter }))).toBe('{…}')
+    expect(previewValue(revoked.proxy)).toBe('[unreadable]')
+    expect(previewValue(new Date(Number.NaN))).toBe('Invalid Date')
+    expect(reads.count).toBe(0)
+  })
+})
+
+describe('dehydrate keeps values distinguishable', () => {
+  it('shows an Error by its name, message, and cause instead of {}', () => {
+    const error = new TypeError('bad input', { cause: 'upstream' })
+    expect(dehydrate({ error })).toEqual({
+      error: { __type: 'Error', name: 'TypeError', message: 'bad input', cause: '"upstream"' },
+    })
+  })
+
+  it('marks non-finite numbers and invalid dates, which JSON would print as null', () => {
+    const result = dehydrate({ nan: Number.NaN, inf: -Infinity, date: new Date(Number.NaN) })
+    expect(JSON.parse(JSON.stringify(result))).toMatchObject({
+      nan: { kind: 'number', preview: 'NaN' },
+      inf: { kind: 'number', preview: '-Infinity' },
+      date: { kind: 'date', preview: 'Invalid Date' },
+    })
+  })
+
+  it('names keys it cannot carry instead of dropping them silently', () => {
+    const result = dehydrate(JSON.parse('{"constructor":1,"ok":2}')) as Record<string, unknown>
+    expect(result.ok).toBe(2)
+    expect(result['…']).toMatchObject({
+      kind: 'truncated',
+      preview: '+1 more keys (constructor cannot be shown)',
+    })
+  })
+
+  it('keeps typed arrays typed and bounded', () => {
+    const result = dehydrate({ bytes: new Uint8Array(150) }, { maxEntries: 2 }) as {
+      bytes: { __type: string; values: unknown[] }
+    }
+    expect(result.bytes.__type).toBe('Uint8Array')
+    expect(result.bytes.values.slice(0, 2)).toEqual([0, 0])
+    expect(result.bytes.values[2]).toMatchObject({ kind: 'truncated', preview: '+148 more items' })
+  })
+})
+
 describe('previewValue', () => {
   it('summarizes containers compactly', () => {
     expect(previewValue([1, 2, 3])).toBe('Array(3)')
