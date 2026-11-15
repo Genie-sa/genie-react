@@ -72,6 +72,9 @@ jobs:
       - name: Verify interaction timeline in Chromium
         run: node scripts/check-timeline-e2e.mjs
 
+      - name: Verify fix verdicts in Chromium
+        run: node scripts/check-verify-e2e.mjs
+
   apps-e2e:
     name: Apps E2E · ${{ matrix.app }}
     runs-on: ubuntu-latest
