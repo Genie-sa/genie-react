@@ -21,10 +21,16 @@ function cursorFor(report: { nextCursor: string | null }): string {
   return report.nextCursor
 }
 
+/** A row whose own code lives in its file: it renders a host element whose React 18 `_debugSource` names that file, which is what classifies it. */
 function row(name: string, library = false): Fiber {
   const type = () => null
   Object.assign(type, { displayName: name })
-  return {
+  const debugSource = {
+    fileName: library ? '/node_modules/library/Row.tsx' : `/src/${name}.tsx`,
+    lineNumber: 1,
+    columnNumber: 0,
+  }
+  const component = {
     tag: 0,
     type,
     memoizedProps: {},
@@ -33,12 +39,19 @@ function row(name: string, library = false): Fiber {
     alternate: null,
     actualDuration: 1,
     selfBaseDuration: 1,
-    _debugSource: {
-      fileName: library ? '/node_modules/library/Row.tsx' : `/src/${name}.tsx`,
-      lineNumber: 1,
-      columnNumber: 0,
-    },
+    _debugSource: debugSource,
   } as unknown as Fiber
+  Object.assign(component, {
+    child: {
+      tag: 5,
+      type: 'div',
+      child: null,
+      sibling: null,
+      _debugOwner: component,
+      _debugSource: debugSource,
+    },
+  })
+  return component
 }
 
 beforeEach(() => {
@@ -295,9 +308,17 @@ describe('selection coverage', () => {
       limit: 100,
       cursor: cursorFor(cold),
     })
-    expect(continuation.components).toHaveLength(20)
+    expect(continuation.components).toHaveLength(100)
     expect(continuation.sourceClassification).toEqual(cold.sourceClassification)
-    expect(continuation.nextCursor).toBeNull()
+    const last = await getRendersMeasurement({
+      sort: 'renders',
+      limit: 100,
+      cursor: cursorFor(continuation),
+    })
+    expect(last.components).toHaveLength(41)
+    expect(last.components.every((entry) => entry.sourceOwnership === 'unknown')).toBe(true)
+    expect(last.sourceClassification).toEqual(cold.sourceClassification)
+    expect(last.nextCursor).toBeNull()
     const fresh = await getRendersMeasurement({ sort: 'renders', limit: 200, appOnly: true })
     expect(fresh.sourceClassification).toMatchObject({ complete: true, app: 241, unknown: 0 })
     expect(fresh.omittedByLimit).toBe(41)

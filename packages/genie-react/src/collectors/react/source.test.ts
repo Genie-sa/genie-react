@@ -60,9 +60,10 @@ const {
   clearSourceCache,
   isLibraryFile,
   isPageLoadableUrl,
-  resolveEffectSourceResolution,
-  resolveEffectSources,
+  packageNameFromFile,
   resolveExternalStoreSourceResolution,
+  resolveHookCallsite,
+  resolveStackFrames,
   resolveSource,
   scheduleClassificationWarmup,
   sourceProvenanceForSource,
@@ -198,6 +199,22 @@ describe('isLibraryFile', () => {
     expect(isLibraryFile('/apps/demo/.next/dev/server/chunks/ssr/root.js')).toBe(false)
     expect(isLibraryFile('/node_modules/.vite/deps/cmdk.js')).toBe(true)
     expect(isLibraryFile('/node_modules/.pnpm/@base-ui+react/dist/index.js')).toBe(true)
+  })
+
+  it('treats a Vite dependency chunk served from a project-local cache dir as library code', async () => {
+    const source = await resolveHookCallsite({
+      fileName: 'http://127.0.0.1:5173/.vite/deps/modern-Du3lnq9_.js?v=1a2b',
+      lineNumber: 2705,
+      columnNumber: 15,
+      functionName: 'useBaseQuery',
+    })
+    expect(source).toMatchObject({ file: '/.vite/deps/modern-Du3lnq9_.js', line: 2705 })
+    expect(isLibraryFile(source?.file ?? '')).toBe(true)
+    expect(packageNameFromFile('/.vite/deps/@tanstack_react-query.js')).toBe(
+      '@tanstack/react-query',
+    )
+    expect(packageNameFromFile('/.vite/deps/modern-Du3lnq9_.js')).toBeNull()
+    expect(packageNameFromFile('/node_modules/.vite/deps/zustand.js')).toBe('zustand')
   })
 
   it('does not misclassify an unsymbolicated Metro bundle entry as library code', () => {
@@ -354,6 +371,39 @@ describe('classifyFiber', () => {
       source: null,
       ownership: 'unknown',
       isLibrary: false,
+    })
+  })
+
+  it('classifies a component created in app JSX as library when every element it renders comes from library code', async () => {
+    const LibraryGrid = (): null => null
+    const usage = new Error('grid-usage')
+    usage.stack = 'grid-usage'
+    const grid = asFiber({ tag: 0, type: LibraryGrid, alternate: null, _debugStack: usage })
+    const cells = Array.from({ length: 12 }, (_, index) => {
+      const stack = new Error(`cell-${index}`)
+      stack.stack = `cell-${index}`
+      return asFiber({ tag: 5, _debugOwner: grid, _debugStack: stack, child: null, sibling: null })
+    })
+    for (const [index, cell] of cells.entries())
+      Object.assign(cell, { sibling: cells[index + 1] ?? null })
+    Object.assign(grid, { child: cells[0] })
+    parseStack.mockImplementation((stack) =>
+      stack === 'grid-usage'
+        ? [{ fileName: '/src/App.tsx', lineNumber: 7, columnNumber: 3, functionName: 'App' }]
+        : [
+            {
+              fileName: '/node_modules/grid/index.js',
+              lineNumber: 40,
+              columnNumber: 1,
+              functionName: 'renderCell',
+            },
+          ],
+    )
+
+    await expect(classifyFiber(grid)).resolves.toMatchObject({
+      source: { file: '/src/App.tsx', role: 'element-callsite' },
+      ownership: 'library',
+      ownershipBasis: 'owned-elements',
     })
   })
 
@@ -956,7 +1006,7 @@ describe('Metro symbolication', () => {
     })
     await expect(classifyFiber(fiber)).resolves.toMatchObject({
       source: { file: '/app/Recovered.tsx', line: 19, column: 3 },
-      ownership: 'app',
+      ownership: 'unknown',
     })
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
@@ -1059,7 +1109,7 @@ describe('Metro symbolication', () => {
       })
       await expect(classifyFiber(fiber)).resolves.toMatchObject({
         source: { file: '/app/AfterTimeout.tsx', line: 27, column: 6 },
-        ownership: 'app',
+        ownership: 'unknown',
       })
       expect(fetchMock).toHaveBeenCalledTimes(2)
     } finally {
@@ -1417,25 +1467,87 @@ describe('classifyFibersWithinBudget', () => {
   })
 })
 
-describe('resolveEffectSources', () => {
-  it('resolves each leaf effect call-site in hook-call order, nested library hooks included', async () => {
-    const hooks = [
-      hookNode('State', '/src/x.tsx', 30),
-      hookNode('Effect', '/src/x.tsx', 99),
-      hookNode('Translation', '/src/x.tsx', 24, [
-        hookNode(
-          'Effect',
-          'http://localhost:3100/node_modules/.vite/deps/react-i18next.js?v=a',
-          42,
-        ),
-      ]),
-    ]
+describe('resolveStackFrames', () => {
+  it('source-maps frames whose module has a map and labels the rest by what they are', async () => {
+    const vite = 'http://127.0.0.1:5173/src/card.tsx?t=1'
+    parseStack.mockReturnValue([
+      { fileName: vite, lineNumber: 112, columnNumber: 37, functionName: 'CarrierRows' },
+      {
+        fileName: 'about://React/Server/file:///app/.next/dev/server/chunks/ssr/page._.js?110',
+        lineNumber: 716,
+        columnNumber: 29,
+        functionName: 'requireProducts',
+      },
+      {
+        fileName: 'webpack-internal:///./src/a.tsx',
+        lineNumber: 5,
+        columnNumber: 3,
+        functionName: 'A',
+      },
+      {
+        fileName: 'http://127.0.0.1:5173/node_modules/.vite/deps/react-dom.js?v=1',
+        lineNumber: 9,
+        columnNumber: 1,
+        functionName: 'renderWithHooks',
+      },
+    ])
+    getSourceMap.mockImplementation(async (url) => (url === vite ? { version: 3 } : null))
+    getSourceFromSourceMap.mockReturnValue({
+      fileName: 'card.tsx',
+      lineNumber: 42,
+      columnNumber: 41,
+    })
 
-    const sources = (await resolveEffectSources(asFiber({}), hooks)) ?? []
-    expect(sources).toHaveLength(2)
-    expect(sources[0]).toMatchObject({ file: '/src/x.tsx', line: 99 })
-    expect(sources[1]?.file).toBe('/node_modules/.vite/deps/react-i18next.js')
-    expect(isLibraryFile(sources[1]?.file ?? '')).toBe(true)
+    const frames = await resolveStackFrames('stack')
+
+    expect(frames).toEqual([
+      expect.objectContaining({
+        functionName: 'CarrierRows',
+        file: '/src/card.tsx',
+        line: 42,
+        column: 42,
+        isLibrary: false,
+        mapping: 'mapped',
+      }),
+      expect.objectContaining({
+        functionName: 'requireProducts',
+        line: 716,
+        isLibrary: false,
+        mapping: 'unmapped-build-file',
+      }),
+      expect.objectContaining({
+        functionName: 'A',
+        file: expect.stringContaining('/src/a.tsx'),
+        line: 5,
+        mapping: 'served',
+      }),
+      expect.objectContaining({
+        functionName: 'renderWithHooks',
+        isLibrary: true,
+        mapping: 'served',
+      }),
+    ])
+    expect(frames[1]?.file).toContain('/.next/dev/server/chunks/ssr/page._.js')
+  })
+})
+
+describe('resolveHookCallsite', () => {
+  const hookAt = (fileName: string, lineNumber: number) => ({
+    fileName,
+    lineNumber,
+    columnNumber: 0,
+    functionName: null,
+  })
+
+  it('labels a hook call by its role and keeps a pre-bundled dependency classified as library', async () => {
+    const source = await resolveHookCallsite(
+      hookAt('http://localhost:3100/node_modules/.vite/deps/react-i18next.js?v=a', 42),
+    )
+    expect(source).toMatchObject({
+      file: '/node_modules/.vite/deps/react-i18next.js',
+      role: 'hook-callsite',
+    })
+    expect(isLibraryFile(source?.file ?? '')).toBe(true)
   })
 
   it('maps a base-path esbuild asset entry back to the app hook source', async () => {
@@ -1445,11 +1557,8 @@ describe('resolveEffectSources', () => {
       lineNumber: 39,
       columnNumber: 4,
     })
-    const hooks = [hookNode('Effect', '/demo/assets/main.js', 12)]
 
-    const resolution = await resolveEffectSourceResolution(asFiber({}), hooks)
-
-    expect(resolution.callsites?.[0]?.source).toMatchObject({
+    await expect(resolveHookCallsite(hookAt('/demo/assets/main.js', 12))).resolves.toMatchObject({
       file: '/src/lab.tsx',
       line: 39,
       column: 5,
@@ -1463,105 +1572,27 @@ describe('resolveEffectSources', () => {
       lineNumber: 999,
       columnNumber: 8,
     })
-    const hooks = [hookNode('Effect', '/assets/main.js', 12)]
 
-    const resolution = await resolveEffectSourceResolution(asFiber({}), hooks)
-
-    expect(resolution.callsites?.[0]?.source).toMatchObject({
+    await expect(resolveHookCallsite(hookAt('/assets/main.js', 12))).resolves.toMatchObject({
       file: '/assets/main.js',
       line: 12,
       column: 0,
     })
   })
 
-  it('keeps bounded custom-hook ancestry beside the aligned effect callsite', async () => {
-    const hooks = [
-      hookNode('SearchMetrics', '/src/Search.tsx', 18, [
-        hookNode('QueryBridge', '/src/use-query-bridge.ts', 11, [
-          hookNode('Effect', '/node_modules/@tanstack/react-query/index.js', 42),
-        ]),
-      ]),
-    ]
-
-    const resolution = await resolveEffectSourceResolution(asFiber({}), hooks)
-    expect(resolution.callsites?.[0]).toMatchObject({
-      source: { file: '/node_modules/@tanstack/react-query/index.js', line: 42 },
-      hookAncestry: [
-        { name: 'SearchMetrics', source: { file: '/src/Search.tsx', line: 18 } },
-        { name: 'QueryBridge', source: { file: '/src/use-query-bridge.ts', line: 11 } },
-      ],
-    })
-  })
-
-  it('returns [] when the inspector succeeds but finds no user effects', async () => {
-    const hooks = [hookNode('State', '/src/x.tsx', 1)]
-    expect(await resolveEffectSources(asFiber({}), hooks)).toEqual([])
-  })
-
-  it('reports an explicit failure for a supplied inspection that was unavailable', async () => {
-    expect(await resolveEffectSourceResolution(asFiber({}), null)).toEqual({
-      status: 'inspection-unavailable',
-      sources: null,
-      callsites: null,
-    })
-  })
-
-  it('does not shadow-render a component during automatic reports', async () => {
+  it('does not shadow-render a component for automatic external-store reports', async () => {
     let componentCalls = 0
     const type = () => {
       componentCalls += 1
       return null
     }
-    const fiber = asFiber({ type })
 
-    expect(await resolveEffectSourceResolution(fiber)).toEqual({
-      status: 'shadow-render-disabled',
-      sources: null,
-      callsites: null,
-    })
-    expect(await resolveExternalStoreSourceResolution(fiber)).toEqual({
+    expect(await resolveExternalStoreSourceResolution(asFiber({ type }))).toEqual({
       status: 'shadow-render-disabled',
       hooks: null,
     })
     expect(componentCalls).toBe(0)
     expect(getFiberHooks).not.toHaveBeenCalled()
-  })
-
-  it('returns inspection-truncated instead of recursively walking an oversized tree', async () => {
-    let hooks = [hookNode('Effect', '/src/deep.tsx', 1)]
-    for (let depth = 0; depth < 1_100; depth += 1) {
-      hooks = [hookNode(`Wrapper${depth}`, null, null, hooks)]
-    }
-
-    expect(await resolveEffectSourceResolution(asFiber({}), hooks)).toEqual({
-      status: 'inspection-truncated',
-      sources: null,
-      callsites: null,
-    })
-  })
-
-  it('marks a supplied tree truncated when primitive callsites exceed the hard cap', async () => {
-    const hooks = Array.from({ length: 101 }, (_, index) =>
-      hookNode('Effect', `/src/effect-${index}.tsx`, index + 1),
-    )
-
-    expect(await resolveEffectSourceResolution(asFiber({}), hooks)).toEqual({
-      status: 'inspection-truncated',
-      sources: null,
-      callsites: null,
-    })
-  })
-
-  it('bounds retained custom-hook ancestry on a supplied tree', async () => {
-    let hooks = [hookNode('Effect', '/src/effect.tsx', 1)]
-    for (let depth = 0; depth < 20; depth += 1) {
-      hooks = [hookNode(`Wrapper${depth}`, `/src/wrapper-${depth}.ts`, depth + 1, hooks)]
-    }
-
-    const resolution = await resolveEffectSourceResolution(asFiber({}), hooks)
-
-    expect(resolution.status).toBe('resolved')
-    expect(resolution.callsites?.[0]?.hookAncestry).toHaveLength(12)
   })
 })
 

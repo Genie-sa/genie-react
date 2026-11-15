@@ -12,8 +12,11 @@ import { getActiveObservation, getDocumentCommitId } from './observation'
 import { forcedErrorBoundaries, forcedSuspenseBoundaries } from './overrides'
 import {
   classifyFiber,
+  isHiddenByAppOnly,
   ownershipCoverage,
   type ResolvedSource,
+  type ResolvedStackFrame,
+  resolveStackFrames,
   type SourceOwnership,
 } from './source'
 import { committedSuspenseState, forEachVisibleSuspenseBoundary } from './suspense-state'
@@ -294,6 +297,7 @@ export interface CaughtError {
   message: string | null
   /** The thrower's file:line is in this stack; we don't resolve it separately (its fiber is gone). */
   stack: string | null
+  stackFrames: ResolvedStackFrame[]
   isLibraryBoundary: boolean
   /** True when the boundary is held in its error state by react_force_error_boundary rather than a real thrown error. */
   forced: boolean
@@ -498,6 +502,7 @@ export async function getErrorState(query: {
           throwingComponent: log?.throwingComponent ?? null,
           message: log?.message ?? (forced ? FORCED_ERROR_MESSAGE : null),
           stack: log?.stack ? (includeSource ? log.stack : withoutLibraryFrames(log.stack)) : null,
+          stackFrames: log?.stack ? await resolveStackFrames(log.stack) : [],
           isLibraryBoundary: isLibrary,
           forced,
           status,
@@ -539,7 +544,7 @@ export async function getErrorState(query: {
 
   const all = [...caughtCandidates, ...suspendedCandidates]
   const kept = (entry: { sourceOwnership: SourceOwnership }) =>
-    !query.appOnly || entry.sourceOwnership === 'app'
+    !query.appOnly || !isHiddenByAppOnly(entry.sourceOwnership)
   const caughtErrors = caughtCandidates.filter(kept).slice(0, limit)
   const suspendedList = suspendedCandidates.filter(kept).slice(0, limit)
   return {

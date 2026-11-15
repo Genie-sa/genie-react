@@ -23,6 +23,6 @@
   "probe": {
     "script": "probes/page-view-effect.mjs",
     "genie": "observable",
-    "evidence": ["react_inspect_component", "react_effect_timeline"]
+    "evidence": ["react_effect_timeline"]
   }
 }

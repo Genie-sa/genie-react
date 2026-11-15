@@ -524,7 +524,7 @@ async function main() {
       await runCli([
         'call',
         'react_component_cohort',
-        JSON.stringify({ component, exact: true, limit: 1 }),
+        JSON.stringify({ component, exact: true, limit: 1, view: 'full' }),
         '--json',
       ]),
     )
@@ -643,6 +643,7 @@ async function main() {
       component: 'OwnershipRow',
       appOnly: true,
       limit: 1,
+      view: 'full',
     })
     assert(
       cohort.matched === 241 &&
@@ -785,7 +786,7 @@ async function main() {
     budget: { fiberLimit: 2000, operationLimit: 2000000, timeLimitMs: 500, adaptive: false },
   })
   const freezeCohort = (component = 'FreezeProbe') =>
-    callTool('react_component_cohort', { component, exact: true })
+    callTool('react_component_cohort', { component, exact: true, view: 'full' })
   const activeFreeze = await freezeCohort()
   assert(
     activeFreeze.instances[0]?.renderingState === 'mounted-rendering',

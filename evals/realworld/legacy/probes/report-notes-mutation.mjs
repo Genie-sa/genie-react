@@ -12,9 +12,14 @@ export default async function probe({ session, page }) {
   await page.getByRole('button', { name: 'Add note' }).click()
   await session.quiesce()
   const notes = await session.reduxState('reports.notes')
-  const { actions } = await session.reduxActions({
+  const { actions, missed } = await session.reduxActions({
     sinceSequence: latestSequence,
     typePrefix: 'reports/NOTE_ADDED',
+  })
+  const added = actions.at(-1)
+  const later = await session.reduxActions({
+    sinceSequence: added?.sequence ?? latestSequence,
+    typePrefix: 'reports/',
   })
   const { updates } = await session.renderUpdates('ReportNotesList', [
     'ReportNotesList',
@@ -23,14 +28,23 @@ export default async function probe({ session, page }) {
   const shown = await page.locator('.report-note').count()
   return [
     check(
+      'redux.dispatched',
+      missed === 0 && actions.length === 1 && added?.action.note?.text === NOTE,
+      `NOTE_ADDED dispatched ${actions.length} time(s) with ${JSON.stringify(added?.action.note)}`,
+    ),
+    check(
       'redux.notes',
-      Array.isArray(notes) && notes.length === 1,
-      `store holds ${notes?.length} notes`,
+      notes.asOfSequence >= (added?.sequence ?? Infinity) &&
+        later.actions.length === 0 &&
+        Array.isArray(notes.value) &&
+        notes.value.length === 1 &&
+        notes.value[0].text === NOTE,
+      `as of action ${notes.asOfSequence}, with ${later.actions.length} reports action(s) after NOTE_ADDED, the store holds ${JSON.stringify(notes.value)}`,
     ),
     check(
       'redux.changedSlices',
-      actions.at(-1)?.changedSlices.includes('reports'),
-      `NOTE_ADDED changed ${JSON.stringify(actions.at(-1)?.changedSlices)}`,
+      added?.changedSlices.includes('reports'),
+      `NOTE_ADDED changed ${JSON.stringify(added?.changedSlices)}`,
     ),
     check('renders.ReportNotesList', updates > 0, `ReportNotesList updates=${updates}`),
     check('dom.notes', shown === 1, `${shown} notes on screen`),

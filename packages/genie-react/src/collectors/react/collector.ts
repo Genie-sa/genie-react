@@ -1,6 +1,8 @@
 import { type Fiber, getRDTHook } from 'bippy'
+import type { z } from 'zod'
 import { defineCollector, defineCollectorTool, type GenieCollector } from '../../client'
 import { reactPendingWorkContract, roundMilliseconds } from '../../protocol'
+import { withBundlerRenameProof } from './bundler-renames'
 import { findComponents } from './component-search'
 import type { NodeId } from './contracts'
 import {
@@ -72,8 +74,12 @@ import {
 } from './overrides'
 import { getPendingReactWork } from './pending-work'
 import { getRefreshEvents, startRefreshTracking } from './refresh-tracker'
-import { getRenderCohort } from './render-cohort'
-import { reactMeasureContract, reactRendersSinceContract } from './render-contract'
+import { getRenderCohort, summarizeCohort } from './render-cohort'
+import {
+  reactMeasureContract,
+  reactRendersSinceContract,
+  type renderObservationInputSchema,
+} from './render-contract'
 import {
   buildRenderTrackingCoverage,
   renderEvidenceComparability,
@@ -105,7 +111,7 @@ import {
   stopRenderTracking,
   takeSnapshot,
 } from './render-tracker'
-import { classifyFibersWithinBudget, ownershipCoverage } from './source'
+import { classifyFibersWithinBudget, isHiddenByAppOnly, ownershipCoverage } from './source'
 import {
   describeElementStyles,
   indexStyleRules,
@@ -114,6 +120,39 @@ import {
 } from './style-provenance'
 import { getSuspenseReport } from './suspense-boundaries'
 import { startSuspenseCapture } from './suspense-capture'
+
+const COMPONENTS_DEPRECATION =
+  'components is deprecated: pass component with a name or list of names, and exact:false to keep substring matching.'
+
+/** One handler for react_clear_renders and react_profile_start, so `component` means the same thing as in the read tools. */
+function startObservation({
+  component,
+  exact = true,
+  components = [],
+  roots,
+  budget,
+  lifecycle,
+}: z.output<typeof renderObservationInputSchema>) {
+  startRefreshTracking()
+  startRenderTracking()
+  const named = component === undefined ? [] : [component].flat()
+  const observation = clearRenders({
+    components: exact ? components : [...components, ...named],
+    exactComponents: exact ? named : [],
+    roots,
+    budget,
+    lifecycle,
+  })
+  return {
+    ok: true,
+    tracking: isTracking(),
+    documentCommitId: getDocumentCommitId(),
+    observation,
+    observationConfig: getRenderObservationConfig(),
+    strictMode: getStrictModeStatus(),
+    ...(components.length > 0 ? { deprecations: [COMPONENTS_DEPRECATION] } : {}),
+  }
+}
 
 function currentEffectCoverage() {
   const renderCoverage = getRenderTrackingCoverage('measurement')
@@ -146,6 +185,15 @@ async function effectTimeline({
     tracking,
     documentCommitId,
     ...report,
+    filteredNote: appOnly
+      ? appOnlyFilteredNote(
+          report.events.length,
+          report.libraryEventsHidden,
+          'effects',
+          report.events.filter((event) => event.sourceOwnership === 'app').length,
+          report.events.filter((event) => event.sourceOwnership === 'unknown').length,
+        )
+      : undefined,
     coverage: {
       ...coverage,
       complete:
@@ -420,7 +468,7 @@ export function reactCollector(): GenieCollector {
           )
           const selected = owners.flatMap(({ owner, tag, styleSources }, index) => {
             const classification = classes[index]
-            if (appOnly && classification?.ownership !== 'app') return []
+            if (appOnly && isHiddenByAppOnly(classification?.ownership ?? 'unknown')) return []
             return [
               {
                 id: owner.id as number,
@@ -532,11 +580,15 @@ export function reactCollector(): GenieCollector {
           const { summary, components, libraryHidden, omittedByLimit, sourceClassification } =
             report
           const classificationIncomplete = report.appOnly && !sourceClassification.complete
-          const filteredNote = classificationIncomplete
-            ? `WARNING: appOnly excluded ${sourceClassification.unknown} components with unknown ownership and ${sourceClassification.library} library components. Source classification evaluated ${sourceClassification.evaluated}/${sourceClassification.totalCandidates} matching records. Retry after source warmup, or pass appOnly:false to inspect all records.`
-            : report.appOnly
-              ? appOnlyFilteredNote(components.length, libraryHidden, 'components')
-              : undefined
+          const filteredNote = report.appOnly
+            ? appOnlyFilteredNote(
+                components.length,
+                libraryHidden,
+                'components',
+                components.filter((entry) => entry.sourceOwnership === 'app').length,
+                components.filter((entry) => entry.sourceOwnership === 'unknown').length,
+              )
+            : undefined
           const coverageInput = {
             skippedCommitFibers: report.skippedCommitFibers,
             droppedUnmountFibers: report.droppedUnmountFibers,
@@ -547,6 +599,7 @@ export function reactCollector(): GenieCollector {
             budgetExhaustedCommits: report.budgetExhaustedCommits,
             budgetExhaustedSubsystems: report.budgetExhaustedSubsystems,
             budgetAdvice: report.budgetAdvice,
+            gaps: report.coverageGaps,
           }
           const coverage = buildRenderTrackingCoverage(coverageInput, 'causal')
           const measurementCoverage = buildRenderTrackingCoverage(coverageInput, 'measurement')
@@ -557,13 +610,9 @@ export function reactCollector(): GenieCollector {
           }
           const reportSummary = {
             ...summary,
-            semantics: renderSummarySemantics(
-              {
-                ...measurementCoverage,
-                complete: measurementCoverage.complete && !classificationIncomplete,
-              },
-              summary.totalRenders,
-            ),
+            semantics: classificationIncomplete
+              ? ('unknown' as const)
+              : renderSummarySemantics(measurementCoverage, summary.totalRenders),
             coverageDomain: 'render-measurement' as const,
           }
           const { unstableComponents, unnecessaryComponents, topUnstableProps, ...summaryView } =
@@ -619,6 +668,7 @@ export function reactCollector(): GenieCollector {
               budgetExhaustedCommits: report.budgetExhaustedCommits,
               budgetExhaustedSubsystems: report.budgetExhaustedSubsystems,
               budgetAdvice: report.budgetAdvice,
+              gaps: report.coverageGaps,
             },
             'causal',
           )
@@ -649,15 +699,21 @@ export function reactCollector(): GenieCollector {
               droppedRenderEvents: report.renderEventRetention.evictedEvents,
             },
             filteredNote: appOnly
-              ? appOnlyFilteredNote(events.length, libraryHidden, 'components')
+              ? appOnlyFilteredNote(
+                  events.length,
+                  libraryHidden,
+                  'components',
+                  events.filter((event) => event.sourceOwnership === 'app').length,
+                  events.filter((event) => event.sourceOwnership === 'unknown').length,
+                )
               : undefined,
           }
         },
       }),
       defineCollectorTool({
         contract: reactComponentCohortContract,
-        handler: ({ component, exact, limit, appOnly }) =>
-          getRenderCohort(
+        handler: async ({ component, exact, limit, appOnly, view }) => {
+          const cohort = await getRenderCohort(
             findRootFiber(),
             { component, exact, limit, appOnly },
             {
@@ -671,7 +727,9 @@ export function reactCollector(): GenieCollector {
               budgetExhaustedSubsystems: getBudgetExhaustedSubsystems(),
               pendingUnmountFibers: getPendingUnmountFiberCount(),
             },
-          ),
+          )
+          return view === 'full' ? { ...cohort, view } : summarizeCohort(cohort)
+        },
       }),
       defineCollectorTool({
         contract: reactEffectAuditContract,
@@ -697,7 +755,7 @@ export function reactCollector(): GenieCollector {
             omittedByLimit,
             effectsOmittedByLimit,
             libraryEffectsHidden,
-            appEffectsAfterAppOnly,
+            shownByAppOnly,
             hotnessCriteria,
             packageFilter,
           } = await getEffectAuditReport({
@@ -716,13 +774,13 @@ export function reactCollector(): GenieCollector {
           })
           const completedAtDocumentCommitId = getDocumentCommitId()
           const completedAtAnalysisGeneration = getAnalysisGeneration()
-          const appEffects = components.reduce((sum, c) => sum + c.effects.length, 0)
           const filteredNote = appOnly
             ? appOnlyFilteredNote(
-                appEffects,
+                components.reduce((sum, entry) => sum + entry.effects.length, 0),
                 libraryEffectsHidden,
                 'effects',
-                appEffectsAfterAppOnly,
+                shownByAppOnly.app,
+                shownByAppOnly.unknown,
               )
             : undefined
           return {
@@ -774,35 +832,11 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactClearRendersContract,
-        handler: ({ components, roots, budget, lifecycle }) => {
-          startRefreshTracking()
-          startRenderTracking()
-          const observation = clearRenders({ components, roots, budget, lifecycle })
-          return {
-            ok: true,
-            tracking: isTracking(),
-            documentCommitId: getDocumentCommitId(),
-            observation,
-            observationConfig: getRenderObservationConfig(),
-            strictMode: getStrictModeStatus(),
-          }
-        },
+        handler: startObservation,
       }),
       defineCollectorTool({
         contract: reactProfileStartContract,
-        handler: ({ components, roots, budget, lifecycle }) => {
-          startRefreshTracking()
-          startRenderTracking()
-          const observation = clearRenders({ components, roots, budget, lifecycle })
-          return {
-            ok: true,
-            tracking: isTracking(),
-            documentCommitId: getDocumentCommitId(),
-            observation,
-            observationConfig: getRenderObservationConfig(),
-            strictMode: getStrictModeStatus(),
-          }
-        },
+        handler: startObservation,
       }),
       defineCollectorTool({
         contract: reactProfileStopContract,
@@ -893,7 +927,7 @@ export function reactCollector(): GenieCollector {
           }
         },
       }),
-    ],
+    ].map(withBundlerRenameProof),
   })
 }
 

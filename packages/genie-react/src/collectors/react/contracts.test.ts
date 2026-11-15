@@ -139,6 +139,7 @@ describe('react_get_renders output contract', () => {
             unknown: 0,
           },
           necessity: 'necessary',
+          necessityReason: 'dom-changed',
           assessment: {
             inputEvidence: 'changed',
             observedInputKinds: ['state'],
@@ -148,8 +149,12 @@ describe('react_get_renders output contract', () => {
                 count: 1,
                 pendingSubtrees: 0,
                 omittedByLimit: 0,
+                callbackOnlyUpdates: 0,
+                writes: ['output#text'],
+                callbacks: [],
               },
               scheduledEffects: { status: 'none-observed', count: 0 },
+              subtreeScheduledEffects: { status: 'none-observed', count: 0 },
               unobservedDomains: [
                 'focus',
                 'url',
@@ -331,6 +336,7 @@ describe('react_component_cohort contract', () => {
       appOnly: false,
       exact: true,
       limit: 50,
+      view: 'summary',
     })
     expect(() => reactComponentCohortContract.input.parse({ component: '', limit: 50 })).toThrow()
   })

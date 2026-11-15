@@ -48,7 +48,58 @@ export function Inner({ open }) {
 `
 const SHIFTED_COMPILED_FROM = SHIFTED_ON_DISK.replace(/\n\n+/g, '\n')
 
-const onDisk: Record<string, string> = { [FILE]: SOURCE, [SHIFTED_FILE]: SHIFTED_ON_DISK }
+// Published packages ship precompiled createElement calls without the dev transform, so elements they create carry no _debugSource.
+const LIBRARY = `
+const Store = React.createContext(null);
+function StoreProvider({ children }) {
+  return React.createElement(Store.Provider, { value: {} }, children);
+}
+function connect(Inner) {
+  function ConnectFunction(props) {
+    return React.createElement(Inner, props);
+  }
+  ConnectFunction.displayName = "Connect(" + Inner.name + ")";
+  return ConnectFunction;
+}
+function LibLink({ to }) {
+  return React.createElement("a", { href: to }, to);
+}
+return { StoreProvider, connect, LibLink };
+`
+
+const BOARD_FILE = '/app/src/Board.jsx'
+const BOARD = `import { Component } from "react";
+const { connect, StoreProvider, LibLink } = globalThis.fixtureLibrary;
+
+export const Title = class Title extends Component {
+  render() {
+    return <h1 id="title">{this.props.text}</h1>;
+  }
+};
+export const ConnectedTitle = connect(Title);
+
+export function RequireAuth({ children }) {
+  return children;
+}
+
+export function Board() {
+  return (
+    <StoreProvider>
+      <RequireAuth>
+        <ConnectedTitle text="Board" />
+        <LibLink to="/next" />
+      </RequireAuth>
+    </StoreProvider>
+  );
+}
+`
+const boardLines = BOARD.split('\n')
+
+const onDisk: Record<string, string> = {
+  [FILE]: SOURCE,
+  [SHIFTED_FILE]: SHIFTED_ON_DISK,
+  [BOARD_FILE]: BOARD,
+}
 
 // The Vite dev server's `?raw` answer for a file, served without touching the network.
 function viteRawFetch(input: RequestInfo | URL): Promise<Response> {
@@ -90,6 +141,8 @@ beforeAll(async () => {
   vi.stubGlobal('fetch', viteRawFetch)
   const { Checkout } = await compileReact18Fixture(SOURCE, FILE)
   const { Shifted } = await compileReact18Fixture(SHIFTED_COMPILED_FROM, SHIFTED_FILE)
+  vi.stubGlobal('fixtureLibrary', new Function('React', LIBRARY)(react18.React))
+  const { Board } = await compileReact18Fixture(BOARD, BOARD_FILE)
   const container = document.createElement('div')
   container.id = 'root'
   document.body.append(container)
@@ -102,6 +155,7 @@ beforeAll(async () => {
         null,
         createElement(Checkout as () => null),
         createElement(Shifted as () => null),
+        createElement(Board as () => null),
       ),
     ),
   )
@@ -175,5 +229,56 @@ describe('React 18 component sources (_debugSource)', () => {
         provider: { id: expect.any(Number), name: 'Context.Provider' },
       },
     ])
+  })
+})
+
+describe('React 18 component ownership', () => {
+  async function ownershipOf(component: string): Promise<{ ownership: string; source: unknown }> {
+    const report = await call<{ records: { name: string; ownership: string; source: unknown }[] }>(
+      'react_provenance',
+      { component, appOnly: false },
+    )
+    const [record] = report.records
+    if (!record) throw new Error(`${component} is not mounted`)
+    return record
+  }
+
+  it.each([
+    ['StoreProvider', 'library'],
+    ['Connect(Title)', 'library'],
+    ['LibLink', 'library'],
+    ['Title', 'app'],
+    ['Board', 'app'],
+    ['RequireAuth', 'unknown'],
+  ])(
+    'classifies %s by the code that renders it, not the JSX that created it: %s',
+    async (component, ownership) => {
+      expect((await ownershipOf(component)).ownership).toBe(ownership)
+    },
+  )
+
+  it('locates the class inside a connect() wrapper at its own body', async () => {
+    const line = boardLines.findIndex((text) => text.includes('<h1 id="title">')) + 1
+    expect((await ownershipOf('Title')).source).toMatchObject({
+      file: BOARD_FILE,
+      line,
+      role: 'component-body',
+    })
+  })
+
+  it('folds the library wrappers out of the default tree and keeps the unresolved one labelled', async () => {
+    const tree = await call<{
+      nodes: { name: string; parentId: number | null; id: number; ownership: string }[]
+      filteredNote?: string
+    }>('react_get_tree', { rootId: (await findOne('Board')).id })
+    expect(tree.nodes.map((node) => [node.name, node.ownership])).toEqual([
+      ['Board', 'app'],
+      ['RequireAuth', 'unknown'],
+      ['Title', 'app'],
+    ])
+    expect(tree.nodes[2]?.parentId).toBe(tree.nodes[1]?.id)
+    expect(tree.filteredNote).toBe(
+      '3 components shown; 3 library components hidden — set appOnly:false to include them; 1 shown with ownership "unknown" because their source is unresolved',
+    )
   })
 })

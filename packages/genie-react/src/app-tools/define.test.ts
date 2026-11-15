@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import { z as skewedZod } from 'zod-version-skew'
 import { defineGenieTool, GenieToolError, normalizeAppToolName } from './define'
 
 const definition = {
@@ -60,6 +61,33 @@ describe('defineGenieTool', () => {
     })
     expect(tool.contract.input.parse({})).toEqual({ count: 3 })
     expect(tool.contract.input.safeParse({ count: 99 }).success).toBe(false)
+  })
+
+  it('accepts schemas from another zod 4 copy and validates with them', () => {
+    const tool = defineGenieTool({
+      ...definition,
+      name: 'seed_cart',
+      kind: 'action',
+      input: skewedZod.object({ count: skewedZod.number().int().max(50).default(3) }),
+      output: skewedZod.object({ ok: skewedZod.boolean() }),
+    })
+    expect(tool.contract.input.parse({})).toEqual({ count: 3 })
+    expect(tool.contract.input.safeParse({ count: 99 }).success).toBe(false)
+    expect(tool.contract.output.safeParse({ ok: 'yes' }).success).toBe(false)
+  })
+
+  it.each([
+    ['input', { _zod: { output: {} } }],
+    ['output', { _zod: { def: { type: 'object' } } }],
+  ])('names the tool when its %s is not a Zod 4 schema', (field, schema) => {
+    expect(() =>
+      defineGenieTool({
+        ...definition,
+        name: 'seed_cart',
+        kind: 'query',
+        [field]: schema as never,
+      }),
+    ).toThrow(`defineGenieTool: "app_seed_cart" ${field} must be a Zod 4 schema`)
   })
 
   it('rejects a missing kind or handler and warns on thin descriptions', () => {

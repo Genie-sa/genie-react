@@ -6,21 +6,26 @@ import {
   hasMemoCache,
   instrument,
   isCompositeFiber,
-  isHostFiber,
   type RenderPhase,
   setFiberId,
   traverseRenderedFibers,
   type Unsubscribe,
 } from 'bippy'
-import { newId } from '../../protocol'
+import { compactRenderCause, newId } from '../../protocol'
 import { MAXIMUM_RENDER_OBSERVATION_BUDGET as MAXIMUM_BUDGET } from '../../protocol/react-observation-schema'
 import {
   registerQuerySubscriber,
   setExternalStoreObservation,
 } from '../causal/external-store-registry'
+import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 import { safeStructuredClone } from '../structured-clone'
 import { getTimings } from './bippy-compat'
-import { type CommitWorkBudget, commitWorkExhaustions, consumeCommitWork } from './commit-budget'
+import {
+  type CommitWorkBudget,
+  commitWorkExhaustions,
+  consumeCommitWork,
+  createCommitWorkBudget,
+} from './commit-budget'
 import type { ComponentMatch } from './component-name'
 import { recordResultingEffectCommit } from './effect-events'
 import {
@@ -82,8 +87,10 @@ import {
   type RenderNecessity,
 } from './render-causes'
 import { type CommitAnalysisBudget, createCommitAnalysisBudget } from './render-commit-budget'
+import { compareRenderInputs } from './render-equivalence'
 import {
   childrenChanged,
+  classStateCauseName,
   diffProps,
   diffStateChanges,
   diffUnclassifiedHooks,
@@ -100,11 +107,19 @@ import type {
 } from './render-model'
 import { draftRenderRecord } from './render-model'
 import {
+  applyOutputAssessment,
   assessRender,
   type CurrentCommitEvidence,
-  hasOwnHostMutation,
+  type PendingRenderGrade,
   type RenderAssessment,
 } from './render-outcomes'
+import {
+  attributeCommitOutput,
+  type CommitRenderFacts,
+  gradeRender,
+  type NecessityGrade,
+  ownUpdateScheduled,
+} from './render-output'
 import {
   buildCurrentAggregateMeasurement,
   buildRenderCauseEventsReport,
@@ -120,7 +135,9 @@ import {
   type SourceClassificationCoverage,
 } from './render-reports'
 import {
+  type AnalysisFailureReason,
   buildRenderTrackingCoverage,
+  type CoverageGapDetails,
   diffRenderSnapshot,
   type RenderBudgetAdvice,
   type RenderBudgetLimit,
@@ -128,15 +145,11 @@ import {
   storeRenderSnapshot,
   withSourceCoverage,
 } from './render-snapshots'
+import { cascadeOrigin, wrapperOf } from './render-wrappers'
 import { captureReportEpoch, reportAttribution, reportStateMatches } from './report-attribution'
 import { isSafeRenderer, supportedCommitHandler } from './safe-instrumentation'
 import { clearSourceCache } from './source'
-import {
-  canBailOutOnProps,
-  comparesPropsShallowly,
-  isHostTextFiber,
-  isSuspenseFiber,
-} from './work-tags'
+import { canBailOutOnProps, comparesPropsShallowly, isSuspenseFiber } from './work-tags'
 
 export type {
   RenderCause,
@@ -189,6 +202,10 @@ let droppedPendingUnmountFibers = 0
 let analysisFailedFibers = 0
 /** Commits React made after profiling paused; they are outside the measured window, not failed analysis. */
 let pausedCommits = 0
+const analysisFailures = new Map<AnalysisFailureReason, number>()
+const truncatedInputComponents = new Set<string>()
+const propsNotEnumeratedComponents = new Set<string>()
+const GAP_COMPONENT_LIMIT = 10
 let truncatedInputFibers = 0
 let propsNotEnumeratedFibers = 0
 let budgetExhaustedCommits = 0
@@ -201,13 +218,22 @@ let droppedTargetUnmountFibers = 0
 let adaptiveBudgetScale = 1
 /** The scale that fits the most components this window has seen mounted or rendering at once; decay stops here. */
 let treeBudgetScale = 1
+/** Operation and time scale on top of the fiber scale: deep trees cost more work per analyzed component. */
+let adaptiveCostScale = 1
+let treeCostScale = 1
 let commitsWithinAdaptiveBudget = 0
 let suggestedMainScale = 0
 let suggestedTargetScale = 0
+/** Work a lossy commit would have needed, measured from what its analyzed components cost. */
+let suggestedOperationLimit = 0
+let suggestedTimeLimitMs = 0
 const exhaustedBudgetLimits = new Set<RenderBudgetLimit>()
 
 export interface RenderObservationOptions {
+  /** Case-insensitive substrings of display names. */
   components?: string[]
+  /** Exact, case-sensitive display names. */
+  exactComponents?: string[]
   roots?: number[]
   budget?: {
     fiberLimit?: number
@@ -222,6 +248,7 @@ export interface RenderObservationOptions {
 
 interface RenderObservationConfiguration {
   components: string[]
+  exactComponents: string[]
   roots: number[]
   budget: {
     fiberLimit: number
@@ -236,6 +263,7 @@ interface RenderObservationConfiguration {
 
 const DEFAULT_OBSERVATION_CONFIGURATION: RenderObservationConfiguration = {
   components: [],
+  exactComponents: [],
   roots: [],
   budget: {
     fiberLimit: 250,
@@ -254,6 +282,11 @@ let observationRootIds = new Set<number>()
 let unmountedRootMembership = new WeakMap<Fiber, boolean>()
 
 const ADAPTIVE_MAX_SCALE = 4
+// Measured in jsdom: an analyzed component costs about 30 operations at the root and about 150 forty layout layers deep, mostly instance identity; these bound that from above.
+const OPERATIONS_PER_COMPONENT = 40
+const OPERATIONS_PER_ANCESTOR = 1.5
+// Headroom over a measured requirement, because components later in a commit can cost more than the ones analyzed before it ran out.
+const BUDGET_ADVICE_MARGIN = 1.25
 const MOUNTED_TREE_VISIT_LIMIT = 100_000
 // Hysteresis: one cheap commit after a burst must not shrink the budget the next burst needs.
 const ADAPTIVE_DECAY_COMMITS = 30
@@ -268,7 +301,6 @@ interface PendingUnmount {
 }
 const pendingUnmounts: PendingUnmount[] = []
 let targetedPendingUnmounts = 0
-const pendingHostUnmountRenderers = new Set<number>()
 let uncertainTraversalRoots = new WeakMap<FiberRoot, string | null>()
 let traversedRoots = new WeakSet<FiberRoot>()
 
@@ -297,9 +329,6 @@ export function startRenderTracking(): boolean {
       name: 'genie-react',
       onCommitFiberUnmount: (rendererId: number, fiber: Fiber) => {
         if (!isSafeUnmountRenderer(rendererId)) return
-        if (isHostFiber(fiber) || isHostTextFiber(fiber)) {
-          pendingHostUnmountRenderers.add(rendererId)
-        }
         queuePendingUnmount(rendererId, fiber)
       },
       onCommitFiberRoot: supportedCommitHandler((rendererId: number, root: FiberRoot) => {
@@ -310,10 +339,9 @@ export function startRenderTracking(): boolean {
         if (!isSafeRenderer(rendererId)) {
           markMeasurementCollectionGap()
           noteUnanalyzedRendererCommit()
-          if (getActiveObservation()) analysisFailedFibers += 1
+          if (getActiveObservation()) noteAnalysisFailure('renderer-not-analyzed')
           return
         }
-        const hostUnmountObserved = pendingHostUnmountRenderers.delete(rendererId)
         if (isRefreshCommit()) {
           clearMeasurementSpans()
           advanceExcludedCommitBaseline(root)
@@ -342,7 +370,7 @@ export function startRenderTracking(): boolean {
             uncertaintyObservationId !== (getActiveObservation()?.id ?? null) &&
             analysisFailedFibers === failuresBeforeRecovery
           ) {
-            analysisFailedFibers += 1
+            noteAnalysisFailure('traversal-failed')
           }
           return
         }
@@ -360,7 +388,6 @@ export function startRenderTracking(): boolean {
           },
         )
         recordPendingUnmounts(rendererId, budget)
-        budget.currentCommitEvidence.hostMutationCaptureComplete = !hostUnmountObserved
         const candidates: { fiber: Fiber; phase: RenderPhase }[] = []
         const targetedCandidates: { fiber: Fiber; phase: RenderPhase }[] = []
         try {
@@ -375,7 +402,6 @@ export function startRenderTracking(): boolean {
             if (
               !consumeCommitWork(traversalWork, targeted ? 'target-traversal' : 'commit-traversal')
             ) {
-              budget.currentCommitEvidence.hostMutationCaptureComplete = false
               if (shouldAnalyzeCommitFiber(fiber)) {
                 if (targeted) {
                   budget.targetSkipped += 1
@@ -386,16 +412,6 @@ export function startRenderTracking(): boolean {
                 noteSkippedCommitFiber(fiber)
               }
               return
-            }
-            if (isHostFiber(fiber) || isHostTextFiber(fiber)) {
-              try {
-                // The traversal proves this host rendered now; its mutation flag is not used alone.
-                if (hasOwnHostMutation(fiber)) {
-                  budget.currentCommitEvidence.hostMutationFibers.add(fiber)
-                }
-              } catch {
-                budget.currentCommitEvidence.hostMutationCaptureComplete = false
-              }
             }
             if (!shouldAnalyzeCommitFiber(fiber)) return
             if (targeted) {
@@ -411,9 +427,8 @@ export function startRenderTracking(): boolean {
           })
         } catch {
           noteUnscannedCommit()
-          budget.currentCommitEvidence.hostMutationCaptureComplete = false
           budget.failed += 1
-          analysisFailedFibers += 1
+          noteAnalysisFailure('traversal-failed')
           uncertainTraversalRoots.set(root, getActiveObservation()?.id ?? null)
           finalizeCommitAnalysisBudget(budget)
           return
@@ -425,6 +440,7 @@ export function startRenderTracking(): boolean {
         for (const candidate of candidates) {
           recordCommitFiber(candidate.fiber, candidate.phase, budget)
         }
+        gradeCommitRenders(budget.currentCommitEvidence, effective.timeLimitMs)
         finalizeCommitAnalysisBudget(budget)
       }),
     })
@@ -470,7 +486,7 @@ function advanceExcludedCommitBaseline(root: FiberRoot): void {
   } catch {
     noteUnscannedCommit()
     uncertainTraversalRoots.set(root, getActiveObservation()?.id ?? null)
-    analysisFailedFibers += 1
+    noteAnalysisFailure('traversal-failed')
   }
 }
 
@@ -488,7 +504,6 @@ export function disposeRenderTracking(): void {
   installed = false
   commitObservedSinceInstall = false
   paused = false
-  pendingHostUnmountRenderers.clear()
   unmountRendererVerdicts.clear()
   uncertainTraversalRoots = new WeakMap()
   traversedRoots = new WeakSet()
@@ -521,6 +536,24 @@ export const getDroppedPendingUnmountFiberCount = (): number => droppedPendingUn
 export const getPendingUnmountFiberCount = (): number => pendingUnmounts.length
 export const getAnalysisFailedFiberCount = (): number => analysisFailedFibers
 export const getPausedCommitCount = (): number => pausedCommits
+
+function noteAnalysisFailure(reason: AnalysisFailureReason): void {
+  analysisFailedFibers += 1
+  analysisFailures.set(reason, (analysisFailures.get(reason) ?? 0) + 1)
+}
+
+function noteGapComponent(names: Set<string>, name: string): void {
+  if (names.size < GAP_COMPONENT_LIMIT) names.add(name)
+}
+
+/** The reasons behind the analysis-failure and input-gap counters, for coverage that says why it is incomplete. */
+export function getCoverageGapDetails(): CoverageGapDetails {
+  return {
+    analysisFailures: [...analysisFailures].map(([reason, fibers]) => ({ reason, fibers })),
+    truncatedInputComponents: [...truncatedInputComponents],
+    propsNotEnumeratedComponents: [...propsNotEnumeratedComponents],
+  }
+}
 export const getTruncatedInputFiberCount = (): number => truncatedInputFibers
 export const getPropsNotEnumeratedFiberCount = (): number => propsNotEnumeratedFibers
 export const getBudgetExhaustedCommitCount = (): number => budgetExhaustedCommits
@@ -544,13 +577,17 @@ export function getRenderTrackingCoverage(
       budgetExhaustedCommits,
       budgetExhaustedSubsystems: getBudgetExhaustedSubsystems(),
       budgetAdvice: getRenderBudgetAdvice(),
+      gaps: getCoverageGapDetails(),
     },
     scope,
   )
   return {
     ...coverage,
     targeted: {
-      components: [...observationConfiguration.components],
+      components: [
+        ...observationConfiguration.exactComponents,
+        ...observationConfiguration.components,
+      ],
       roots: [...observationConfiguration.roots],
       processedFibers: targetedFibersProcessed,
       skippedFibers: targetedFibersSkipped,
@@ -582,6 +619,9 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   droppedPendingUnmountFibers = 0
   analysisFailedFibers = 0
   pausedCommits = 0
+  analysisFailures.clear()
+  truncatedInputComponents.clear()
+  propsNotEnumeratedComponents.clear()
   truncatedInputFibers = 0
   propsNotEnumeratedFibers = 0
   budgetExhaustedCommits = 0
@@ -590,11 +630,16 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   targetedFibersProcessed = 0
   targetedFibersSkipped = 0
   droppedTargetUnmountFibers = 0
-  treeBudgetScale = mountedTreeScale()
+  const mountedTree = mountedTreeScale()
+  treeBudgetScale = mountedTree.fiberScale
   adaptiveBudgetScale = treeBudgetScale
+  treeCostScale = mountedTree.costScale
+  adaptiveCostScale = treeCostScale
   commitsWithinAdaptiveBudget = 0
   suggestedMainScale = 0
   suggestedTargetScale = 0
+  suggestedOperationLimit = 0
+  suggestedTimeLimitMs = 0
   exhaustedBudgetLimits.clear()
   for (const pending of pendingUnmounts) forgetUnmountWithoutTombstone(pending)
   replacePendingUnmounts([])
@@ -628,6 +673,7 @@ export function getRenderObservationConfig(): NonNullable<
 function configureRenderObservation(options: RenderObservationOptions): void {
   observationConfiguration = {
     components: [...new Set(options.components ?? [])].map((name) => name.toLowerCase()),
+    exactComponents: [...new Set(options.exactComponents ?? [])],
     roots: [...new Set(options.roots ?? [])],
     budget: {
       fiberLimit: options.budget?.fiberLimit ?? DEFAULT_OBSERVATION_CONFIGURATION.budget.fiberLimit,
@@ -659,18 +705,21 @@ function grown(configured: number, scale: number, ceiling: number): number {
   return Math.max(configured, Math.min(ceiling, configured * scale))
 }
 
-function scaledBudget(scale: number): RenderObservationConfiguration['budget'] {
+function scaledBudget(scale: number, costScale = 1): RenderObservationConfiguration['budget'] {
   const configured = observationConfiguration.budget
+  const workScale = scale * costScale
   return {
     ...configured,
     fiberLimit: grown(configured.fiberLimit, scale, MAXIMUM_BUDGET.fiberLimit),
-    operationLimit: grown(configured.operationLimit, scale, MAXIMUM_BUDGET.operationLimit),
-    timeLimitMs: grown(configured.timeLimitMs, scale, MAXIMUM_BUDGET.timeLimitMs),
+    operationLimit: grown(configured.operationLimit, workScale, MAXIMUM_BUDGET.operationLimit),
+    timeLimitMs: grown(configured.timeLimitMs, workScale, MAXIMUM_BUDGET.timeLimitMs),
   }
 }
 
 function effectiveObservationBudget(): RenderObservationConfiguration['budget'] {
-  return scaledBudget(currentBudgetScale())
+  return observationConfiguration.budget.adaptive
+    ? scaledBudget(adaptiveBudgetScale, adaptiveCostScale)
+    : scaledBudget(1)
 }
 
 const currentBudgetScale = (): number =>
@@ -690,35 +739,56 @@ function scaleFittingFibers(fibers: number): number {
   )
 }
 
-/** Size an adaptive window from the tree already mounted, because growth after an exhausted commit cannot restore that commit. */
-function mountedTreeScale(): number {
-  if (!observationConfiguration.budget.adaptive) return 1
-  const stack = [...findAllCommittedRootFibers().roots]
+/** Size an adaptive window from the tree already mounted, because growth after an exhausted commit cannot restore that commit; a component's analysis walks its ancestors, so deeper trees get proportionally more work per component. */
+function mountedTreeScale(): { fiberScale: number; costScale: number } {
+  if (!observationConfiguration.budget.adaptive) return { fiberScale: 1, costScale: 1 }
+  const stack: [Fiber, number][] = findAllCommittedRootFibers().roots.map((root) => [root, 0])
   let analyzable = 0
+  let analyzableDepth = 0
   let visited = 0
   while (
     stack.length > 0 &&
     visited < MOUNTED_TREE_VISIT_LIMIT &&
     analyzable < MAXIMUM_BUDGET.fiberLimit
   ) {
-    const fiber = stack.pop() as Fiber
+    const [fiber, depth] = stack.pop() as [Fiber, number]
     visited += 1
-    if (shouldAnalyzeCommitFiber(fiber)) analyzable += 1
-    if (fiber.sibling) stack.push(fiber.sibling)
-    if (fiber.child) stack.push(fiber.child)
+    if (shouldAnalyzeCommitFiber(fiber)) {
+      analyzable += 1
+      analyzableDepth += depth
+    }
+    if (fiber.sibling) stack.push([fiber.sibling, depth])
+    if (fiber.child) stack.push([fiber.child, depth + 1])
   }
-  return scaleFittingFibers(analyzable)
+  const averageDepth = analyzable === 0 ? 0 : analyzableDepth / analyzable
+  return {
+    fiberScale: scaleFittingFibers(analyzable),
+    costScale: costScaleFor(OPERATIONS_PER_COMPONENT + OPERATIONS_PER_ANCESTOR * averageDepth),
+  }
+}
+
+/** How much more work than the configured per-component share one analyzed component needs, in half steps. */
+function costScaleFor(operationsPerComponent: number): number {
+  const configured = observationConfiguration.budget
+  const configuredShare = configured.operationLimit / configured.fiberLimit
+  return Math.max(1, Math.ceil((2 * operationsPerComponent) / configuredShare) / 2)
 }
 
 /** Which limit lost evidence in this window, and a budget estimated to fit the largest lossy commit. */
 export function getRenderBudgetAdvice(): RenderBudgetAdvice | undefined {
   if (exhaustedBudgetLimits.size === 0) return undefined
   const configured = observationConfiguration.budget
-  const main = scaledBudget(suggestedMainScale)
+  const main = scaledBudget(suggestedMainScale, adaptiveCostScale)
   const suggestedBudget = {
     fiberLimit: main.fiberLimit,
-    operationLimit: main.operationLimit,
-    timeLimitMs: main.timeLimitMs,
+    operationLimit: Math.min(
+      MAXIMUM_BUDGET.operationLimit,
+      Math.max(main.operationLimit, suggestedOperationLimit),
+    ),
+    timeLimitMs: Math.min(
+      MAXIMUM_BUDGET.timeLimitMs,
+      Math.max(main.timeLimitMs, suggestedTimeLimitMs),
+    ),
     targetOperationReserve: grown(
       configured.targetOperationReserve,
       suggestedTargetScale,
@@ -748,9 +818,12 @@ function isObservationTarget(fiber: Fiber): boolean {
 }
 
 function matchesObservedComponent(fiber: Fiber): boolean {
-  return observationConfiguration.components.some((needle) =>
-    nameOf(fiber).toLowerCase().includes(needle),
-  )
+  const { components, exactComponents } = observationConfiguration
+  if (components.length === 0 && exactComponents.length === 0) return false
+  const name = nameOf(fiber)
+  if (exactComponents.includes(name)) return true
+  const lowered = name.toLowerCase()
+  return components.some((needle) => lowered.includes(needle))
 }
 
 function isWithinObservationRoot(fiber: Fiber): boolean {
@@ -804,6 +877,7 @@ interface RenderMeasurement {
   budgetExhaustedCommits: number
   budgetExhaustedSubsystems: { subsystem: string; commits: number }[]
   budgetAdvice: RenderBudgetAdvice | undefined
+  coverageGaps: CoverageGapDetails
 }
 
 interface RenderMeasurementPage extends RenderMeasurement {
@@ -888,6 +962,7 @@ export async function getRendersMeasurement(
   const budgetCommitsAtStart = budgetExhaustedCommits
   const budgetSubsystemsAtStart = getBudgetExhaustedSubsystems()
   const budgetAdviceAtStart = getRenderBudgetAdvice()
+  const coverageGapsAtStart = getCoverageGapDetails()
   const report = await buildRendersMeasurementReport(
     recordsAtStart,
     commitsAtStart,
@@ -926,6 +1001,7 @@ export async function getRendersMeasurement(
     budgetExhaustedCommits: budgetCommitsAtStart,
     budgetExhaustedSubsystems: budgetSubsystemsAtStart,
     budgetAdvice: budgetAdviceAtStart,
+    coverageGaps: coverageGapsAtStart,
   }
   if (!retainCursor) {
     return {
@@ -999,6 +1075,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
   budgetExhaustedCommits: number
   budgetExhaustedSubsystems: { subsystem: string; commits: number }[]
   budgetAdvice: RenderBudgetAdvice | undefined
+  coverageGaps: CoverageGapDetails
   renderEventRetention: {
     evictedEvents: number
     earliestDocumentCommitId: number | null
@@ -1021,6 +1098,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
   const budgetSubsystemsAtStart = getBudgetExhaustedSubsystems()
   const budgetAdviceAtStart = getRenderBudgetAdvice()
   const evictedAtStart = droppedRenderEvents
+  const coverageGapsAtStart = getCoverageGapDetails()
   const report = await buildRenderCauseEventsReport(recordsAtStart, eventsAtStart, query, {
     isCurrent: () => reportStateMatches(epoch),
   })
@@ -1040,6 +1118,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
     budgetExhaustedCommits: budgetCommitsAtStart,
     budgetExhaustedSubsystems: budgetSubsystemsAtStart,
     budgetAdvice: budgetAdviceAtStart,
+    coverageGaps: coverageGapsAtStart,
     renderEventRetention: {
       evictedEvents: evictedAtStart,
       earliestDocumentCommitId: eventsAtStart[0]?.documentCommitId ?? null,
@@ -1221,7 +1300,7 @@ export function recordCommitFiber(
     return true
   } catch {
     budget.failed += 1
-    analysisFailedFibers += 1
+    noteAnalysisFailure('analysis-failed')
     return false
   }
 }
@@ -1288,6 +1367,7 @@ function recordRenderAtomic(
     const causes: RenderCause[] = [{ kind: 'mount', evidence: 'exact' }]
     const effects: EffectScheduleObservation = effectPreparation?.observation ?? {
       scheduled: scheduledEffectCount(fiber),
+      declaredScheduled: scheduledEffectCount(fiber),
       complete: true,
     }
     const assessment = assessRender(
@@ -1298,7 +1378,6 @@ function recordRenderAtomic(
       true,
       commitWork,
       effects.complete,
-      commitEvidence,
     )
     const retained = prepareCauseEventEvidence(causes, assessment, inputCoverage)
     const record = draftRenderRecord(existing, {
@@ -1314,10 +1393,17 @@ function recordRenderAtomic(
     record.renders += 1
     record.mounts += 1
     record.causes = causes
-    record.necessity = 'necessary'
+    applyGrade(record, gradeRender('mount', false, null))
     record.assessment = assessment
     record.inputCoverage = inputCoverage
-    publishCauseEvent(record, retained, eventId)
+    const event = publishCauseEvent(record, retained, eventId)
+    awaitCommitOutput(commitEvidence, fiber, 'mount', false, record, event, {
+      propsEquivalent: false,
+      ownUpdate: null,
+      changedContexts: [],
+      effects: effects.declaredScheduled,
+      effectsComplete: effects.complete,
+    })
     instancePreparation.publish()
     effectPreparation?.publish(instance)
     return
@@ -1328,7 +1414,10 @@ function recordRenderAtomic(
   const pendingQuerySubscribers: PendingQuerySubscriberRegistration[] = []
   const propChanges = diffProps(fiber, evidenceBudget)
   const stateChanges = diffStateChanges(fiber, evidenceBudget)
-  const contextChanges = diffContextChanges(fiber, evidenceBudget)
+  const changedContexts: unknown[] = []
+  const contextChanges = diffContextChanges(fiber, evidenceBudget, (context) =>
+    changedContexts.push(context),
+  )
   const externalStoreChanges = diffExternalStoreChanges(
     fiber,
     evidenceBudget,
@@ -1372,7 +1461,7 @@ function recordRenderAtomic(
       (change): RenderCause => ({
         kind: 'state',
         evidence: 'exact',
-        name: change.name,
+        name: 'hook' in change ? change.name : classStateCauseName(change),
         before: change.before,
         after: change.after,
         deepDiff: change.deepDiff,
@@ -1389,7 +1478,7 @@ function recordRenderAtomic(
     coverage.complete && propChanges.length === 0 && comparesPropsShallowly(fiber)
   const parentResult =
     otherCauses.length === 0 && !propsCauseRender && !parentCannotExplain
-      ? renderedParentCause(fiber, commitWork, commitEvidence?.renderedFibers)
+      ? renderedParentCause(fiber, commitWork, commitEvidence)
       : { cause: null, complete: true }
   const parentCause = parentResult.cause
   const causalAnalysisComplete = coverage.complete && parentResult.complete
@@ -1406,7 +1495,6 @@ function recordRenderAtomic(
       : !causalAnalysisComplete
         ? [{ kind: 'unknown', evidence: 'unknown', reason: 'causal-analysis-incomplete' }]
         : [{ kind: 'unknown', evidence: 'unknown', reason: 'no-observable-fiber-input-change' }]
-  const valuePropChanged = propsCauseRender && propChanges.some(hasObservedValueChange)
   const valueCauses = otherCauses.filter((cause) => !isIdentityOnlyCause(cause))
   // React renders a fiber on its own only for an input it saw change, so a render with no observed trigger is unexplained, not unnecessary.
   const noObservedInputChange =
@@ -1416,14 +1504,18 @@ function recordRenderAtomic(
     propChanges.length === 0 &&
     !childrenDidChange &&
     valueCauses.length === 0
-  const necessity: RenderNecessity =
-    valueCauses.length > 0 || valuePropChanged
-      ? 'necessary'
-      : noObservedInputChange && parentCause === null
-        ? 'unnecessary'
-        : 'unknown'
+  const ownUpdate = ownUpdateScheduled(fiber)
+  const propsEquivalent =
+    coverage.complete && propsRenderEquivalently(fiber, propChanges, childrenDidChange, commitWork)
+  // Without a readable update lane, only an observed own input that kept its contents proves equal inputs.
+  const inputsEquivalent =
+    propsEquivalent &&
+    unclassifiedHookCauses.length === 0 &&
+    valueCauses.length === 0 &&
+    (ownUpdate === false || otherCauses.length > 0)
   const effects: EffectScheduleObservation = effectPreparation?.observation ?? {
     scheduled: scheduledEffectCount(fiber),
+    declaredScheduled: scheduledEffectCount(fiber),
     complete: true,
   }
   const assessment = assessRender(
@@ -1434,7 +1526,6 @@ function recordRenderAtomic(
     causalAnalysisComplete,
     commitWork,
     effects.complete,
-    commitEvidence,
   )
   const retained = prepareCauseEventEvidence(causes, assessment, coverage)
   const record = draftRenderRecord(existing, {
@@ -1451,21 +1542,34 @@ function recordRenderAtomic(
   record.updates += 1
   record.changes = changes
   record.causes = causes
-  record.necessity = necessity
+  applyGrade(record, gradeRender('update', inputsEquivalent, null))
   record.assessment = assessment
   record.inputCoverage = coverage
   if (noObservedInputChange) record.unnecessary += 1
   if (bailsOutOnProps && otherCauses.length === 0) {
     countPropOnlyMemoRender(record, fiber, propChanges, coverage.complete)
   }
-  publishCauseEvent(record, retained, renderEventId)
+  const event = publishCauseEvent(record, retained, renderEventId)
+  awaitCommitOutput(commitEvidence, fiber, 'update', inputsEquivalent, record, event, {
+    propsEquivalent,
+    ownUpdate,
+    changedContexts,
+    effects: effects.declaredScheduled,
+    effectsComplete: effects.complete,
+  })
   instancePreparation.publish()
   for (const pending of pendingQuerySubscribers) {
     registerQuerySubscriber(pending.observer, pending.subscriber)
   }
   effectPreparation?.publish(instance)
-  if (coverage.scanTruncated || coverage.omittedInputs > 0) truncatedInputFibers += 1
-  if (coverage.propsNotEnumerated) propsNotEnumeratedFibers += 1
+  if (coverage.scanTruncated || coverage.omittedInputs > 0) {
+    truncatedInputFibers += 1
+    noteGapComponent(truncatedInputComponents, recordName)
+  }
+  if (coverage.propsNotEnumerated) {
+    propsNotEnumeratedFibers += 1
+    noteGapComponent(propsNotEnumeratedComponents, recordName)
+  }
 }
 
 /** Classify a memo or pure render whose only input change was props; value changes are legitimate and not counted. */
@@ -1494,9 +1598,119 @@ function countPropOnlyMemoRender(
   }
 }
 
-/** State or context replaced by a new object whose contents a complete diff found equal. */
+/** Every changed prop, children included, would render the same: a reference-only diff, or equal contents under React element comparison. */
+function propsRenderEquivalently(
+  fiber: Fiber,
+  propChanges: PropRenderChange[],
+  childrenDidChange: boolean,
+  commitWork?: CommitWorkBudget,
+): boolean {
+  const before: unknown = fiber.alternate?.memoizedProps
+  const after: unknown = fiber.memoizedProps
+  if (typeof before !== 'object' || before === null || typeof after !== 'object' || after === null)
+    return propChanges.length === 0 && !childrenDidChange
+  const equivalent = (name: string): boolean =>
+    compareRenderInputs(ownDataValue(before, name), ownDataValue(after, name), commitWork) ===
+    'equal'
+  return (
+    propChanges.every((change) => change.referenceOnly || equivalent(change.name)) &&
+    (!childrenDidChange || equivalent('children'))
+  )
+}
+
+function ownDataValue(props: object, name: string): unknown {
+  const descriptor = safeOwnPropertyDescriptor(props, name)
+  return isDataDescriptor(descriptor) ? descriptor.value : undefined
+}
+
+function applyGrade(
+  target: { necessity: RenderNecessity; necessityReason: NecessityGrade['necessityReason'] },
+  grade: NecessityGrade,
+): void {
+  target.necessity = grade.necessity
+  target.necessityReason = grade.necessityReason
+}
+
+/** Necessity needs the whole commit's host output, so the commit handler grades every render once traversal ends. */
+function awaitCommitOutput(
+  commitEvidence: CurrentCommitEvidence | undefined,
+  fiber: Fiber,
+  phase: 'mount' | 'update',
+  inputsEquivalent: boolean,
+  record: RenderRecord,
+  event: RetainedRenderCauseEvent,
+  facts: CommitRenderFacts,
+): void {
+  record.wraps = undefined
+  record.wrappedBy = undefined
+  if (!commitEvidence) return
+  commitEvidence.renderFacts.set(fiber, facts)
+  commitEvidence.pendingGrades.push({
+    fiber,
+    phase,
+    inputsEquivalent,
+    assessment: record.assessment,
+    wrapper: wrapperOf(fiber),
+    publish: (grade) => {
+      applyGrade(record, grade)
+      applyGrade(event, grade)
+    },
+    relate: (relation, related) => {
+      record[relation] = related
+      event[relation] = related
+    },
+    describe: () => ({
+      componentId: record.id,
+      componentName: record.name,
+      renderEventId: event.renderEventId,
+      causes: event.causes.map(compactRenderCause),
+      necessity: event.necessity,
+      necessityReason: event.necessityReason,
+    }),
+  })
+}
+
+const OUTPUT_OPERATION_LIMIT = 200_000
+
+/** A wrapper and the component it wraps that rendered in the same commit each carry the other's causes, so asking about either one finds the real cause. */
+function linkWrappedRenders(grades: PendingRenderGrade[]): void {
+  const byFiber = new Map(grades.map((grade) => [grade.fiber, grade]))
+  for (const inner of grades) {
+    if (!inner.wrapper) continue
+    const wrapper =
+      byFiber.get(inner.wrapper) ??
+      (inner.wrapper.alternate ? byFiber.get(inner.wrapper.alternate) : undefined)
+    if (!wrapper) continue
+    wrapper.relate('wraps', inner.describe())
+    inner.relate('wrappedBy', wrapper.describe())
+  }
+}
+
+function gradeCommitRenders(evidence: CurrentCommitEvidence, timeLimitMs: number): void {
+  if (evidence.pendingGrades.length === 0) return
+  const commitWork = createCommitWorkBudget({ operationLimit: OUTPUT_OPERATION_LIMIT, timeLimitMs })
+  const tallies = attributeCommitOutput({
+    rendered: evidence.renderedFibers,
+    facts: evidence.renderFacts,
+    commitWork,
+  })
+  for (const pending of evidence.pendingGrades) {
+    const output = tallies.get(pending.fiber) ?? null
+    if (output) applyOutputAssessment(pending.assessment, output)
+    pending.publish(gradeRender(pending.phase, pending.inputsEquivalent, output))
+  }
+  linkWrappedRenders(evidence.pendingGrades)
+  if (commitWork.exhaustedLimit) {
+    budgetExhaustedSubsystems.set(
+      'render-output',
+      (budgetExhaustedSubsystems.get('render-output') ?? 0) + 1,
+    )
+  }
+}
+
+/** State, context or a store snapshot replaced by a new object whose contents a complete diff found equal. */
 function isIdentityOnlyCause(cause: RenderCause): boolean {
-  if (cause.kind !== 'state' && cause.kind !== 'context') return false
+  if (!('deepDiff' in cause) || cause.kind === 'props') return false
   const { changes, truncated } = cause.deepDiff
   return !truncated && changes.length > 0 && changes.every((diff) => diff.kind === 'reference-only')
 }
@@ -1518,7 +1732,7 @@ interface PreparedCauseEventEvidence {
   inputCoverage: RenderInputCoverage
 }
 
-// Retained evidence is never mutated after this point and every read clones it, so it is shared rather than copied per render.
+// Retained evidence is shared rather than copied per render: only the commit handler that published it grades it, and every read clones it.
 function prepareCauseEventEvidence(
   causes: RenderCause[],
   assessment: RenderAssessment,
@@ -1630,7 +1844,7 @@ function publishCauseEvent(
   record: RenderRecord,
   retained: PreparedCauseEventEvidence,
   eventId: string,
-): void {
+): RetainedRenderCauseEvent {
   for (const cause of retained.causes) record.causeCounts[cause.kind] += 1
   record.latestRenderEventId = eventId
   const event: RetainedRenderCauseEvent = {
@@ -1647,6 +1861,7 @@ function publishCauseEvent(
     },
     causes: retained.causes,
     necessity: record.necessity,
+    necessityReason: record.necessityReason,
     assessment: retained.assessment,
     inputCoverage: retained.inputCoverage,
   }
@@ -1656,6 +1871,7 @@ function publishCauseEvent(
     recentCauseEvents.shift()
     droppedRenderEvents += 1
   }
+  return event
 }
 
 /** Finalize once after traversal so report coverage names every subsystem the shared guard stopped. */
@@ -1677,11 +1893,18 @@ export function finalizeCommitAnalysisBudget(budget: CommitAnalysisBudget): void
   if (fiberLimitReached) exhaustedBudgetLimits.add('fiberLimit')
   if (budget.work.exhaustedLimit) {
     exhaustedBudgetLimits.add(budget.work.exhaustedLimit)
-    suggestedMainScale = Math.max(
-      suggestedMainScale,
-      scale + 1,
-      Math.ceil((scale * fibersToAnalyze) / Math.max(1, budget.processed)),
-    )
+    suggestedMainScale = Math.max(suggestedMainScale, scale, treeBudgetScale)
+    const required = measuredRequirement(budget, fibersToAnalyze)
+    suggestedOperationLimit = Math.max(suggestedOperationLimit, required.operations)
+    suggestedTimeLimitMs = Math.max(suggestedTimeLimitMs, required.timeLimitMs)
+    if (observationConfiguration.budget.adaptive) {
+      const configured = observationConfiguration.budget
+      adaptiveCostScale = Math.max(
+        adaptiveCostScale,
+        required.operations / (configured.operationLimit * adaptiveBudgetScale),
+        required.timeLimitMs / (configured.timeLimitMs * adaptiveBudgetScale),
+      )
+    }
   }
   suggestedMainScale = Math.max(suggestedMainScale, treeBudgetScale)
   if (budget.targetWork.exhaustedLimit) {
@@ -1700,8 +1923,10 @@ export function finalizeCommitAnalysisBudget(budget: CommitAnalysisBudget): void
   }
   commitsWithinAdaptiveBudget = 0
   if (observationConfiguration.budget.adaptive) {
-    const grownScale = exhausted.length > 0 ? adaptiveBudgetScale + 1 : adaptiveBudgetScale
-    adaptiveBudgetScale = Math.min(maxAdaptiveScale(), Math.max(grownScale, treeBudgetScale))
+    adaptiveBudgetScale = Math.min(
+      maxAdaptiveScale(),
+      Math.max(adaptiveBudgetScale, treeBudgetScale),
+    )
   }
   if (exhausted.length === 0) return
   markMeasurementIncomplete()
@@ -1712,18 +1937,49 @@ export function finalizeCommitAnalysisBudget(budget: CommitAnalysisBudget): void
 }
 
 function decayAdaptiveBudget(): void {
-  if (adaptiveBudgetScale <= treeBudgetScale) return
+  if (adaptiveBudgetScale <= treeBudgetScale && adaptiveCostScale <= treeCostScale) return
   commitsWithinAdaptiveBudget += 1
   if (commitsWithinAdaptiveBudget < ADAPTIVE_DECAY_COMMITS) return
   commitsWithinAdaptiveBudget = 0
-  adaptiveBudgetScale -= 1
+  adaptiveBudgetScale = Math.max(treeBudgetScale, adaptiveBudgetScale - 1)
+  adaptiveCostScale = Math.max(treeCostScale, adaptiveCostScale - 1)
+}
+
+/** Work the whole commit needed, extrapolated from what each analyzed component cost before the budget ran out (traversal costs one operation per rendered fiber), and at least double the configured limit that ran out. */
+function measuredRequirement(
+  budget: CommitAnalysisBudget,
+  fibersToAnalyze: number,
+): { operations: number; timeLimitMs: number } {
+  const work = budget.work
+  const effective = effectiveObservationBudget()
+  const consumed = work.operationLimit - work.remainingOperations
+  const traversal = Math.min(consumed, budget.currentCommitEvidence.renderedFibers.size)
+  const perComponent = budget.processed > 0 ? fibersToAnalyze / budget.processed : 0
+  const operations = traversal + (consumed - traversal) * perComponent
+  const milliseconds = (work.now() - work.startedAt) * perComponent
+  const floor = (limit: number, exhausted: boolean): number => (exhausted ? 2 * limit : 0)
+  return {
+    operations: Math.ceil(
+      Math.max(
+        operations * BUDGET_ADVICE_MARGIN,
+        floor(effective.operationLimit, work.exhaustedLimit === 'operationLimit'),
+      ),
+    ),
+    timeLimitMs: Math.ceil(
+      Math.max(
+        milliseconds * BUDGET_ADVICE_MARGIN,
+        floor(effective.timeLimitMs, work.exhaustedLimit === 'timeLimitMs'),
+      ),
+    ),
+  }
 }
 
 function renderedParentCause(
   fiber: Fiber,
   budget?: CommitWorkBudget,
-  renderedFibers?: ReadonlySet<Fiber>,
+  commitEvidence?: CurrentCommitEvidence,
 ): { cause: RenderCause | null; complete: boolean } {
+  const renderedFibers = commitEvidence?.renderedFibers
   try {
     let parent = fiber.return
     while (parent && !isCompositeFiber(parent)) {
@@ -1741,11 +1997,17 @@ function renderedParentCause(
         parentId: getFiberId(parent),
         parentName: nameOf(parent),
         reason: 'nearest-rendered-ancestor',
+        origin: cascadeOrigin(
+          parent,
+          renderedFibers,
+          commitEvidence?.cascadeOrigins ?? new Map(),
+          budget,
+        ),
       },
       complete: true,
     }
   } catch {
-    analysisFailedFibers += 1
+    noteAnalysisFailure('analysis-failed')
     return { cause: null, complete: false }
   }
 }

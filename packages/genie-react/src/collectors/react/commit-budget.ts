@@ -4,6 +4,8 @@ export const DEFAULT_TIME_LIMIT_MS = 8
 const CLOCK_CHECK_INTERVAL = 16
 
 export interface CommitWorkBudget {
+  readonly operationLimit: number
+  readonly startedAt: number
   remainingOperations: number
   deadlineAt: number
   operationsUntilClockCheck: number
@@ -35,9 +37,12 @@ export function createCommitWorkBudget(options: CommitWorkBudgetOptions = {}): C
   const now = options.now ?? monotonicNow
   const operationLimit = boundedPositiveInteger(options.operationLimit, DEFAULT_OPERATION_LIMIT)
   const timeLimitMs = normalizeTimeLimitMs(options.timeLimitMs)
+  const startedAt = now()
   return {
+    operationLimit,
+    startedAt,
     remainingOperations: operationLimit,
-    deadlineAt: now() + timeLimitMs,
+    deadlineAt: startedAt + timeLimitMs,
     operationsUntilClockCheck: 0,
     exhaustedSubsystems: new Set(),
     exhaustedLimit: null,

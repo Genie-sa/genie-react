@@ -1,17 +1,17 @@
 import { useEffect, useRef } from 'react'
-import type { z } from 'zod'
 import {
   type DefaultToolInput,
   type DefaultToolOutput,
   defineGenieTool,
   type GenieAppTool,
   type GenieToolDefinition,
+  type GenieToolSchema,
   registerGenieTools,
 } from '../app-tools'
 
 export type UseGenieToolOptions<
-  I extends z.ZodType = DefaultToolInput,
-  O extends z.ZodType = DefaultToolOutput,
+  I extends GenieToolSchema = DefaultToolInput,
+  O extends GenieToolSchema = DefaultToolOutput,
 > = GenieToolDefinition<I, O> & {
   /** Gate registration (e.g. behind a feature flag); the tool tombstones while disabled. */
   enabled?: boolean
@@ -19,8 +19,8 @@ export type UseGenieToolOptions<
 
 /** Exposes one custom tool to the genie agent while the component is mounted (afterwards it stays listed as unavailable with a recovery hint); the handler always sees the latest render's closure — no dependency array, no stale state. */
 export function useGenieTool<
-  I extends z.ZodType = DefaultToolInput,
-  O extends z.ZodType = DefaultToolOutput,
+  I extends GenieToolSchema = DefaultToolInput,
+  O extends GenieToolSchema = DefaultToolOutput,
 >(options: UseGenieToolOptions<I, O>): void {
   const latest = useRef(options)
   useEffect(() => {

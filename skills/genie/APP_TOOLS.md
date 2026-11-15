@@ -126,3 +126,257 @@ Check all of the following:
 - Temporary roles, fixtures, injected failures, and overrides are restored after verification.
 
 The custom-tool change is complete only when every modified tool passes these checks.
+
+## 6. Recipe: prove what a Redux store did
+
+Genie has no Redux collector. React tools can show that a connected component did or did not render, but not which action ran, what it carried, or what the reducers made of it. Add a development-only recorder middleware and two query tools, `app_redux_actions` and `app_redux_state`, so an agent can prove which actions were dispatched, with which arguments, and the state they left. `apps/realworld-legacy` runs this recipe as written, and its probes test it.
+
+`redux-recorder.ts` keeps the last 500 plain actions in a ring buffer. Each entry has a sequence number, a bounded copy of the action taken at dispatch, and the top-level slices whose reference changed:
+
+```ts
+import type { Middleware } from '@reduxjs/toolkit'
+
+const CAPACITY = 500
+const ACTION_LIMITS: CopyLimits = { depth: 6, items: 25, nodes: 400, text: 300 }
+
+export interface CopyLimits {
+  depth: number
+  items: number
+  nodes: number
+  text: number
+}
+
+export interface RecordedAction {
+  sequence: number
+  at: number
+  type: string
+  /** A bounded copy taken at dispatch, so a later change to the action object cannot rewrite the record. */
+  action: unknown
+  truncated: boolean
+  /** Top-level slices whose reference changed; empty means no subscriber saw the action. */
+  changedSlices: string[]
+}
+
+const recorded: RecordedAction[] = []
+let latestSequence = 0
+
+/** Development-only: records every plain action that reaches the reducers. Place it after the thunk middleware, so a thunk appears as the actions it dispatches. */
+export const actionRecorder: Middleware = (store) => (next) => (action) => {
+  if (process.env.NODE_ENV === 'production' || !isAction(action)) return next(action)
+  const before: unknown = store.getState()
+  const result = next(action)
+  const after: unknown = store.getState()
+  const { value, truncated } = boundedCopy(action, ACTION_LIMITS)
+  latestSequence += 1
+  recorded.push({
+    sequence: latestSequence,
+    at: Date.now(),
+    type: action.type,
+    action: value,
+    truncated,
+    changedSlices: changedKeys(before, after),
+  })
+  if (recorded.length > CAPACITY) recorded.shift()
+  return result
+}
+
+/** Actions after `sinceSequence`, oldest first; `missed` counts the ones the ring buffer already evicted. */
+export function readRecordedActions(sinceSequence: number): {
+  latestSequence: number
+  missed: number
+  actions: RecordedAction[]
+} {
+  const oldestRetained = recorded[0]?.sequence ?? latestSequence + 1
+  return {
+    latestSequence,
+    missed: Math.max(0, oldestRetained - sinceSequence - 1),
+    actions: recorded.filter((entry) => entry.sequence > sinceSequence),
+  }
+}
+
+export function recordedSequence(): number {
+  return latestSequence
+}
+
+/** A JSON-safe copy cut at the limits; `truncated` is true when any limit removed something. */
+export function boundedCopy(
+  value: unknown,
+  limits: CopyLimits,
+): { value: unknown; truncated: boolean } {
+  let truncated = false
+  let nodes = limits.nodes
+  const ancestors = new Set<object>()
+  const cut = (summary: string) => {
+    truncated = true
+    return summary
+  }
+  const copy = (item: unknown, depth: number): unknown => {
+    if (typeof item === 'string') {
+      return item.length <= limits.text ? item : cut(`${item.slice(0, limits.text)}…`)
+    }
+    if (typeof item === 'bigint') return `${item}n`
+    if (typeof item === 'function') return `[function ${item.name || 'anonymous'}]`
+    if (typeof item === 'symbol') return item.toString()
+    if (item === null || typeof item !== 'object') return item
+    if (item instanceof Date) return item.toISOString()
+    if (item instanceof Map || item instanceof Set) return cut(`[${item.constructor.name} of ${item.size}]`)
+    const size = Array.isArray(item) ? item.length : Object.keys(item).length
+    const kind = Array.isArray(item) ? 'array' : 'object'
+    if (ancestors.has(item)) return cut('[circular]')
+    if (depth >= limits.depth || nodes <= 0) return cut(`[${kind} of ${size}]`)
+    nodes -= 1
+    ancestors.add(item)
+    try {
+      if (Array.isArray(item)) {
+        const items = item.slice(0, limits.items).map((entry) => copy(entry, depth + 1))
+        return item.length > limits.items ? [...items, cut(`[${item.length - limits.items} more]`)] : items
+      }
+      const entries = Object.entries(item)
+      const shown = entries.slice(0, limits.items).map(([key, entry]) => [key, copy(entry, depth + 1)])
+      if (entries.length > limits.items) shown.push(['…', cut(`${entries.length - limits.items} more keys`)])
+      return Object.fromEntries(shown)
+    } finally {
+      ancestors.delete(item)
+    }
+  }
+  return { value: copy(value, 0), truncated }
+}
+
+function isAction(value: unknown): value is { type: string } {
+  return isRecord(value) && typeof value.type === 'string'
+}
+
+function changedKeys(before: unknown, after: unknown): string[] {
+  if (!isRecord(before) || !isRecord(after)) return before === after ? [] : ['(root)']
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)])
+  return [...keys].filter((key) => before[key] !== after[key])
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+```
+
+`redux-tools.ts` reads the recorder and the store. It defines tools without registering them:
+
+```ts
+import type { Store } from '@reduxjs/toolkit'
+import { defineGenieTool, GenieToolError } from 'genie-react/tools'
+import { z } from 'zod'
+import { boundedCopy, readRecordedActions, recordedSequence } from './redux-recorder'
+
+const STATE_LIMITS = { nodes: 5_000, text: 300 }
+
+const recordedAction = z.object({
+  sequence: z.number().int(),
+  at: z.number(),
+  type: z.string(),
+  action: z.unknown(),
+  truncated: z.boolean(),
+  changedSlices: z.array(z.string()),
+})
+
+/** `app_redux_state` and `app_redux_actions` for one store; the actions come from `actionRecorder`. */
+export function reduxTools(store: Store) {
+  return [
+    defineGenieTool({
+      name: 'redux_state',
+      group: 'redux',
+      kind: 'query',
+      description:
+        'Reads the Redux store at a dot path such as "reports.notes" ("" for the root), copied within depth and maxItems; truncated says a bound cut it. asOfSequence is the last action app_redux_actions recorded: value is the state an action left when no later action changed this slice.',
+      input: z.object({
+        path: z.string().default(''),
+        maxItems: z.number().int().min(1).max(200).default(25),
+        depth: z.number().int().min(1).max(8).default(4),
+      }),
+      output: z.object({
+        path: z.string(),
+        asOfSequence: z.number().int(),
+        value: z.unknown(),
+        truncated: z.boolean(),
+      }),
+      handler: ({ path, maxItems, depth }) => ({
+        path,
+        asOfSequence: recordedSequence(),
+        ...boundedCopy(readPath(store.getState(), path), {
+          ...STATE_LIMITS,
+          depth,
+          items: maxItems,
+        }),
+      }),
+    }),
+    defineGenieTool({
+      name: 'redux_actions',
+      group: 'redux',
+      kind: 'query',
+      description:
+        'Lists Redux actions after sinceSequence, oldest first: type, a bounded copy of the action as dispatched (payload, or meta.arg for a thunk), and changedSlices, the top-level slices whose reference changed. Empty changedSlices means no subscriber re-renders. Page with the last sequence; missed counts newer actions already evicted.',
+      input: z.object({
+        sinceSequence: z.number().int().min(0).default(0),
+        typePrefix: z.string().default('').describe('Only types starting with this, e.g. reports/'),
+        limit: z.number().int().min(1).max(300).default(50),
+      }),
+      output: z.object({
+        latestSequence: z.number().int(),
+        missed: z.number().int(),
+        actions: z.array(recordedAction),
+        more: z.boolean(),
+      }),
+      handler: ({ sinceSequence, typePrefix, limit }) => {
+        const { latestSequence, missed, actions } = readRecordedActions(sinceSequence)
+        const matching = actions.filter((entry) => entry.type.startsWith(typePrefix))
+        return {
+          latestSequence,
+          missed,
+          actions: matching.slice(0, limit),
+          more: matching.length > limit,
+        }
+      },
+    }),
+  ]
+}
+
+function readPath(root: unknown, path: string): unknown {
+  let value = root
+  for (const segment of path.split('.').filter(Boolean)) {
+    if (typeof value !== 'object' || value === null || !Object.hasOwn(value, segment)) {
+      throw new GenieToolError(`No state at "${path}"`, {
+        code: 'UNKNOWN_PATH',
+        hint: 'Call app_redux_state with path "" to list the top-level slices',
+      })
+    }
+    value = Reflect.get(value, segment)
+  }
+  return value
+}
+```
+
+Install the recorder after the thunk middleware, then register the tools once in development:
+
+```ts
+const store = configureStore({
+  reducer,
+  middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(actionRecorder),
+})
+if (process.env.NODE_ENV !== 'production') registerGenieTools(...reduxTools(store))
+```
+
+With plain Redux, pass it last: `applyMiddleware(thunk, actionRecorder)`.
+
+To prove what an interaction dispatched:
+
+1. `npx genie-react call app_redux_actions '{"limit":1}' --session my-agent` and keep `latestSequence` as N.
+2. Drive the interaction.
+3. `npx genie-react call app_redux_actions '{"sinceSequence":N}' --session my-agent`. Each entry is one action as it reached the reducers. `action` holds what was dispatched: its payload, or the thunk's argument under `meta.arg` for `createAsyncThunk`. `missed` above 0 means the buffer evicted actions you did not read, so the list is incomplete. `more: true` means page on with the last sequence returned.
+4. `npx genie-react call app_redux_state '{"path":"reports.notes"}' --session my-agent`. `value` is the state as of `asOfSequence`. It is the state a given action left only when `app_redux_actions` read from that action's sequence lists no later action for the same slice.
+
+What this proves and what it cannot:
+
+- It proves that an action reached the reducers, what the action held when it was dispatched (within the copy limits), whether each top-level slice reference changed, and what the store holds now.
+- `changedSlices: []` means no slice got a new reference, so `connect` and `useSelector` subscribers do not render for that action.
+- It cannot prove that a reducer mutated state. The recorder compares references and keeps no copy of the previous contents, so a reducer that returned the old state untouched looks the same as one that changed it in place. New data in `app_redux_state` after an empty `changedSlices` is consistent with a mutation, not proof of one. Redux Toolkit's `immutableCheck` middleware or a reducer test proves a mutation.
+- Copies stop at depth, item, node, and string limits, and `truncated: true` marks a copy that a limit cut. Functions, Maps, Sets and dates appear as descriptions.
+- A thunk is recorded as the plain actions it dispatches, never as the function. Actions from before the store existed, and every action in production, are not recorded.
+
+This recipe is complete when the agent can read the actions of one interaction without `missed`, and state read from `app_redux_state` agrees with the screen or explains why it differs.

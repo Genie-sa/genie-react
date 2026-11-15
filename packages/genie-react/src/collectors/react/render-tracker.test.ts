@@ -358,9 +358,11 @@ describe('causal render attribution', () => {
 
     render(fiber, 'update')
     const report = (await getRenders({ sort: 'renders', limit: 10 }))[0]
+    // Without a commit, the host output that decides necessity was never observed.
     expect(report).toMatchObject({
       unnecessary: 0,
-      necessity: 'necessary',
+      necessity: 'unknown',
+      necessityReason: 'output-incomplete',
       causes: [{ kind: 'external-store', evidence: 'inferred' }],
       causeCounts: { 'external-store': 1 },
     })
@@ -635,7 +637,9 @@ describe('causal render attribution', () => {
         kind: 'context',
         evidence: 'exact',
         contextIndex: 0,
+        contextId: expect.stringMatching(/^context:\d+$/),
         name: 'Theme',
+        provider: null,
         before: 'light',
         after: 'dark',
         deepDiff: {
@@ -739,7 +743,8 @@ describe('causal render attribution', () => {
       causes: [{ kind: 'context', deepDiff: { changes: [{ kind: 'reference-only', path: '' }] } }],
     })
     expect(reports.get('NewTheme')).toMatchObject({
-      necessity: 'necessary',
+      necessity: 'unknown',
+      necessityReason: 'output-incomplete',
       noObservedInputChange: 0,
     })
   })
@@ -1074,6 +1079,7 @@ describe('recordRender unnecessary accounting', () => {
         name: 'class state',
         kind: 'state',
         unstable: false,
+        changedFields: ['count'],
         before: { count: 1 },
         after: { count: 2 },
         deepDiff: {
@@ -1082,6 +1088,9 @@ describe('recordRender unnecessary accounting', () => {
           truncated: false,
         },
       },
+    ])
+    expect((await byName()).get('Counter')?.causes).toEqual([
+      expect.objectContaining({ kind: 'state', name: 'this.state.count' }),
     ])
   })
 
@@ -1312,13 +1321,13 @@ describe('commit analysis budget', () => {
     })
   })
 
-  it('grows a small budget adaptively after an exhausted commit', () => {
+  it('grows the work limits of a small budget adaptively after an exhausted commit', () => {
     clearRenders({ budget: { fiberLimit: 250, operationLimit: 20_000, timeLimitMs: 8 } })
     exhaustOneCommit()
 
     expect(getRenderObservationConfig()).toMatchObject({
-      adaptiveScale: 2,
-      fiberLimit: 500,
+      adaptiveScale: 1,
+      fiberLimit: 250,
       operationLimit: 40_000,
       timeLimitMs: 16,
     })
@@ -1331,11 +1340,11 @@ describe('commit analysis budget', () => {
     const withinBudget = () => finalizeCommitAnalysisBudget(createCommitAnalysisBudget())
 
     for (let commit = 0; commit < 29; commit += 1) withinBudget()
-    expect(getRenderObservationConfig()).toMatchObject({ adaptiveScale: 3, timeLimitMs: 24 })
+    expect(getRenderObservationConfig()).toMatchObject({ operationLimit: 80_000, timeLimitMs: 32 })
     withinBudget()
-    expect(getRenderObservationConfig()).toMatchObject({ adaptiveScale: 2, timeLimitMs: 16 })
+    expect(getRenderObservationConfig()).toMatchObject({ operationLimit: 60_000, timeLimitMs: 24 })
     for (let commit = 0; commit < 100; commit += 1) withinBudget()
-    expect(getRenderObservationConfig()).toMatchObject({ adaptiveScale: 1, timeLimitMs: 8 })
+    expect(getRenderObservationConfig()).toMatchObject({ operationLimit: 20_000, timeLimitMs: 8 })
   })
 
   it('stops adaptive growth at the ceiling', () => {
@@ -1343,7 +1352,7 @@ describe('commit analysis budget', () => {
     exhaustOneCommit()
 
     expect(getRenderObservationConfig()).toMatchObject({
-      adaptiveScale: 2,
+      adaptiveScale: 1,
       fiberLimit: 20_000,
       operationLimit: 2_000_000,
       timeLimitMs: 500,
@@ -1701,7 +1710,8 @@ describe('memo-aware prop causes', () => {
       causes: [{ kind: 'parent', parentName: 'Parent' }, { kind: 'children' }],
     })
     expect(records.get('MemoWrapper')).toMatchObject({
-      necessity: 'necessary',
+      necessity: 'unknown',
+      necessityReason: 'output-incomplete',
       causes: [{ kind: 'children' }],
     })
     expect(records.get('MemoWrapper')?.causes).toHaveLength(1)
@@ -1724,7 +1734,7 @@ describe('memo-aware prop causes', () => {
     })
   })
 
-  it('calls a memo render necessary when a prop value changed', async () => {
+  it('withholds a verdict on a memo prop value change whose host output was not observed', async () => {
     renderUnder(
       componentFiber({
         name: 'MemoValue',
@@ -1735,7 +1745,8 @@ describe('memo-aware prop causes', () => {
     )
 
     expect((await byName()).get('MemoValue')).toMatchObject({
-      necessity: 'necessary',
+      necessity: 'unknown',
+      necessityReason: 'output-incomplete',
       referenceOnlyPropRenders: 0,
       causes: [{ kind: 'props', name: 'count' }],
     })

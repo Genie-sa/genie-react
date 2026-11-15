@@ -46,6 +46,6 @@
   },
   "genieEvidence": {
     "observability": "full",
-    "notes": "react_effect_audit reports the ActivityLog effect firing once per keystroke with lastChangedDep 1 (types), but labels it hotness 'not-hot' because the renders from its own fetch results did not fire it. The timeline request lane shows one /activity request per keystroke. Request URLs drop the query string (?types=...)."
+    "notes": "react_effect_audit reports the useActivity effect (use-activity.ts) re-running once per keystroke with lastChangedDep 1 (types) and labels it hot: every re-run changed only the identity of an equal array. The timeline request lane shows one /activity request per keystroke. Request URLs drop the query string (?types=...)."
   }
 }

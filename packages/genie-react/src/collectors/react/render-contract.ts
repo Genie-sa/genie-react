@@ -119,6 +119,9 @@ const renderHookStateChangeSchema = renderStateChangeBase.extend({
 
 const renderClassStateChangeSchema = renderStateChangeBase.extend({
   name: z.literal('class state'),
+  changedFields: z
+    .array(z.string())
+    .describe('Top-level fields of this.state whose value or reference changed.'),
 })
 
 const renderExternalStoreCauseBase = z.object({
@@ -126,6 +129,12 @@ const renderExternalStoreCauseBase = z.object({
   externalStoreIndex: z.number().int().nonnegative(),
   subscriberId: z.string(),
   selectionEqual: z.literal(false),
+  subscriptionFired: z
+    .literal(true)
+    .nullable()
+    .describe(
+      'true: React scheduled an update on this subscriber, as a store subscription does when it fires. null: unreadable. A snapshot that changed only because this render recomputed it from new props is not reported as a store cause.',
+    ),
   before: appValueSchema('Depth- and size-bounded selected snapshot before this commit.'),
   after: appValueSchema('Depth- and size-bounded selected snapshot after this commit.'),
   changedFields: z
@@ -197,20 +206,48 @@ export const renderAssessmentSchema = z.object({
       'Kinds of the exact input changes; unknown marks a changed hook Genie cannot classify.',
     ),
   behaviorEvidence: z.object({
-    subtreeHostMutations: z.object({
-      status: z.enum(['observed', 'none-observed', 'incomplete']),
-      count: z.number().int().nonnegative(),
-      pendingSubtrees: z.number().int().nonnegative(),
-      omittedByLimit: z
-        .number()
-        .int()
-        .nonnegative()
-        .describe('Legacy alias for pendingSubtrees; not an omitted-Fiber count.'),
-    }),
+    subtreeHostMutations: z
+      .object({
+        status: z.enum(['observed', 'none-observed', 'incomplete']),
+        count: z
+          .number()
+          .int()
+          .nonnegative()
+          .describe(
+            'Host writes this commit performed for the render and the children it rendered: changed attributes, styles or text, and inserted, moved or removed nodes. A prop React does not write, such as a new event handler, is not counted.',
+          ),
+        pendingSubtrees: z.number().int().nonnegative().describe('Legacy field, always 0.'),
+        omittedByLimit: z.number().int().nonnegative().describe('Legacy field, always 0.'),
+        callbackOnlyUpdates: z
+          .number()
+          .int()
+          .nonnegative()
+          .describe(
+            'Host elements whose only changed props were functions, such as a new onClick or ref callback: no host write, but new closures.',
+          ),
+        writes: z
+          .array(z.string())
+          .max(8)
+          .describe(
+            'Up to 8 distinct writes: element.prop, #text, element:insert, element:move, element:remove-child or suspense:visibility.',
+          ),
+        callbacks: z.array(z.string()).max(8).describe('Up to 8 element.prop callback changes.'),
+      })
+      .describe(
+        'Children that rendered for their own update with unchanged props keep their output, and output a Context change caused is credited to the component that renders its provider.',
+      ),
     scheduledEffects: z.object({
       status: z.enum(['observed', 'none-observed', 'incomplete']),
       count: z.number().int().nonnegative(),
     }),
+    subtreeScheduledEffects: z
+      .object({
+        status: z.enum(['observed', 'none-observed', 'incomplete']),
+        count: z.number().int().nonnegative(),
+      })
+      .describe(
+        'Effects and class lifecycles scheduled by this render and the children it rendered with changed inputs.',
+      ),
     unobservedDomains: z.array(
       z.enum(['focus', 'url', 'network', 'transition', 'freshness', 'effect-execution']),
     ),
@@ -280,8 +317,23 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('context'),
     evidence: z.literal('exact'),
-    contextIndex: z.number().int().nonnegative(),
-    name: z.string(),
+    contextIndex: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe("Position among this component's own Context reads; differs between consumers."),
+    contextId: z
+      .string()
+      .describe('Identifies the Context object: equal across every consumer of the same Context.'),
+    name: z
+      .string()
+      .describe(
+        'The Context displayName, else Context(<component rendering its provider>), else Context[contextIndex].',
+      ),
+    provider: z
+      .object({ componentId: z.number().int(), componentName: z.string() })
+      .nullable()
+      .describe('The component that renders the nearest provider, whose value changed.'),
     before: appValueSchema('Depth- and size-bounded value before this commit.'),
     after: appValueSchema('Depth- and size-bounded value after this commit.'),
     deepDiff: deepDiffSchema,
@@ -373,6 +425,13 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
     parentId: z.number().int(),
     parentName: z.string(),
     reason: z.literal('nearest-rendered-ancestor'),
+    origin: z
+      .object({ componentId: z.number().int(), componentName: z.string() })
+      .nullable()
+      .optional()
+      .describe(
+        'The nearest rendered ancestor React scheduled an update on, whose state, store, Context or forceUpdate started the cascade that reached this component. null when the chain could not be followed.',
+      ),
   }),
   z.object({
     kind: z.literal('unknown'),
@@ -399,7 +458,21 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
 const renderNecessitySchema = z
   .enum(['necessary', 'unnecessary', 'unknown'])
   .describe(
-    'Legacy input-only classification kept for compatibility. It is not a safe-to-remove verdict; use assessment instead.',
+    'necessary: the render wrote to the host. unnecessary: its inputs were provably equal, or it wrote nothing, replaced no callback and scheduled no effect. unknown: see necessityReason. Not a safe-to-remove verdict; validate the behavior assessment lists.',
+  )
+
+const necessityReasonSchema = z
+  .enum([
+    'mount',
+    'dom-changed',
+    'inputs-unchanged',
+    'output-unchanged',
+    'callbacks-changed',
+    'effects-scheduled',
+    'output-incomplete',
+  ])
+  .describe(
+    'callbacks-changed: no host write, but new event handlers or ref callbacks whose closures Genie cannot compare. effects-scheduled: no host write, but effects or lifecycles were scheduled. output-incomplete: a host update, child render or budget could not be analyzed.',
   )
 
 const RENDER_CAUSE_KINDS = [
@@ -427,6 +500,60 @@ const renderCauseCountsSchema = z.object({
   parent: z.number().int().nonnegative(),
   unknown: z.number().int().nonnegative(),
 })
+
+const compactCauseSchema = z.object({
+  kind: z.enum(RENDER_CAUSE_KINDS),
+  evidence: z.enum(['exact', 'inferred', 'unknown']),
+  name: z
+    .string()
+    .optional()
+    .describe(
+      'Prop, state or context name, store label, query hash, router ID or parent component.',
+    ),
+  contextIndex: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe('Which context read changed, for a component that reads the same context twice.'),
+  referenceOnly: z.literal(true).optional(),
+  reason: z
+    .string()
+    .optional()
+    .describe(
+      'Why an unknown cause could not be attributed, or how a query cause was matched; only query-notification-delivered is exact.',
+    ),
+  changedResultFields: z
+    .array(z.string())
+    .optional()
+    .describe('Query result fields the delivered notification changed, e.g. data or fetchStatus.'),
+  origin: z
+    .string()
+    .optional()
+    .describe(
+      'For a parent cause, the ancestor whose own update started the cascade, when it is not the parent itself. Fix the render there.',
+    ),
+})
+
+const relatedRenderSchema = z
+  .object({
+    componentId: z.number().int(),
+    componentName: z.string(),
+    renderEventId: z.string(),
+    causes: z.array(compactCauseSchema),
+    necessity: renderNecessitySchema,
+    necessityReason: necessityReasonSchema,
+  })
+  .optional()
+
+const wrapperRelationShape = {
+  wraps: relatedRenderSchema.describe(
+    'The component this higher-order or memo wrapper renders, with its causes in the same commit. A wrapper such as Connect(Inner) often holds only an inferred store cause while the inner component holds the exact prop evidence.',
+  ),
+  wrappedBy: relatedRenderSchema.describe(
+    'The higher-order or memo wrapper that rendered this component in the same commit, with its causes.',
+  ),
+}
 
 export const renderComponentSchema = z.object({
   id: z.number(),
@@ -486,6 +613,7 @@ export const renderComponentSchema = z.object({
   causes: z.array(renderCauseSchema),
   causeCounts: renderCauseCountsSchema,
   necessity: renderNecessitySchema,
+  necessityReason: necessityReasonSchema,
   assessment: renderAssessmentSchema,
   inputCoverage: renderInputCoverageSchema,
   source: sourceSchema,
@@ -494,39 +622,18 @@ export const renderComponentSchema = z.object({
   sourceOwnership: z.enum(['app', 'library', 'unknown']),
   isLibrary: z.boolean(),
   wrapperAncestry: z.array(wrapperFrameSchema).max(9).default([]),
-})
-
-const compactCauseSchema = z.object({
-  kind: z.enum(RENDER_CAUSE_KINDS),
-  evidence: z.enum(['exact', 'inferred', 'unknown']),
-  name: z
-    .string()
-    .optional()
-    .describe(
-      'Prop, state or context name, store label, query hash, router ID or parent component.',
-    ),
-  contextIndex: z
-    .number()
-    .int()
-    .nonnegative()
-    .optional()
-    .describe('Which context read changed, for a component that reads the same context twice.'),
-  referenceOnly: z.literal(true).optional(),
-  reason: z
-    .string()
-    .optional()
-    .describe(
-      'Why an unknown cause could not be attributed, or how a query cause was matched; only query-notification-delivered is exact.',
-    ),
-  changedResultFields: z
-    .array(z.string())
-    .optional()
-    .describe('Query result fields the delivered notification changed, e.g. data or fetchStatus.'),
+  ...wrapperRelationShape,
 })
 
 const compactSourceSchema = z
   .object({
     location: z.string().nullable().describe('file:line:column of the usage or definition.'),
+    role: z
+      .enum(['element-callsite', 'component-body', 'hook-callsite'])
+      .optional()
+      .describe(
+        'What location points at: element-callsite is the JSX that created the component, in its parent; component-body is inside the component itself.',
+      ),
     ownership: z.enum(['app', 'library', 'unknown']),
   })
   .describe('Collapses source, sourceAttribution, sourceProvenance, sourceOwnership and isLibrary.')
@@ -570,10 +677,13 @@ export const renderComponentSummarySchema = z.object({
   latestDocumentCommitId: z.number().int().nonnegative(),
   causeCounts: z.partialRecord(z.enum(RENDER_CAUSE_KINDS), z.number().int().positive()),
   causes: z.array(compactCauseSchema).describe('Causes of the latest observed render.'),
+  necessity: renderNecessitySchema.describe('Necessity of the latest observed render.'),
+  necessityReason: necessityReasonSchema,
   inputEvidence: renderAssessmentSchema.shape.inputEvidence,
   inputCoverage: compactInputCoverageSchema.optional(),
   memoCacheObserved: z.literal(true).optional(),
   wrappers: z.array(z.string()).optional(),
+  ...wrapperRelationShape,
   source: compactSourceSchema,
 })
 
@@ -660,6 +770,30 @@ export const renderCoverageSchema = z.object({
     .describe(
       'Present when a budget limit skipped work in this window: the limits that ran out and a budget estimated to fit the largest lossy commit. Growth inside the window cannot restore skipped commits, so clear with the suggested budget and repeat the step.',
     ),
+  incompleteBecause: z
+    .array(
+      z.object({
+        reason: z.enum([
+          'budget-exhausted',
+          'unmounts-dropped',
+          'commits-after-profile-stop',
+          'renderer-not-analyzed',
+          'traversal-failed',
+          'analysis-failed',
+          'inputs-truncated',
+          'props-not-enumerated',
+        ]),
+        fibers: z.number().int().nonnegative(),
+        components: z
+          .array(z.string())
+          .optional()
+          .describe('Up to 10 component names behind an input gap.'),
+        detail: z.string(),
+        next: z.string().optional(),
+      }),
+    )
+    .optional()
+    .describe('Present when coverage is incomplete: one entry for each counter that made it so.'),
   targeted: z
     .object({
       components: z.array(z.string()),
@@ -684,12 +818,31 @@ export const renderCoverageSchema = z.object({
     .optional(),
 })
 
+const observedNameSchema = z.string().trim().min(1).max(160)
+
+export const deprecationsSchema = z
+  .array(z.string())
+  .optional()
+  .describe('Arguments this call accepted under an old name, with the name to use instead.')
+
 export const renderObservationInputSchema = z.object({
+  component: z
+    .union([observedNameSchema, z.array(observedNameSchema).min(1).max(50)])
+    .optional()
+    .describe(
+      'Reserve analysis work for these components: one display name or a list, matched exactly (case-sensitive) like the read tools. Pass exact:false to match every name containing one, ignoring case.',
+    ),
+  exact: z
+    .boolean()
+    .default(true)
+    .describe('false matches each component value as a case-insensitive substring.'),
   components: z
-    .array(z.string().trim().min(1).max(160))
+    .array(observedNameSchema)
     .max(50)
     .default([])
-    .describe('Reserve analysis work for component display names containing any value.'),
+    .describe(
+      'Deprecated: use component with exact:false. Reserves analysis for display names containing any value, ignoring case.',
+    ),
   roots: z
     .array(z.number().int())
     .max(20)
@@ -901,12 +1054,14 @@ export const renderCauseEventSchema = z.object({
   instance: instanceDescriptorSchema,
   causes: z.array(renderCauseSchema),
   necessity: renderNecessitySchema,
+  necessityReason: necessityReasonSchema,
   assessment: renderAssessmentSchema,
   inputCoverage: renderInputCoverageSchema,
   source: sourceSchema,
   sourceAttribution: sourceAttributionSchema,
   sourceOwnership: z.enum(['app', 'library', 'unknown']),
   isLibrary: z.boolean(),
+  ...wrapperRelationShape,
 })
 
 export const renderCauseEventSummarySchema = z.object({
@@ -922,8 +1077,11 @@ export const renderCauseEventSummarySchema = z.object({
   mountId: z.string(),
   key: z.string().optional(),
   causes: z.array(compactCauseSchema),
+  necessity: renderNecessitySchema,
+  necessityReason: necessityReasonSchema,
   inputEvidence: renderAssessmentSchema.shape.inputEvidence,
   inputCoverage: compactInputCoverageSchema.optional(),
+  ...wrapperRelationShape,
   source: compactSourceSchema,
 })
 
@@ -992,11 +1150,141 @@ export const reactRenderCausesContract = defineAgentToolContract({
   annotations: { readOnlyHint: true },
 })
 
+const cohortReportSchema = z.object({
+  attribution: reportAttributionSchema,
+  documentCommitId: z.number().int().nonnegative(),
+  ownershipCoverage: ownershipCoverageSchema,
+  observation: observationSchema.nullable(),
+  query: z.object({ component: z.string(), exact: z.boolean() }),
+  componentMatch: componentMatchSchema,
+  status: z.enum([
+    'not-started',
+    'absent',
+    'mounted-idle',
+    'updated',
+    'unmounted',
+    'mixed',
+    'unknown',
+  ]),
+  matched: z.number().int().nonnegative(),
+  mountedUpdated: z.number().int().nonnegative(),
+  mountedIdle: z.number().int().nonnegative(),
+  mountedUnknown: z.number().int().nonnegative(),
+  unmounted: z.number().int().nonnegative(),
+  returned: z.number().int().nonnegative(),
+  omittedByLimit: z.number().int().nonnegative(),
+  rendererBundle: renderMeasurementEnvironmentSchema.shape.bundle
+    .nullable()
+    .describe(
+      'Bundle types of the React renderers hosting the mounted matches, so a framework overlay running production React does not speak for app components; null when none is mounted. Genie never analyzes a production renderer, so an instance it hosts has no render evidence.',
+    ),
+  coverage: z.object({
+    freezeDetection: z.enum(['react-freeze-identity', 'disabled']),
+    complete: z
+      .boolean()
+      .describe(
+        'Global completeness of lifecycle and cohort capture; returned per-instance statuses can remain authoritative when false.',
+      ),
+    inputAttributionComplete: z.boolean(),
+    scannedFibers: z.number().int().nonnegative(),
+    scanLimit: z.number().int().positive(),
+    scanTruncated: z.boolean(),
+    rootAvailable: z.boolean(),
+    rootCount: z.number().int().nonnegative(),
+    scannedRootCount: z.number().int().nonnegative(),
+    rootLimit: z.number().int().positive(),
+    rootScope: z.enum(['committed', 'committed+fallback', 'fallback', 'missing']),
+    rootScopeComplete: z.boolean(),
+    rootScopeTruncated: z.boolean(),
+    skippedCommitFibers: z.number().int().nonnegative(),
+    droppedUnmountFibers: z.number().int().nonnegative(),
+    analysisFailedFibers: z.number().int().nonnegative(),
+    pausedCommits: z.number().int().nonnegative(),
+    truncatedInputFibers: z.number().int().nonnegative(),
+    propsNotEnumeratedFibers: z.number().int().nonnegative(),
+    budgetExhaustedCommits: z.number().int().nonnegative(),
+    budgetExhaustedSubsystems: z.array(
+      z.object({ subsystem: z.string(), commits: z.number().int().positive() }),
+    ),
+    generationHistoryEvictions: z.number().int().nonnegative(),
+  }),
+})
+
+const cohortInstanceSchema = z.object({
+  componentName: z.string(),
+  sourceOwnership: z.enum(['app', 'library', 'unknown']),
+  source: sourceSchema,
+  sourceProvenance: sourceProvenanceSchema,
+  renderingState: z
+    .enum(['mounted-rendering', 'mounted-frozen', 'mounted-hidden', 'mounted-unknown', 'unmounted'])
+    .describe(
+      'Current render eligibility, independent of updates during the observation. Frozen requires the react-freeze adapter and a committed suspended primary; hidden alone does not prove react-freeze. Rendering means eligible, not necessarily currently updating. No effect or observer subscription claim.',
+    ),
+  reactVisibility: z
+    .enum(['hidden', 'not-hidden', 'unknown'])
+    .describe(
+      'Hidden means a committed React Offscreen ancestor has hidden state; not-hidden means no such boundary was observed, not necessarily visible on screen. Unknown for unmounted instances or incomplete boundary state. This does not establish a react-freeze or navigation freeze cause.',
+    ),
+  status: z.enum(['mounted-idle', 'mounted-updated', 'mounted-unknown', 'unmounted']),
+  instance: instanceDescriptorSchema,
+  profileCommitId: z.number().int().nonnegative().optional(),
+  documentCommitId: z.number().int().nonnegative().optional(),
+})
+
+const cohortSharedSchema = z
+  .object({
+    componentName: z.string().optional(),
+    sourceOwnership: z.enum(['app', 'library', 'unknown']).optional(),
+    source: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('file:line:column of the usage or definition.'),
+    parent: instanceDescriptorSchema.shape.parent.optional(),
+    keyedParent: instanceDescriptorSchema.shape.keyedParent.optional(),
+    logicalPathPrefix: z
+      .string()
+      .describe('The parent path most instances sit under; each row lists the rest of its path.'),
+    logicalIdentityEvidence: instanceDescriptorSchema.shape.logicalIdentityEvidence.optional(),
+    mountGenerationEvidence: instanceDescriptorSchema.shape.mountGenerationEvidence.optional(),
+    renderingState: cohortInstanceSchema.shape.renderingState.optional(),
+    reactVisibility: cohortInstanceSchema.shape.reactVisibility.optional(),
+  })
+  .describe(
+    'The value most returned instances share, stated once; a row lists a field only where its value differs.',
+  )
+
+const cohortSummaryShape = {
+  shared: cohortSharedSchema,
+  instances: z.array(
+    z.object({
+      status: cohortInstanceSchema.shape.status,
+      mountId: z.string(),
+      fiberId: z.number().int(),
+      key: z.string().nullable().optional(),
+      siblingIndex: z.number().int().nonnegative().nullable().optional(),
+      logicalPath: z
+        .string()
+        .describe('The path after shared.logicalPathPrefix, or the whole path when outsidePrefix.'),
+      outsidePrefix: z.literal(true).optional(),
+      mountGeneration: z.number().int().positive(),
+      hostSelector: z.string().nullable(),
+      documentCommitId: z.number().int().nonnegative().optional(),
+      componentName: z.string().optional(),
+      sourceOwnership: z.enum(['app', 'library', 'unknown']).optional(),
+      source: z.string().nullable().optional(),
+      parent: instanceDescriptorSchema.shape.parent.optional(),
+      renderingState: cohortInstanceSchema.shape.renderingState.optional(),
+      reactVisibility: cohortInstanceSchema.shape.reactVisibility.optional(),
+    }),
+  ),
+}
+
 export const reactComponentCohortContract = defineAgentToolContract({
   name: 'react_component_cohort',
   title: 'Component lifecycle cohort',
   description:
-    'Distinguish matching component instances that updated, stayed mounted and idle, unmounted, are absent, or were omitted by a limit. Start with react_clear_renders, drive one interaction, then query an exact display name. Each row includes key/position strength, mount generation, and React Offscreen visibility independently of lifecycle. Hidden does not establish the cause of freezing or whether effects remain subscribed.',
+    'Distinguish matching component instances that updated, stayed mounted and idle, unmounted, are absent, or were omitted by a limit. Start with react_clear_renders, drive one interaction, then query an exact display name. Each row includes key/position strength, mount generation, and React Offscreen visibility independently of lifecycle. Hidden does not establish the cause of freezing or whether effects remain subscribed. The default summary view states fields every instance shares once under shared; view:"full" repeats them per instance with source provenance.',
   group: 'react.render',
   input: z.object({
     appOnly: appOnlySchema,
@@ -1008,94 +1296,14 @@ export const reactComponentCohortContract = defineAgentToolContract({
       ),
     exact: z.boolean().default(true),
     limit: z.number().int().min(1).max(200).default(50),
-  }),
-  output: z.object({
-    attribution: reportAttributionSchema,
-    documentCommitId: z.number().int().nonnegative(),
-    ownershipCoverage: ownershipCoverageSchema,
-    observation: observationSchema.nullable(),
-    query: z.object({ component: z.string(), exact: z.boolean() }),
-    componentMatch: componentMatchSchema,
-    status: z.enum([
-      'not-started',
-      'absent',
-      'mounted-idle',
-      'updated',
-      'unmounted',
-      'mixed',
-      'unknown',
-    ]),
-    matched: z.number().int().nonnegative(),
-    mountedUpdated: z.number().int().nonnegative(),
-    mountedIdle: z.number().int().nonnegative(),
-    mountedUnknown: z.number().int().nonnegative(),
-    unmounted: z.number().int().nonnegative(),
-    returned: z.number().int().nonnegative(),
-    omittedByLimit: z.number().int().nonnegative(),
-    rendererBundle: renderMeasurementEnvironmentSchema.shape.bundle
-      .nullable()
-      .describe(
-        'Bundle types of the React renderers hosting the mounted matches, so a framework overlay running production React does not speak for app components; null when none is mounted. Genie never analyzes a production renderer, so an instance it hosts has no render evidence.',
-      ),
-    instances: z.array(
-      z.object({
-        componentName: z.string(),
-        sourceOwnership: z.enum(['app', 'library', 'unknown']),
-        source: sourceSchema,
-        sourceProvenance: sourceProvenanceSchema,
-        renderingState: z
-          .enum([
-            'mounted-rendering',
-            'mounted-frozen',
-            'mounted-hidden',
-            'mounted-unknown',
-            'unmounted',
-          ])
-          .describe(
-            'Current render eligibility, independent of updates during the observation. Frozen requires the react-freeze adapter and a committed suspended primary; hidden alone does not prove react-freeze. Rendering means eligible, not necessarily currently updating. No effect or observer subscription claim.',
-          ),
-        reactVisibility: z
-          .enum(['hidden', 'not-hidden', 'unknown'])
-          .describe(
-            'Hidden means a committed React Offscreen ancestor has hidden state; not-hidden means no such boundary was observed, not necessarily visible on screen. Unknown for unmounted instances or incomplete boundary state. This does not establish a react-freeze or navigation freeze cause.',
-          ),
-        status: z.enum(['mounted-idle', 'mounted-updated', 'mounted-unknown', 'unmounted']),
-        instance: instanceDescriptorSchema,
-        profileCommitId: z.number().int().nonnegative().optional(),
-        documentCommitId: z.number().int().nonnegative().optional(),
-      }),
+    view: outputViewSchema(
+      'every instance with its full descriptor, logicalPath and source provenance',
     ),
-    coverage: z.object({
-      freezeDetection: z.enum(['react-freeze-identity', 'disabled']),
-      complete: z
-        .boolean()
-        .describe(
-          'Global completeness of lifecycle and cohort capture; returned per-instance statuses can remain authoritative when false.',
-        ),
-      inputAttributionComplete: z.boolean(),
-      scannedFibers: z.number().int().nonnegative(),
-      scanLimit: z.number().int().positive(),
-      scanTruncated: z.boolean(),
-      rootAvailable: z.boolean(),
-      rootCount: z.number().int().nonnegative(),
-      scannedRootCount: z.number().int().nonnegative(),
-      rootLimit: z.number().int().positive(),
-      rootScope: z.enum(['committed', 'committed+fallback', 'fallback', 'missing']),
-      rootScopeComplete: z.boolean(),
-      rootScopeTruncated: z.boolean(),
-      skippedCommitFibers: z.number().int().nonnegative(),
-      droppedUnmountFibers: z.number().int().nonnegative(),
-      analysisFailedFibers: z.number().int().nonnegative(),
-      pausedCommits: z.number().int().nonnegative(),
-      truncatedInputFibers: z.number().int().nonnegative(),
-      propsNotEnumeratedFibers: z.number().int().nonnegative(),
-      budgetExhaustedCommits: z.number().int().nonnegative(),
-      budgetExhaustedSubsystems: z.array(
-        z.object({ subsystem: z.string(), commits: z.number().int().positive() }),
-      ),
-      generationHistoryEvictions: z.number().int().nonnegative(),
-    }),
   }),
+  output: z.discriminatedUnion('view', [
+    cohortReportSchema.extend({ view: z.literal('summary'), ...cohortSummaryShape }),
+    cohortReportSchema.extend({ view: z.literal('full'), instances: cohortInstanceSchema.array() }),
+  ]),
   annotations: { readOnlyHint: true },
 })
 
@@ -1113,6 +1321,7 @@ export const reactClearRendersContract = defineAgentToolContract({
     observation: observationSchema,
     observationConfig: renderCoverageSchema.shape.observationBudget.unwrap(),
     strictMode: strictModeStatusSchema,
+    deprecations: deprecationsSchema,
   }),
   annotations: { idempotentHint: false },
 })

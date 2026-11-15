@@ -37,7 +37,7 @@ Genie is wired only in development, as the [other web bundler guide](../../apps/
 | `app_backend_reset` | Regenerate the mock data and clear faults |
 | `app_backend_faults` | Replace the latency and error injection rules |
 | `app_backend_notify` | Add an unread notification |
-| `app_redux_state` | Read a bounded slice of the Redux store by dot path |
-| `app_redux_actions` | List dispatched actions with a payload preview and the slices whose reference changed |
+| `app_redux_state` | Read a bounded copy of the Redux store at a dot path, with the sequence of the last recorded action |
+| `app_redux_actions` | List recorded actions after a sequence: a bounded copy of each action as dispatched and the slices whose reference changed |
 
-The two Redux tools read from the store and from a development-only action recorder middleware (`src/store/action-log.ts`).
+The two Redux tools are the [Redux recipe](../../packages/cli/skill/APP_TOOLS.md#6-recipe-prove-what-a-redux-store-did) as written: `src/store/redux-recorder.ts` is the development-only recorder middleware and `src/devtools/redux-tools.ts` defines the tools, so the `report-notes-mutation` probe tests the recipe.

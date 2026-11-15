@@ -88,20 +88,21 @@ describe('render observation budget regressions', () => {
     exhaustOneCommit()
 
     expect(getRenderObservationConfig()).toMatchObject({
-      adaptiveScale: 2,
+      adaptiveScale: 1,
       fiberLimit: 20_001,
       operationLimit: 2_000_001,
       timeLimitMs: 500.5,
     })
   })
 
-  it('grows only future commit budgets after an exhausted commit', () => {
+  it('grows only the work limits of future commits after an exhausted commit', () => {
     clearRenders({ budget: { fiberLimit: 250, operationLimit: 20_000, timeLimitMs: 8 } })
     exhaustOneCommit()
 
+    // The operation limit ran out, not the fiber limit, so only work grows.
     expect(getRenderObservationConfig()).toMatchObject({
-      adaptiveScale: 2,
-      fiberLimit: 500,
+      adaptiveScale: 1,
+      fiberLimit: 250,
       operationLimit: 40_000,
       timeLimitMs: 16,
     })
@@ -117,7 +118,7 @@ describe('render observation budget regressions', () => {
 
     expect(getRenderTrackingCoverage('measurement').budgetAdvice).toMatchObject({
       exhaustedLimits: ['operationLimit'],
-      suggestedBudget: { fiberLimit: 500, operationLimit: 40_000, timeLimitMs: 16 },
+      suggestedBudget: { fiberLimit: 250, operationLimit: 40_000, timeLimitMs: 16 },
     })
   })
 
@@ -152,7 +153,7 @@ describe('render observation budget regressions', () => {
   it('resets adaptive growth for a fresh observation window', () => {
     clearRenders({ budget: { fiberLimit: 250, operationLimit: 20_000, timeLimitMs: 8 } })
     exhaustOneCommit()
-    expect(getRenderObservationConfig()).toMatchObject({ adaptiveScale: 2 })
+    expect(getRenderObservationConfig()).toMatchObject({ operationLimit: 40_000 })
 
     clearRenders()
 
