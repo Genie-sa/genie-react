@@ -30,6 +30,7 @@ import {
   reactRenderCausesContract,
   reactRendersDiffContract,
   reactResetOverridesContract,
+  reactSuspenseContract,
   reactToggleSuspenseFallbackContract,
   stylexInspectContract,
 } from './contracts'
@@ -109,6 +110,8 @@ import {
   parseStyleSources,
   styleProvenanceStatus,
 } from './style-provenance'
+import { getSuspenseReport } from './suspense-boundaries'
+import { startSuspenseCapture } from './suspense-capture'
 
 function currentEffectCoverage() {
   const renderCoverage = getRenderTrackingCoverage('measurement')
@@ -199,6 +202,7 @@ export function reactCollector(): GenieCollector {
       // Fallback for setups that did not load the hook early — captures future commits only.
       startRefreshTracking()
       startRenderTracking()
+      startSuspenseCapture()
       // Ride the commit loop with a throttled heartbeat so an animation- or list-saturated thread stays live.
       setCommitListener(ctx.markActivity)
       return () => setCommitListener(null)
@@ -723,6 +727,7 @@ export function reactCollector(): GenieCollector {
         handler: ({ includeSource, limit, appOnly }) =>
           getErrorState({ includeSource, limit, appOnly }),
       }),
+      defineCollectorTool({ contract: reactSuspenseContract, handler: getSuspenseReport }),
       defineCollectorTool({ contract: reactPendingWorkContract, handler: getPendingReactWork }),
       defineCollectorTool({
         contract: reactRefreshEventsContract,

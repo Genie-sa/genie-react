@@ -813,6 +813,110 @@ Suspense fallbacks are read from the live tree.
 producer. Check the screen before acting on an `unknown` status. If `forced:true`, reset overrides
 before diagnosing production behavior.
 
+## `react_suspense`
+
+Lists Suspense boundaries, their state, and what each one is waiting on.
+
+**Input:** every field is optional. `id` is an integer: the call then reads only the nearest Suspense
+boundary at or above that component. `waitingOnly` defaults to `false`; with `true`, only boundaries in
+`fallback`, `transition-pending`, or `dehydrated` state are returned. `limit` is an integer from 1 to
+200 and defaults to 20 boundaries. `blockerLimit` is an integer from 1 to 50 and defaults to 10
+blockers per boundary, pending ones first. `includeSource` defaults to `true` and source-maps boundary
+and stack locations. `appOnly` defaults to `false`. `view` defaults to `summary`; `full` adds stacks,
+start and end times, the server environment and owner, and how React recorded each blocker.
+
+```bash
+npx @genie-react/cli call react_suspense '{"waitingOnly":true}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "view": "summary",
+  "capability": {
+    "asyncDebugInfo": "available",
+    "reason": null,
+    "reactVersion": "19.2.7",
+    "bundle": "development"
+  },
+  "counts": {
+    "boundaries": 5,
+    "fallback": 2,
+    "transitionPending": 0,
+    "dehydrated": 0,
+    "content": 3
+  },
+  "boundaries": [
+    {
+      "id": 4,
+      "name": "Profile",
+      "parentBoundaryId": null,
+      "state": "fallback",
+      "stateEvidence": "exact",
+      "forced": false,
+      "blockerStatus": "pending-observed",
+      "blockers": [
+        {
+          "kind": "use",
+          "kindEvidence": "exact",
+          "phase": "pending",
+          "status": "pending",
+          "name": "loadProfile",
+          "pendingForMs": 632.4,
+          "awaitedBy": null,
+          "location": null
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "Chart",
+      "state": "fallback",
+      "blockerStatus": "pending-observed",
+      "blockers": [
+        {
+          "kind": "lazy",
+          "kindEvidence": "exact",
+          "phase": "pending",
+          "status": "pending",
+          "location": "src/main.tsx:6"
+        }
+      ]
+    }
+  ],
+  "coverage": {
+    "complete": true,
+    "waitingWithoutBlocker": 0,
+    "unattributedSuspendedRoots": 0,
+    "changedDuringRead": false,
+    "commitScheduled": false
+  },
+  "waitingHint": "<Suspense name=\"Profile\"> #4 shows its fallback, waiting on use() \"loadProfile\" pending 632ms"
+}
+```
+
+States: `fallback` is the committed fallback; `transition-pending` means the old content stays on
+screen while an uncommitted render of the boundary waits, so its `stateEvidence` is `inferred`;
+`dehydrated` is server HTML that has not hydrated; `content` shows the children. A blocker's
+`phase` is `pending` when the boundary waits on it now, or `awaited-by-content` when the content on
+screen awaited it before it committed. `kind` is `lazy`, `use`, `data-library`, `server-io`,
+`server-stream`, `asset` (a stylesheet), or `unknown`, and `kindEvidence` says whether React
+recorded that mechanism (`exact`) or a stack frame points to it (`inferred`). A promise thrown
+without `use()`, as some Suspense data libraries do, stays `unknown`.
+
+`capability.asyncDebugInfo` decides what can be named. React 19.2 and later development builds are
+`available`. React 19.0 and 19.1 are `partial`: `use()` and `React.lazy` are recognized, but client
+promises carry no name or timing. React 18 and production builds are `unavailable`; boundaries and
+states are still listed, and `blockerStatus` is `unavailable`. Images and fonts are not observed.
+
+**Agent use:** Check `capability` first, then read the waiting boundaries. Fix the pending blocker
+with `exact` evidence; treat `inferred` and `unknown` as leads. `not-observable` means the boundary
+waits but React kept nothing to read, and `unrecorded` means a fallback committed earlier without
+debug information. Read again when `coverage.changedDuringRead` or `coverage.commitScheduled` is
+`true`. After the content appears, the same boundary lists what it awaited and for how long, which
+verifies that a change shortened or removed the wait.
+
 ## `react_refresh_events`
 
 Reports Fast Refresh files, preserved instances, remounts, and excluded profile commits.

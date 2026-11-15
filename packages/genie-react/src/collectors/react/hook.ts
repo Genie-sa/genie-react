@@ -7,6 +7,7 @@ import { guardCommitStream } from './hook-guard'
 import { disposeUnmountPruning, ensureUnmountPruning } from './overrides'
 import { disposeRefreshTracking, startRefreshTracking } from './refresh-tracker'
 import { disposeRenderTracking, startRenderTracking } from './render-tracker'
+import { disposeSuspenseCapture, startSuspenseCapture } from './suspense-capture'
 
 const instrumented = !isProductionBuild()
 if (instrumented) {
@@ -15,6 +16,7 @@ if (instrumented) {
   installErrorCapture()
   startRefreshTracking()
   startRenderTracking()
+  startSuspenseCapture()
   ensureUnmountPruning()
 }
 // Guard LAST, once every bippy registration is final, so the trapped upstream is the complete dispatcher.
@@ -27,5 +29,6 @@ export function disposeHookInstrumentation(): void {
   uninstallErrorCapture()
   disposeUnmountPruning()
   disposeRenderTracking()
+  disposeSuspenseCapture()
   disposeRefreshTracking()
 }
