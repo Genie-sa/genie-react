@@ -8,6 +8,7 @@ import {
 } from '../../client'
 import { defineAgentToolContract, dehydrate } from '../../protocol'
 import { recordRouterNotification, registerRouterStore } from '../causal/external-store-registry'
+import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 
 interface RouteEntry {
   id: string
@@ -585,11 +586,32 @@ function settlement(router: AnyRouter): {
     pendingWork.push('location-unresolved')
   }
   for (const match of matches) {
-    if (match.isFetching || match.status === 'pending') {
+    if (match.isFetching || match.status === 'pending' || revalidationStillRunning(router, match)) {
       pendingWork.push(`match-fetching:${String(match.routeId)}`)
     }
   }
   return { settled: pendingWork.length === 0, pendingWork, pendingMatchCount }
+}
+
+/** Router releases that keep a loader's promise on the match (1.1xx before the load lane rewrite) clear `isFetching` on every match when a second load starts during a background revalidation, while the handed-off loader keeps running until that promise settles. Only a shown match whose route has a loader counts: a preload also leaves pending promises on the matches it shares with the page. */
+function revalidationStillRunning(
+  router: AnyRouter,
+  match: AnyRouter['state']['matches'][number],
+): boolean {
+  if (match.status !== 'success') return false
+  const route = ownDataValue(ownDataValue(router, 'routesById'), String(match.routeId))
+  const loader = ownDataValue(ownDataValue(route, 'options'), 'loader')
+  if (typeof loader !== 'function') return false
+  const loaderPromise = ownDataValue(ownDataValue(match, '_nonReactive'), 'loaderPromise')
+  if (typeof loaderPromise !== 'object' || loaderPromise === null) return false
+  const status = ownDataValue(loaderPromise, 'status')
+  return status === undefined || status === 'pending'
+}
+
+function ownDataValue(value: unknown, key: string): unknown {
+  if (typeof value !== 'object' || value === null) return undefined
+  const descriptor = safeOwnPropertyDescriptor(value, key)
+  return isDataDescriptor(descriptor) ? descriptor.value : undefined
 }
 
 function navigationResult(router: AnyRouter) {

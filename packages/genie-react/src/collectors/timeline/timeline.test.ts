@@ -308,6 +308,9 @@ describe('resource timing correlation', () => {
     })
     expect(result.events[1]?.details).toEqual({
       url: 'https://example.test/orders',
+      query: expect.stringMatching(/^\?token=~[0-9a-f]{10}$/),
+      method: null,
+      outcome: 'unknown',
       initiatorType: 'fetch',
       startMs: 10,
       endMs: 20,
@@ -316,7 +319,12 @@ describe('resource timing correlation', () => {
       detailedTimingAvailable: false,
       responseStatus: null,
       responseReceived: null,
+      bodyReadMs: null,
+      overlappingSameEndpoint: 0,
+      finishedAfterNewer: false,
+      bodyReadLast: null,
     })
+    expect(JSON.stringify(result)).not.toMatch(/secret|password|fragment/)
     expect(observer.connected).toBe(false)
     observer.deliver([resource()])
     expect(read(collector, recording.id)).toEqual(result)
@@ -528,7 +536,10 @@ describe('resource timing correlation', () => {
     })
     for (const report of [read(collector, recording.id), stop(collector, recording.id)]) {
       expect(report.coverage.query).toEqual({ status: 'available', code: 'query-cache' })
-      expect(report.coverage.request).toEqual({ status: 'available', code: 'resource-timing' })
+      expect(report.coverage.request).toEqual({
+        status: 'available',
+        code: 'resource-timing-and-fetch',
+      })
     }
   })
 })

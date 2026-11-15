@@ -6,6 +6,7 @@ import { defineCollector, defineCollectorTool, type GenieCollector } from '../..
 import { defineAgentToolContract, newId, roundMilliseconds } from '../../protocol'
 import { getDocumentCommitId } from '../react/observation'
 import { isSafeRenderer, safeCommitHandler } from '../react/safe-instrumentation'
+import { describeQuery, observeRequests, type RequestRecord } from './requests'
 
 export interface TimelineCollectorOptions {
   queryClient?: Pick<QueryClient, 'getQueryCache'>
@@ -15,7 +16,9 @@ export interface TimelineCollectorOptions {
 const domainSchema = z.enum(['request', 'query', 'react', 'navigation'])
 const COVERAGE_DETAILS = {
   'resource-timing':
-    'Finished fetch/XHR Resource Timing only; observation time includes delivery delay. Requests started before recording may appear. Aborted and failed requests can appear with responseReceived false; an abort after the response headers looks like a response. A redirect chain is one entry under the requested URL with the final status. Unfinished, worker and non-fetch/XHR requests are absent. Cross-origin detailed timing and responseReceived require Timing-Allow-Origin. URLs omit credentials, queries and fragments; paths remain.',
+    'Finished fetch/XHR Resource Timing only; observation time includes delivery delay. Requests started before recording may appear. Aborted and failed requests can appear with responseReceived false; an abort after the response headers looks like a response. A redirect chain is one entry under the requested URL with the final status. Unfinished, worker and non-fetch/XHR requests are absent. Cross-origin detailed timing and responseReceived require Timing-Allow-Origin. URLs omit credentials and fragments; query parameter values are salted hashes unless queryValues is plain.',
+  'resource-timing-and-fetch':
+    "Fetch/XHR Resource Timing joined with the app's fetch and XMLHttpRequest calls made during the recording, which add method, outcome (including an abort after the response headers), when the app finished reading the body, and requests still in flight at stop. A request the app sent through a fetch reference captured before recording has method null. Requests seen only through those calls, and requests still in flight, are added when the recording stops. Requests started before recording may appear without a method. Worker and non-fetch/XHR requests are absent. Cross-origin detailed timing and responseReceived require Timing-Allow-Origin. URLs omit credentials and fragments; query parameter values are salted hashes unless queryValues is plain.",
   'resource-timing-flush-failed':
     'Completed fetch/XHR Resource Timing, but the final resource queue flush failed; entries may be missing.',
   'no-resource-timing':
@@ -52,7 +55,7 @@ const eventSchema = z.object({
   details: z
     .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
     .describe(
-      'Times are milliseconds rounded to 0.01. Request: URL without query/fragment/credentials, startMs/endMs relative to recording start, durationMs, detailedTimingAvailable, nullable responseStatus and responseReceived (false: no response arrived, so the request was aborted or failed; null: cross-origin timing hides it). React: rendererId, nullable renderDurationMs (root actualDuration, not commit wall time) and documentCommitId, which joins react_render_causes events of the same commit (null when render tracking is not installed). Query: bounded queryHash, action, status and fetchStatus. Navigation: from/to pathname, pathChanged and hrefChanged. atMs is observation time; resource completion can be delivered later.',
+      "Times are milliseconds rounded to 0.01. Request (type completed, or in-flight at stop): URL without query/fragment/credentials; query with parameter names and, by default, salted hashes of the values (`~` and 10 hex digits: equal values hash alike within a page load, an empty value stays empty, null means no query); method (null when the request bypassed Genie's fetch/XHR observer); outcome (response, aborted, aborted-after-response, failed, in-flight, no-response from timing alone, unknown cross-origin); startMs/endMs relative to recording start, durationMs, detailedTimingAvailable, nullable responseStatus and responseReceived (false: no response arrived; null: cross-origin timing hides it); bodyReadMs when the app finished reading the body; for requests to the same method and path that overlap in time, overlappingSameEndpoint counts the others, finishedAfterNewer is true when a request started after this one finished first (an out-of-order response), and bodyReadLast is true for the one whose body the app read last (null when bodies were not observed or nothing overlapped). React: rendererId, nullable renderDurationMs (root actualDuration, not commit wall time) and documentCommitId, which joins react_render_causes events of the same commit (null when render tracking is not installed). Query: bounded queryHash, action, status and fetchStatus. Navigation: from/to pathname, pathChanged and hrefChanged. atMs is observation time; resource completion can be delivered later.",
     ),
 })
 const reportSchema = z.object({
@@ -74,9 +77,18 @@ const reportSchema = z.object({
     react: coverageSchema,
     navigation: coverageSchema,
   }),
+  queryValues: z
+    .enum(['hashed', 'plain'])
+    .describe('How request query parameter values are reported; see timeline_start.'),
 })
 const startInput = z.object({
   name: z.string().trim().min(1).max(120),
+  queryValues: z
+    .enum(['hashed', 'plain'])
+    .default('hashed')
+    .describe(
+      'Query strings can carry tokens. hashed (default): parameter names with a salted hash of each value, enough to tell ?q= from ?q=webhook. plain: values as sent, except parameters named like credentials (token, key, secret, password, signature, session, code), which stay hashed.',
+    ),
   maxEvents: z.number().int().min(1).max(10000).default(1000),
   maxDurationMs: z.number().int().min(1).max(120000).default(30000),
 })
@@ -100,6 +112,7 @@ type StopReason = NonNullable<TimelineReport['stopReason']>
 interface Recording {
   report: TimelineReport
   events: TimelineEvent[]
+  requests: RequestRecord[]
   startedAt: number
   lastAtMs: number
   stopping: boolean
@@ -113,7 +126,7 @@ function bounded(value: string): string {
   return value.slice(0, MAX_TEXT_LENGTH)
 }
 
-/** Keep request identity useful without retaining query strings, fragments, or credentials. */
+/** Keep request identity useful without credentials or fragments; the query is reported separately and redacted. */
 function requestLocation(value: string): string {
   try {
     const url = new URL(value)
@@ -133,7 +146,91 @@ function responseReceived(entry: PerformanceResourceTiming, status: number | nul
   }
 }
 
-const TIME_DETAIL_KEYS = new Set(['startMs', 'endMs', 'durationMs', 'renderDurationMs'])
+const TIME_DETAIL_KEYS = new Set([
+  'startMs',
+  'endMs',
+  'durationMs',
+  'renderDurationMs',
+  'bodyReadMs',
+])
+const REQUEST_MATCH_WINDOW_MS = 50
+
+type RequestDetails = Map<number, TimelineEvent['details']>
+
+/** Live call evidence (method, outcome, body read) and how each request relates to others on the same endpoint, derived when read so an abort or body read after the timing entry still counts. */
+function describeRequests(target: Recording): RequestDetails {
+  const records = new Map(target.requests.map((record) => [record.id, record]))
+  const requests = target.events.flatMap((event, index) => {
+    if (event.domain !== 'request') return []
+    const record =
+      typeof event.details.requestId === 'number' ? records.get(event.details.requestId) : undefined
+    const start = typeof event.details.startMs === 'number' ? event.details.startMs : 0
+    const end = typeof event.details.endMs === 'number' ? event.details.endMs : null
+    const method = record?.method ?? null
+    return [
+      {
+        index,
+        endpoint: `${method ?? '?'} ${event.details.url}`,
+        start,
+        end,
+        method,
+        outcome:
+          event.type === 'in-flight'
+            ? 'in-flight'
+            : record && record.outcome !== 'in-flight'
+              ? record.outcome
+              : timingOutcome(event.details.responseReceived),
+        bodyReadMs: record?.bodyReadAt == null ? null : record.bodyReadAt - target.startedAt,
+      },
+    ]
+  })
+  const byEndpoint = new Map<string, typeof requests>()
+  for (const request of requests) {
+    const group = byEndpoint.get(request.endpoint)
+    if (group) group.push(request)
+    else byEndpoint.set(request.endpoint, [request])
+  }
+  const details: RequestDetails = new Map()
+  for (const request of requests) {
+    const overlapping = (byEndpoint.get(request.endpoint) ?? []).filter(
+      (other) =>
+        other !== request &&
+        other.start < (request.end ?? Number.POSITIVE_INFINITY) &&
+        request.start < (other.end ?? Number.POSITIVE_INFINITY),
+    )
+    const reads = [request, ...overlapping].flatMap((entry) =>
+      entry.bodyReadMs === null ? [] : [entry.bodyReadMs],
+    )
+    details.set(request.index, {
+      method: request.method,
+      outcome: request.outcome,
+      bodyReadMs: request.bodyReadMs,
+      overlappingSameEndpoint: overlapping.length,
+      finishedAfterNewer: overlapping.some(
+        (other) =>
+          other.start > request.start &&
+          other.end !== null &&
+          other.end < (request.end ?? Number.POSITIVE_INFINITY),
+      ),
+      bodyReadLast:
+        overlapping.length === 0 || request.bodyReadMs === null || reads.length < 2
+          ? null
+          : request.bodyReadMs === Math.max(...reads),
+    })
+  }
+  return details
+}
+
+function timingOutcome(responseReceived: unknown): string {
+  if (responseReceived === true) return 'response'
+  return responseReceived === false ? 'no-response' : 'unknown'
+}
+
+function withRequestDetails(event: TimelineEvent, details: RequestDetails): TimelineEvent {
+  if (event.domain !== 'request') return event
+  const { requestId: _requestId, ...rest } = event.details
+  return { ...event, details: { ...rest, ...details.get(event.sequence - 1) } }
+}
 
 function roundEventTimes(event: TimelineEvent): TimelineEvent {
   const details = Object.fromEntries(
@@ -196,6 +293,7 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
     try {
       resources(target, deliveredEntries)
       if (target.observer) resources(target, target.observer.takeRecords())
+      unmatchedRequests(target)
     } catch {
       target.report.coverage.request = { status: 'available', code: 'resource-timing-flush-failed' }
     } finally {
@@ -266,8 +364,11 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
         entry.responseStatus > 0
           ? entry.responseStatus
           : null
+      const record = matchRequest(target, entry)
       append(target, 'request', 'completed', {
         url: requestLocation(entry.name),
+        query: describeQuery(entry.name, target.report.queryValues, MAX_TEXT_LENGTH),
+        requestId: record?.id ?? null,
         initiatorType: entry.initiatorType,
         startMs,
         endMs,
@@ -277,6 +378,48 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
         detailedTimingAvailable: entry.requestStart > 0 && entry.responseStart > 0,
         responseStatus: status,
         responseReceived: responseReceived(entry, status),
+      })
+    }
+  }
+
+  /** The observed call this Resource Timing entry describes: same URL, started within a few milliseconds. */
+  function matchRequest(target: Recording, entry: PerformanceResourceTiming): RequestRecord | null {
+    let best: RequestRecord | null = null
+    let bestDelta = REQUEST_MATCH_WINDOW_MS
+    for (const record of target.requests) {
+      if (record.matched || record.href !== entry.name) continue
+      const delta = Math.abs(record.startedAt - entry.startTime)
+      if (delta <= bestDelta) {
+        best = record
+        bestDelta = delta
+      }
+    }
+    if (best) best.matched = true
+    return best
+  }
+
+  /** Calls the browser gave no timing entry for yet: still in flight, or ended without one. */
+  function unmatchedRequests(target: Recording): void {
+    for (const record of target.requests) {
+      if (record.matched) continue
+      record.matched = true
+      const startMs = record.startedAt - target.startedAt
+      const endMs =
+        record.outcome === 'in-flight' || record.endedAt === null
+          ? null
+          : record.endedAt - target.startedAt
+      append(target, 'request', record.outcome === 'in-flight' ? 'in-flight' : 'completed', {
+        url: requestLocation(record.href),
+        query: describeQuery(record.href, target.report.queryValues, MAX_TEXT_LENGTH),
+        requestId: record.id,
+        initiatorType: record.initiatorType,
+        startMs,
+        endMs,
+        durationMs: endMs === null ? null : endMs - startMs,
+        startedBeforeRecording: false,
+        detailedTimingAvailable: false,
+        responseStatus: record.status,
+        responseReceived: record.headersAt !== null,
       })
     }
   }
@@ -308,6 +451,7 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
       startedAt: now(),
       lastAtMs: 0,
       events: [],
+      requests: [],
       dispose: [],
       stopping: false,
       report: {
@@ -323,6 +467,7 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
         correlation: 'temporal-only',
         clock: 'performance.now',
         ordering: 'observation-time-then-sequence',
+        queryValues: args.queryValues,
         coverage: {
           request: { status: 'unavailable', code: 'no-resource-timing' },
           query: { status: 'unavailable', code: 'no-query-client' },
@@ -343,6 +488,12 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
         observer.observe({ type: 'resource', buffered: false })
         target.observer = observer
         target.report.coverage.request = { status: 'available', code: 'resource-timing' }
+        target.dispose.push(
+          observeRequests((record) => {
+            if (target.requests.length < target.report.maxEvents) target.requests.push(record)
+          }),
+        )
+        target.report.coverage.request = { status: 'available', code: 'resource-timing-and-fetch' }
       }
       if (options.queryClient) {
         target.dispose.push(
@@ -466,9 +617,12 @@ export function timelineCollector(options: TimelineCollectorOptions = {}): Genie
             ? target.events.filter((event) => domains.includes(event.domain))
             : target.events
           const nextOffset = offset + limit
+          const requestDetails = describeRequests(target)
           return readOutput.parse({
             ...describe(target),
-            events: events.slice(offset, nextOffset).map(roundEventTimes),
+            events: events
+              .slice(offset, nextOffset)
+              .map((event) => roundEventTimes(withRequestDetails(event, requestDetails))),
             matchedEventCount: events.length,
             nextOffset: nextOffset < events.length ? nextOffset : null,
           })

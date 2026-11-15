@@ -6,6 +6,7 @@ import {
   plainOwnKeys,
   safeOwnPropertyDescriptor,
 } from '../causal/safe-object'
+import { type RenderedOutput, renderedOutputOf } from './boundary-output'
 import { nameOf } from './fiber'
 import { forcedErrorBoundaries, forcedSuspenseBoundaries } from './overrides'
 import {
@@ -199,6 +200,8 @@ export interface CaughtError {
   /** `active` = still in its error state now; `unknown` = it re-rendered with different state since the catch and may have recovered. */
   status: 'active' | 'unknown'
   statusReason: CaughtErrorStatusReason
+  /** What the boundary renders now in place of its children. */
+  rendered: RenderedOutput
 }
 
 export interface SuspendedBoundary {
@@ -397,6 +400,7 @@ export async function getErrorState(query: {
           forced,
           status,
           statusReason,
+          rendered: renderedOutputOf(fiber),
         }
       }),
   )
@@ -481,7 +485,15 @@ function hintFrom(caughtErrors: CaughtError[]): string | null {
     : ''
   if (first.status === 'unknown')
     return `error boundary <${first.boundaryName}>${at} caught ${what}${by} and has since re-rendered with different state — it may have recovered; check the screen`
-  return `error boundary <${first.boundaryName}>${at} caught ${what}${by} — the subtree below it did not render`
+  const shows =
+    first.rendered.output === 'nothing'
+      ? 'renders nothing in its place, so the failure is invisible on screen'
+      : first.rendered.output === 'visible'
+        ? `shows${first.rendered.text ? ` "${first.rendered.text}"` : ' a fallback'} instead`
+        : first.rendered.output === 'empty'
+          ? 'renders only empty elements in its place'
+          : 'renders a fallback Genie cannot read on this renderer'
+  return `error boundary <${first.boundaryName}>${at} caught ${what}${by} — its children did not render and it ${shows}`
 }
 
 // Forced fibers can arrive as both current and alternate buffers; collapse by boundary id and drop any already reported organically.

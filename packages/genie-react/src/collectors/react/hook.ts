@@ -4,6 +4,7 @@ import { isProductionBuild } from '../../production-build'
 import { installProxyTagging } from '../causal/proxy-tagging'
 import { installErrorCapture, uninstallErrorCapture } from './error-tracker'
 import { guardCommitStream } from './hook-guard'
+import { disposeHydrationTracking, startHydrationTracking } from './hydration-tracker'
 import { disposeUnmountPruning, ensureUnmountPruning } from './overrides'
 import { disposeRefreshTracking, startRefreshTracking } from './refresh-tracker'
 import { disposeRenderTracking, startRenderTracking } from './render-tracker'
@@ -17,6 +18,7 @@ if (instrumented) {
   startRefreshTracking()
   startRenderTracking()
   startSuspenseCapture()
+  startHydrationTracking()
   ensureUnmountPruning()
 }
 // Guard LAST, once every bippy registration is final, so the trapped upstream is the complete dispatcher.
@@ -30,5 +32,6 @@ export function disposeHookInstrumentation(): void {
   disposeUnmountPruning()
   disposeRenderTracking()
   disposeSuspenseCapture()
+  disposeHydrationTracking()
   disposeRefreshTracking()
 }

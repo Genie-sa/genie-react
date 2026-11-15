@@ -414,6 +414,17 @@ export function dehydrate(input: unknown, options: DehydrateOptions = {}): unkno
   return walk(resolved.value, 0, basePath)
 }
 
+/** The value at a path of own data properties, the same way dehydrate re-roots; found is false for a missing path or one through a getter. */
+export function readOwnPath(
+  input: unknown,
+  path: ReadonlyArray<string | number>,
+): { found: boolean; value: unknown } {
+  const resolved = resolvePath(input, path)
+  return resolved.kind === 'value'
+    ? { found: true, value: resolved.value }
+    : { found: false, value: undefined }
+}
+
 /** Follows a hydration path through own data properties only, so re-rooting never runs an application getter. */
 function resolvePath(input: unknown, path: ReadonlyArray<string | number>): OwnRead {
   let current = input

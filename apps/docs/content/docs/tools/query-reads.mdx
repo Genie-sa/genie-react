@@ -52,8 +52,9 @@ most 10 families. `recentFetches` counts fetches seen in the last 10 seconds.
 
 Lists retained QueryObserver delivery events and their exact notification-to-render joins.
 
-**Input:** `observerId` is an optional exact observer ID from `query_get`. `limit` is an optional
-integer from 1 to 500 and defaults to 100.
+**Input:** `observerId` is an optional exact observer ID from `query_get`. `queryHash` optionally
+keeps only notifications from observers of that query. `limit` is an optional integer from 1 to 500
+and defaults to 100.
 
 ```bash
 npx @genie-react/cli call query_notifications \
@@ -68,6 +69,8 @@ npx @genie-react/cli call query_notifications \
     {
       "notificationId": "query-notification:12",
       "observerId": "query-observer:1",
+      "queryHash": "[\"todos\"]",
+      "queryKey": ["todos"],
       "observationId": "observation:1",
       "trackedFields": ["data"],
       "trackedFieldsCoverage": "exact",
@@ -86,6 +89,8 @@ npx @genie-react/cli call query_notifications \
 }
 ```
 
+Each event names the query its observer was attached to when it notified (`queryHash`, `queryKey`).
+
 **Agent use:** Attributes a component render to one exact observer notification, then decides
 whether a tracked field changed, structural sharing was preserved, and the delivery reached the
 expected render event.
@@ -101,7 +106,10 @@ Reads one query with its data, options, fetch counts, and observers.
 
 **Input:** `queryHash` and `queryKey` are optional, but at least one is required; if both are sent,
 `queryHash` wins. `path` is an optional array of string or number segments. `depth` is an optional
-integer from 1 to 6 and defaults to 3.
+integer from 1 to 6 and defaults to 3. `where` is optional; when sent, it requires `field`, a key or a path
+of keys, and `equals`, a string, number, boolean or `null`. It selects the entries of the array, Map
+or object at `path` whose field equals that value, and returns them under `selection` instead of
+`data`.
 
 ```bash
 npx @genie-react/cli call query_get \
@@ -148,7 +156,19 @@ npx @genie-react/cli call query_get \
 **Agent use:** Selects the observer for `query_notifications` and decides whether current cache
 data, fetch activity, observer policy, and component subscriber evidence explain the visible UI.
 
-Data is depth-bounded after `path` is applied. At most 100 observers are returned; check
+Data is depth-bounded after `path` is applied, and an array shows its first 100 items. To read one
+entity from a longer list, select it by a field:
+
+```bash
+npx @genie-react/cli call query_get \
+  '{"queryKey":["orders","list"],"path":["items"],"where":{"field":"id","equals":"o-0998"}}' --json
+```
+
+`selection` reports `matchCount`, how many entries were `scanned` (up to 100,000, with
+`scanTruncated`), `containerFound`, and the first 20 `matches`, each with its full `path` for a
+follow-up read. Values compare with `Object.is`, so `"998"` does not match `998`.
+
+At most 100 observers are returned; check
 `observersOmitted`. TanStack Query releases before about 5.40 keep observers private, so observers
 that attached before Genie started are counted in `observerCount` and `observersOmitted` but not
 listed. Treat subscriber evidence as current only when `subscriberObservationStatus` is
@@ -161,7 +181,8 @@ Reads only the bounded data for one query.
 
 **Input:** `queryHash` and `queryKey` are optional, but at least one is required; if both are sent,
 `queryKey` wins. `path` is an optional array of string or number segments. `depth` is an optional
-integer from 1 to 6 and defaults to 3.
+integer from 1 to 6 and defaults to 3. `where` selects entries by a field value as in `query_get`;
+when sent, it requires `field` and `equals`.
 
 ```bash
 npx @genie-react/cli call query_get_data \

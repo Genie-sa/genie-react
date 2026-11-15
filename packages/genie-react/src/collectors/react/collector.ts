@@ -16,6 +16,7 @@ import {
   reactForceErrorBoundaryContract,
   reactGetRendersContract,
   reactGetTreeContract,
+  reactHydrationContract,
   reactInspectComponentContract,
   reactInspectContextContract,
   reactListOverridesContract,
@@ -56,6 +57,7 @@ import {
   owningComponentFor,
   registerFiber,
 } from './fiber'
+import { getHydrationReport } from './hydration-report'
 import { getMeasurementEnvironment } from './measurement-environment'
 import { openMeasurementSpan, readMeasurementSpan } from './measurement-spans'
 import { getAnalysisGeneration, getDocumentCommitId } from './observation'
@@ -723,6 +725,7 @@ export function reactCollector(): GenieCollector {
           getErrorState({ includeSource, limit, appOnly }),
       }),
       defineCollectorTool({ contract: reactSuspenseContract, handler: getSuspenseReport }),
+      defineCollectorTool({ contract: reactHydrationContract, handler: getHydrationReport }),
       defineCollectorTool({ contract: reactPendingWorkContract, handler: getPendingReactWork }),
       defineCollectorTool({
         contract: reactRefreshEventsContract,

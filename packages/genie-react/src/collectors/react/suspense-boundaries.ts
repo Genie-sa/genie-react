@@ -1,8 +1,10 @@
 import { type Fiber, getFiberId, isCompositeFiber } from 'bippy'
 import { normalizeFileName, parseStack, symbolicateStack } from 'bippy/source'
 import { roundMilliseconds } from '../../protocol'
+import { renderStartedQueriesUnder } from '../causal/render-started-queries'
 import type { NodeId } from './contracts'
 import { findAllRootFibers, findFiberById, nameOf, registerFiber } from './fiber'
+import { hydrationOutcomeOf } from './hydration-tracker'
 import { getDocumentCommitId } from './observation'
 import { findSuspenseBoundary, forcedSuspenseBoundaries } from './overrides'
 import {
@@ -25,6 +27,7 @@ import type {
 import {
   type AwaiterRef,
   assessSuspenseCapability,
+  combinedCapability,
   componentEntriesOf,
   contentBlockersOf,
   dataLibraryOfFile,
@@ -34,7 +37,6 @@ import {
   pendingBlockersOf,
   type RawBlocker,
   type StackSource,
-  weakestCapability,
 } from './suspense-debug-info'
 import { committedSuspenseState, visibleChildOf } from './suspense-state'
 import { isSuspenseFiber } from './work-tags'
@@ -66,6 +68,7 @@ interface BoundaryRecord {
   capability: SuspenseCapability
   parent: BoundaryRecord | null
   content: RawBlocker[]
+  serverComponents: AwaiterRef[]
   pending: RawBlocker[]
   state: SuspenseBoundaryState
   memoizedState: unknown
@@ -74,7 +77,6 @@ interface BoundaryRecord {
 
 interface Scan {
   records: BoundaryRecord[]
-  capabilities: SuspenseCapability[]
   roots: Fiber[]
   scanTruncated: boolean
   unattributedEntries: number
@@ -123,14 +125,12 @@ function describeBoundary(fiber: Fiber): string {
 
 function scanRoots(roots: Fiber[]): Scan {
   const records: BoundaryRecord[] = []
-  const capabilities: SuspenseCapability[] = []
   let visited = 0
   let unattributedEntries = 0
   let scanTruncated = false
 
   for (const root of roots) {
     const capability = assessSuspenseCapability(root)
-    capabilities.push(capability)
     const readsDebugInfo = capability.asyncDebugInfo !== 'unavailable'
     const pendingWork = rootHasPendingWork(root)
     const stack: WalkItem[] = root.child
@@ -149,8 +149,12 @@ function scanRoots(roots: Fiber[]): Scan {
       if (isHiddenOffscreen(fiber)) continue
       if (readsDebugInfo) {
         const entries = contentBlockersOf(fiber, awaiterFor(fiber, composite))
-        if (enclosing) enclosing.content.push(...entries)
-        else unattributedEntries += entries.length
+        if (enclosing) {
+          enclosing.content.push(...entries)
+          if (!isSuspenseFiber(fiber)) {
+            enclosing.serverComponents.push(...componentEntriesOf(own(fiber, '_debugInfo')))
+          }
+        } else unattributedEntries += entries.length
       }
 
       if (isSuspenseFiber(fiber)) {
@@ -164,7 +168,8 @@ function scanRoots(roots: Fiber[]): Scan {
           capability,
           parent: enclosing,
           content: [],
-          pending: readsDebugInfo ? pending : [],
+          serverComponents: readsDebugInfo ? componentEntriesOf(own(fiber, '_debugInfo')) : [],
+          pending: readsDebugInfo ? withRenderStartedQueries(fiber, pending) : [],
           state: committed ?? (pending.length > 0 ? 'transition-pending' : 'content'),
           memoizedState: own(fiber, 'memoizedState'),
           order: records.length,
@@ -190,7 +195,81 @@ function scanRoots(roots: Fiber[]): Scan {
     }
     if (scanTruncated) break
   }
-  return { records, capabilities, roots, scanTruncated, unattributedEntries }
+  return { records, roots, scanTruncated, unattributedEntries }
+}
+
+/** The capability of the roots that hold Suspense boundaries; another root, such as a dev overlay bundling its own production React, holds no blocker to describe. */
+function reportCapability(scan: Scan): SuspenseCapability {
+  const byRoot = new Map(scan.records.map((record) => [record.root, record.capability]))
+  return combinedCapability([...byRoot.values()]) ?? assessSuspenseCapability(scan.roots[0] ?? null)
+}
+
+function nearestSuspenseAbove(fiber: Fiber): Fiber | null {
+  let node = fiber.return
+  while (node && !isSuspenseFiber(node)) node = node.return
+  return node
+}
+
+/** Names the query behind each promise a suspense query hook threw: such a promise has no debug information, but the render that threw it started the query's fetch under this boundary. Joined only one to one, in render order, so an unidentified promise is never paired with a guess. */
+function withRenderStartedQueries(boundary: Fiber, pending: RawBlocker[]): RawBlocker[] {
+  const unidentified = pending.filter((blocker) => blocker.kind === 'unknown')
+  if (unidentified.length === 0) return pending
+  const queries = renderStartedQueriesUnder((fiber) => {
+    const nearest = nearestSuspenseAbove(fiber)
+    return nearest !== null && (nearest === boundary || nearest === boundary.alternate)
+  })
+  if (queries.length !== unidentified.length) return pending
+  const joined = new Map(unidentified.map((blocker, index) => [blocker, queries[index]]))
+  return pending.map((blocker) => {
+    const query = joined.get(blocker)
+    if (!query) return blocker
+    return {
+      ...blocker,
+      kind: 'data-library',
+      kindEvidence: 'inferred',
+      basis: 'query-started-by-suspended-render',
+      status: 'pending',
+      liveStatus: () => (query.stillFetching() ? 'pending' : 'unknown'),
+      name: query.queryHash,
+      startMs: blocker.startMs ?? query.startedAtMs,
+      awaitedBy: blocker.awaitedBy ?? { fiber: query.fiber, name: nameOf(query.fiber), env: null },
+      query: { queryHash: query.queryHash, queryKey: query.queryKey },
+    }
+  })
+}
+
+function blockerDurationMs(blocker: RawBlocker): number | null {
+  return blocker.startMs !== null && blocker.endMs !== null
+    ? Math.max(0, blocker.endMs - blocker.startMs)
+    : null
+}
+
+/** The RSC stream entry spans from the request to the chunk that carried this content, so it outlasts the awaits that delayed the chunk and ranks after them. */
+function holdRank(blocker: RawBlocker): number {
+  if (blockerDurationMs(blocker) === null) return 2
+  return blocker.kind === 'server-stream' ? 1 : 0
+}
+
+/** What held the boundary longest first: pending blockers by how long ago they started, then settled ones by duration; untimed blockers keep their recorded order after timed ones. */
+function byHoldTime(pending: RawBlocker[], content: RawBlocker[]): RawBlocker[] {
+  const earliestStart = (left: RawBlocker, right: RawBlocker) =>
+    (left.startMs ?? Number.POSITIVE_INFINITY) - (right.startMs ?? Number.POSITIVE_INFINITY)
+  const longest = (left: RawBlocker, right: RawBlocker) =>
+    holdRank(left) - holdRank(right) ||
+    (blockerDurationMs(right) ?? 0) - (blockerDurationMs(left) ?? 0)
+  return [...[...pending].sort(earliestStart), ...[...content].sort(longest)]
+}
+
+function uniqueServerComponents(
+  entries: AwaiterRef[],
+): Array<{ name: string; env: string | null }> {
+  const seen = new Set<string>()
+  return entries.flatMap(({ name, env }) => {
+    const key = `${env ?? ''}\u0000${name}`
+    if (seen.has(key)) return []
+    seen.add(key)
+    return [{ name, env }]
+  })
 }
 
 function isUnsettled(blocker: RawBlocker): boolean {
@@ -337,7 +416,6 @@ function shapeBlocker(
     (blocker.kind === 'use' || blocker.kind === 'unknown') &&
     ([...stacks.await.frames, ...stacks.io.frames].some((frame) => dataLibraryOfFile(frame.file)) ||
       dataLibraryOfFile(awaiterSource?.source?.file ?? null))
-  const settled = blocker.status === 'fulfilled' || blocker.status === 'rejected'
   return {
     kind: library ? 'data-library' : blocker.kind,
     kindEvidence: library ? 'inferred' : blocker.kindEvidence,
@@ -346,16 +424,14 @@ function shapeBlocker(
     status: blocker.status,
     name: blocker.name,
     description: blocker.description,
-    durationMs:
-      settled && blocker.startMs !== null && blocker.endMs !== null
-        ? round(Math.max(0, blocker.endMs - blocker.startMs))
-        : null,
+    durationMs: round(blockerDurationMs(blocker)),
     pendingForMs:
       blocker.status === 'pending' && blocker.startMs !== null
         ? round(Math.max(0, observedAtMs - blocker.startMs))
         : null,
     awaitedBy: awaiterOutput(blocker.awaitedBy),
     location: firstAppLocation(stacks.await, stacks.io),
+    query: blocker.query ?? null,
     recordedBy: blocker.recordedBy,
     startMs: round(blocker.startMs),
     endMs: round(blocker.endMs),
@@ -486,7 +562,7 @@ export async function getSuspenseReport(query: SuspenseQuery): Promise<SuspenseR
   let sourcesPartial = classified?.partial ?? false
   const boundaries = await Promise.all(
     selected.map(async ({ record, classification }) => {
-      const ordered = [...record.pending, ...dedupeBlockers(record.content)]
+      const ordered = byHoldTime(record.pending, dedupeBlockers(record.content))
       const blockers = ordered.slice(0, query.blockerLimit)
       const awaiterSources = await classifyAwaiters(blockers, query.includeSource)
       if (awaiterSources.partial) sourcesPartial = true
@@ -510,6 +586,7 @@ export async function getSuspenseReport(query: SuspenseQuery): Promise<SuspenseR
         ),
       )
       const forced = forcedIds.has(getFiberId(record.fiber))
+      const serverComponents = uniqueServerComponents(record.serverComponents)
       return {
         id: registerFiber(record.fiber),
         name: describeBoundary(record.fiber),
@@ -518,15 +595,15 @@ export async function getSuspenseReport(query: SuspenseQuery): Promise<SuspenseR
         stateEvidence:
           record.state === 'transition-pending' ? ('inferred' as const) : ('exact' as const),
         forced,
+        hydration: hydrationOutcomeOf(record.fiber),
         fallbackCommittedSinceMount: retryCacheOf(record.fiber) !== null,
         blockerStatus: blockerStatusOf(record, forced),
         blockersOmitted: ordered.length - blockers.length,
         source: query.includeSource ? (classification?.source ?? null) : null,
         sourceOwnership: classification?.ownership ?? ('unknown' as const),
         blockers: shaped,
-        serverComponents: componentEntriesOf(own(record.fiber, '_debugInfo'))
-          .slice(0, SERVER_COMPONENT_LIMIT)
-          .map(({ name, env }) => ({ name, env })),
+        serverComponents: serverComponents.slice(0, SERVER_COMPONENT_LIMIT),
+        serverComponentsOmitted: Math.max(0, serverComponents.length - SERVER_COMPONENT_LIMIT),
       }
     }),
   )
@@ -538,7 +615,7 @@ export async function getSuspenseReport(query: SuspenseQuery): Promise<SuspenseR
     scan.roots.some((root) => own(fiberRootOf(root), 'current') !== root) ||
     selected.some(({ record }) => own(record.fiber, 'memoizedState') !== record.memoizedState)
 
-  const capability = weakestCapability(scan.capabilities) ?? assessSuspenseCapability(null)
+  const capability = reportCapability(scan)
   const waitingWithoutBlocker = scan.records.filter(
     (record) => WAITING_STATES.has(record.state) && record.pending.length === 0,
   ).length
@@ -573,6 +650,11 @@ export async function getSuspenseReport(query: SuspenseQuery): Promise<SuspenseR
       changedDuringRead,
       commitScheduled,
       sourcesPartial,
+      serverAwaits: selected.some(({ record }) =>
+        [...record.pending, ...record.content].some((blocker) => blocker.kind === 'server-io'),
+      )
+        ? ('last-settled-per-await' as const)
+        : ('none' as const),
     },
     ownershipCoverage: ownershipCoverage(
       candidates.map((_record, index) => classOf(index)?.ownership ?? 'unknown'),
@@ -587,11 +669,9 @@ export async function getSuspenseReport(query: SuspenseQuery): Promise<SuspenseR
   return {
     ...base,
     view: 'summary',
-    boundaries: boundaries.map(
-      ({ serverComponents: _serverComponents, blockers, ...boundary }) => ({
-        ...boundary,
-        blockers: blockers.map(summarizeBlocker),
-      }),
-    ),
+    boundaries: boundaries.map(({ blockers, ...boundary }) => ({
+      ...boundary,
+      blockers: blockers.map(summarizeBlocker),
+    })),
   }
 }

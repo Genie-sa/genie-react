@@ -1,5 +1,6 @@
 /** Neutral causal identity shared by React and TanStack collectors. */
 
+import { dehydrate } from '../../protocol'
 import { safeStructuredClone } from '../structured-clone'
 import { publishEffectConsequence } from './effect-consequence'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from './safe-object'
@@ -49,6 +50,9 @@ export interface RegisteredRouterStore extends RouterStoreReference {
 export interface QueryNotificationEvent {
   notificationId: string
   observerId: string
+  /** The query the observer was attached to when it notified; null when it could not be read. */
+  queryHash: string | null
+  queryKey: unknown
   observationId: string | null
   timestamp: number
   trackedFields: string[]
@@ -172,9 +176,14 @@ export function recordQueryNotification(
 ): QueryNotificationEvent {
   queryNotificationSequence += 1
   const fields = changedAndReusedFields(before, after)
+  const current = callObjectMethod(observer, 'getCurrentQuery')
+  const query = current.ok ? current.value : null
+  const queryHash = ownDataValue(query, 'queryHash')
   const event: QueryNotificationEvent = {
     notificationId: `query-notification:${queryNotificationSequence}`,
     observerId: queryObserverId(observer),
+    queryHash: typeof queryHash === 'string' ? queryHash : null,
+    queryKey: dehydrate(ownDataValue(query, 'queryKey'), { depth: 3 }),
     observationId: activeObservationId,
     timestamp: Date.now(),
     trackedFields: metadata.trackedFields.slice(0, FIELD_LIMIT),
@@ -229,12 +238,18 @@ function linkRenderEvent(
   }
 }
 
-export function listQueryNotifications(options: { observerId?: string; limit: number }): {
+export function listQueryNotifications(options: {
+  observerId?: string
+  queryHash?: string
+  limit: number
+}): {
   events: QueryNotificationEvent[]
   omittedByLimit: number
 } {
   const matching = queryNotifications.filter(
-    (event) => options.observerId === undefined || event.observerId === options.observerId,
+    (event) =>
+      (options.observerId === undefined || event.observerId === options.observerId) &&
+      (options.queryHash === undefined || event.queryHash === options.queryHash),
   )
   return {
     events: matching
@@ -403,6 +418,12 @@ function findDataMethod(
     }
   }
   return null
+}
+
+function ownDataValue(value: unknown, key: string): unknown {
+  if (typeof value !== 'object' || value === null) return undefined
+  const descriptor = safeOwnPropertyDescriptor(value, key)
+  return isDataDescriptor(descriptor) ? descriptor.value : undefined
 }
 
 function callObjectMethod(

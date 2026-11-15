@@ -29,6 +29,7 @@ interface CaughtError {
   forced: boolean
   status: 'active' | 'unknown'
   statusReason: string
+  rendered: { output: string; hostNodes: number; text: string | null }
 }
 
 interface ErrorState {
@@ -149,6 +150,50 @@ describe('caught render errors', () => {
 
     expect(app.container.textContent).toBe('tick 0retry')
     expect(await caught()).toEqual([expect.objectContaining({ message: 'second failure' })])
+  })
+})
+
+describe('what a boundary renders in place of a caught error', () => {
+  const fallbackOf = async (fallback: () => ReactNode) => {
+    await mount(
+      createElement(
+        Page,
+        null,
+        createElement(RetryBoundary, { fallback }, createElement(Unstable)),
+      ),
+    )
+    return errorState()
+  }
+
+  it('reports a boundary that swallows the error by rendering no element as rendering nothing', async () => {
+    const state = await fallbackOf(() => false)
+
+    expect(state.caughtErrors).toEqual([
+      expect.objectContaining({
+        boundaryName: 'RetryBoundary',
+        rendered: { output: 'nothing', hostNodes: 0, text: null },
+      }),
+    ])
+    expect(state.blankTreeHint).toMatch(/renders nothing in its place/)
+  })
+
+  it('reports a boundary that shows a message as visible, quoting the text', async () => {
+    const state = await fallbackOf(() =>
+      createElement('section', null, createElement('p', null, 'Reviews are unavailable')),
+    )
+
+    expect(state.caughtErrors[0]?.rendered).toEqual({
+      output: 'visible',
+      hostNodes: 1,
+      text: 'Reviews are unavailable',
+    })
+    expect(state.blankTreeHint).toMatch(/shows "Reviews are unavailable" instead/)
+  })
+
+  it('reports elements with no text and no size as empty, not as a visible fallback', async () => {
+    const state = await fallbackOf(() => createElement('div', { className: 'spacer' }))
+
+    expect(state.caughtErrors[0]?.rendered).toEqual({ output: 'empty', hostNodes: 1, text: null })
   })
 })
 

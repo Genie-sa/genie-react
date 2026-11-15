@@ -16,6 +16,7 @@ Starts one bounded recording on a monotonic clock. It replaces the previous stop
 
 **Input:** Required `name` is trimmed and accepts 1–120 characters. Optional `maxEvents` is an integer
 from 1–10,000, default 1,000. Optional `maxDurationMs` is an integer from 1–120,000, default 30,000.
+Optional `queryValues` is `hashed` (default) or `plain`; see [query strings](#query-strings).
 
 ```bash
 npx @genie-react/cli call timeline_start \
@@ -91,12 +92,35 @@ render work when known, not commit wall time or native UI time. An active report
 `nextOffset: null` means caught up now. A replaced recording or a previous document's ID errors.
 Each report includes coverage and truncation; absent events do not prove absent work.
 
-A request event's `responseReceived` is `false` when a same-origin request got no response, so it
-was aborted or failed; its `durationMs` runs until the failure, not a completed response. `null`
-means cross-origin timing without `Timing-Allow-Origin` hides it. An abort after the response
-headers still looks like a response. A redirect chain is one event under the requested URL, timed
-across every hop, with the final `responseStatus`. Navigation `pathChanged` and `hrefChanged` are
-`null` when the Router release does not report them.
+A request event carries `method` and `outcome` from the app's own `fetch` and `XMLHttpRequest`
+calls during the recording: `response`, `aborted`, `aborted-after-response` (the response headers
+arrived, then the app or the network cancelled the body), `failed`, or `in-flight`. A request still
+unanswered at stop is an `in-flight` event with `endMs: null`. `method` is `null` for a request
+that bypassed Genie's observer, such as one sent through a `fetch` reference a library saved before
+recording; its `outcome` then comes from timing alone: `no-response` or `unknown` across origins.
+`bodyReadMs` is when the app finished reading the body (`json()`, `text()` and similar, or an XHR
+`load`). `responseReceived` is `false` when a same-origin request got no response; its `durationMs`
+runs until the failure. `null` means cross-origin timing without `Timing-Allow-Origin` hides it. A
+redirect chain is one event under the requested URL, timed across every hop, with the final
+`responseStatus`. Navigation `pathChanged` and `hrefChanged` are `null` when the Router release does
+not report them.
+
+For requests to the same method and path that overlap in time, `overlappingSameEndpoint` counts the
+others, `finishedAfterNewer` is `true` when a request started after this one answered first, and
+`bodyReadLast` marks the one whose body the app read last. An older request with
+`finishedAfterNewer: true` and `bodyReadLast: true` is the classic response race: the app most
+likely applied the stale result. Which result the app put on screen is not visible to the network
+lane; confirm it with the UI or the component's state.
+
+### Query strings
+
+Query strings can carry tokens, so by default `query` keeps parameter names and replaces each value
+with a salted hash: `?q=~3f9a1c2e7b&range=~0be41f9a33`. Equal values hash alike within one page
+load, so `?q=` and `?q=webhook`, or `range=7d` and `range=90d`, are told apart; an empty value stays
+empty, and the salt never leaves the page. Start with `"queryValues":"plain"` to see values as sent.
+Parameters named like credentials (`token`, `key`, `secret`, `password`, `signature`, `session`,
+`code` and similar) stay hashed even then. `query` is `null` when the URL has none. Fragments and
+URL credentials are never reported.
 
 ## `timeline_stop`
 
@@ -137,7 +161,8 @@ text is fixed for each code, so read and stop responses lose nothing by omitting
 
 | Code | Lane | Meaning |
 | --- | --- | --- |
-| `resource-timing` | request | Finished fetch/XHR Resource Timing only; delivery can lag; aborted and failed requests can appear with `responseReceived:false`; unfinished, worker, and non-fetch/XHR requests are absent; cross-origin detail needs `Timing-Allow-Origin`; URLs keep paths only. |
+| `resource-timing-and-fetch` | request | Resource Timing joined with the app's `fetch`/XHR calls during the recording: adds `method`, `outcome` including aborts after headers, `bodyReadMs`, and in-flight requests at stop; requests seen only by those calls are added at stop; worker and non-fetch/XHR requests are absent; cross-origin detail needs `Timing-Allow-Origin`; query values are hashed unless `queryValues` is `plain`. |
+| `resource-timing` | request | Finished fetch/XHR Resource Timing only; delivery can lag; aborted and failed requests can appear with `responseReceived:false`; an abort after the headers looks like a response; unfinished, worker, and non-fetch/XHR requests are absent; cross-origin detail needs `Timing-Allow-Origin`; query values are hashed unless `queryValues` is `plain`. |
 | `resource-timing-flush-failed` | request | As above, but the final resource queue flush failed, so entries can be missing. |
 | `no-resource-timing` | request | Browser Resource Timing is unavailable; native requests are not observed. |
 | `query-cache` | query | QueryCache add, remove, and update notifications; no prior snapshot, mutation cache, payloads, or request links. |

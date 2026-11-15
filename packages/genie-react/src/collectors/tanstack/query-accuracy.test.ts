@@ -5,7 +5,7 @@ import {
   QueryObserver,
   type QueryObserverResult,
 } from '@tanstack/react-query'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CollectorContext, GenieCollector } from '../../client'
 import { resetExternalStoreRegistryForTests } from '../causal/external-store-registry'
 import { queryCollector } from './query'
@@ -62,6 +62,7 @@ function deferred<T>() {
 beforeEach(() => resetExternalStoreRegistryForTests())
 afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup()
+  vi.restoreAllMocks()
 })
 
 describe('custom query key hashers', () => {
@@ -280,6 +281,7 @@ describe('query_simulate_state restoration', () => {
   })
 
   it('captures fresh state when re-simulating a query whose simulation real data superseded', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_750_000_000_000)
     const queryClient = client()
     let version = 0
     const observer = new QueryObserver<string, Error>(queryClient, {
@@ -295,6 +297,26 @@ describe('query_simulate_state restoration', () => {
     await call(collector, 'query_simulate_state', { queryKey: ['user'], state: 'pending' })
     await call(collector, 'query_restore_state', { all: true })
 
+    expect(observer.getCurrentResult()).toMatchObject({ status: 'success', data: 'v2' })
+  })
+
+  it('keeps superseding data when the real refetch lands in the same millisecond as the original', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_750_000_000_000)
+    const queryClient = client()
+    let version = 0
+    const observer = new QueryObserver<string, Error>(queryClient, {
+      queryKey: ['user'],
+      queryFn: async () => `v${++version}`,
+    })
+    watch(observer)
+    await settle()
+    const collector = started(queryClient)
+    await call(collector, 'query_simulate_state', { queryKey: ['user'], state: 'error' })
+    await queryClient.refetchQueries({ queryKey: ['user'] })
+
+    expect(await call(collector, 'query_restore_state', { all: true })).toMatchObject({
+      outcomes: [expect.objectContaining({ outcome: 'superseded' })],
+    })
     expect(observer.getCurrentResult()).toMatchObject({ status: 'success', data: 'v2' })
   })
 })

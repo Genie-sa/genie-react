@@ -20,6 +20,7 @@ export {
   reactEffectEventsContract,
   reactEffectTimelineContract,
 } from './effect-contract'
+export { reactHydrationContract } from './hydration-report'
 export {
   instanceDescriptorSchema,
   observationSchema,
@@ -741,7 +742,7 @@ export const reactErrorStateContract = defineAgentToolContract({
   name: 'react_error_state',
   title: 'Error & suspense state (why is it blank/stuck?)',
   description:
-    'Report error boundaries that have caught an error (with the boundary + throwing component, the message/stack, and their source file:line) and Suspense boundaries currently showing a fallback. Answers "why is the page blank or stuck?" — a render/tree snapshot cannot show a caught error or a suspended subtree. Catches are recorded at commit time and re-checked against the live tree on every call, so a boundary that recovered drops out and react_clear_renders does not hide one that is still failing; fallbacks are read from the live tree. Boundaries you are holding open with react_force_error_boundary / react_toggle_suspense_fallback are included and flagged `forced:true` (release them with react_reset_overrides); real errors/suspends are `forced:false`.',
+    'Report error boundaries that have caught an error (with the boundary + throwing component, the message/stack, and their source file:line) and Suspense boundaries currently showing a fallback. Answers "why is the page blank or stuck?" — a render/tree snapshot cannot show a caught error or a suspended subtree. Catches are recorded at commit time and re-checked against the live tree on every call, so a boundary that recovered drops out and react_clear_renders does not hide one that is still failing; fallbacks are read from the live tree. Each caught error says what its boundary renders instead (nothing, empty elements, or visible output), so a swallowed error can be told from a handled one. Hydration mismatches are not caught errors; read react_hydration. Boundaries you are holding open with react_force_error_boundary / react_toggle_suspense_fallback are included and flagged `forced:true` (release them with react_reset_overrides); real errors/suspends are `forced:false`.',
   group: 'react.render',
   input: z.object({
     appOnly: appOnlySchema,
@@ -785,6 +786,17 @@ export const reactErrorStateContract = defineAgentToolContract({
           'forced',
           'state-changed-since-catch',
         ]),
+        rendered: z
+          .object({
+            output: z
+              .enum(['nothing', 'empty', 'visible', 'unknown'])
+              .describe(
+                'What the boundary renders now in place of its children, read from the committed DOM. nothing: no DOM, so the user sees no sign of the failure (a swallowed error). empty: elements without text or size. visible: text or an element with size, such as an error message. unknown: no DOM to read (React Native).',
+              ),
+            hostNodes: z.number().int().nonnegative(),
+            text: z.string().nullable().describe('Visible text it renders, bounded.'),
+          })
+          .describe('Tells a handled error (a visible fallback) from a swallowed one.'),
       }),
     ),
     suspended: z.array(
