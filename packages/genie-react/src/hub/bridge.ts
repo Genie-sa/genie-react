@@ -63,6 +63,7 @@ import {
   type UpgradePolicyOptions,
   type UpgradeVerdict,
 } from './upgrade-policy'
+import { isVerifyTool, VerificationManager } from './verification-manager'
 import {
   matchesOf,
   parseQueryList,
@@ -320,6 +321,7 @@ export class GenieBridge {
   private readonly generationRaces = new Set<string>()
   private readonly captures: CaptureManager<AppSession>
   private readonly interactions: InteractionManager<AppSession>
+  private readonly verifications: VerificationManager<AppSession>
   private readonly connections = new Set<WebSocket>()
   private readonly responsiveSockets = new WeakSet<WebSocket>()
   private readonly heartbeat: ReturnType<typeof setInterval>
@@ -377,6 +379,16 @@ export class GenieBridge {
     this.guard = new OwnershipGuard<AppSession>(this.ownership, (session, tool, args) =>
       this.appRequestForSession(tool, args, session),
     )
+    this.verifications = new VerificationManager({
+      resolveSession: (target) => this.targetSession(target),
+      sessionUnavailable: (target) => this.sessionUnavailable(target),
+      isCurrentSession: (session) => this.isCurrent(session),
+      hasLogicalCollision: (session) => this.logicalPeers(session).length > 0,
+      isInteractionRecording: (sessionId) => this.interactions.isRecording(sessionId),
+      request: (session, tool, args) => this.appRequestForSession(tool, args, session),
+      settle: (session, domains, quietMs, timeoutMs) =>
+        this.settleInteraction(session, domains, quietMs, timeoutMs),
+    })
     const interval = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
     this.heartbeat = setInterval(() => this.sweepDeadConnections(), interval)
     unrefTimer(this.heartbeat)
@@ -441,6 +453,7 @@ export class GenieBridge {
     this.ownership.clear()
     this.captures.clear()
     this.interactions.clear()
+    this.verifications.clear()
     // terminate(), not close(): a graceful close handshake with a half-open peer blocks shutdown on ws's 30s timeout.
     for (const socket of this.agents) socket.terminate()
     for (const session of this.apps.values()) session.socket.terminate()
@@ -1248,11 +1261,20 @@ export class GenieBridge {
       return
     }
 
-    if (isCaptureTool(tool) || isInteractionTool(tool)) {
+    const locked = this.verificationLock(tool, sessionId)
+    if (locked) {
+      const { error, ...extra } = locked
+      this.result(agent, id, false, undefined, error, extra)
+      return
+    }
+
+    if (isCaptureTool(tool) || isInteractionTool(tool) || isVerifyTool(tool)) {
       if (await this.refusedByOwnership(agent, id, tool, args, sessionId)) return
       const response = isCaptureTool(tool)
         ? await this.captures.invoke(tool, args, sessionId)
-        : await this.interactions.invoke(tool, args, sessionId)
+        : isInteractionTool(tool)
+          ? await this.interactions.invoke(tool, args, sessionId)
+          : await this.verifications.invoke(tool, args, sessionId)
       const outcome = response.session
         ? this.guard.settle(response.session, this.currentCaller(), tool, args, response)
         : {}
@@ -1300,6 +1322,27 @@ export class GenieBridge {
     const { ok: _, error, ...extra } = refusal
     this.result(agent, id, false, undefined, error, { ...extra, session: target })
     return true
+  }
+
+  /** A verification owns its document's window: calls that would reset it, pause it, or put Genie-made state on screen are refused until it ends. */
+  private verificationLock(
+    tool: string,
+    sessionId?: string,
+  ): { error: string; errorCode: AgentErrorCode; errorDetails: ToolErrorDetails } | null {
+    const session = this.peekTarget(sessionId)
+    const verificationId = session ? this.verifications.lockFor(session.sessionId, tool) : undefined
+    if (!verificationId) return null
+    const recording = verificationId !== 'starting'
+    return {
+      error: recording
+        ? `Verification ${verificationId} is recording on this document, so ${tool} is refused until it ends. Run genie-react verify end ${verificationId}, or release the lock with genie-react verify abort ${verificationId}.`
+        : `A verification is starting on this document, so ${tool} is refused. Retry once genie-react verify begin returns.`,
+      errorCode: 'invalid-args',
+      errorDetails: {
+        hubCode: 'VERIFICATION_ACTIVE' satisfies HubErrorCode,
+        ...(recording ? { verificationId } : {}),
+      },
+    }
   }
 
   private async handleQuiesce(

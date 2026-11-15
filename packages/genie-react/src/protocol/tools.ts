@@ -11,6 +11,7 @@ import {
 import { renderObservationBudgetInputSchema } from './react-observation-schema'
 import { RENDER_CAUSE_EVIDENCE, RENDER_MEMO_COUNTERS } from './render-evidence'
 import { schemaConstraints, withoutSafeIntegerBounds } from './schema-description'
+import { verifyTools } from './verify'
 
 export const OUTPUT_VIEWS = ['summary', 'full'] as const
 export type OutputView = (typeof OUTPUT_VIEWS)[number]
@@ -930,6 +931,7 @@ export const metaTools = [
   devtoolsCaptureCompareContract,
   devtoolsInteractionBeginContract,
   devtoolsInteractionStopContract,
+  ...verifyTools,
 ]
 
 /** Catalog entries for the meta tools, so `tools` listings and toolCount agree on the same set. */

@@ -9,26 +9,23 @@ import {
   type InteractionCapture,
   newId,
   type ToolDescriptor,
-  type ToolErrorDetails,
   toolValidationFailure,
   type WaitDomain,
 } from '../protocol'
 import { withFullView } from './full-view'
 import { selectInteractionSections, summarizeInteraction } from './interaction-summary'
+import {
+  captureToolEvidence,
+  hasTool,
+  type ObservationRequestResult,
+  startObservationWindow,
+} from './observation-window'
 import type { SessionUnavailable } from './session-routing'
+import type { RetainedTool } from './verify/evidence'
 import { numberField, recordOf, stringField } from './wire-guards'
 
 const MAX_ACTIVE_INTERACTIONS = 20
 const MAX_COMPLETED_INTERACTIONS = 20
-
-interface InteractionRequestResult {
-  ok: boolean
-  result?: unknown
-  error?: string
-  errorCode?: AgentErrorCode
-  errorDetails?: ToolErrorDetails
-  retryInMs?: number
-}
 
 export interface InteractionSession {
   sessionId: string
@@ -70,7 +67,7 @@ interface InteractionManagerOptions<TSession extends InteractionSession> {
   /** Why `resolveSession(target)` found no document; untargeted calls can fail as ambiguous, not only as disconnected. */
   sessionUnavailable: (target?: string) => SessionUnavailable
   isCurrentSession: (session: TSession) => boolean
-  request: (session: TSession, tool: string, args: unknown) => Promise<InteractionRequestResult>
+  request: (session: TSession, tool: string, args: unknown) => Promise<ObservationRequestResult>
   settle: (
     session: TSession,
     domains: WaitDomain[],
@@ -90,15 +87,7 @@ interface ActiveInteraction<TSession extends InteractionSession> {
   components: string[]
 }
 
-interface ToolEvidence {
-  status: 'ok' | 'unavailable' | 'error'
-  tool: string
-  args: unknown
-  capturedAt: string
-  durationMs: number
-  result?: unknown
-  error?: string
-}
+type ToolEvidence = RetainedTool
 
 const INTERACTION_TOOL_NAMES = new Set([
   devtoolsInteractionBeginContract.name,
@@ -208,13 +197,12 @@ export class InteractionManager<TSession extends InteractionSession> {
     session: TSession,
     reservation: symbol,
   ): Promise<InteractionInvocation> {
-    const observationArgs = {
+    const response = await startObservationWindow(this.options.request, session, {
       components: input.components,
       roots: input.roots,
       budget: input.budget,
       lifecycle: input.lifecycle,
-    }
-    const response = await this.options.request(session, 'react_clear_renders', observationArgs)
+    })
     if (!response.ok) {
       return {
         ok: false,
@@ -235,8 +223,6 @@ export class InteractionManager<TSession extends InteractionSession> {
         errorCode: 'not-connected',
       }
     }
-    const result = recordOf(response.result)
-    const observation = result ? recordOf(result.observation) : null
     const interactionId = `int_${newId()}`
     const startedAt = new Date().toISOString()
     const active: ActiveInteraction<TSession> = {
@@ -244,11 +230,9 @@ export class InteractionManager<TSession extends InteractionSession> {
       name: input.name,
       startedAt,
       session,
-      observationId: stringField(observation, 'id'),
-      startDocumentCommitId: numberField(result, 'documentCommitId'),
-      ...(result && 'observationConfig' in result
-        ? { observationConfig: result.observationConfig }
-        : {}),
+      observationId: response.observationId,
+      startDocumentCommitId: response.startDocumentCommitId,
+      ...('observationConfig' in response ? { observationConfig: response.observationConfig } : {}),
       components: input.components,
     }
     this.active.set(interactionId, active)
@@ -456,32 +440,17 @@ export class InteractionManager<TSession extends InteractionSession> {
     return { ok: true, result: interactionView(result, input) }
   }
 
-  private async captureTool(session: TSession, tool: string, args: unknown): Promise<ToolEvidence> {
-    const started = Date.now()
-    const capturedAt = new Date().toISOString()
-    if (!hasTool(session, tool)) {
-      return {
-        status: 'unavailable',
-        tool,
-        args,
-        capturedAt,
-        durationMs: 0,
-        error: `Tool ${tool} is not advertised by this app session.`,
-      }
-    }
-    const response = await this.options.request(session, tool, args)
-    return {
-      status: response.ok ? 'ok' : 'error',
-      tool,
-      args,
-      capturedAt,
-      durationMs: Date.now() - started,
-      ...(response.ok
-        ? {
-            result: structuredClone(response.result),
-          }
-        : { error: response.error ?? `${tool} failed.` }),
-    }
+  private captureTool(session: TSession, tool: string, args: unknown): Promise<ToolEvidence> {
+    return captureToolEvidence(this.options.request, session, tool, args)
+  }
+
+  /** Whether an interaction is recording on this physical document; a verification must not reset its window. */
+  isRecording(sessionId: string): boolean {
+    return (
+      [...this.active.values()].some(
+        (interaction) => interaction.session.sessionId === sessionId,
+      ) || this.starting.has(sessionId)
+    )
   }
 
   private noSession(sessionTarget?: string): InteractionInvocation {
@@ -548,10 +517,6 @@ function sessionIdentity(session: InteractionSession): InteractionCapture['sessi
     ...(session.sessionName === undefined ? {} : { sessionName: session.sessionName }),
     app: session.app,
   }
-}
-
-function hasTool(session: InteractionSession, tool: string): boolean {
-  return session.tools.some((descriptor) => descriptor.name === tool)
 }
 
 function interactionView(
