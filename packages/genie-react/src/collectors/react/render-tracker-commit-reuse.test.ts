@@ -323,9 +323,7 @@ describe('render report snapshots', () => {
 describe('an unmount evicted from a full lifecycle buffer', () => {
   it('releases its effect record under the id it had while mounted, after Bippy reassigns the fiber', async () => {
     const effectOwners = async () =>
-      (
-        await getEffectAuditReport({ limit: 50, appOnly: false, getRetainedHookTree: () => null })
-      ).components.map(({ name }) => name)
+      (await getEffectAuditReport({ limit: 50, appOnly: false })).components.map(({ name }) => name)
     clearRenders({ lifecycle: { bufferLimit: 1, targetReserve: 0 } })
     const effect: Record<string, unknown> = {
       tag: 0b1001,

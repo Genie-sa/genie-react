@@ -13,6 +13,5 @@
     "genie": "observable",
     "evidence": ["react_effect_timeline"]
   },
-  "expectation": "known-false-positive",
-  "finding": "F10"
+  "expectation": "not-flagged"
 }

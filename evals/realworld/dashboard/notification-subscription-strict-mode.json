@@ -11,7 +11,7 @@
   "probe": {
     "script": "probes/bell-subscription.mjs",
     "genie": "observable",
-    "evidence": ["react_effect_timeline", "react_inspect_component", "app_live_updates"]
+    "evidence": ["react_effect_timeline", "app_live_updates"]
   },
   "expectation": "not-flagged"
 }

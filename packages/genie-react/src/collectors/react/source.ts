@@ -14,7 +14,7 @@ import {
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 
 /** What a component source points at: where its element was created (`<Card />` in the parent), or a line inside the component's own body. */
-export type SourceRole = 'element-callsite' | 'component-body'
+export type SourceRole = 'element-callsite' | 'component-body' | 'hook-callsite'
 
 export interface ResolvedSource {
   file: string
@@ -45,37 +45,24 @@ export interface FiberClassification {
   ownership: SourceOwnership
   /** Compatibility projection only; false does not imply app ownership. */
   isLibrary: boolean
+  /** Where the component's own code lives, when its rendered children reveal it. */
+  definition?: ResolvedSource
+  /** The evidence ownership rests on; absent when ownership is unknown. */
+  ownershipBasis?: OwnershipBasis
 }
 
 export type SourceOwnership = 'app' | 'library' | 'unknown'
+
+/** component-definition: a frame in the component's own body. owned-elements: all its elements came from app source (React 18) or all from library code. element-callsite: created inside library code, or a boundary such as Suspense. */
+export type OwnershipBasis = 'component-definition' | 'owned-elements' | 'element-callsite'
 
 export type SourceAttribution =
   | { role: 'usage-or-definition-fallback'; evidence: 'inferred' }
   | { role: 'unavailable'; evidence: 'unknown' }
 
-export type EffectSourceResolutionStatus =
-  | 'resolved'
-  | 'no-user-effects'
-  | 'inspection-unavailable'
-  | 'inspection-truncated'
-  | 'shadow-render-disabled'
-  | 'deadline-exceeded'
-  | 'report-state-advanced'
-
-export interface EffectSourceResolution {
-  status: EffectSourceResolutionStatus
-  sources: (ResolvedSource | null)[] | null
-  callsites: ResolvedEffectCallsite[] | null
-}
-
 export interface ResolvedHookAncestryFrame {
   name: string
   source: ResolvedSource | null
-}
-
-export interface ResolvedEffectCallsite {
-  source: ResolvedSource | null
-  hookAncestry: ResolvedHookAncestryFrame[]
 }
 
 export type ExternalStoreSourceResolutionStatus =
@@ -98,8 +85,14 @@ export interface ExternalStoreSourceResolution {
   hooks: ResolvedExternalStoreCallsite[] | null
 }
 
-const cache = new Map<number, ResolvedSource>()
-const pendingSource = new Map<number, Promise<ResolvedSource | null>>()
+const cache = new Map<number, FiberClassification>()
+const pendingClassification = new Map<number, Promise<FiberClassification>>()
+let definitionsByType = new WeakMap<object, DefinitionConclusion>()
+/** Unknown ownership backed by a resolved app callsite holds until the component renders different children. */
+let settledUnknownByFiber = new WeakMap<
+  Fiber,
+  { child: Fiber | null; classification: FiberClassification }
+>()
 let cacheGeneration = 0
 const OWNED_DEFINITION_SCAN_LIMIT = 200
 const DEFAULT_CLASSIFY_LIMIT = 120
@@ -114,7 +107,9 @@ export function clearSourceCache(): void {
   cacheGeneration += 1
   generationFetch = boundFetch()
   cache.clear()
-  pendingSource.clear()
+  pendingClassification.clear()
+  definitionsByType = new WeakMap()
+  settledUnknownByFiber = new WeakMap()
   metroFrameCache.clear()
   rawSourceCache.clear()
   pendingMetroFrame.clear()
@@ -124,55 +119,148 @@ export function clearSourceCache(): void {
 
 /** Fiber → JSX usage site or definition fallback. Symbolication is async; only successes are cached so a transient null can recover. */
 export async function resolveSource(fiber: Fiber): Promise<ResolvedSource | null> {
-  const generation = cacheGeneration
-  const id = getFiberId(fiber)
-  const cached = cache.get(id)
-  if (cached) return cached
-  const pending = pendingSource.get(id)
-  if (pending) return pending
+  return (await classifyFiber(fiber)).source
+}
 
-  let lookup!: Promise<ResolvedSource | null>
-  lookup = (async () => {
-    try {
-      const target = getLatestFiber(fiber) ?? fiber
-      const source = (await safeFiberSource(target)) ?? (await safeOwnedDefinitionSource(target))
-      if (generation !== cacheGeneration) return null
-      if (!source?.fileName) return null
-      let resolved = await resolveCapturedSource(source, generation)
-      if (!resolved || generation !== cacheGeneration) return null
-      resolved = await verifyCallsiteLine(resolved, source, target)
-      if (generation !== cacheGeneration) return null
-      let cacheable = sourceOwnershipForSource(resolved) !== 'unknown'
+/** What a component's own code reveals about where it lives: the elements a component creates describe the component, while the element that renders it describes its parent. */
+type DefinitionConclusion =
+  | { ownership: 'app' | 'library'; basis: OwnershipBasis; source: ResolvedSource | null }
+  | { ownership: 'unknown'; transient?: true }
 
-      // A React 19 child-owner edge can recover an app body frame from a framework-owned usage frame without invoking user code.
-      if (sourceOwnershipForSource(resolved) === 'library') {
-        try {
-          const ownedDefinition = await safeOwnedDefinitionSource(target)
-          const ownedSource = ownedDefinition
-            ? await resolveCapturedSource(ownedDefinition, generation)
-            : null
-          const ownedOwnership = sourceOwnershipForSource(ownedSource)
-          if (ownedOwnership === 'app' && ownedSource) {
-            resolved = ownedSource
-          } else if (ownedDefinition && ownedOwnership === 'unknown') {
-            cacheable = false
-          }
-        } catch {
-          // Definition recovery is optional; retain the already-resolved usage frame.
-          cacheable = false
-        }
-      }
-      if (generation !== cacheGeneration) return null
-      if (cacheable) cache.set(id, resolved)
-      return resolved
-    } catch {
-      return null
-    } finally {
-      if (pendingSource.get(id) === lookup) pendingSource.delete(id)
+const NO_DEFINITION: DefinitionConclusion = { ownership: 'unknown' }
+/** Evidence existed but could not be symbolicated yet, so the conclusion may change on retry. */
+const UNRESOLVED_DEFINITION: DefinitionConclusion = { ownership: 'unknown', transient: true }
+
+interface ClassificationLookup {
+  classification: FiberClassification
+  settled: boolean
+}
+
+async function lookupClassification(
+  target: Fiber,
+  generation: number,
+): Promise<ClassificationLookup> {
+  // A boundary such as Suspense (a symbol type) has no code of its own: whoever wrote the element owns it.
+  if (typeof target.type === 'symbol') {
+    const callsite = await resolveCallsite(target, generation)
+    return { classification: classifyBoundaryElement(callsite), settled: true }
+  }
+  const [callsite, definition] = await Promise.all([
+    resolveCallsite(target, generation),
+    definitionOf(target, generation),
+  ])
+  return {
+    classification: combineEvidence(callsite, definition),
+    settled: !(definition.ownership === 'unknown' && definition.transient),
+  }
+}
+
+function classifyBoundaryElement(callsite: ResolvedSource | null): FiberClassification {
+  const ownership = sourceOwnershipForSource(callsite)
+  return {
+    source: callsite,
+    ownership,
+    isLibrary: ownership === 'library',
+    ...(ownership === 'unknown' ? {} : { ownershipBasis: 'element-callsite' as const }),
+  }
+}
+
+function combineEvidence(
+  callsite: ResolvedSource | null,
+  definition: DefinitionConclusion,
+): FiberClassification {
+  const callsiteOwnership = sourceOwnershipForSource(callsite)
+  const definitionSource = definition.ownership === 'unknown' ? null : definition.source
+  const source = callsite && callsiteOwnership === 'app' ? callsite : (definitionSource ?? callsite)
+  const evidence = definitionSource ? { definition: definitionSource } : {}
+  if (definition.ownership !== 'unknown') {
+    return {
+      source,
+      ownership: definition.ownership,
+      isLibrary: definition.ownership === 'library',
+      ...evidence,
+      ownershipBasis: definition.basis,
     }
-  })()
-  pendingSource.set(id, lookup)
-  return lookup
+  }
+  // An element created inside library code is the library's own child unless the component's code says otherwise; one created in app code says nothing about the component it names.
+  if (callsiteOwnership === 'library') {
+    return {
+      source,
+      ownership: 'library',
+      isLibrary: true,
+      ...evidence,
+      ownershipBasis: 'element-callsite',
+    }
+  }
+  return { source, ownership: 'unknown', isLibrary: false, ...evidence }
+}
+
+async function resolveCallsite(fiber: Fiber, generation: number): Promise<ResolvedSource | null> {
+  const source = await safeFiberSource(fiber)
+  if (!source?.fileName || generation !== cacheGeneration) return null
+  const resolved = await resolveCapturedSource(source, generation)
+  if (!resolved || generation !== cacheGeneration) return null
+  return verifyCallsiteLine(resolved, source, fiber)
+}
+
+async function definitionOf(fiber: Fiber, generation: number): Promise<DefinitionConclusion> {
+  const type = componentTypeKey(fiber)
+  const known = type ? definitionsByType.get(type) : undefined
+  if (known) return known
+  const evidence = ownedElementEvidence(fiber)
+  const conclusion = await concludeDefinition(fiber, evidence, generation)
+  if (type && conclusion.ownership !== 'unknown' && generation === cacheGeneration) {
+    definitionsByType.set(type, conclusion)
+  }
+  return conclusion
+}
+
+function componentTypeKey(fiber: Fiber): object | null {
+  const type: unknown = fiber.type
+  return typeof type === 'function' || isRecord(type) ? type : null
+}
+
+async function concludeDefinition(
+  fiber: Fiber,
+  evidence: OwnedElementEvidence,
+  generation: number,
+): Promise<DefinitionConclusion> {
+  if (evidence.bodyFrame) {
+    const frame = await symbolicateCapturedFrame(evidence.bodyFrame, 'component-body')
+    const source = frame ? await resolveCapturedSource(frame, generation) : null
+    const ownership = sourceOwnershipForSource(source)
+    if (source && ownership !== 'unknown') {
+      return { ownership, basis: 'component-definition', source }
+    }
+    return UNRESOLVED_DEFINITION
+  }
+  if (evidence.debugSources.length > 0 && evidence.debugSources.length === evidence.owned) {
+    const [first] = evidence.debugSources
+    const source = first ? await resolveCapturedSource(first, generation) : null
+    const ownership = sourceOwnershipForSource(source)
+    if (source && ownership !== 'unknown') return { ownership, basis: 'owned-elements', source }
+  }
+  if (evidence.owned > 0 && evidence.withoutDebugInfo === evidence.owned) {
+    return appCompilesElementSources(fiber)
+      ? { ownership: 'library', basis: 'owned-elements', source: null }
+      : NO_DEFINITION
+  }
+  if (evidence.withCreationStack > 0 && evidence.withCreationStack === evidence.owned) {
+    return allCreatedByLibrary(evidence.creatorFrames, generation)
+  }
+  return NO_DEFINITION
+}
+
+async function allCreatedByLibrary(
+  frames: readonly StackFrame[],
+  generation: number,
+): Promise<DefinitionConclusion> {
+  for (const frame of frames) {
+    const symbolicated = await symbolicateCapturedFrame(frame, 'element-callsite')
+    const source = symbolicated ? await resolveCapturedSource(symbolicated, generation) : null
+    if (sourceOwnershipForSource(source) !== 'library') return NO_DEFINITION
+  }
+  return { ownership: 'library', basis: 'owned-elements', source: null }
 }
 
 async function resolveCapturedSource(
@@ -222,25 +310,27 @@ interface SafeFiberSource {
 
 /** Read only React-captured debug metadata; never use bippy's component re-invocation fallback. */
 async function safeFiberSource(fiber: Fiber): Promise<SafeFiberSource | null> {
-  const debugSource = dataPropertyValue(fiber, '_debugSource')
-  if (isRecord(debugSource)) {
-    const fileName = dataPropertyValue(debugSource, 'fileName')
-    const lineNumber = dataPropertyValue(debugSource, 'lineNumber')
-    const columnNumber = dataPropertyValue(debugSource, 'columnNumber')
-    if (typeof fileName === 'string' && typeof lineNumber === 'number') {
-      return {
-        fileName,
-        lineNumber,
-        columnNumber: typeof columnNumber === 'number' ? columnNumber : null,
-        functionName: null,
-        role: 'element-callsite',
-      }
-    }
-  }
-
+  const debugSource = debugSourceOf(fiber, 'element-callsite')
+  if (debugSource) return debugSource
   // React captures _debugStack where the element was created, so its first app frame is the JSX callsite.
   const frame = capturedDebugFrames(fiber).find((entry) => typeof entry.fileName === 'string')
   return frame ? symbolicateCapturedFrame(frame, 'element-callsite') : null
+}
+
+function debugSourceOf(value: object, role: SourceRole): SafeFiberSource | null {
+  const debugSource = dataPropertyValue(value, '_debugSource')
+  if (!isRecord(debugSource)) return null
+  const fileName = dataPropertyValue(debugSource, 'fileName')
+  const lineNumber = dataPropertyValue(debugSource, 'lineNumber')
+  const columnNumber = dataPropertyValue(debugSource, 'columnNumber')
+  if (typeof fileName !== 'string' || typeof lineNumber !== 'number') return null
+  return {
+    fileName,
+    lineNumber,
+    columnNumber: typeof columnNumber === 'number' ? columnNumber : null,
+    functionName: null,
+    role,
+  }
 }
 
 function capturedDebugFrames(fiber: Fiber): ReturnType<typeof parseStack> {
@@ -318,10 +408,34 @@ function originalPositionFor(
   }
 }
 
-async function safeOwnedDefinitionSource(fiber: Fiber): Promise<SafeFiberSource | null> {
+type StackFrame = ReturnType<typeof parseStack>[number]
+
+interface OwnedElementEvidence {
+  /** A frame of the component's own function, from an owned element's creation stack (React 19). */
+  bodyFrame: StackFrame | null
+  /** Owned elements carrying React 18 `_debugSource`, which names the file that created them. */
+  debugSources: SafeFiberSource[]
+  /** A sample of the frames that created owned elements, when no stack showed the component's own frame. */
+  creatorFrames: StackFrame[]
+  withCreationStack: number
+  withoutDebugInfo: number
+  owned: number
+}
+
+const CREATOR_FRAME_LIMIT = 8
+
+/** Reads only React-captured metadata of the elements this component created; never re-invokes it. */
+function ownedElementEvidence(fiber: Fiber): OwnedElementEvidence {
+  const evidence: OwnedElementEvidence = {
+    bodyFrame: null,
+    debugSources: [],
+    creatorFrames: [],
+    withCreationStack: 0,
+    withoutDebugInfo: 0,
+    owned: 0,
+  }
   const callableName = stableCallableName(fiber.type)
   const componentName = callableName ?? getDisplayName(fiber.type)
-  if (!componentName) return null
   const stack: Fiber[] = fiber.child ? [fiber.child] : []
   let visited = 0
   while (stack.length > 0 && visited < OWNED_DEFINITION_SCAN_LIMIT) {
@@ -334,26 +448,61 @@ async function safeOwnedDefinitionSource(fiber: Fiber): Promise<SafeFiberSource 
     const alternate = fiber.alternate
     const ownedByAlternate = alternate !== null && alternate !== undefined && owner === alternate
     if (owner !== fiber && !ownedByAlternate) continue
+    evidence.owned += 1
     const frames = capturedDebugFrames(child)
-    for (let index = frames.length - 1; index >= 0; index -= 1) {
-      const frame = frames[index]
-      if (
-        !frame?.fileName ||
-        !frameFunctionMatchesComponent(frame.functionName, componentName, callableName !== null)
-      ) {
-        continue
+    if (frames.length > 0) {
+      const bodyFrame = componentName
+        ? bodyFrameOf(frames, componentName, callableName !== null)
+        : null
+      if (bodyFrame) {
+        evidence.bodyFrame = bodyFrame
+        return evidence
       }
-      return symbolicateCapturedFrame(
-        {
-          ...frame,
-          lineNumber: frame.enclosingLineNumber || frame.lineNumber,
-          columnNumber: frame.enclosingColumnNumber || frame.columnNumber,
-        },
-        'component-body',
-      )
+      const creator = frames.find((frame) => typeof frame.fileName === 'string')
+      if (!creator) continue
+      evidence.withCreationStack += 1
+      if (evidence.creatorFrames.length < CREATOR_FRAME_LIMIT) evidence.creatorFrames.push(creator)
+      continue
+    }
+    const debugSource = debugSourceOf(child, 'component-body')
+    if (debugSource) evidence.debugSources.push(debugSource)
+    else evidence.withoutDebugInfo += 1
+  }
+  return evidence
+}
+
+function bodyFrameOf(
+  frames: readonly StackFrame[],
+  componentName: string,
+  requireExact: boolean,
+): StackFrame | null {
+  for (let index = frames.length - 1; index >= 0; index -= 1) {
+    const frame = frames[index]
+    if (
+      !frame?.fileName ||
+      !frameFunctionMatchesComponent(frame.functionName, componentName, requireExact)
+    ) {
+      continue
+    }
+    return {
+      ...frame,
+      lineNumber: frame.enclosingLineNumber || frame.lineNumber,
+      columnNumber: frame.enclosingColumnNumber || frame.columnNumber,
     }
   }
   return null
+}
+
+const SOURCE_COMPILATION_OWNER_LIMIT = 50
+
+/** React 18 JSX dev transforms attach `_debugSource` to every element the app writes, so an owner chain that carries one shows the app is compiled that way and elements without one came from precompiled code. */
+function appCompilesElementSources(fiber: Fiber): boolean {
+  let current: unknown = fiber
+  for (let depth = 0; depth < SOURCE_COMPILATION_OWNER_LIMIT && isRecord(current); depth += 1) {
+    if (debugSourceOf(current, 'element-callsite')) return true
+    current = dataPropertyValue(current, '_debugOwner')
+  }
+  return false
 }
 
 // bippy returns a map's `sources` entry as written, often relative to the module (`App.jsx` for `/src/App.jsx`).
@@ -453,6 +602,8 @@ function frameFunctionMatchesComponent(
   requireExact: boolean,
 ): boolean {
   if (!frameFunctionName) return false
+  // A class component's body is its render method.
+  if (frameFunctionName === `${componentName}.render`) return true
   if (requireExact) return frameFunctionName === componentName
   const wrappedName = /^(?:Memo|ForwardRef)\((.+)\)$/.exec(componentName)?.[1]
   const candidates = wrappedName ? [componentName, wrappedName] : [componentName]
@@ -470,9 +621,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-/** A file outside the project tree is a library. Turbopack can expose app fibers as unmapped dev chunks, and an unsymbolicated Metro bundle entry names the whole app; neither carries attribution, so neither is evidence of a library. */
+/** A file outside the project tree is a library. Next.js serves app and dependency code alike from unmapped chunks, and an unsymbolicated Metro bundle entry names the whole app; neither carries attribution, so neither is evidence of a library. */
 export function isLibraryFile(file: string): boolean {
   if (isOpaqueBundlerFile(file)) return false
+  if (VITE_DEPENDENCY_CHUNK_RE.test(file.replaceAll('\\', '/'))) return true
   return !isSourceFile(file)
 }
 
@@ -483,19 +635,42 @@ export function sourceOwnershipForSource(source: ResolvedSource | null): SourceO
 
 function isOpaqueBundlerFile(file: string): boolean {
   const normalized = file.replaceAll('\\', '/')
-  return normalized.includes('/.next/dev/server/chunks/') || METRO_BUNDLE_PATH_RE.test(normalized)
+  return (
+    normalized.includes('/.next/dev/server/chunks/') ||
+    normalized.includes('/_next/static/chunks/') ||
+    METRO_BUNDLE_PATH_RE.test(normalized)
+  )
 }
 
-function classificationForSource(source: ResolvedSource | null): FiberClassification {
-  const ownership = sourceOwnershipForSource(source)
-  return { source, ownership, isLibrary: ownership === 'library' }
-}
-
-/** Ownership requires source evidence associated with this fiber; an ancestor's source cannot establish it. */
+/** Ownership requires evidence about this fiber's own component; an ancestor's source cannot establish it. */
 export async function classifyFiber(fiber: Fiber): Promise<FiberClassification> {
   const generation = cacheGeneration
-  const source = await resolveSource(fiber)
-  return generation === cacheGeneration ? classificationForSource(source) : UNCLASSIFIED_FIBER
+  const id = getFiberId(fiber)
+  const cached = classifyFiberFromCache(fiber)
+  if (cached) return cached
+  const pending = pendingClassification.get(id)
+  if (pending) return pending
+
+  let lookup!: Promise<FiberClassification>
+  lookup = (async () => {
+    try {
+      const target = getLatestFiber(fiber) ?? fiber
+      const { classification, settled } = await lookupClassification(target, generation)
+      if (generation !== cacheGeneration) return UNCLASSIFIED_FIBER
+      if (!settled) return classification
+      if (classification.ownership !== 'unknown') cache.set(id, classification)
+      else if (sourceOwnershipForSource(classification.source) === 'app') {
+        settledUnknownByFiber.set(target, { child: target.child, classification })
+      }
+      return classification
+    } catch {
+      return UNCLASSIFIED_FIBER
+    } finally {
+      if (pendingClassification.get(id) === lookup) pendingClassification.delete(id)
+    }
+  })()
+  pendingClassification.set(id, lookup)
+  return lookup
 }
 
 export async function classifyFiberBeforeDeadline(
@@ -518,7 +693,10 @@ export async function classifyFiberBeforeDeadline(
 /** Cache-only classification from source previously resolved for this fiber; null when unknown. */
 export function classifyFiberFromCache(fiber: Fiber): FiberClassification | null {
   const cached = cache.get(getFiberId(fiber))
-  return cached ? classificationForSource(cached) : null
+  if (cached) return cached
+  const target = getLatestFiber(fiber) ?? fiber
+  const settled = settledUnknownByFiber.get(target)
+  return settled && settled.child === target.child ? settled.classification : null
 }
 
 // Cache hits are free and bypass the budget, so repeated reads warm the whole set ~limit fibers per call until partial goes false; only network-bound resolutions spend limit/budgetMs.
@@ -579,7 +757,7 @@ let activeWarmup: WarmupRun | null = null
 /** Continue classifying a partial read's leftovers off the call path, in small paced chunks, so repeated reads stop paying the in-call budget once the set warms. */
 export function scheduleClassificationWarmup(fibers: Fiber[]): void {
   const generation = cacheGeneration
-  warmupQueue = fibers.filter((fiber) => !cache.has(getFiberId(fiber)))
+  warmupQueue = fibers.filter((fiber) => classifyFiberFromCache(fiber) === null)
   if (activeWarmup?.generation === generation || warmupQueue.length === 0) return
   const run: WarmupRun = { generation }
   activeWarmup = run
@@ -595,6 +773,66 @@ export function scheduleClassificationWarmup(fibers: Fiber[]): void {
       if (activeWarmup === run) activeWarmup = null
     }
   })()
+}
+
+/** How a frame's position relates to the code on disk: translated by a source map, as the dev server served the module, or inside a build output file that no map explained. */
+export type FrameMapping = 'mapped' | 'served' | 'unmapped-build-file'
+
+export interface ResolvedStackFrame {
+  functionName: string | null
+  file: string | null
+  line: number | null
+  column: number | null
+  isLibrary: boolean
+  mapping: FrameMapping
+}
+
+const STACK_FRAME_RESOLVE_LIMIT = 20
+
+/** Parses an Error stack and source-maps each frame where the served module carries a map; frames no map explains keep their served position and say so. */
+export async function resolveStackFrames(stack: string): Promise<ResolvedStackFrame[]> {
+  let frames: ReturnType<typeof parseStack>
+  try {
+    frames = parseStack(stack)
+  } catch {
+    return []
+  }
+  return Promise.all(
+    frames
+      .filter((frame) => typeof frame.fileName === 'string' && frame.fileName.length > 0)
+      .slice(0, STACK_FRAME_RESOLVE_LIMIT)
+      .map(async (frame): Promise<ResolvedStackFrame> => {
+        const servedUrl = frame.fileName ?? ''
+        const mapped = METRO_BUNDLE_URL_RE.test(servedUrl)
+          ? undefined
+          : await mapFrame(frame, servedUrl).catch(() => undefined)
+        const file = normalizeServedFileName(mapped?.fileName ?? servedUrl)
+        return {
+          functionName: mapped?.functionName ?? frame.functionName ?? null,
+          file,
+          line: (mapped ?? frame).lineNumber ?? null,
+          column: (mapped ?? frame).columnNumber ?? null,
+          isLibrary: isLibraryFile(file),
+          mapping: frameMappingOf(file, mapped !== undefined),
+        }
+      }),
+  )
+}
+
+export function frameMappingOf(file: string, mapped: boolean): FrameMapping {
+  if (mapped) return 'mapped'
+  return isUnmappedBuildFile(file) ? 'unmapped-build-file' : 'served'
+}
+
+/** Build output a source map should have explained: Next.js server and client chunks, a Metro bundle, or a bundled asset entry. */
+function isUnmappedBuildFile(file: string): boolean {
+  const normalized = file.replaceAll('\\', '/')
+  return (
+    isOpaqueBundlerFile(normalized) ||
+    /\/\.next\/(?:dev\/)?server\//.test(normalized) ||
+    /\/_next\/static\//.test(normalized) ||
+    isAppBundleEntry(normalized)
+  )
 }
 
 /** A stable display identity for an otherwise-anonymous fiber, e.g. `cmdk.js:1998`. */
@@ -651,6 +889,10 @@ export function sourceProvenanceForSource(
 
 export function packageNameFromFile(file: string): string | null {
   const normalized = file.replaceAll('\\', '/')
+  const optimized = VITE_DEPENDENCY_CHUNK_RE.exec(normalized)
+  if (optimized) {
+    return packageNameFromOptimizedChunk(normalized.slice(optimized.index + optimized[0].length))
+  }
   const marker = '/node_modules/'
   const index = normalized.lastIndexOf(marker)
   if (index === -1) return null
@@ -667,7 +909,13 @@ export function packageNameFromFile(file: string): string | null {
   return first.startsWith('@') && segments[1] ? `${first}/${segments[1]}` : first
 }
 
-const EFFECT_HOOK_NAMES = new Set(['Effect', 'LayoutEffect', 'InsertionEffect'])
+/** A pre-bundled entry is named after its package (`@tanstack_react-query.js`); shared chunks carry a content hash (`modern-Du3lnq9_.js`, `chunk-ABC123.js`) and name no package. */
+function packageNameFromOptimizedChunk(fileName: string): string | null {
+  const base = fileName.split('/')[0]?.replace(/\.[cm]?js$/, '')
+  if (!base || base.startsWith('chunk-') || /-[A-Za-z0-9_]{8}$/.test(base)) return null
+  return base.startsWith('@') ? base.replace('_', '/') : base
+}
+
 const EXTERNAL_STORE_HOOK_NAMES = new Set(['SyncExternalStore'])
 const HOOK_ANCESTRY_LIMIT = 12
 const HOOK_NODE_LIMIT = 1_000
@@ -752,7 +1000,15 @@ const METRO_SYMBOLICATE_TIMEOUT_MS = 1_000
 const metroFrameCache = new Map<string, MappedPosition>()
 const pendingMetroFrame = new Map<string, Promise<MappedPosition | null>>()
 
+/** Vite's dependency optimizer writes pre-bundled packages to `<cacheDir>/deps/`, and a cache dir inside the project (`./.vite`) is served at `/.vite/deps/`. */
+const VITE_DEPENDENCY_CHUNK_RE = /\/\.vite\/deps(?:_[^/]*)?\//
+
 function normalizeServedFileName(file: string): string {
+  const served = file.replaceAll('\\', '/')
+  // bippy drops a leading `/.vite`, which would leave a pre-bundled package looking like an app file.
+  if (VITE_DEPENDENCY_CHUNK_RE.test(served)) {
+    return served.replace(/^[a-z][\w+.-]*:\/\/[^/]+/i, '').replace(/[?#].*$/, '')
+  }
   return normalizeFileName(file).replaceAll('\\', '/').replace(NATIVE_METRO_BUNDLE_PARAMS_RE, '$1')
 }
 
@@ -919,6 +1175,12 @@ async function sourceMapFor(url: string): Promise<SourceMap | null> {
   }
 }
 
+/** Resolves where a hook was called, as the hook inspector recorded it, to its original source. */
+export async function resolveHookCallsite(hook: HookSource | null): Promise<ResolvedSource | null> {
+  const source = await resolveHookSource(hook, cacheGeneration)
+  return source ? { ...source, role: 'hook-callsite' } : null
+}
+
 // Classification prefers the served URL; the map's original file is trusted only when the served URL is an opaque bundle chunk (Next/Turbopack) AND the original classifies as app source — so a dep bundled into an app chunk stays library. A Metro bundle entry is the sole exception: it names the whole app, so any symbolicated path beats it, library ones included.
 async function resolveHookSource(
   hook: HookSource | null,
@@ -969,104 +1231,6 @@ function selectSourcePosition(
 
 function isAppBundleEntry(file: string): boolean {
   return /\/(?:assets|static)\/[^/]+\.(?:js|mjs|cjs)$/i.test(file)
-}
-
-/** Resolve a supplied hook tree only. Automatic reports omit `inspectedHooks` because obtaining it with bippy would re-run the application component. */
-export async function resolveEffectSources(
-  fiber: Fiber,
-  inspectedHooks?: HooksNode[] | null,
-): Promise<(ResolvedSource | null)[] | null> {
-  const resolution = await resolveEffectSourceResolution(fiber, inspectedHooks)
-  return resolution.sources
-}
-
-/** `undefined` means automatic shadow rendering is disabled; `null` means an explicit inspector failed. */
-export async function resolveEffectSourceResolution(
-  fiber: Fiber,
-  inspectedHooks?: HooksNode[] | null,
-): Promise<EffectSourceResolution> {
-  if (inspectedHooks === undefined) {
-    return { status: 'shadow-render-disabled', sources: null, callsites: null }
-  }
-  if (inspectedHooks === null) {
-    return { status: 'inspection-unavailable', sources: null, callsites: null }
-  }
-
-  const generation = cacheGeneration
-  const target = getLatestFiber(fiber) ?? fiber
-  let collection: PrimitiveCallsiteCollection
-  try {
-    collection = collectPrimitiveCallSites(inspectedHooks, EFFECT_HOOK_NAMES)
-  } catch {
-    return { status: 'inspection-unavailable', sources: null, callsites: null }
-  }
-  if (collection.truncated) {
-    return { status: 'inspection-truncated', sources: null, callsites: null }
-  }
-  if (collection.callsites.length === 0) {
-    return { status: 'no-user-effects', sources: [], callsites: [] }
-  }
-
-  const resolved = await Promise.all(
-    collection.callsites.map(
-      async (callsite): Promise<ResolvedEffectCallsite> => ({
-        source: await resolveHookSource(callsite.source, generation),
-        hookAncestry: await Promise.all(
-          withoutComponentRoot(callsite.hookAncestry, target).map(async (frame) => ({
-            name: frame.name,
-            source: await resolveHookSource(frame.source, generation),
-          })),
-        ),
-      }),
-    ),
-  )
-  if (generation !== cacheGeneration) {
-    return { status: 'report-state-advanced', sources: null, callsites: null }
-  }
-  return {
-    status: 'resolved',
-    sources: resolved.map((callsite) => callsite.source),
-    callsites: resolved,
-  }
-}
-
-export async function resolveEffectSourcesBeforeDeadline(
-  fiber: Fiber,
-  timeoutMs: number,
-  inspectedHooks?: HooksNode[] | null,
-): Promise<(ResolvedSource | null)[] | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      resolveEffectSources(fiber, inspectedHooks),
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), Math.max(1, timeoutMs))
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
-}
-
-export async function resolveEffectSourceResolutionBeforeDeadline(
-  fiber: Fiber,
-  timeoutMs: number,
-  inspectedHooks?: HooksNode[] | null,
-): Promise<EffectSourceResolution> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      resolveEffectSourceResolution(fiber, inspectedHooks),
-      new Promise<EffectSourceResolution>((resolve) => {
-        timer = setTimeout(
-          () => resolve({ status: 'deadline-exceeded', sources: null, callsites: null }),
-          Math.max(1, timeoutMs),
-        )
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
 }
 
 /** Resolve a supplied hook tree only; automatic reports return `shadow-render-disabled`. */
@@ -1130,6 +1294,11 @@ export async function resolveExternalStoreSourceResolutionBeforeDeadline(
   } finally {
     if (timer) clearTimeout(timer)
   }
+}
+
+/** appOnly hides only what is known to be library code: hiding unknown ownership would let "unattributed" read as "absent". */
+export function isHiddenByAppOnly(ownership: SourceOwnership): boolean {
+  return ownership === 'library'
 }
 
 export function ownershipCoverage(ownership: readonly SourceOwnership[]) {

@@ -10,6 +10,8 @@ import { findSuspenseBoundary, forcedSuspenseBoundaries } from './overrides'
 import {
   classifyFibersWithinBudget,
   type FiberClassification,
+  frameMappingOf,
+  isHiddenByAppOnly,
   isLibraryFile,
   ownershipCoverage,
   packageNameFromFile,
@@ -302,6 +304,7 @@ function toFrame(
   fileName: unknown,
   line: unknown,
   column: unknown,
+  mapped = false,
 ): SuspenseStackFrame {
   const file = typeof fileName === 'string' && fileName ? normalizeFileName(fileName) : null
   return {
@@ -310,6 +313,7 @@ function toFrame(
     line: typeof line === 'number' && Number.isInteger(line) ? line : null,
     column: typeof column === 'number' && Number.isInteger(column) ? column : null,
     isLibrary: file ? isLibraryFile(file) : false,
+    mapping: frameMappingOf(file ?? '', mapped),
   }
 }
 
@@ -346,8 +350,14 @@ async function resolveStack(source: StackSource, symbolicate: boolean): Promise<
         mapped = parsed
       }
     }
-    frames = mapped.map((frame) =>
-      toFrame(frame.functionName, frame.fileName, frame.lineNumber, frame.columnNumber),
+    frames = mapped.map((frame, index) =>
+      toFrame(
+        frame.functionName,
+        frame.fileName,
+        frame.lineNumber,
+        frame.columnNumber,
+        frame !== parsed[index] && frame.fileName !== parsed[index]?.fileName,
+      ),
     )
   }
   const kept = frames.filter((frame) => !isReactFrame(frame))
@@ -556,7 +566,10 @@ export async function getSuspenseReport(query: SuspenseQuery): Promise<SuspenseR
   const classOf = (index: number): FiberClassification | undefined => classified?.classes[index]
   const kept = candidates
     .map((record, index) => ({ record, classification: classOf(index) }))
-    .filter(({ classification }) => !query.appOnly || classification?.ownership === 'app')
+    .filter(
+      ({ classification }) =>
+        !query.appOnly || !isHiddenByAppOnly(classification?.ownership ?? 'unknown'),
+    )
   const selected = kept.slice(0, query.limit)
 
   let sourcesPartial = classified?.partial ?? false

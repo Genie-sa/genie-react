@@ -31,11 +31,12 @@ import {
   MAX_HOOKS,
   type NodeId,
 } from './contracts'
-import { type HookSlot, hookSlots } from './hook-groups'
+import { type HookSlot, hookSlots, UNNAMED_CUSTOM_HOOK } from './hook-groups'
 import { LruMap } from './lru-map'
 import {
   classifyFibersWithinBudget,
   type FiberClassification,
+  isHiddenByAppOnly,
   ownershipCoverage,
   type ResolvedSource,
   type SourceProvenance,
@@ -138,6 +139,7 @@ const REGISTRY_LIMIT = 5_000
 const fiberRegistry = new LruMap<NodeId, Fiber>(REGISTRY_LIMIT)
 
 const TREE_SOURCE_CLASSIFY_LIMIT = 120
+const APP_ONLY_TREE_CANDIDATE_LIMIT = 5_000
 const TREE_SOURCE_CLASSIFY_BUDGET_MS = 500
 const UNCLASSIFIED_FIBER: FiberClassification = {
   source: null,
@@ -512,17 +514,23 @@ export function owningComponentFor(element: Element, propsDepth: number): Owning
   }
 }
 
-/** The one appOnly disclosure grammar every filtered read shares, so an empty result is never mistaken for "none exist"; undefined when nothing was hidden. */
+/** The one appOnly disclosure grammar every filtered read shares, so an empty result is never mistaken for "none exist"; undefined when nothing was hidden or left unattributed. */
 export function appOnlyFilteredNote(
   shown: number,
   hidden: number,
   subject: 'components' | 'effects',
   appOwnedShown = shown,
+  unknownShown = 0,
 ): string | undefined {
-  if (hidden <= 0) return undefined
-  const label = subject === 'effects' ? 'app effects' : 'components shown'
-  const note = `${shown} ${label} (${hidden} library/unknown ${subject} hidden — set appOnly:false to include)`
-  return appOwnedShown === 0
+  if (hidden <= 0 && unknownShown <= 0) return undefined
+  const parts = [`${shown} ${subject} shown`]
+  if (hidden > 0)
+    parts.push(`${hidden} library ${subject} hidden — set appOnly:false to include them`)
+  if (unknownShown > 0) {
+    parts.push(`${unknownShown} shown with ownership "unknown" because their source is unresolved`)
+  }
+  const note = parts.join('; ')
+  return appOwnedShown === 0 && hidden > 0
     ? `WARNING: appOnly returned no app-owned result, so this is not evidence that nothing happened. ${note}`
     : note
 }
@@ -548,7 +556,9 @@ export async function buildTree(
     return treeCache.result
   }
 
-  const candidateLimit = options.appOnly ? 5000 : options.maxNodes
+  const candidateLimit = options.appOnly ? APP_ONLY_TREE_CANDIDATE_LIMIT : options.maxNodes
+  // Library wrappers are folded away under appOnly, so depth counts the levels that remain and the walk itself goes as deep as the candidates allow.
+  const walkDepth = options.appOnly ? Number.POSITIVE_INFINITY : options.depth
   const entries: { node: TreeNode; fiber: Fiber }[] = []
   let total = 0
   let omittedByDepth = 0
@@ -601,10 +611,10 @@ export async function buildTree(
     const id = registerFiber(root)
     total += 1
     entries.push({ node: treeNodeFor(root, id, null), fiber: root })
-    if (options.depth > 0) visit(root, id, options.depth - 1)
+    if (walkDepth > 0) visit(root, id, walkDepth - 1)
     else clipAtDepth(entries[0]?.node, root)
   } else {
-    visit(root, null, options.depth)
+    visit(root, null, walkDepth)
   }
   let nodes = entries.map((entry) => entry.node)
   let filteredNote: string | undefined
@@ -613,20 +623,19 @@ export async function buildTree(
 
   if (options.appOnly) {
     const folded = await foldLibrarySubtrees(entries)
-    omittedByMaxNodes += Math.max(0, folded.nodes.length - options.maxNodes)
-    nodes = folded.nodes.slice(0, options.maxNodes)
+    const clipped = clipRetainedDepth(folded.nodes, options.depth)
+    omittedByDepth += clipped.omitted
+    omittedByMaxNodes += Math.max(0, clipped.nodes.length - options.maxNodes)
+    nodes = clipped.nodes.slice(0, options.maxNodes)
     ownership = folded.ownershipCoverage
     classificationPartial = folded.partial
     filteredNote = appOnlyFilteredNote(
       nodes.length,
       folded.hidden,
       'components',
-      folded.appOwnedShown,
+      nodes.filter((node) => node.ownership === 'app').length,
+      nodes.filter((node) => node.ownership === 'unknown').length,
     )
-    if (folded.partial) {
-      const partialNote = 'source ownership is incomplete; unknown components were excluded'
-      filteredNote = filteredNote ? `${filteredNote}; ${partialNote}` : partialNote
-    }
   }
 
   const truncatedBy = omittedByMaxNodes > 0 ? 'maxNodes' : omittedByDepth > 0 ? 'depth' : null
@@ -689,11 +698,14 @@ export async function buildProvenanceReport(
       wrapperAncestry: wrapperAncestryOf(fiber),
       ownership: classification.ownership,
       source: classification.source,
-      provenance: sourceProvenanceForSource(classification.source),
+      provenance: sourceProvenanceForSource(
+        classification.source,
+        classification.definition ? { definitionSource: classification.definition } : {},
+      ),
     }
   })
   const records = options.appOnly
-    ? classified.filter((record) => record.ownership === 'app')
+    ? classified.filter((record) => !isHiddenByAppOnly(record.ownership))
     : classified
   const ownership = { app: 0, library: 0, unknown: 0 }
   const sourceMaps = { mapped: 0, served: 0, unknown: 0 }
@@ -727,12 +739,42 @@ export async function buildProvenanceReport(
   }
 }
 
-// Classify bounded candidates before the output cap and reconnect app nodes through hidden ancestors.
+/** Applies `depth` to the levels of the folded tree; a node at the last level counts the folded descendants it stands for. Nodes arrive in pre-order, so a parent always precedes its children. */
+function clipRetainedDepth(
+  nodes: TreeNode[],
+  depth: number,
+): { nodes: TreeNode[]; omitted: number } {
+  const levelById = new Map<NodeId, number>()
+  const keptById = new Map<NodeId, TreeNode>()
+  const clipAnchorById = new Map<NodeId, TreeNode>()
+  const kept: TreeNode[] = []
+  let omitted = 0
+  for (const node of nodes) {
+    const parentId = node.parentId
+    const parentLevel = parentId === null ? undefined : levelById.get(parentId)
+    const level = parentLevel === undefined ? 0 : parentLevel + 1
+    levelById.set(node.id, level)
+    if (level <= depth) {
+      kept.push(node)
+      keptById.set(node.id, node)
+      continue
+    }
+    const anchor =
+      parentId === null ? undefined : (clipAnchorById.get(parentId) ?? keptById.get(parentId))
+    if (!anchor) continue
+    clipAnchorById.set(node.id, anchor)
+    anchor.omittedDescendants =
+      (anchor.omittedDescendants ?? 0) + 1 + (node.omittedDescendants ?? 0)
+    omitted += 1 + (node.omittedDescendants ?? 0)
+  }
+  return { nodes: kept, omitted }
+}
+
+// Classify bounded candidates before the output cap and reconnect retained nodes through hidden library ancestors.
 async function foldLibrarySubtrees(entries: { node: TreeNode; fiber: Fiber }[]): Promise<{
   nodes: TreeNode[]
   hidden: number
   partial: boolean
-  appOwnedShown: number
   ownershipCoverage: ReturnType<typeof ownershipCoverage>
 }> {
   const { classes, partial } = await classifyTreeEntries(entries)
@@ -748,28 +790,24 @@ async function foldLibrarySubtrees(entries: { node: TreeNode; fiber: Fiber }[]):
     }
   })
 
-  // Preserve hierarchy through excluded library and unknown ancestors.
+  // Preserve hierarchy through excluded library ancestors.
   const nearestRetainedById = new Map<NodeId, NodeId | null>()
   const nodes: TreeNode[] = []
-  let appOwnedShown = 0
-  for (const [index, { node }] of entries.entries()) {
+  for (const { node } of entries) {
     const retainedParentId =
       node.parentId === null ? null : (nearestRetainedById.get(node.parentId) ?? null)
-    if (node.ownership !== 'app') {
+    if (isHiddenByAppOnly(node.ownership ?? 'unknown')) {
       nearestRetainedById.set(node.id, retainedParentId)
       continue
     }
     node.parentId = retainedParentId
     nodes.push(node)
     nearestRetainedById.set(node.id, node.id)
-    const classification = classes[index] ?? UNCLASSIFIED_FIBER
-    if (classification.ownership === 'app') appOwnedShown += 1
   }
   return {
     nodes,
     hidden: entries.length - nodes.length,
     partial: partial || classes.some((entry) => entry.ownership === 'unknown'),
-    appOwnedShown,
     ownershipCoverage: ownershipCoverage(classes.map((entry) => entry.ownership)),
   }
 }
@@ -1026,7 +1064,9 @@ export function inspectFiber(
     const slots = inspectHookSlots(fiber, chain, kinds)
     customHookGrouping = !slots
       ? 'unavailable'
-      : slots.some((slot) => slot.customHooks === null)
+      : slots.some(
+            (slot) => slot.customHooks === null || slot.customHooks.includes(UNNAMED_CUSTOM_HOOK),
+          )
         ? 'partial'
         : 'exact'
     let statefulOrdinal = 0

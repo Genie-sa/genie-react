@@ -48,7 +48,7 @@ Chromium. Every command used `--json`. Repros assume the app is open and signed 
   `{"complete":true,"app":1}`. `react_inspect_component` shows that hook's `customHooks` as
   `["useSuspenseQuery","useBaseQuery"]`: TanStack Query's `setOptions` effect, which runs after
   every render by design.
-- Repro: decoy `query-observer-effects-rerun`, recorded as a known false positive. An agent hunting
+- Repro: decoy `query-observer-effects-rerun`, recorded as a known false positive until effects were attributed to their declaring hook; it is now judged `not-flagged`. An agent hunting
   "an effect runs on every render" is pointed at library code labelled as app code.
 
 ## F2 · Medium · Context causes do not name the context

@@ -63,7 +63,7 @@ export default {
       },
     },
     {
-      name: 'effects: HotEffectProbe runs its effect on every render and is flagged hot',
+      name: 'effects: HotEffectProbe runs its effect on every render, and since each run follows a new count it is not flagged hot',
       async run(ctx) {
         await measure(ctx, async () => {
           for (let click = 0; click < 5; click++) await clickCount(ctx.page)
@@ -74,10 +74,16 @@ export default {
         })
         const executed = events.events.filter((event) => event.execution?.status === 'observed')
         check(executed.length === 5, 'the [marker] effect must run once per render', events.events)
-        const audit = await ctx.call('react_effect_audit', { onlyHot: true, appOnly: false })
+        const audit = await ctx.call('react_effect_audit', {
+          component: 'HotEffectProbe',
+          appOnly: false,
+        })
+        const effect = audit.components[0]?.effects[0]
         check(
-          JSON.stringify(audit).includes('HotEffectProbe'),
-          'react_effect_audit must flag the effect whose dependency is a new object each render',
+          effect?.hotness.label === 'not-hot' &&
+            effect.hotness.basis === 'value-change-reruns' &&
+            effect.hotness.reruns.valueChanged === 5,
+          'react_effect_audit must see that every run of the { count } effect followed a changed count',
           audit,
         )
       },

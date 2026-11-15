@@ -1,10 +1,30 @@
 import { z } from 'zod'
 import { defineAgentToolContract } from '../../protocol'
 import { componentMatchSchema, componentSelectorInputShape } from './component-name'
-import { appOnlySchema, ownershipCoverageSchema, sourceSchema } from './contract-schemas'
+import {
+  appOnlySchema,
+  ownershipBasisSchema,
+  ownershipCoverageSchema,
+  sourceSchema,
+} from './contract-schemas'
 import { observationSchema } from './render-contract'
 
 const effectOwnershipSchema = z.enum(['app', 'library', 'unknown'])
+
+export const effectProvenanceReasonSchema = z
+  .enum([
+    'exact-hook-order',
+    'called-by-library-hook',
+    'library-component',
+    'hook-count-mismatch',
+    'hook-source-unresolved',
+    'hook-inspection-unavailable',
+    'attribution-budget-exhausted',
+    'report-state-advanced',
+  ])
+  .describe(
+    'exact-hook-order: the declaring hook call was located, and ownership follows its file. called-by-library-hook: the call could not be located, but library code called the custom hook around it. library-component: neither could be located and the component itself is library code. The rest leave ownership unknown.',
+  )
 const provenanceEvidenceSchema = z.enum(['exact', 'inferred', 'unknown'])
 
 const effectCoverageSchema = z.object({
@@ -24,7 +44,31 @@ const effectCoverageSchema = z.object({
 })
 
 const effectHotnessSchema = z.object({
-  label: z.enum(['hot', 'not-hot', 'insufficient-data']),
+  label: z
+    .enum(['hot', 'not-hot', 'insufficient-data'])
+    .describe(
+      'hot: the effect runs more often than its inputs justify. With dependencies, that means it re-ran at least minUpdates times while every dependency that changed identity kept equal contents; without a dependency array, that it was scheduled at minScheduleRate or more. insufficient-data covers too few updates and re-runs whose changed dependencies could not be compared (functions, class instances).',
+    ),
+  basis: z
+    .enum([
+      'reference-only-reruns',
+      'no-dependency-array',
+      'value-change-reruns',
+      'dependency-values-not-compared',
+      'not-rescheduled',
+      'below-schedule-rate',
+      'below-minimum-updates',
+    ])
+    .describe('Why the label holds.'),
+  reruns: z
+    .object({
+      valueChanged: z.number().int().nonnegative(),
+      referenceOnly: z.number().int().nonnegative(),
+      undetermined: z.number().int().nonnegative(),
+    })
+    .describe(
+      'Update re-runs by what their changed dependencies did: a dependency changed value; only identities changed with equal contents; or the contents could not be compared.',
+    ),
   samples: z.number().int().nonnegative(),
   observedRate: z.number().min(0).max(1),
   minUpdates: z.number().int().positive(),
@@ -35,7 +79,11 @@ const effectHotnessSchema = z.object({
     lower: z.number().min(0).max(1),
     upper: z.number().min(0).max(1),
   }),
-  scheduleReason: z.enum(['meets-threshold', 'below-schedule-rate', 'below-minimum-updates']),
+  scheduleReason: z
+    .enum(['meets-threshold', 'below-schedule-rate', 'below-minimum-updates'])
+    .describe(
+      'The scheduled/updates rate against minScheduleRate, as a raw fact; label and basis decide hotness.',
+    ),
   reason: z
     .enum(['meets-threshold', 'below-fire-rate', 'below-minimum-updates'])
     .describe(
@@ -43,12 +91,33 @@ const effectHotnessSchema = z.object({
     ),
 })
 
+export const effectHookIndexSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .describe(
+    'Flat hook index, the same index react_inspect_component reports in hooks[].index, so one effect is addressed the same way in every tool.',
+  )
+
+export const effectCustomHooksSchema = z
+  .array(z.string())
+  .nullable()
+  .describe(
+    'Custom hooks around the call that declared this effect, outermost first, as in react_inspect_component; [] when the component called it directly; null when the hook inspector could not attribute it.',
+  )
+
 const effectFindingSchema = z.object({
   index: z
     .number()
     .describe(
       'Position among the component’s effect hooks (useEffect, useLayoutEffect, useInsertionEffect, useImperativeHandle, and hooks built on them) in call order. Effects React pushes without a hook, such as useSyncExternalStore’s snapshot check, are not reported.',
     ),
+  hookIndex: effectHookIndexSchema,
+  hook: z
+    .string()
+    .nullable()
+    .describe('The React hook that created this effect, e.g. useEffect or useSyncExternalStore.'),
+  customHooks: effectCustomHooksSchema,
   kind: z.enum(['effect', 'layout', 'insertion']),
   depsMode: z
     .enum(['none', 'empty', 'list'])
@@ -82,7 +151,7 @@ const effectFindingSchema = z.object({
     .optional()
     .describe('A concrete fix when the effect looks like a re-run/loop smell.'),
   source: sourceSchema.describe(
-    "This effect's own call-site. Automatic reports leave it null instead of re-running the component to inspect hooks; provenance.reason says why.",
+    "Where this effect is declared: the hook call that created it, from React DevTools' hook inspector. Null when it cannot be attributed; provenance.reason says why.",
   ),
   isLibrary: z
     .boolean()
@@ -92,18 +161,7 @@ const effectFindingSchema = z.object({
   provenance: z.object({
     ownership: effectOwnershipSchema,
     evidence: provenanceEvidenceSchema,
-    reason: z.enum([
-      'exact-hook-order',
-      'no-user-effect-callsite',
-      'library-only-hook-tree',
-      'hook-count-mismatch',
-      'hook-source-unresolved',
-      'hook-inspection-unavailable',
-      'inspection-truncated',
-      'shadow-render-disabled',
-      'attribution-budget-exhausted',
-      'report-state-advanced',
-    ]),
+    reason: effectProvenanceReasonSchema,
     hookSource: sourceSchema.describe('Effect implementation callsite, separate from its owner.'),
     packageName: z
       .string()
@@ -120,7 +178,7 @@ const effectFindingSchema = z.object({
       )
       .max(12)
       .describe(
-        'Bounded custom-hook wrappers above this effect. Present only when effect count/order alignment is exact.',
+        'Custom hooks above this effect, outermost first, each with the place it was called and its ownership.',
       ),
     definitionSource: z.null().describe('Reserved for exact effect definition evidence.'),
     allocationCallsite: z.null().describe('Effects do not expose allocation callsites.'),
@@ -139,7 +197,7 @@ export const reactEffectAuditContract = defineAgentToolContract({
   name: 'react_effect_audit',
   title: 'Effect schedule audit',
   description:
-    'Audit useEffect, useLayoutEffect, and useInsertionEffect schedules: commit counts, dependency mode/change, cleanup presence, sample-aware hotness, and implementation provenance. React commit flags do not prove passive execution or cleanup timing. Genie does not re-run components to recover hook callsites, so automatic provenance can be unknown with reason shadow-render-disabled. Start with react_clear_renders, drive the interaction, then read this.',
+    'Audit useEffect, useLayoutEffect, and useInsertionEffect schedules: commit counts, dependency mode/change, cleanup presence, hotness (does the effect run more often than its dependencies justify?), and who declared each effect. Each effect carries the hookIndex and customHooks react_inspect_component reports, and its declaration from the same hook inspector React DevTools runs when you select a component, so an effect inside a library hook is library-owned even in an app component. React commit flags do not prove passive execution or cleanup timing. Start with react_clear_renders, drive the interaction, then read this.',
   group: 'react.render',
   input: z
     .object({
@@ -152,7 +210,7 @@ export const reactEffectAuditContract = defineAgentToolContract({
         .boolean()
         .default(true)
         .describe(
-          'Include only effects with app provenance. Library and unknown ownership are excluded so unresolved evidence is never attributed to your app; set false to inspect all provenance.',
+          'Hide effects declared in library code, including library hooks called from your components. Effects whose declaration is unresolved stay, with provenance.ownership "unknown"; filteredNote counts what was hidden. Set false to include library effects.',
         ),
       packageName: z
         .string()
@@ -169,7 +227,9 @@ export const reactEffectAuditContract = defineAgentToolContract({
         .min(1)
         .max(1_000)
         .default(3)
-        .describe('Minimum observed updates required before an effect can be classified hot.'),
+        .describe(
+          'Minimum observed updates before an effect can be classified hot, and the number of re-runs without a dependency value change that makes it hot.',
+        ),
       minFireRate: z
         .number()
         .min(0.1)
@@ -181,7 +241,9 @@ export const reactEffectAuditContract = defineAgentToolContract({
         .min(0.1)
         .max(1)
         .optional()
-        .describe('Preferred minimum scheduled/updates ratio for hot classification.'),
+        .describe(
+          'Preferred minimum scheduled/updates ratio for classifying an effect without a dependency array as hot.',
+        ),
       limit: z.number().int().min(1).max(200).default(40),
     })
     .superRefine((input, context) => {
@@ -223,6 +285,7 @@ export const reactEffectAuditContract = defineAgentToolContract({
           ownership: effectOwnershipSchema,
           evidence: z.enum(['inferred', 'unknown']),
           reason: z.enum(['nearest-symbolicated-fiber', 'source-unresolved']),
+          basis: ownershipBasisSchema.nullable(),
           source: sourceSchema,
         }),
         effects: z.array(effectFindingSchema),
@@ -236,7 +299,7 @@ export const reactEffectAuditContract = defineAgentToolContract({
       .string()
       .optional()
       .describe(
-        'Present only when appOnly hid library-origin effects; distinguishes "no effects filtered" from "no effects exist".',
+        'Present when appOnly hid library effects or kept effects of unknown ownership; distinguishes "no effects filtered" from "no effects exist".',
       ),
     packageFilter: z
       .object({
@@ -277,8 +340,23 @@ const effectRunTriggerSchema = z
   )
 
 const effectEventSchema = z.object({
-  sourceOwnership: z.enum(['app', 'library', 'unknown']),
-  source: sourceSchema,
+  sourceOwnership: effectOwnershipSchema.describe(
+    "Ownership of this effect's declaration, the same answer react_effect_audit gives in provenance.ownership: an effect declared inside a library hook is library-owned even in an app component.",
+  ),
+  ownershipEvidence: provenanceEvidenceSchema,
+  ownershipReason: effectProvenanceReasonSchema,
+  source: sourceSchema.describe(
+    'Where this effect is declared: the hook call that created it (role hook-callsite). Null when it cannot be attributed.',
+  ),
+  hook: z
+    .string()
+    .nullable()
+    .describe('The React hook that created this effect, e.g. useEffect or useSyncExternalStore.'),
+  customHooks: effectCustomHooksSchema,
+  componentOwnership: effectOwnershipSchema,
+  componentSource: sourceSchema.describe(
+    "The component's own location, as react_get_tree reports it.",
+  ),
   effectEventId: z.string(),
   effectId: z.string(),
   observationId: z.string().nullable(),
@@ -287,7 +365,12 @@ const effectEventSchema = z.object({
   componentId: z.number().int(),
   componentName: z.string(),
   mountId: z.string(),
-  effectIndex: z.number().int().nonnegative(),
+  effectIndex: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Position among the component’s effect hooks, as react_effect_audit index.'),
+  hookIndex: effectHookIndexSchema,
   kind: z.enum(['effect', 'layout', 'insertion']),
   phase: z.enum(['mount', 'update']),
   event: z
@@ -296,7 +379,22 @@ const effectEventSchema = z.object({
       'scheduled = React flagged the effect in this commit; reconnected = React re-ran an unscheduled effect because its hidden subtree became visible.',
     ),
   evidence: z.literal('exact'),
+  dependencyComparison: z
+    .enum(['compared', 'no-dependency-array', 'previous-unavailable', 'not-applicable'])
+    .describe(
+      'compared: changedDependencySlots lists every slot React saw change (within the scan limits). previous-unavailable: the previous dependencies could not be read, so an empty list does not mean nothing changed. not-applicable: a mount or reconnect, which React runs without comparing.',
+    ),
   changedDependencySlots: z.array(z.number().int().nonnegative()),
+  dependencyChanges: z
+    .array(
+      z.object({
+        slot: z.number().int().nonnegative(),
+        change: z.enum(['value', 'reference-only', 'undetermined']),
+      }),
+    )
+    .describe(
+      'Each changed slot by what changed: value; reference-only (a new identity with equal contents); undetermined (contents not comparable, such as functions or class instances).',
+    ),
   changedDependencySlotsOmitted: z.number().int().nonnegative(),
   dependencySlotsUnscanned: z.number().int().nonnegative(),
   execution: z.union([
@@ -405,6 +503,17 @@ const effectEventsOutputSchema = z.object({
   observation: observationSchema.nullable(),
   events: z.array(effectEventSchema),
   omittedByLimit: z.number().int().nonnegative(),
+  libraryEventsHidden: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Events appOnly hid because their effect is declared in library code.'),
+  filteredNote: z
+    .string()
+    .optional()
+    .describe(
+      'Present when appOnly hid library effects or kept effects of unknown ownership, so an empty list is never mistaken for "no effects ran".',
+    ),
   evictedEvents: z
     .number()
     .int()

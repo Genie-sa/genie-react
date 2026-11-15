@@ -11,6 +11,7 @@ import { countExcludedRefreshCommit } from './refresh-commit-count'
 import {
   classifyFibersWithinBudget,
   clearSourceCache,
+  isHiddenByAppOnly,
   ownershipCoverage,
   type ResolvedSource,
   type SourceOwnership,
@@ -336,10 +337,10 @@ export async function getRefreshEvents(query: {
         }
       })
     const preservedState = toReports(event.updatedFibers).filter(
-      (entry) => !query.appOnly || entry.sourceOwnership === 'app',
+      (entry) => !query.appOnly || !isHiddenByAppOnly(entry.sourceOwnership),
     )
     const remounted = toReports(event.remountedFibers).filter(
-      (entry) => !query.appOnly || entry.sourceOwnership === 'app',
+      (entry) => !query.appOnly || !isHiddenByAppOnly(entry.sourceOwnership),
     )
     return {
       sequence: event.sequence,

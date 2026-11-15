@@ -105,7 +105,7 @@ import {
   stopRenderTracking,
   takeSnapshot,
 } from './render-tracker'
-import { classifyFibersWithinBudget, ownershipCoverage } from './source'
+import { classifyFibersWithinBudget, isHiddenByAppOnly, ownershipCoverage } from './source'
 import {
   describeElementStyles,
   indexStyleRules,
@@ -146,6 +146,15 @@ async function effectTimeline({
     tracking,
     documentCommitId,
     ...report,
+    filteredNote: appOnly
+      ? appOnlyFilteredNote(
+          report.events.length,
+          report.libraryEventsHidden,
+          'effects',
+          report.events.filter((event) => event.sourceOwnership === 'app').length,
+          report.events.filter((event) => event.sourceOwnership === 'unknown').length,
+        )
+      : undefined,
     coverage: {
       ...coverage,
       complete:
@@ -420,7 +429,7 @@ export function reactCollector(): GenieCollector {
           )
           const selected = owners.flatMap(({ owner, tag, styleSources }, index) => {
             const classification = classes[index]
-            if (appOnly && classification?.ownership !== 'app') return []
+            if (appOnly && isHiddenByAppOnly(classification?.ownership ?? 'unknown')) return []
             return [
               {
                 id: owner.id as number,
@@ -532,11 +541,15 @@ export function reactCollector(): GenieCollector {
           const { summary, components, libraryHidden, omittedByLimit, sourceClassification } =
             report
           const classificationIncomplete = report.appOnly && !sourceClassification.complete
-          const filteredNote = classificationIncomplete
-            ? `WARNING: appOnly excluded ${sourceClassification.unknown} components with unknown ownership and ${sourceClassification.library} library components. Source classification evaluated ${sourceClassification.evaluated}/${sourceClassification.totalCandidates} matching records. Retry after source warmup, or pass appOnly:false to inspect all records.`
-            : report.appOnly
-              ? appOnlyFilteredNote(components.length, libraryHidden, 'components')
-              : undefined
+          const filteredNote = report.appOnly
+            ? appOnlyFilteredNote(
+                components.length,
+                libraryHidden,
+                'components',
+                components.filter((entry) => entry.sourceOwnership === 'app').length,
+                components.filter((entry) => entry.sourceOwnership === 'unknown').length,
+              )
+            : undefined
           const coverageInput = {
             skippedCommitFibers: report.skippedCommitFibers,
             droppedUnmountFibers: report.droppedUnmountFibers,
@@ -557,13 +570,9 @@ export function reactCollector(): GenieCollector {
           }
           const reportSummary = {
             ...summary,
-            semantics: renderSummarySemantics(
-              {
-                ...measurementCoverage,
-                complete: measurementCoverage.complete && !classificationIncomplete,
-              },
-              summary.totalRenders,
-            ),
+            semantics: classificationIncomplete
+              ? ('unknown' as const)
+              : renderSummarySemantics(measurementCoverage, summary.totalRenders),
             coverageDomain: 'render-measurement' as const,
           }
           const { unstableComponents, unnecessaryComponents, topUnstableProps, ...summaryView } =
@@ -649,7 +658,13 @@ export function reactCollector(): GenieCollector {
               droppedRenderEvents: report.renderEventRetention.evictedEvents,
             },
             filteredNote: appOnly
-              ? appOnlyFilteredNote(events.length, libraryHidden, 'components')
+              ? appOnlyFilteredNote(
+                  events.length,
+                  libraryHidden,
+                  'components',
+                  events.filter((event) => event.sourceOwnership === 'app').length,
+                  events.filter((event) => event.sourceOwnership === 'unknown').length,
+                )
               : undefined,
           }
         },
@@ -697,7 +712,7 @@ export function reactCollector(): GenieCollector {
             omittedByLimit,
             effectsOmittedByLimit,
             libraryEffectsHidden,
-            appEffectsAfterAppOnly,
+            shownByAppOnly,
             hotnessCriteria,
             packageFilter,
           } = await getEffectAuditReport({
@@ -716,13 +731,13 @@ export function reactCollector(): GenieCollector {
           })
           const completedAtDocumentCommitId = getDocumentCommitId()
           const completedAtAnalysisGeneration = getAnalysisGeneration()
-          const appEffects = components.reduce((sum, c) => sum + c.effects.length, 0)
           const filteredNote = appOnly
             ? appOnlyFilteredNote(
-                appEffects,
+                components.reduce((sum, entry) => sum + entry.effects.length, 0),
                 libraryEffectsHidden,
                 'effects',
-                appEffectsAfterAppOnly,
+                shownByAppOnly.app,
+                shownByAppOnly.unknown,
               )
             : undefined
           return {

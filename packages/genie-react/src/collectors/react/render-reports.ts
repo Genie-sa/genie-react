@@ -174,7 +174,7 @@ function selectClassifiedRecords(
     unknown,
   }
   if (query.appOnly !== true) return { kept: list, libraryHidden: 0, sourceClassification }
-  const kept = list.filter((entry) => entry.appOwned)
+  const kept = list.filter((entry) => !entry.libraryOnly)
   return { kept, libraryHidden: list.length - kept.length, sourceClassification }
 }
 
@@ -425,9 +425,8 @@ export async function buildRenderCauseEventsReport(
     }
   })
   const visible =
-    query.appOnly !== true ? classified : classified.filter(({ appOwned }) => appOwned)
-  const libraryHidden =
-    query.appOnly !== true ? 0 : classified.filter(({ appOwned }) => !appOwned).length
+    query.appOnly !== true ? classified : classified.filter(({ libraryOnly }) => !libraryOnly)
+  const libraryHidden = classified.length - visible.length
   return {
     componentMatch: describeComponentMatch(
       query,
@@ -479,7 +478,7 @@ export async function buildRenderSummary(
   let list = [...records.values()]
   if (appOnly) {
     const evidence = await recordSourceEvidence(list)
-    list = list.filter((_, index) => evidence[index]?.appOwned === true)
+    list = list.filter((_, index) => evidence[index]?.libraryOnly !== true)
   }
   return summarizeRecords(list, commits)
 }
@@ -546,8 +545,8 @@ export async function buildCurrentAggregateMeasurement(
     guard?.isCurrent() === false ? list.map(() => staleRecordSourceEvidence()) : resolvedEvidence
   const aggregates = new Map<string, ComponentAggregate>()
   list.forEach((record, index) => {
-    const { source, appOwned } = evidence[index] ?? unknownRecordSourceEvidence()
-    if (appOnly && !appOwned) return
+    const { source, libraryOnly } = evidence[index] ?? unknownRecordSourceEvidence()
+    if (appOnly && libraryOnly) return
     const displayLabel = sourceLabel(source)
     const canonicalSource = source
       ? `${source.file}:${source.line ?? '?'}:${source.column ?? '?'}`

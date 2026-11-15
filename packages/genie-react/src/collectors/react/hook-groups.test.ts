@@ -2,6 +2,8 @@
 
 // biome-ignore-all lint/correctness/useHookAtTopLevel: fixtures break the rules of hooks on purpose to probe misaligned hook trees
 import 'bippy/install-hook-only'
+import { configureStore } from '@reduxjs/toolkit'
+import { createApi, fakeBaseQuery } from '@reduxjs/toolkit/query/react'
 import { render } from '@testing-library/react'
 import { type Fiber, getFiberFromHostInstance } from 'bippy'
 import type { HooksNode } from 'bippy/source'
@@ -20,6 +22,7 @@ import {
   useSyncExternalStore,
   useTransition,
 } from 'react'
+import { Provider } from 'react-redux'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { MAX_HOOKS } from './contracts'
 import { inspectFiber } from './fiber'
@@ -258,5 +261,70 @@ describe('hookSlots custom-hook chains', () => {
 
     expect(customHookChains(tree, ['state', 'state'], true)).toEqual([[], []])
     expect(customHookChains(tree, ['state', 'state'], false)).toBeNull()
+  })
+})
+
+describe('custom-hook names', () => {
+  // The callsite frame of a custom hook's first primitive names the function that called it, the way V8 printed it.
+  const calledFrom = (functionName: string | null, node: HooksNode): HooksNode => ({
+    ...node,
+    hookSource: { fileName: '/src/api.ts', lineNumber: 1, columnNumber: 1, functionName },
+  })
+
+  it.each([
+    ['Object.useQuery [as useGetIssueQuery]', 'useGetIssueQuery'],
+    [
+      'process.env.NODE_ENV.exports.useSyncExternalStoreWithSelector',
+      'useSyncExternalStoreWithSelector',
+    ],
+    ['useCart', 'useCart'],
+  ])('names a custom hook called as %s by what the caller wrote', (frame, name) => {
+    const tree = [custom('Anything', [calledFrom(frame, primitive('State', 0))])]
+    expect(customHookChains(tree, ['state'], false)).toEqual([[name]])
+  })
+
+  it.each([
+    ['eval', 'eval'],
+    ['anonymous', ''],
+    [null, ''],
+  ])('does not invent a name for an unnamed hook whose frame reads %s', (frame, treeName) => {
+    const tree = [custom(treeName, [calledFrom(frame, primitive('State', 0))])]
+    expect(customHookChains(tree, ['state'], false)).toEqual([['(anonymous)']])
+  })
+})
+
+describe('react_inspect_component with RTK Query', () => {
+  it('names generated endpoint hooks as the component calls them and grades an unnamed one partial', async () => {
+    const api = createApi({
+      baseQuery: fakeBaseQuery(),
+      endpoints: (build) => ({
+        getIssue: build.query<string, string>({ queryFn: async (key) => ({ data: key }) }),
+      }),
+    })
+    const store = configureStore({
+      reducer: { [api.reducerPath]: api.reducer },
+      middleware: (defaults) => defaults().concat(api.middleware),
+    })
+    const makeAnonymousHook = () => () => useState(0)
+    const useUnnamedHook = makeAnonymousHook()
+    function Issue() {
+      const { data } = api.useGetIssueQuery('CORE-1')
+      useUnnamedHook()
+      return createElement('p', null, data ?? 'loading')
+    }
+    const container = document.createElement('div')
+    await act(async () => {
+      unmount = render(createElement(Provider, { store } as never, createElement(Issue)), {
+        container,
+      }).unmount
+    })
+    const fiber = getFiberFromHostInstance(container.firstElementChild)?.return
+    if (!fiber) throw new Error('Issue did not render')
+
+    const result = inspectFiber(fiber, { depth: 1 })
+
+    expect(result.hooks[0]?.customHooks?.[0]).toBe('useGetIssueQuery')
+    expect(result.hooks.at(-1)).toMatchObject({ hook: 'useState', customHooks: ['(anonymous)'] })
+    expect(result.customHookGrouping).toBe('partial')
   })
 })

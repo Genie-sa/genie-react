@@ -82,7 +82,10 @@ function compactSource(
   source: ResolvedSource | null | undefined,
   ownership: RenderComponentSummary['source']['ownership'],
 ): RenderComponentSummary['source'] {
-  return { location: formatSourceLocation(source ?? null), ownership }
+  const location = formatSourceLocation(source ?? null)
+  return location !== null && source?.role
+    ? { location, role: source.role, ownership }
+    : { location, ownership }
 }
 
 function identity(instance: InstanceDescriptor): { mountId: string; key?: string } {
