@@ -9,7 +9,12 @@ import {
   type RenderNecessity,
 } from './render-causes'
 import type { RenderChange } from './render-inputs'
-import { pendingRenderAssessment, type RenderAssessment } from './render-outcomes'
+import {
+  pendingRenderAssessment,
+  type RelatedRender,
+  type RenderAssessment,
+} from './render-outcomes'
+import type { NecessityReason } from './render-output'
 import type { ResolvedSource, SourceProvenance, sourceAttributionForSource } from './source'
 
 export interface RenderRecord {
@@ -38,8 +43,11 @@ export interface RenderRecord {
   causes: RenderCause[]
   causeCounts: RenderCauseCounts
   necessity: RenderNecessity
+  necessityReason: NecessityReason
   assessment: RenderAssessment
   inputCoverage: RenderInputCoverage
+  wraps?: RelatedRender | undefined
+  wrappedBy?: RelatedRender | undefined
   /** The instance unmounted inside this window; its renders stay counted. */
   unmounted: boolean
   /** Live handle used only for report-time source classification. */
@@ -93,8 +101,11 @@ export interface RetainedRenderCauseEvent {
   instance: InstanceDescriptor
   causes: RenderCause[]
   necessity: RenderNecessity
+  necessityReason: NecessityReason
   assessment: RenderAssessment
   inputCoverage: RenderInputCoverage
+  wraps?: RelatedRender | undefined
+  wrappedBy?: RelatedRender | undefined
 }
 
 export interface RenderRecordDraftInput {
@@ -139,6 +150,7 @@ export function draftRenderRecord(
         causes: [],
         causeCounts: emptyCauseCounts(),
         necessity: 'unknown',
+        necessityReason: 'output-incomplete',
         assessment: pendingRenderAssessment(),
         inputCoverage: {
           complete: false,

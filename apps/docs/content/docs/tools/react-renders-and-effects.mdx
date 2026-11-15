@@ -10,8 +10,11 @@ The JSON examples below show selected fields from the full response.
 
 Clears render counters and starts a new causal observation window.
 
-**Input:** `components` defaults to `[]`, accepts at most 50 display-name substrings, and trims each
-1–160 character string. `roots` defaults to `[]` and accepts at most 20 integer component IDs.
+**Input:** `component` reserves analysis for one display name or a list of at most 50, matched
+exactly like the read tools; `exact` defaults to `true`, and `false` matches case-insensitive
+substrings. Each name is trimmed
+to 1–160 characters. The older `components` key still accepts substrings and the response then lists
+a `deprecations` entry naming `component`. `roots` defaults to `[]` and accepts at most 20 integer component IDs.
 `budget` is optional. `fiberLimit` defaults to 250, `operationLimit` to 20000, `timeLimitMs` to 8,
 `targetOperationReserve` to 4000, `targetTimeReserveMs` to 4, and `adaptive` to `true`; the numeric ranges are
 50–20000, 1000–2000000, 1–500, 100–500000, and 0.5–250 respectively. `lifecycle`
@@ -30,7 +33,7 @@ the action from a fresh window with an explicitly larger budget.
 
 ```bash
 npx @genie-react/cli call react_clear_renders \
-  '{"components":["ProductCard"],"budget":{"fiberLimit":500,"timeLimitMs":12}}' --json
+  '{"component":"ProductCard","budget":{"fiberLimit":500,"timeLimitMs":12}}' --json
 ```
 
 **Output (selected fields):**
@@ -333,7 +336,11 @@ coverage is incomplete. When a budget limit skipped work, `coverage.budgetAdvice
 Reports lifecycle outcomes for every matching component instance in the current observation.
 
 **Input:** `component` is a required non-empty string. `exact` defaults to `true`. `limit` is an
-integer from 1 to 200 and defaults to 50.
+integer from 1 to 200 and defaults to 50. `view` defaults to `summary`, which states the value most
+instances share once under `shared` (component, source, parent, rendering state and the common
+`logicalPath` prefix) and keeps per row only its status, mount id, key, index, the rest of its path,
+host selector and commit; a row lists a shared field only where its value differs. `view:"full"`
+returns every instance with its full descriptor and source provenance.
 `appOnly` defaults to `false`; set it to `true` to include only proven app-owned instances.
 Ownership includes mounted instances and cached unmount provenance. Unknown ownership is excluded
 by the app filter and lowers coverage. `documentCommitId` marks the captured traversal;
@@ -1079,8 +1086,8 @@ identity when the edit remounted state that should have been preserved.
 
 Clears render counters and starts a profiling observation.
 
-**Input:** `components` defaults to `[]`, accepts at most 50 display-name substrings, and trims each
-1–160 character string. `roots` defaults to `[]` and accepts at most 20 integer component IDs.
+**Input:** `component` and `exact` select the components to reserve analysis for, exactly as in
+`react_clear_renders`; the older `components` key still accepts display-name substrings. `roots` defaults to `[]` and accepts at most 20 integer component IDs.
 `budget` is optional. `fiberLimit` defaults to 250, `operationLimit` to 20000, `timeLimitMs` to 8,
 `targetOperationReserve` to 4000, `targetTimeReserveMs` to 4, and `adaptive` to `true`; the numeric ranges are
 50–20000, 1000–2000000, 1–500, 100–500000, and 0.5–250 respectively. `lifecycle`
@@ -1099,7 +1106,7 @@ the flow from a fresh profile with an explicitly larger budget.
 
 ```bash
 npx @genie-react/cli call react_profile_start \
-  '{"components":["SearchResults"],"lifecycle":{"bufferLimit":2000,"targetReserve":200}}' --json
+  '{"component":"SearchResults","lifecycle":{"bufferLimit":2000,"targetReserve":200}}' --json
 ```
 
 **Output (selected fields):**

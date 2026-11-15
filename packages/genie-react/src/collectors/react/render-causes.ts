@@ -1,4 +1,10 @@
-import type { ContextDependency, Fiber, MemoizedState } from 'bippy'
+import {
+  type ContextDependency,
+  type Fiber,
+  getFiberId,
+  isCompositeFiber,
+  type MemoizedState,
+} from 'bippy'
 import type { z } from 'zod'
 import { dehydrate, encodeAppObject } from '../../protocol'
 import {
@@ -24,7 +30,7 @@ import {
   queryObserverOptions,
 } from '../causal/query-observer'
 import { isWalkablePlainObject, plainOwnKeys } from '../causal/safe-object'
-import { isDataDescriptor, safeOwnPropertyDescriptor } from './deep-diff'
+import { type DeepDiffResult, isDataDescriptor, safeOwnPropertyDescriptor } from './deep-diff'
 import { nameOf } from './fiber'
 import { type InstanceDescriptor, instanceForMountedFiber } from './instance-identity'
 import { getActiveObservation, getDocumentCommitId } from './observation'
@@ -39,6 +45,8 @@ import {
   truncateInputScan,
 } from './render-budget'
 import type { renderCauseEventSchema } from './render-contract'
+import { ownUpdateScheduled } from './render-output'
+import { isProviderOf } from './work-tags'
 
 export type RenderCauseEvent = z.infer<typeof renderCauseEventSchema>
 export type RenderCause = RenderCauseEvent['causes'][number]
@@ -59,6 +67,7 @@ const STATE_VALUE_MAX_STRING_LENGTH = 200
 const SNAPSHOT_FIELD_OUTPUT_LIMIT = 50
 const QUERY_OBSERVER_LIMIT = 200
 const ROUTER_PROPERTY_SCAN_LIMIT = 200
+const CONTEXT_PROVIDER_SEARCH_LIMIT = 10_000
 const QUERY_SNAPSHOT_FIELDS = [
   'data',
   'dataUpdatedAt',
@@ -347,6 +356,21 @@ export function countExternalStoreHooks(fiber: Fiber): number {
   }
 }
 
+/** Top-level snapshot keys that changed, by value or by reference; "$value" when the snapshot itself is a changed scalar or opaque value. */
+function changedTopLevelFields(diff: DeepDiffResult): string[] {
+  const fields = new Set<string>()
+  for (const change of diff.changes) {
+    const segment = change.path.split('/')[1]
+    if (segment === undefined) {
+      if (change.kind !== 'reference-only') fields.add('$value')
+      continue
+    }
+    fields.add(segment.replaceAll('~1', '/').replaceAll('~0', '~'))
+    if (fields.size >= SNAPSHOT_FIELD_OUTPUT_LIMIT) break
+  }
+  return [...fields]
+}
+
 function changedSnapshotFields(
   before: unknown,
   after: unknown,
@@ -426,6 +450,8 @@ export function diffExternalStoreChanges(
   subscriberInstance?: InstanceDescriptor,
 ): RenderCause[] {
   const causes: RenderCause[] = []
+  // A subscription that fires schedules an update on its subscriber; without one, a changed snapshot was recomputed from this render's own inputs.
+  const subscriptionFired = ownUpdateScheduled(fiber)
   let current: MemoizedState | null = fiber.memoizedState
   let previous: MemoizedState | null = fiber.alternate?.memoizedState ?? null
   let index = 0
@@ -434,7 +460,7 @@ export function diffExternalStoreChanges(
     if (!scanInputEvidence(evidence, 'external-store-hooks')) break
     if (isExternalStoreHook(current) || isExternalStoreHook(previous)) {
       const selectedChanged = !Object.is(current.memoizedState, previous.memoizedState)
-      if (!selectedChanged) {
+      if (!selectedChanged || subscriptionFired === false) {
         current = current.next
         previous = previous.next
         index += 1
@@ -452,20 +478,30 @@ export function diffExternalStoreChanges(
       const instance = subscriberInstance ?? instanceForMountedFiber(fiber, evidence.commitWork)
       const subscriberId = `subscriber:${instance.mountId}:${externalStoreIndex}`
       const domain = snapshotDomain(current.memoizedState)
+      const deepDiff = diffWithBudget(
+        previous.memoizedState,
+        current.memoizedState,
+        evidence,
+        STATE_PLAIN_OBJECT_DEPTH,
+      )
       const common = {
         hookIndex: index,
         externalStoreIndex,
         subscriberId,
         selectionEqual: false as const,
-        before: stateValue(previous.memoizedState, evidence),
-        after: stateValue(current.memoizedState, evidence),
-        changedFields: changedSnapshotFields(
-          previous.memoizedState,
-          current.memoizedState,
-          domain,
-          evidence,
-        ),
-        deepDiff: diffWithBudget(previous.memoizedState, current.memoizedState, evidence),
+        subscriptionFired,
+        before: stateValue(previous.memoizedState, evidence, STATE_PLAIN_OBJECT_DEPTH),
+        after: stateValue(current.memoizedState, evidence, STATE_PLAIN_OBJECT_DEPTH),
+        changedFields:
+          domain === 'external-store'
+            ? changedTopLevelFields(deepDiff)
+            : changedSnapshotFields(
+                previous.memoizedState,
+                current.memoizedState,
+                domain,
+                evidence,
+              ),
+        deepDiff,
       }
 
       const query = queryObserverNearHook(fiber, index, current.memoizedState, evidence)
@@ -693,6 +729,20 @@ function mutationObserverNearHook(
   return false
 }
 
+/** React passes `subscribe` as the only dependency of the effect it adds right after the store hook, so one store keeps one identity across renders and subscribers. */
+function subscribeFunctionOf(hook: MemoizedState): object | null {
+  const next = safeOwnPropertyDescriptor(hook, 'next')
+  if (!isDataDescriptor(next) || !isRecord(next.value)) return null
+  const effect = safeOwnPropertyDescriptor(next.value, 'memoizedState')
+  if (!isDataDescriptor(effect) || !isRecord(effect.value)) return null
+  const deps = safeOwnPropertyDescriptor(effect.value, 'deps')
+  if (!isDataDescriptor(deps) || !Array.isArray(deps.value) || deps.value.length !== 1) return null
+  const subscribe = safeOwnPropertyDescriptor(deps.value, '0')
+  return isDataDescriptor(subscribe) && typeof subscribe.value === 'function'
+    ? subscribe.value
+    : null
+}
+
 function genericExternalStoreMetadata(
   hook: MemoizedState,
   mutationObserverSnapshot: boolean,
@@ -715,7 +765,7 @@ function genericExternalStoreMetadata(
     isDataDescriptor(snapshotDescriptor) && typeof snapshotDescriptor.value === 'function'
       ? snapshotDescriptor.value
       : null
-  const identity = snapshot ?? queue ?? hook
+  const identity = subscribeFunctionOf(hook) ?? snapshot ?? queue ?? hook
   const nameDescriptor = snapshot ? safeOwnPropertyDescriptor(snapshot, 'name') : null
   const name =
     isDataDescriptor(nameDescriptor) && typeof nameDescriptor.value === 'string'
@@ -900,10 +950,11 @@ function routerSnapshotMatches(registration: RegisteredRouterStore, snapshot: un
   }
 }
 
-/** Exact consumed-context value changes retained as bounded before/after evidence. */
+/** Exact consumed-context value changes retained as bounded before/after evidence; `onChange` receives each changed Context object. */
 export function diffContextChanges(
   fiber: Fiber,
   evidence = createRenderEvidenceBudget(),
+  onChange?: (context: unknown, cause: Extract<RenderCause, { kind: 'context' }>) => void,
 ): RenderCause[] {
   const previousValues = readContextValues(fiber.alternate, evidence)
   if (!previousValues) return []
@@ -927,22 +978,63 @@ export function diffContextChanges(
     if (displayNameDescriptor !== null && !isDataDescriptor(displayNameDescriptor)) {
       truncateInputScan(evidence)
     }
-    causes.push({
+    const provider = findContextProvider(fiber, context, evidence)
+    const cause: Extract<RenderCause, { kind: 'context' }> = {
       kind: 'context',
       evidence: 'exact',
       contextIndex: index,
+      contextId: contextId(context),
       name:
         typeof displayName === 'string'
           ? boundedContextName(displayName, evidence)
-          : `Context[${index}]`,
+          : provider
+            ? `Context(${provider.componentName})`
+            : `Context[${index}]`,
+      provider,
       before: stateValue(previousValue, evidence, STATE_PLAIN_OBJECT_DEPTH),
       after: stateValue(current.memoizedValue, evidence, STATE_PLAIN_OBJECT_DEPTH),
       deepDiff: diffStateWithBudget(previousValue, current.memoizedValue, evidence),
-    })
+    }
+    causes.push(cause)
+    onChange?.(context, cause)
   }
   // React also schedules a render when a Context this render stopped reading changes, and its new value is out of sight.
   if (current || compared.size < previousValues.size) truncateInputScan(evidence)
   return causes
+}
+
+const contextIds = new WeakMap<object, string>()
+let nextContextId = 1
+
+/** One id per Context object, so reports from different consumers of the same Context agree. */
+function contextId(context: unknown): string {
+  if (typeof context !== 'object' || context === null) return 'context:unknown'
+  let id = contextIds.get(context)
+  if (!id) {
+    id = `context:${nextContextId}`
+    nextContextId += 1
+    contextIds.set(context, id)
+  }
+  return id
+}
+
+/** The nearest provider of `context` above the consumer, named by the component that renders it. */
+function findContextProvider(
+  fiber: Fiber,
+  context: unknown,
+  evidence: RenderEvidenceBudget,
+): { componentId: number; componentName: string } | null {
+  let current = fiber.return
+  for (let steps = 0; current && steps < CONTEXT_PROVIDER_SEARCH_LIMIT; steps += 1) {
+    if (!scanInputEvidence(evidence, 'context-provider')) return null
+    if (isProviderOf(current, context)) {
+      let owner = current.return
+      while (owner && !isCompositeFiber(owner)) owner = owner.return
+      return owner ? { componentId: getFiberId(owner), componentName: nameOf(owner) } : null
+    }
+    current = current.return
+  }
+  return null
 }
 
 function readContextValues(

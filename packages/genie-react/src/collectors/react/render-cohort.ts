@@ -1,4 +1,5 @@
 import { type Fiber, getReactWorkTagsForFiber, isCompositeFiber } from 'bippy'
+import { formatSourceLocation, type ToolOutput } from '../../protocol'
 import { type ComponentMatch, componentNameMatcher, describeComponentMatch } from './component-name'
 import { findAllCommittedRootFibers, nameOf } from './fiber'
 import { hasReactFreezeAdapter, isReactFreeze } from './freeze-identity'
@@ -12,6 +13,7 @@ import {
 } from './instance-identity'
 import { type RendererBundle, rendererBundleOf } from './measurement-environment'
 import { getActiveObservation, type ObservationWindow } from './observation'
+import type { reactComponentCohortContract } from './render-contract'
 import { captureReportEpoch, reportAttribution, reportStateMatches } from './report-attribution'
 import {
   classifyFibersWithinBudget,
@@ -397,4 +399,102 @@ function cohortStatus(input: {
   if (input.mountedUnknown > 0) return 'unknown'
   if (input.unmounted > 0) return 'unmounted'
   return input.renderCoverageComplete ? 'absent' : 'unknown'
+}
+
+type CohortSummary = ToolOutput<typeof reactComponentCohortContract> & { view: 'summary' }
+type CohortSummaryInstance = CohortSummary['instances'][number]
+type CohortShared = CohortSummary['shared']
+type SharedField = Exclude<keyof CohortShared, 'logicalPathPrefix'>
+
+const PATH_SEPARATOR = ' > '
+/** Shared fields a row repeats when its own value differs; the identity-evidence fields stay shared-only. */
+const ROW_FIELDS = [
+  'componentName',
+  'sourceOwnership',
+  'source',
+  'parent',
+  'renderingState',
+  'reactVisibility',
+] as const satisfies readonly SharedField[]
+
+const SHARED_FIELDS: { [Field in SharedField]: (row: CohortInstance) => CohortShared[Field] } = {
+  componentName: (row) => row.componentName,
+  sourceOwnership: (row) => row.sourceOwnership,
+  source: (row) => formatSourceLocation(row.source),
+  parent: (row) => row.instance.parent,
+  keyedParent: (row) => row.instance.keyedParent,
+  logicalIdentityEvidence: (row) => row.instance.logicalIdentityEvidence,
+  mountGenerationEvidence: (row) => row.instance.mountGenerationEvidence,
+  renderingState: (row) => row.renderingState,
+  reactVisibility: (row) => row.reactVisibility,
+}
+
+/** State the value most instances share once and keep on each row only what tells it apart, so a list of a hundred rows stays readable; a row whose value differs carries its own. */
+export function summarizeCohort(cohort: RenderCohort): CohortSummary {
+  const { instances, ...report } = cohort
+  const shared = sharedCohortFields(instances)
+  const prefix = shared.logicalPathPrefix
+  return {
+    ...report,
+    view: 'summary',
+    shared,
+    instances: instances.map((row): CohortSummaryInstance => {
+      const { instance } = row
+      const underPrefix =
+        prefix !== '' && instance.logicalPath.startsWith(`${prefix}${PATH_SEPARATOR}`)
+      const own: Partial<CohortSummaryInstance> = {}
+      for (const field of ROW_FIELDS) {
+        const value = SHARED_FIELDS[field](row)
+        if (!(field in shared) || !sameValue(value, shared[field])) {
+          Object.assign(own, { [field]: value })
+        }
+      }
+      return {
+        status: row.status,
+        mountId: instance.mountId,
+        fiberId: instance.fiberId,
+        ...(instance.key === null ? {} : { key: instance.key }),
+        ...(instance.siblingIndex === null ? {} : { siblingIndex: instance.siblingIndex }),
+        logicalPath: underPrefix
+          ? instance.logicalPath.slice(prefix.length + PATH_SEPARATOR.length)
+          : instance.logicalPath,
+        ...(underPrefix || prefix === '' ? {} : { outsidePrefix: true as const }),
+        mountGeneration: instance.mountGeneration,
+        hostSelector: instance.hostSelector,
+        ...(row.documentCommitId === undefined ? {} : { documentCommitId: row.documentCommitId }),
+        ...own,
+      }
+    }),
+  }
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+/** The most common value of each field, and the parent path most instances sit under. */
+function sharedCohortFields(instances: CohortInstance[]): CohortShared {
+  const parentPaths = instances.map((row) =>
+    row.instance.logicalPath.split(PATH_SEPARATOR).slice(0, -1).join(PATH_SEPARATOR),
+  )
+  const fields: CohortShared = { logicalPathPrefix: mostCommon(parentPaths) ?? '' }
+  for (const field of Object.keys(SHARED_FIELDS) as SharedField[]) {
+    const read = SHARED_FIELDS[field]
+    const values = instances.map((row) => JSON.stringify(read(row)))
+    const common = mostCommon(values)
+    const sample = instances[values.indexOf(common ?? '')]
+    if (common !== undefined && sample) Object.assign(fields, { [field]: read(sample) })
+  }
+  return fields
+}
+
+function mostCommon(values: string[]): string | undefined {
+  const counts = new Map<string, number>()
+  let best: string | undefined
+  for (const value of values) {
+    const count = (counts.get(value) ?? 0) + 1
+    counts.set(value, count)
+    if (best === undefined || count > (counts.get(best) ?? 0)) best = value
+  }
+  return best
 }

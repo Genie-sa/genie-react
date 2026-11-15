@@ -406,7 +406,7 @@ describe('recordEffect tracking lifecycle', () => {
     }))
     const observation = makeComponent('ManyEffects').commit('mount', effects)
 
-    expect(observation).toEqual({ scheduled: 100, complete: false })
+    expect(observation).toEqual({ scheduled: 100, declaredScheduled: 100, complete: false })
     expect(getEffectTrackingCoverage().truncatedEffectLists).toBe(1)
     expect((await byName()).get('ManyEffects')?.effects).toHaveLength(100)
   })

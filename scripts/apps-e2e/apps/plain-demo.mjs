@@ -154,6 +154,7 @@ export default {
         const before = await ctx.call('react_component_cohort', {
           component: 'Disposable',
           exact: true,
+          view: 'full',
         })
         check(
           before.instances[0]?.renderingState === 'mounted-rendering',
@@ -166,6 +167,7 @@ export default {
           const value = await ctx.call('react_component_cohort', {
             component: 'Disposable',
             exact: true,
+            view: 'full',
           })
           return value.unmounted === 1 ? value : undefined
         })

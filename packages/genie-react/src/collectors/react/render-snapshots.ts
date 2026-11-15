@@ -50,6 +50,7 @@ export interface RenderTrackingCoverage {
   budgetExhaustedCommits: number
   budgetExhaustedSubsystems: { subsystem: string; commits: number }[]
   budgetAdvice?: RenderBudgetAdvice
+  incompleteBecause?: IncompleteCoverageReason[]
   targeted?: {
     components: string[]
     roots: number[]
@@ -70,6 +71,29 @@ export interface RenderTrackingCoverage {
   }
 }
 
+export type AnalysisFailureReason = 'renderer-not-analyzed' | 'traversal-failed' | 'analysis-failed'
+
+/** Which fibers were lost and why, behind the coverage counters. */
+export interface CoverageGapDetails {
+  analysisFailures: { reason: AnalysisFailureReason; fibers: number }[]
+  truncatedInputComponents: string[]
+  propsNotEnumeratedComponents: string[]
+}
+
+export interface IncompleteCoverageReason {
+  reason:
+    | 'budget-exhausted'
+    | 'unmounts-dropped'
+    | 'commits-after-profile-stop'
+    | AnalysisFailureReason
+    | 'inputs-truncated'
+    | 'props-not-enumerated'
+  fibers: number
+  components?: string[]
+  detail: string
+  next?: string
+}
+
 type RenderTrackingCoverageInput = Omit<
   RenderTrackingCoverage,
   | 'complete'
@@ -78,7 +102,78 @@ type RenderTrackingCoverageInput = Omit<
   | 'coverageDomain'
   | 'targeted'
   | 'observationBudget'
->
+  | 'incompleteBecause'
+> & { gaps?: CoverageGapDetails }
+
+const ANALYSIS_FAILURE_DETAIL: Record<AnalysisFailureReason, string> = {
+  'renderer-not-analyzed':
+    'A React renderer that is a production build or older than React 18 committed, such as a framework overlay; its components are not analyzed.',
+  'traversal-failed': 'Genie could not walk a committed tree and skipped it until the next commit.',
+  'analysis-failed': 'Analyzing a component threw, so its render is not counted.',
+}
+
+/** Every counter that makes coverage incomplete, as a reason an agent can act on. */
+function incompleteCoverageReasons(
+  input: RenderTrackingCoverageInput,
+  scope: 'causal' | 'measurement',
+): IncompleteCoverageReason[] {
+  const reasons: IncompleteCoverageReason[] = []
+  if (input.skippedCommitFibers > 0 || input.budgetExhaustedCommits > 0) {
+    reasons.push({
+      reason: 'budget-exhausted',
+      fibers: input.skippedCommitFibers,
+      detail: `${input.budgetExhaustedCommits} commits ran out of analysis budget.`,
+      ...(input.budgetAdvice ? { next: input.budgetAdvice.next } : {}),
+    })
+  }
+  if (input.droppedUnmountFibers > 0) {
+    reasons.push({
+      reason: 'unmounts-dropped',
+      fibers: input.droppedUnmountFibers,
+      detail: 'More components unmounted than the lifecycle buffer keeps.',
+      next: 'Run react_clear_renders with a larger lifecycle.bufferLimit, repeat the step, and read again.',
+    })
+  }
+  if (input.pausedCommits > 0) {
+    reasons.push({
+      reason: 'commits-after-profile-stop',
+      fibers: 0,
+      detail: `${input.pausedCommits} commits happened after react_profile_stop paused recording, so counts are a lower bound for that time.`,
+      next: 'Run react_clear_renders, repeat the step, and read before stopping the profile.',
+    })
+  }
+  const failures = input.gaps?.analysisFailures ?? []
+  for (const { reason, fibers } of failures) {
+    reasons.push({ reason, fibers, detail: ANALYSIS_FAILURE_DETAIL[reason] })
+  }
+  const explained = failures.reduce((sum, failure) => sum + failure.fibers, 0)
+  if (input.analysisFailedFibers > explained) {
+    reasons.push({
+      reason: 'analysis-failed',
+      fibers: input.analysisFailedFibers - explained,
+      detail: ANALYSIS_FAILURE_DETAIL['analysis-failed'],
+    })
+  }
+  if (scope === 'measurement') return reasons
+  if (input.truncatedInputFibers > 0) {
+    reasons.push({
+      reason: 'inputs-truncated',
+      fibers: input.truncatedInputFibers,
+      components: input.gaps?.truncatedInputComponents,
+      detail:
+        'An input held values Genie compares only in part, such as functions, class instances or objects past the inspected depth; read deepDiff.truncated on these components.',
+    })
+  }
+  if (input.propsNotEnumeratedFibers > 0) {
+    reasons.push({
+      reason: 'props-not-enumerated',
+      fibers: input.propsNotEnumeratedFibers,
+      components: input.gaps?.propsNotEnumeratedComponents,
+      detail: 'A props object was not a plain object, so its keys were not read.',
+    })
+  }
+  return reasons
+}
 
 export function buildRenderTrackingCoverage(
   input: RenderTrackingCoverageInput,
@@ -92,8 +187,11 @@ export function buildRenderTrackingCoverage(
     input.budgetExhaustedCommits === 0
   const inputAttributionComplete =
     measurementComplete && input.truncatedInputFibers === 0 && input.propsNotEnumeratedFibers === 0
+  const { gaps: _gaps, ...counters } = input
+  const incompleteBecause = incompleteCoverageReasons(input, scope)
   return {
-    ...input,
+    ...counters,
+    ...(incompleteBecause.length > 0 ? { incompleteBecause } : {}),
     complete: scope === 'measurement' ? measurementComplete : inputAttributionComplete,
     inputAttributionComplete,
     semantics: (scope === 'measurement' ? measurementComplete : inputAttributionComplete)

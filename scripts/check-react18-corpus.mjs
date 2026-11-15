@@ -11,6 +11,8 @@ const CORPORA = [
   'packages/genie-react/src/collectors/react/effect-corpus.test.ts',
   'packages/genie-react/src/collectors/react/error-corpus.test.ts',
   'packages/genie-react/src/collectors/react/refresh-corpus.test.ts',
+  'packages/genie-react/src/collectors/react/render-necessity-corpus.test.ts',
+  'packages/genie-react/src/collectors/react/render-wrapper-corpus.test.ts',
 ]
 
 function run(command, args, options) {

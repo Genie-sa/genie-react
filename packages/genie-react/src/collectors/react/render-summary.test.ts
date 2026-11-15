@@ -33,8 +33,12 @@ const assessment = {
       count: 64,
       pendingSubtrees: 0,
       omittedByLimit: 0,
+      callbackOnlyUpdates: 2,
+      writes: ['li.className'],
+      callbacks: ['button.onClick'],
     },
     scheduledEffects: { status: 'observed' as const, count: 4 },
+    subtreeScheduledEffects: { status: 'observed' as const, count: 4 },
     unobservedDomains: [
       'focus' as const,
       'url' as const,
@@ -132,6 +136,7 @@ const component: RenderReport = {
     unknown: 0,
   },
   necessity: 'necessary',
+  necessityReason: 'dom-changed',
   assessment,
   inputCoverage: {
     complete: true,
@@ -194,7 +199,8 @@ const SUMMARY_DISPOSITION: Record<
   latestDocumentCommitId: { emits: ['latestDocumentCommitId'] },
   causes: { emits: ['causes'] },
   causeCounts: { emits: ['causeCounts'] },
-  necessity: { excluded: 'legacy input-only classification; inputEvidence replaces it' },
+  necessity: { emits: ['necessity'] },
+  necessityReason: { emits: ['necessityReason'] },
   assessment: { emits: ['inputEvidence'] },
   inputCoverage: { emits: ['inputCoverage'] },
   source: { emits: ['source'] },
@@ -203,6 +209,8 @@ const SUMMARY_DISPOSITION: Record<
   sourceOwnership: { emits: ['source'] },
   isLibrary: { excluded: 'derivable from source.ownership' },
   wrapperAncestry: { emits: ['wrappers'] },
+  wraps: { emits: ['wraps'] },
+  wrappedBy: { emits: ['wrappedBy'] },
 }
 
 describe('render summary view', () => {
@@ -220,6 +228,22 @@ describe('render summary view', () => {
       compiler: { ...component.compiler, memoCacheObserved: true },
       wrapperAncestry: [{ kind: 'memo', name: 'Memo(App)' }],
       inputCoverage: { ...component.inputCoverage, complete: false, propsNotEnumerated: true },
+      wraps: {
+        componentId: 5,
+        componentName: 'Inner',
+        renderEventId: 'render:7:2',
+        causes: [{ kind: 'props', evidence: 'exact', name: 'items', referenceOnly: true }],
+        necessity: 'unnecessary',
+        necessityReason: 'inputs-unchanged',
+      },
+      wrappedBy: {
+        componentId: 3,
+        componentName: 'Connect(App)',
+        renderEventId: 'render:7:1',
+        causes: [{ kind: 'external-store', evidence: 'inferred', name: 'selector' }],
+        necessity: 'unknown',
+        necessityReason: 'effects-scheduled',
+      },
     })
     const dispositions = Object.values(SUMMARY_DISPOSITION)
     const emitted = dispositions.flatMap((disposition) =>
@@ -257,6 +281,7 @@ describe('render summary view', () => {
           externalStoreIndex: 0,
           subscriberId: 'subscriber:1',
           selectionEqual: false,
+          subscriptionFired: true,
           before: null,
           after: null,
           changedFields: ['fetchStatus'],
@@ -303,6 +328,8 @@ describe('render summary view', () => {
         { kind: 'state', evidence: 'exact', name: 'state[0]' },
         { kind: 'props', evidence: 'exact', name: 'onSelect', referenceOnly: true },
       ],
+      necessity: 'necessary',
+      necessityReason: 'dom-changed',
       inputEvidence: 'changed',
       source: { location: 'App.tsx:168:4', ownership: 'app' },
     })
@@ -357,6 +384,7 @@ describe('render summary view', () => {
         { kind: 'unknown', evidence: 'unknown', reason: 'input-analysis-incomplete' },
       ],
       necessity: 'unknown',
+      necessityReason: 'output-incomplete',
       assessment,
       inputCoverage: {
         complete: false,
@@ -381,6 +409,8 @@ describe('render summary view', () => {
         { kind: 'parent', evidence: 'inferred', name: 'StressGrid' },
         { kind: 'unknown', evidence: 'unknown', reason: 'input-analysis-incomplete' },
       ],
+      necessity: 'unknown',
+      necessityReason: 'output-incomplete',
       inputEvidence: 'changed',
       inputCoverage: { complete: false, propsNotEnumerated: true },
       source: { location: 'App.tsx:134', ownership: 'app' },

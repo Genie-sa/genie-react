@@ -1,4 +1,5 @@
 import { type Fiber, getRDTHook } from 'bippy'
+import type { z } from 'zod'
 import { defineCollector, defineCollectorTool, type GenieCollector } from '../../client'
 import { reactPendingWorkContract, roundMilliseconds } from '../../protocol'
 import { findComponents } from './component-search'
@@ -72,8 +73,12 @@ import {
 } from './overrides'
 import { getPendingReactWork } from './pending-work'
 import { getRefreshEvents, startRefreshTracking } from './refresh-tracker'
-import { getRenderCohort } from './render-cohort'
-import { reactMeasureContract, reactRendersSinceContract } from './render-contract'
+import { getRenderCohort, summarizeCohort } from './render-cohort'
+import {
+  reactMeasureContract,
+  reactRendersSinceContract,
+  type renderObservationInputSchema,
+} from './render-contract'
 import {
   buildRenderTrackingCoverage,
   renderEvidenceComparability,
@@ -114,6 +119,39 @@ import {
 } from './style-provenance'
 import { getSuspenseReport } from './suspense-boundaries'
 import { startSuspenseCapture } from './suspense-capture'
+
+const COMPONENTS_DEPRECATION =
+  'components is deprecated: pass component with a name or list of names, and exact:false to keep substring matching.'
+
+/** One handler for react_clear_renders and react_profile_start, so `component` means the same thing as in the read tools. */
+function startObservation({
+  component,
+  exact = true,
+  components = [],
+  roots,
+  budget,
+  lifecycle,
+}: z.output<typeof renderObservationInputSchema>) {
+  startRefreshTracking()
+  startRenderTracking()
+  const named = component === undefined ? [] : [component].flat()
+  const observation = clearRenders({
+    components: exact ? components : [...components, ...named],
+    exactComponents: exact ? named : [],
+    roots,
+    budget,
+    lifecycle,
+  })
+  return {
+    ok: true,
+    tracking: isTracking(),
+    documentCommitId: getDocumentCommitId(),
+    observation,
+    observationConfig: getRenderObservationConfig(),
+    strictMode: getStrictModeStatus(),
+    ...(components.length > 0 ? { deprecations: [COMPONENTS_DEPRECATION] } : {}),
+  }
+}
 
 function currentEffectCoverage() {
   const renderCoverage = getRenderTrackingCoverage('measurement')
@@ -547,6 +585,7 @@ export function reactCollector(): GenieCollector {
             budgetExhaustedCommits: report.budgetExhaustedCommits,
             budgetExhaustedSubsystems: report.budgetExhaustedSubsystems,
             budgetAdvice: report.budgetAdvice,
+            gaps: report.coverageGaps,
           }
           const coverage = buildRenderTrackingCoverage(coverageInput, 'causal')
           const measurementCoverage = buildRenderTrackingCoverage(coverageInput, 'measurement')
@@ -619,6 +658,7 @@ export function reactCollector(): GenieCollector {
               budgetExhaustedCommits: report.budgetExhaustedCommits,
               budgetExhaustedSubsystems: report.budgetExhaustedSubsystems,
               budgetAdvice: report.budgetAdvice,
+              gaps: report.coverageGaps,
             },
             'causal',
           )
@@ -656,8 +696,8 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactComponentCohortContract,
-        handler: ({ component, exact, limit, appOnly }) =>
-          getRenderCohort(
+        handler: async ({ component, exact, limit, appOnly, view }) => {
+          const cohort = await getRenderCohort(
             findRootFiber(),
             { component, exact, limit, appOnly },
             {
@@ -671,7 +711,9 @@ export function reactCollector(): GenieCollector {
               budgetExhaustedSubsystems: getBudgetExhaustedSubsystems(),
               pendingUnmountFibers: getPendingUnmountFiberCount(),
             },
-          ),
+          )
+          return view === 'full' ? { ...cohort, view } : summarizeCohort(cohort)
+        },
       }),
       defineCollectorTool({
         contract: reactEffectAuditContract,
@@ -771,35 +813,11 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactClearRendersContract,
-        handler: ({ components, roots, budget, lifecycle }) => {
-          startRefreshTracking()
-          startRenderTracking()
-          const observation = clearRenders({ components, roots, budget, lifecycle })
-          return {
-            ok: true,
-            tracking: isTracking(),
-            documentCommitId: getDocumentCommitId(),
-            observation,
-            observationConfig: getRenderObservationConfig(),
-            strictMode: getStrictModeStatus(),
-          }
-        },
+        handler: startObservation,
       }),
       defineCollectorTool({
         contract: reactProfileStartContract,
-        handler: ({ components, roots, budget, lifecycle }) => {
-          startRefreshTracking()
-          startRenderTracking()
-          const observation = clearRenders({ components, roots, budget, lifecycle })
-          return {
-            ok: true,
-            tracking: isTracking(),
-            documentCommitId: getDocumentCommitId(),
-            observation,
-            observationConfig: getRenderObservationConfig(),
-            strictMode: getStrictModeStatus(),
-          }
-        },
+        handler: startObservation,
       }),
       defineCollectorTool({
         contract: reactProfileStopContract,

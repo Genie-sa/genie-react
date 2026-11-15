@@ -9,6 +9,7 @@ import {
   wrapperFrameSchema,
 } from './contract-schemas'
 import {
+  deprecationsSchema,
   observationSchema,
   renderCoverageSchema,
   renderMeasurementEnvironmentSchema,
@@ -944,6 +945,7 @@ export const reactProfileStartContract = defineAgentToolContract({
     observation: observationSchema,
     observationConfig: renderCoverageSchema.shape.observationBudget.unwrap(),
     strictMode: strictModeStatusSchema,
+    deprecations: deprecationsSchema,
   }),
   annotations: { idempotentHint: false },
 })
