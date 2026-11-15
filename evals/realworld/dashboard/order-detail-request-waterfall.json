@@ -1,0 +1,23 @@
+{
+  "id": "order-detail-request-waterfall",
+  "kind": "bug",
+  "category": "optimise",
+  "symptom": "Opening an order from the list takes about half a second longer than it should. The network panel shows the shipments request only starting once the order request has finished.",
+  "truth": {
+    "components": ["orders/$orderId route loader"],
+    "files": ["src/routes/_app/orders/$orderId.tsx"],
+    "cause": "The order route loader awaits ensureQueryData for the order and then, sequentially, for its shipments. Both only need the order id, so the second request waits for the first for no reason."
+  },
+  "referenceFix": [
+    {
+      "file": "src/routes/_app/orders/$orderId.tsx",
+      "find": "    await queryClient.ensureQueryData(orderQuery(orderId))\n    await queryClient.ensureQueryData(orderShipmentsQuery(orderId))\n",
+      "replace": "    await Promise.all([\n      queryClient.ensureQueryData(orderQuery(orderId)),\n      queryClient.ensureQueryData(orderShipmentsQuery(orderId)),\n    ])\n"
+    }
+  ],
+  "probe": {
+    "script": "probes/order-waterfall.mjs",
+    "genie": "observable",
+    "evidence": ["timeline_start", "timeline_stop", "timeline_read"]
+  }
+}

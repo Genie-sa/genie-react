@@ -1,0 +1,28 @@
+{
+  "id": "dashboard-sidebar-rerenders-cards",
+  "kind": "bug",
+  "category": "optimise",
+  "symptom": "Collapsing or expanding the sidebar on the dashboard feels janky. The profiler shows every stat card, chart card and the user menu re-rendering, even though none of their data changed.",
+  "truth": {
+    "components": ["PreferencesProvider", "StatCard", "AppShell"],
+    "files": ["src/app/preferences.tsx"],
+    "cause": "PreferencesProvider builds its context value object and the setTheme/setLocale callbacks inline on every render. It sits inside AppShell, so AppShell's sidebar state change re-renders the provider, and every usePreferences consumer, including the memoised StatCard, re-renders on the new context identity."
+  },
+  "referenceFix": [
+    {
+      "file": "src/app/preferences.tsx",
+      "find": "import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react'",
+      "replace": "import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'"
+    },
+    {
+      "file": "src/app/preferences.tsx",
+      "find": "  const setTheme = (next: Theme) => {\n    window.localStorage.setItem(THEME_KEY, next)\n    setThemeState(next)\n  }\n  const setLocale = (next: Locale) => {\n    window.localStorage.setItem(LOCALE_KEY, next)\n    setLocaleState(next)\n  }\n\n  const value: PreferencesContextValue = {\n    ...formatters,\n    theme,\n    resolvedTheme,\n    locale,\n    setTheme,\n    setLocale,\n  }\n",
+      "replace": "  const setTheme = useCallback((next: Theme) => {\n    window.localStorage.setItem(THEME_KEY, next)\n    setThemeState(next)\n  }, [])\n  const setLocale = useCallback((next: Locale) => {\n    window.localStorage.setItem(LOCALE_KEY, next)\n    setLocaleState(next)\n  }, [])\n\n  const value = useMemo<PreferencesContextValue>(\n    () => ({ ...formatters, theme, resolvedTheme, locale, setTheme, setLocale }),\n    [formatters, theme, resolvedTheme, locale, setTheme, setLocale],\n  )\n"
+    }
+  ],
+  "probe": {
+    "script": "probes/sidebar-collapse.mjs",
+    "genie": "observable",
+    "evidence": ["react_clear_renders", "react_get_renders", "react_render_causes"]
+  }
+}

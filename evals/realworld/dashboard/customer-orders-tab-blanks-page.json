@@ -1,0 +1,33 @@
+{
+  "id": "customer-orders-tab-blanks-page",
+  "kind": "bug",
+  "category": "fix",
+  "symptom": "On a customer page, clicking the Recent orders tab blanks the whole page (name, Edit button and tabs disappear) and shows a spinner until the orders arrive, instead of only loading the tab panel.",
+  "truth": {
+    "components": ["CustomerDetailPage", "CustomerOrdersPanel"],
+    "files": ["src/features/customers/customer-detail-page.tsx"],
+    "cause": "CustomerOrdersPanel suspends with useSuspenseQuery, and CustomerDetailPage renders it without its own Suspense boundary. The nearest boundary is the route match's, above the page, so a plain (non-transition) tab switch hides the entire page behind the fallback."
+  },
+  "referenceFix": [
+    {
+      "file": "src/features/customers/customer-detail-page.tsx",
+      "find": "import { useEffect, useState } from 'react'",
+      "replace": "import { Suspense, useEffect, useState } from 'react'"
+    },
+    {
+      "file": "src/features/customers/customer-detail-page.tsx",
+      "find": "import { Button } from '../../components/ui/button'\n",
+      "replace": "import { Button } from '../../components/ui/button'\nimport { Skeleton } from '../../components/ui/feedback'\n"
+    },
+    {
+      "file": "src/features/customers/customer-detail-page.tsx",
+      "find": "        <CustomerOrdersPanel customerId={customer.id} />",
+      "replace": "        <Suspense fallback={<Skeleton className=\"h-64\" />}>\n          <CustomerOrdersPanel customerId={customer.id} />\n        </Suspense>"
+    }
+  ],
+  "probe": {
+    "script": "probes/customer-tab-suspense.mjs",
+    "genie": "observable",
+    "evidence": ["react_suspense", "app_set_latency"]
+  }
+}

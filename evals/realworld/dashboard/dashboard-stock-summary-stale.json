@@ -1,0 +1,28 @@
+{
+  "id": "dashboard-stock-summary-stale",
+  "kind": "bug",
+  "category": "verify",
+  "symptom": "Verify that restocking shows up on the dashboard: after adjusting a low-stock SKU above its reorder point on Inventory and returning to the dashboard, the Inventory health card still shows the old low-stock count.",
+  "truth": {
+    "components": ["LowStockCard", "stockSummaryQuery"],
+    "files": ["src/features/dashboard/dashboard-queries.ts"],
+    "cause": "stockSummaryQuery spreads referenceDataOptions (staleTime and gcTime Infinity), which is meant for static reference data. The stock summary therefore never becomes stale, is not refetched when the dashboard mounts again, and the inventory mutation only invalidates the inventory keys."
+  },
+  "referenceFix": [
+    {
+      "file": "src/features/dashboard/dashboard-queries.ts",
+      "find": "import { referenceDataOptions } from '../../app/query-client'\n",
+      "replace": ""
+    },
+    {
+      "file": "src/features/dashboard/dashboard-queries.ts",
+      "find": "    queryFn: ({ signal }) => api.stockSummary(signal),\n    ...referenceDataOptions,\n",
+      "replace": "    queryFn: ({ signal }) => api.stockSummary(signal),\n"
+    }
+  ],
+  "probe": {
+    "script": "probes/stock-summary-stale.mjs",
+    "genie": "observable",
+    "evidence": ["query_get", "query_list"]
+  }
+}

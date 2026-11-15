@@ -1,0 +1,28 @@
+{
+  "id": "customers-refresh-rerenders-rows",
+  "kind": "bug",
+  "category": "optimise",
+  "symptom": "On Customers, clicking Refresh (or any background refetch) makes the table stutter: every row re-renders even when the refreshed page returns exactly the same customers.",
+  "truth": {
+    "components": ["CustomersTable", "CustomerRow"],
+    "files": ["src/features/customers/customers-table.tsx"],
+    "cause": "CustomersTable derives its columns array with CUSTOMER_COLUMNS.filter(...) on every render and passes it to the memoised CustomerRow, so each render gives every row a new columns identity and memo never bails out."
+  },
+  "referenceFix": [
+    {
+      "file": "src/features/customers/customers-table.tsx",
+      "find": "import type { Customer } from '../../api/types'\n",
+      "replace": "import { useMemo } from 'react'\nimport type { Customer } from '../../api/types'\n"
+    },
+    {
+      "file": "src/features/customers/customers-table.tsx",
+      "find": "  const columns = CUSTOMER_COLUMNS.filter((column) => !compact || column.essential)",
+      "replace": "  const columns = useMemo(() => CUSTOMER_COLUMNS.filter((column) => !compact || column.essential), [compact])"
+    }
+  ],
+  "probe": {
+    "script": "probes/customers-refresh.mjs",
+    "genie": "observable",
+    "evidence": ["react_clear_renders", "react_component_cohort", "react_render_causes"]
+  }
+}

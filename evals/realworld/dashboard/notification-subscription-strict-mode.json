@@ -1,0 +1,17 @@
+{
+  "id": "notification-subscription-strict-mode",
+  "kind": "decoy",
+  "category": "fix",
+  "symptom": "In development the notification bell subscribes to live updates twice on load. Is it leaking a subscription?",
+  "truth": {
+    "components": ["NotificationBell"],
+    "files": ["src/layout/notification-bell.tsx"],
+    "cause": "Correct: StrictMode mounts, cleans up and re-mounts the effect. It returns the unsubscribe function, so exactly one listener remains."
+  },
+  "probe": {
+    "script": "probes/bell-subscription.mjs",
+    "genie": "observable",
+    "evidence": ["react_effect_timeline", "react_inspect_component", "app_live_updates"]
+  },
+  "expectation": "not-flagged"
+}
