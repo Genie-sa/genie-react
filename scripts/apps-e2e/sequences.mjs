@@ -11,7 +11,11 @@ export async function componentId(ctx, name, { index = 0, count } = {}) {
     check(found.matches.length === count, `${name}: expected ${count} mounted instance(s)`, found)
   }
   const match = found.matches[index]
-  check(match?.name === name, `${name} is not mounted`, found)
+  check(
+    match !== undefined && (match.name === name || match.sourceName === name),
+    `${name} is not mounted`,
+    found,
+  )
   return match.id
 }
 

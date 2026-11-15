@@ -268,7 +268,7 @@ function createSession({ page, name, baseUrl, hubRoot }) {
       return events
     },
     async reduxState(path) {
-      return (await call('app_redux_state', { path, maxItems: 50, depth: 6 })).value
+      return call('app_redux_state', { path, maxItems: 50, depth: 6 })
     },
     async reduxActions(options = {}) {
       return call('app_redux_actions', { limit: 300, ...options })

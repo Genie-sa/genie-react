@@ -22,6 +22,8 @@ import {
 import { binary, discoveredHub, startRewritingProxy } from '../servers.mjs'
 
 const LAB = 'apps/plain-demo/src/lab.tsx'
+const MEMO_SOURCE_NAME = 'MemoChildWithUnstableProp'
+/** esbuild renames the memo's inner function to dodge the outer binding of the same name. */
 const MEMO_RUNTIME_NAME = 'MemoChildWithUnstableProp2'
 /** The demo pins the default hub port in its HTML and manual entry; the proxy rewrites it so the matrix runs on a free port without editing the app. */
 const HARDCODED_HUB = '127.0.0.1:4390'
@@ -132,11 +134,31 @@ export default {
       },
     },
     {
-      name: 'source: esbuild source maps resolve EffectCounter and ThemedLabel to their JSX callsites',
+      name: 'source: esbuild source maps resolve EffectCounter and ThemedLabel to their JSX callsites, and the memo child esbuild renamed to its source name',
       async run(ctx) {
-        await ctx.knownDefect('KD-9', async () => {
-          await componentId(ctx, 'MemoChildWithUnstableProp', { count: 1 })
+        await componentId(ctx, MEMO_SOURCE_NAME, { count: 1 })
+        const found = await ctx.call('react_find_components', {
+          component: MEMO_SOURCE_NAME,
+          exact: true,
+          appOnly: false,
         })
+        check(
+          found.matches[0]?.name === MEMO_RUNTIME_NAME &&
+            found.matches[0]?.sourceName === MEMO_SOURCE_NAME,
+          'the exact source name must find the renamed memo child and report both names',
+          found,
+        )
+        const causes = await ctx.call('react_render_causes', {
+          component: MEMO_SOURCE_NAME,
+          appOnly: false,
+          limit: 5,
+        })
+        check(
+          JSON.stringify(causes.componentMatch?.bundlerRenames) ===
+            JSON.stringify([{ name: MEMO_RUNTIME_NAME, sourceName: MEMO_SOURCE_NAME }]),
+          'name-filtered evidence must say it matched through the bundler rename',
+          causes.componentMatch,
+        )
         await assertSourceLine(ctx, 'EffectCounter', {
           file: LAB,
           line: await sourceLine(LAB, '<EffectCounter />'),
