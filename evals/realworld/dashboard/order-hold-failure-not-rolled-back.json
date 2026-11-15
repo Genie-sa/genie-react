@@ -1,0 +1,23 @@
+{
+  "id": "order-hold-failure-not-rolled-back",
+  "kind": "bug",
+  "category": "verify",
+  "symptom": "Verify that a failed status change is handled: when the order service is down, putting an order on hold shows the error toast, but the row stays \"On hold\" although the server never changed it.",
+  "truth": {
+    "components": ["useUpdateOrderStatus", "OrdersTable"],
+    "files": ["src/features/orders/order-queries.ts"],
+    "cause": "useUpdateOrderStatus applies an optimistic update to every orders list and returns the previous data from onMutate, but onError only shows a toast and never restores that snapshot, so the cache keeps the optimistic status."
+  },
+  "referenceFix": [
+    {
+      "file": "src/features/orders/order-queries.ts",
+      "find": "    onError: (error, { number }) => {\n      toast.error(`Could not update ${number}`, error.message)\n    },",
+      "replace": "    onError: (error, { number }, context) => {\n      for (const [queryKey, data] of context?.previous ?? []) queryClient.setQueryData(queryKey, data)\n      toast.error(`Could not update ${number}`, error.message)\n    },"
+    }
+  ],
+  "probe": {
+    "script": "probes/hold-failure-rollback.mjs",
+    "genie": "observable",
+    "evidence": ["app_inject_fault", "query_get"]
+  }
+}

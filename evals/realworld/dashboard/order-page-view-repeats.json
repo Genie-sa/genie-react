@@ -1,0 +1,28 @@
+{
+  "id": "order-page-view-repeats",
+  "kind": "bug",
+  "category": "optimise",
+  "symptom": "Analytics reports several page_view events per visit to an order. The network tab shows another POST /api/telemetry whenever anything on the order page changes, for example opening the edit drawer.",
+  "truth": {
+    "components": ["OrderDetailPage", "usePageView"],
+    "files": ["src/features/orders/order-detail-page.tsx", "src/lib/telemetry.ts"],
+    "cause": "OrderDetailPage passes a new { orderId, tab } object literal to usePageView on every render, and the hook lists that object as an effect dependency, so the tracking effect runs after every render instead of once per order and tab."
+  },
+  "referenceFix": [
+    {
+      "file": "src/features/orders/order-detail-page.tsx",
+      "find": "import { useEffect, useState } from 'react'",
+      "replace": "import { useEffect, useMemo, useState } from 'react'"
+    },
+    {
+      "file": "src/features/orders/order-detail-page.tsx",
+      "find": "  usePageView('order_detail', { orderId, tab })",
+      "replace": "  usePageView('order_detail', useMemo(() => ({ orderId, tab }), [orderId, tab]))"
+    }
+  ],
+  "probe": {
+    "script": "probes/page-view-effect.mjs",
+    "genie": "observable",
+    "evidence": ["react_inspect_component", "react_effect_timeline"]
+  }
+}
