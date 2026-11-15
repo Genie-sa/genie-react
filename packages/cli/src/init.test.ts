@@ -780,6 +780,13 @@ describe('source-map health', () => {
   })
 })
 
+/** A hub on an OS-assigned port serving a stand-in client, so these tests need neither a free default port nor a built package. */
+async function startTestHub(rootDir: string) {
+  const clientBundlePath = join(rootDir, 'client.global.iife.js')
+  await writeFile(clientBundlePath, '/* stand-in genie client */\n')
+  return startGenieHub({ rootDir, port: 0, strictPort: true, clientBundlePath })
+}
+
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer()
@@ -795,7 +802,7 @@ async function freePort(): Promise<number> {
 describe('runLiveDoctor', () => {
   it('probes a running standalone hub end to end', async () => {
     const dir = await project({ 'package.json': pkg({ react: '^19' }) })
-    const hub = await startGenieHub({ rootDir: dir })
+    const hub = await startTestHub(dir)
     try {
       const live = await runLiveDoctor({ cwd: dir, logger: silent })
       const byLabel = (prefix: string) => live.checks.find((c) => c.label.startsWith(prefix))
@@ -812,7 +819,7 @@ describe('runLiveDoctor', () => {
 
   it('keeps the agent token out of its report and explains a token mismatch', async () => {
     const dir = await project({ 'package.json': pkg({ react: '^19' }) })
-    const hub = await startGenieHub({ rootDir: dir })
+    const hub = await startTestHub(dir)
     try {
       if (hub.status !== 'started') throw new Error('expected a fresh hub')
       const healthy = await runLiveDoctor({ cwd: dir, logger: silent })
@@ -837,7 +844,7 @@ describe('runLiveDoctor', () => {
 
   it('probes the requested --session and names an unknown one', async () => {
     const dir = await project({ 'package.json': pkg({ react: '^19' }) })
-    const hub = await startGenieHub({ rootDir: dir })
+    const hub = await startTestHub(dir)
     try {
       const live = await runLiveDoctor({ cwd: dir, logger: silent, session: 'missing-tab' })
       const check = live.checks.find((c) => c.label === 'bridge accepts agent connections')

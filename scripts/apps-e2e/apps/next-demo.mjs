@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises'
 import { check, freePort, sourceLine, waitFor, waitForHttp, waitForOutput } from '../harness.mjs'
 import { assertNextProductionExcludesGenie } from '../production.mjs'
 import {
@@ -142,7 +141,7 @@ export default {
       },
     },
     {
-      name: 'source: Counter resolves to its JSX callsite, mapped to page.tsx or honestly marked as a served chunk position',
+      name: 'source: Counter, rendered by the server component page.tsx, maps to its <Counter /> callsite there',
       async run(ctx) {
         const found = await ctx.call('react_find_components', {
           component: 'Counter',
@@ -150,22 +149,12 @@ export default {
           appOnly: false,
         })
         const source = found.matches[0]?.source
-        check(source && typeof source.line === 'number', 'Counter must report a source', found)
-        if (source.sourceMapConfidence === 'mapped') {
-          check(
-            source.file.endsWith('page.tsx') &&
-              source.line === (await sourceLine(PAGE, '<Counter />')),
-            'a mapped Counter source must be its <Counter /> callsite in app/page.tsx',
-            source,
-          )
-          return
-        }
-        check(source.sourceMapConfidence === 'served', 'an unmapped source must say so', source)
-        const servedLine = (await readFile(source.file, 'utf8')).split('\n')[source.line - 1] ?? ''
         check(
-          /Counter/.test(servedLine),
-          'a served source position must point at a line that renders Counter',
-          { source, servedLine: servedLine.slice(0, 300) },
+          source?.sourceMapConfidence === 'mapped' &&
+            source.file.endsWith('app/page.tsx') &&
+            source.line === (await sourceLine(PAGE, '<Counter />')),
+          'the server-component frame must map through the Next.js source-map endpoint to the <Counter /> line',
+          found,
         )
       },
     },

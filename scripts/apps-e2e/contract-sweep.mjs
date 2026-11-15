@@ -130,20 +130,36 @@ function schemaExamples(schema) {
     : []
 }
 
+async function resolveKey(contract, key, resolvers) {
+  const resolver = resolvers[`${contract.name}.${key}`] ?? resolvers[key]
+  const value = typeof resolver === 'function' ? await resolver() : resolver
+  if (value !== undefined) return value
+  return schemaExamples(contract.inputJsonSchema).find((candidate) => key in candidate)?.[key]
+}
+
+/** Fills every required key, then the first `anyOf` alternative whose required keys all resolve. */
 async function resolveArgs(contract, resolvers) {
   const schema = contract.inputJsonSchema
   const args = {}
   const unresolved = []
   for (const key of schema.required ?? []) {
-    const resolver = resolvers[`${contract.name}.${key}`] ?? resolvers[key]
-    const value = typeof resolver === 'function' ? await resolver() : resolver
-    if (value !== undefined) {
-      args[key] = value
-      continue
-    }
-    const example = schemaExamples(schema).find((candidate) => key in candidate)
-    if (example) args[key] = example[key]
+    const value = await resolveKey(contract, key, resolvers)
+    if (value !== undefined) args[key] = value
     else unresolved.push(key)
+  }
+  const alternatives = (schema.anyOf ?? schema.oneOf ?? []).map((branch) => branch.required ?? [])
+  if (alternatives.length > 0) {
+    let satisfied = false
+    for (const keys of alternatives) {
+      const values = await Promise.all(keys.map((key) => resolveKey(contract, key, resolvers)))
+      if (values.some((value) => value === undefined)) continue
+      keys.forEach((key, index) => {
+        args[key] = values[index]
+      })
+      satisfied = true
+      break
+    }
+    if (!satisfied) unresolved.push(...alternatives.flat())
   }
   return { args, unresolved }
 }

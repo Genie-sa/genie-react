@@ -6,7 +6,12 @@ import {
   type GenieCollector,
   type ToolAvailability,
 } from '../../client'
-import { defineAgentToolContract, dehydrate } from '../../protocol'
+import {
+  appValueSchema,
+  defineAgentToolContract,
+  definedValueSchema,
+  dehydrate,
+} from '../../protocol'
 import { recordRouterNotification, registerRouterStore } from '../causal/external-store-registry'
 
 interface RouteEntry {
@@ -74,7 +79,11 @@ const routerGetStateContract = defineAgentToolContract({
     status: z.string(),
     statusCode: z.number().optional(),
     isLoading: z.boolean(),
-    isTransitioning: z.boolean(),
+    isTransitioning: z
+      .boolean()
+      .describe(
+        'True while a navigation has started and not finished committing: status pending, or a location that differs from resolvedPathname. Router releases that still carry their own isTransitioning flag also count it.',
+      ),
     loadedAt: z.number().optional(),
     matchCount: z.number(),
     pendingMatchCount: z.number(),
@@ -109,11 +118,11 @@ const routerListMatchesContract = defineAgentToolContract({
       z.object({
         routeId: z.string(),
         pathname: z.string(),
-        params: z.unknown(),
-        search: z.unknown(),
+        params: definedValueSchema(),
+        search: definedValueSchema(),
         status: z.string(),
         isFetching: z.union([z.boolean(), z.string()]),
-        loaderData: z.unknown(),
+        loaderData: appValueSchema('The route loader result.'),
       }),
     ),
   }),
@@ -157,7 +166,7 @@ const routerBuildLocationContract = defineAgentToolContract({
     pathname: z.string(),
     searchStr: z.string(),
     hash: z.string(),
-    search: z.unknown(),
+    search: definedValueSchema(),
   }),
   annotations: { readOnlyHint: true },
 })
@@ -174,7 +183,10 @@ const routerMatchRouteContract = defineAgentToolContract({
     fuzzy: z.boolean().default(false).describe('Allow matching a prefix of the location.'),
     includeSearch: z.boolean().default(false),
   }),
-  output: z.object({ matched: z.boolean(), params: z.unknown() }),
+  output: z.object({
+    matched: z.boolean(),
+    params: definedValueSchema('The extracted path params; null when the path does not match.'),
+  }),
   annotations: { readOnlyHint: true },
 })
 
@@ -317,8 +329,7 @@ export function routerCollector(router: AnyRouter): GenieCollector {
       defineCollectorTool({
         contract: routerGetStateContract,
         handler: () => {
-          const { location, status, statusCode, isLoading, isTransitioning, loadedAt, matches } =
-            router.state
+          const { location, status, statusCode, isLoading, loadedAt, matches } = router.state
           const browserLocation = readBrowserLocation()
           const locationSync: LocationSync =
             browserLocation === null
@@ -336,7 +347,7 @@ export function routerCollector(router: AnyRouter): GenieCollector {
             status,
             statusCode,
             isLoading,
-            isTransitioning,
+            isTransitioning: isTransitioning(router),
             loadedAt,
             matchCount: matches.length,
             ...settlement(router),
@@ -397,7 +408,7 @@ export function routerCollector(router: AnyRouter): GenieCollector {
           const location: ToOptions<AnyRouter> = { to }
           const result = router.matchRoute(location, { pending, fuzzy, includeSearch })
           return result === false
-            ? { matched: false, params: undefined }
+            ? { matched: false, params: null }
             : { matched: true, params: dehydrate(result, { depth: 2 }) }
         },
       }),
@@ -569,17 +580,30 @@ function pendingMatchesOf(router: AnyRouter): readonly unknown[] {
   return Array.isArray(legacy) ? legacy : []
 }
 
+/** TanStack Router dropped `state.isTransitioning` after its early 1.x releases, so the same judgement is read from what every release reports. */
+function isTransitioning(router: AnyRouter): boolean {
+  const { status, location, resolvedLocation } = router.state
+  const reported: unknown = (router.state as { isTransitioning?: unknown }).isTransitioning
+  return (
+    reported === true ||
+    status === 'pending' ||
+    (resolvedLocation !== undefined && resolvedLocation.href !== location.href)
+  )
+}
+
 function settlement(router: AnyRouter): {
   settled: boolean
   pendingWork: string[]
   pendingMatchCount: number
 } {
-  const { status, isLoading, isTransitioning, location, resolvedLocation, matches } = router.state
+  const { status, isLoading, location, resolvedLocation, matches } = router.state
+  const reportedTransition: unknown = (router.state as { isTransitioning?: unknown })
+    .isTransitioning
   const pendingMatchCount = pendingMatchesOf(router).length
   const pendingWork: string[] = []
   if (status === 'pending') pendingWork.push('navigation-pending')
   if (isLoading) pendingWork.push('loading')
-  if (isTransitioning) pendingWork.push('transitioning')
+  if (reportedTransition === true) pendingWork.push('transitioning')
   if (pendingMatchCount > 0) pendingWork.push('pending-matches')
   if (resolvedLocation && resolvedLocation.href !== location.href) {
     pendingWork.push('location-unresolved')

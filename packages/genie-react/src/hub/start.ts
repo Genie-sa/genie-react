@@ -7,6 +7,7 @@ import {
   GENIE_INFO_PATH,
 } from '../protocol'
 import { bridgeUrlFor, isPidAlive, writeDiscoveryFile } from './discovery'
+import { removeDiscoveryOnExit } from './exit-cleanup'
 import { createStandaloneBridge, type StandaloneBridgeHandle } from './standalone'
 
 const HUB_HOST = '127.0.0.1'
@@ -23,6 +24,8 @@ export interface StartHubOptions {
   allowedOrigins?: readonly string[]
   /** Ports the app's loopback pages are served from; unset trusts loopback pages on any port. */
   loopbackAppPorts?: readonly number[]
+  /** Browser client the hub serves (defaults to the installed package's built bundle). */
+  clientBundlePath?: string
 }
 
 export type StartHubResult =
@@ -62,6 +65,7 @@ export async function startGenieHub(options: StartHubOptions = {}): Promise<Star
       rootDir,
       allowedOrigins,
       loopbackAppPorts: options.loopbackAppPorts,
+      clientBundlePath: options.clientBundlePath,
     })
     try {
       const bound = await handle.listen(port, HUB_HOST)
@@ -71,7 +75,12 @@ export async function startGenieHub(options: StartHubOptions = {}): Promise<Star
         port: bound.port,
         token: handle.bridge.agentToken,
       })
-      return { status: 'started', handle, port: bound.port, ...published }
+      const stopExitCleanup = removeDiscoveryOnExit(rootDir)
+      const close = async (): Promise<void> => {
+        stopExitCleanup()
+        await handle.close()
+      }
+      return { status: 'started', handle: { ...handle, close }, port: bound.port, ...published }
     } catch (error) {
       await handle.close()
       if (!isAddrInUse(error)) throw error

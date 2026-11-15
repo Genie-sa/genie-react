@@ -37,11 +37,22 @@ export function minimalExampleArgs(
     if (example && typeof example === 'object' && !Array.isArray(example))
       return JSON.stringify(example)
   }
+  const needed = new Set([...required, ...firstAlternativeRequired(schema)])
   const example: Record<string, unknown> = {}
   for (const name of Object.keys(properties)) {
-    if (required.has(name)) example[name] = examplePropValue(properties[name], name)
+    if (needed.has(name)) example[name] = examplePropValue(properties[name], name)
   }
   return JSON.stringify(example)
+}
+
+/** An input that needs one of several keys lists them as `anyOf`/`oneOf` branches; the example fills the first. */
+function firstAlternativeRequired(schema: unknown): unknown[] {
+  if (!schema || typeof schema !== 'object') return []
+  const { anyOf, oneOf } = schema as { anyOf?: unknown; oneOf?: unknown }
+  const branches = Array.isArray(anyOf) ? anyOf : Array.isArray(oneOf) ? oneOf : []
+  const first: unknown = branches[0]
+  const keys = first && typeof first === 'object' ? (first as { required?: unknown }).required : []
+  return Array.isArray(keys) ? keys : []
 }
 
 function examplePropValue(schema: unknown, name: string): unknown {

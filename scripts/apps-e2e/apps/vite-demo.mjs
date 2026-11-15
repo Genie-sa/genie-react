@@ -1,5 +1,4 @@
-import { openSession } from '../browser.mjs'
-import { Cli, check, sourceLine, waitFor } from '../harness.mjs'
+import { check, sourceLine, waitFor } from '../harness.mjs'
 import { assertViteProductionExcludesGenie } from '../production.mjs'
 import {
   assertSourceLine,
@@ -13,13 +12,12 @@ import {
   simulateQueryRoundTrip,
   waitForText,
 } from '../sequences.mjs'
-import { startVite, writeOverrideConfig } from '../servers.mjs'
+import { startVite } from '../servers.mjs'
 
 const APP = 'apps/vite-demo/src/App.tsx'
 const PRICING = 'apps/vite-demo/src/PricingCard.tsx'
 const GREETING = ['greeting']
 const TASKS = ['tasks']
-const ROUTER_PREBUNDLE = { optimizeDeps: { include: ['genie-react > @tanstack/react-router'] } }
 
 async function clickCount(page) {
   const button = page.getByRole('button', { name: /^Count is \d+$/ })
@@ -36,7 +34,7 @@ async function taskTitles(page) {
 export default {
   name: 'vite-demo',
   dir: 'apps/vite-demo',
-  hub: 'Vite plugin genie(), router pre-bundled until KD-1 is fixed',
+  hub: 'Vite plugin genie()',
   domains: ['session', 'react', 'query', 'timeline', 'memory', 'perf'],
   probeComponent: 'ThemeReadout',
   sweepArgs: {
@@ -44,36 +42,7 @@ export default {
     selector: '#pricing article',
     name: 'apps-e2e-sweep',
   },
-  async preflight({ processes, appDir, browser, log, knownDefect }) {
-    const { url } = await startVite({ processes, appDir })
-    const session = `apps-e2e-vite-demo-preflight-${process.pid}`
-    const { context, errors, page } = await openSession(browser, url, session)
-    try {
-      await knownDefect('KD-1', async () => {
-        const cli = new Cli({ cwd: appDir, session })
-        await cli.run(['status', '--wait', '30000'], { timeoutMs: 45_000 })
-        await page.getByRole('heading', { name: 'Genie lab' }).waitFor({ timeout: 15_000 })
-        const tree = await cli.call('react_get_tree', { depth: 4, maxNodes: 50 })
-        check(tree.nodes.length > 0, 'the stock vite-demo rendered an empty React tree', tree)
-        errors.assertClean('stock vite-demo')
-      })
-      log('  ✓ preflight: stock vite-demo probed for KD-1')
-    } finally {
-      await context.close()
-    }
-  },
-  async start(context) {
-    const override = await writeOverrideConfig(context.appDir, ROUTER_PREBUNDLE)
-    try {
-      return {
-        ...(await startVite(context, ['--config', override.path])),
-        cleanup: override.remove,
-      }
-    } catch (error) {
-      await override.remove()
-      throw error
-    }
-  },
+  start: startVite,
   async ready({ page }) {
     await page.getByText('query: hello from query').waitFor({ timeout: 15_000 })
     await page.getByText('slow child loaded').waitFor({ timeout: 15_000 })

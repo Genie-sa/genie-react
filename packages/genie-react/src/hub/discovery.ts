@@ -1,8 +1,9 @@
+import { readFileSync, rmSync } from 'node:fs'
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { connect, isIPv6 } from 'node:net'
 import { dirname, join } from 'node:path'
 import { GENIE_DISCOVERY_FILE, GENIE_WS_PATH } from '../protocol'
-import { agentTokenFile, writeAgentToken } from './agent-token'
+import { agentTokenFile, agentTokenFileSync, writeAgentToken } from './agent-token'
 
 export interface HubDiscovery {
   url: string
@@ -68,6 +69,24 @@ async function removeIfOwned(file: string): Promise<void> {
   if ((await discoveryOwnerPid(file)) === process.pid) await rm(file, { force: true })
 }
 
+/** {@link removeDiscoveryFile} for exit and signal handlers, where no promise settles before the process ends. */
+export function removeDiscoveryFileSync(rootDir: string): void {
+  removeIfOwnedSync(join(rootDir, GENIE_DISCOVERY_FILE))
+  try {
+    removeIfOwnedSync(agentTokenFileSync(rootDir))
+  } catch {
+    // the root vanished, so there is no key to locate a token by; ignore
+  }
+}
+
+function removeIfOwnedSync(file: string): void {
+  try {
+    if (ownerPidOf(readFileSync(file, 'utf8')) === process.pid) rmSync(file, { force: true })
+  } catch {
+    // already gone or unreadable: nothing of ours to remove
+  }
+}
+
 // A live pid alone can be a recycled one after a crash, so the owner must also still accept connections on its published endpoint.
 async function publishedByAnotherLiveBridge(file: string): Promise<boolean> {
   const owner = await discoveryOwnerPid(file)
@@ -104,12 +123,16 @@ function acceptsConnections(host: string, port: number): Promise<boolean> {
 /** The `pid` recorded in a discovery or token file; null when the file is missing, unreadable or carries none. */
 async function discoveryOwnerPid(file: string): Promise<number | null> {
   try {
-    const parsed: unknown = JSON.parse(await readFile(file, 'utf8'))
-    const pid = typeof parsed === 'object' && parsed !== null && 'pid' in parsed ? parsed.pid : null
-    return typeof pid === 'number' ? pid : null
+    return ownerPidOf(await readFile(file, 'utf8'))
   } catch {
     return null
   }
+}
+
+function ownerPidOf(text: string): number | null {
+  const parsed: unknown = JSON.parse(text)
+  const pid = typeof parsed === 'object' && parsed !== null && 'pid' in parsed ? parsed.pid : null
+  return typeof pid === 'number' ? pid : null
 }
 
 /** ESRCH means the process is gone; EPERM means alive but owned by another user. */

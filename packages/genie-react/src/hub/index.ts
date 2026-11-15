@@ -2,6 +2,7 @@ export * from './agent-token'
 export * from './bridge'
 export { captureIntegrityDigest, verifyCaptureIntegrity } from './capture-manager'
 export * from './discovery'
+export * from './exit-cleanup'
 export {
   ensurePrivateDirectory,
   genieUserDirectory,

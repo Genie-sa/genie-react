@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { constants } from 'node:fs'
+import { constants, realpathSync } from 'node:fs'
 import { open, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
@@ -17,9 +17,16 @@ export function agentTokenDirectory(): string {
 
 /** The token file for an app root, keyed by the root's realpath so the hub and CLI agree across symlinked paths. */
 export async function agentTokenFile(rootDir: string): Promise<string> {
-  const digest = createHash('sha256')
-    .update(await realpath(rootDir))
-    .digest('hex')
+  return tokenFileForRealRoot(await realpath(rootDir))
+}
+
+/** {@link agentTokenFile} for exit handlers, where no promise settles before the process ends. */
+export function agentTokenFileSync(rootDir: string): string {
+  return tokenFileForRealRoot(realpathSync(rootDir))
+}
+
+function tokenFileForRealRoot(realRoot: string): string {
+  const digest = createHash('sha256').update(realRoot).digest('hex')
   return join(agentTokenDirectory(), `${digest}.json`)
 }
 

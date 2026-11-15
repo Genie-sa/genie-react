@@ -11,6 +11,7 @@ import {
 import { renderObservationBudgetInputSchema } from './react-observation-schema'
 import { RENDER_CAUSE_EVIDENCE, RENDER_MEMO_COUNTERS } from './render-evidence'
 import { schemaConstraints, withoutSafeIntegerBounds } from './schema-description'
+import { definedValueSchema } from './schema-values'
 
 export const OUTPUT_VIEWS = ['summary', 'full'] as const
 export type OutputView = (typeof OUTPUT_VIEWS)[number]
@@ -622,7 +623,7 @@ export const devtoolsWaitContract = defineAgentToolContract({
     lastObserved: z.record(z.string(), z.unknown()).optional(),
     domains: z.partialRecord(z.enum(WAIT_DOMAINS), waitDomainResultSchema).optional(),
     query: z
-      .object({ queryHash: z.string(), queryKey: z.unknown() })
+      .object({ queryHash: z.string(), queryKey: definedValueSchema() })
       .optional()
       .describe('The exact cache entry that satisfied a targeted query wait.'),
   }),
@@ -664,7 +665,7 @@ const interactionSessionSchema = z.object({
 const interactionToolResultSchema = z.object({
   status: z.enum(['ok', 'unavailable', 'error']),
   tool: z.string(),
-  args: z.unknown(),
+  args: definedValueSchema('Arguments the tool was invoked with.'),
   capturedAt: z.string().datetime(),
   durationMs: z.number().nonnegative(),
   result: z.unknown().optional(),

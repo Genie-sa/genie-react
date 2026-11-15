@@ -124,22 +124,32 @@ export default {
       },
     },
     {
-      name: 'router: the router collector registers, then navigate to /about and back',
+      name: 'router: the router collector registers, preloads and visits /about, then reloads / in place',
       async run(ctx) {
-        await ctx.knownDefect('KD-2', async () => {
-          await waitFor(
-            'the router domain',
-            async () => (await ctx.cli.status()).domains.includes('router'),
-            {
-              timeoutMs: 5_000,
-            },
-          )
-          const routes = await ctx.call('router_list_routes', {})
-          for (const path of ['/', '/about', '/dashboard', '/lab']) {
-            check(JSON.stringify(routes).includes(`"${path}"`), `route tree misses ${path}`, routes)
-          }
-          await navigateRoundTrip(ctx, { to: '/about', selector: 'h1', text: 'About' })
+        await waitFor(
+          'the router domain',
+          async () => (await ctx.cli.status()).domains.includes('router'),
+          { timeoutMs: 5_000 },
+        )
+        const routes = await ctx.call('router_list_routes', {})
+        for (const path of ['/', '/about', '/dashboard', '/lab']) {
+          check(JSON.stringify(routes).includes(`"${path}"`), `route tree misses ${path}`, routes)
+        }
+        const preloaded = await ctx.call('router_preload', { to: '/about' })
+        check(preloaded.ok === true, 'router_preload of /about', preloaded)
+        await navigateRoundTrip(ctx, { to: '/about', selector: 'h1', text: 'About' })
+        const invalidated = await ctx.call('router_invalidate', {})
+        const loaded = await ctx.call('router_load', {})
+        check(invalidated.ok && loaded.ok, 'router_invalidate then router_load', {
+          invalidated,
+          loaded,
         })
+        const after = await ctx.call('router_get_state', {})
+        check(
+          after.pathname === '/' && after.settled === true && after.isTransitioning === false,
+          'reloading / in place must leave the router settled at /',
+          after,
+        )
       },
     },
     {
