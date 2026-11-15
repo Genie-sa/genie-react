@@ -1,43 +1,82 @@
 ---
 title: Genie React
-description: Inspect your running React app, find a cause, and verify a fix.
+description: Let your coding agent see inside a running React app and prove that a change worked.
 icon: WandSparkles
 ---
 
-Genie gives a coding agent access to the React app that is running now. It can inspect component
-state, explain renders, read Query and Router state, and record an interaction across those domains.
+Genie lets your coding agent see inside a running React or React Native app and prove that a
+change worked.
 
-Pair Genie with a browser or device driver. The driver clicks, types, and checks the screen. Genie
-reads what happened inside the app. A useful check needs both the expected UI and runtime evidence.
+## How it works
 
-## Get your first result
+Your agent drives the app with [agent-browser](https://github.com/vercel-labs/agent-browser) or
+[agent-device](https://github.com/callstack/agent-device). It clicks, types and reads the screen.
+Genie runs inside the app in development and records what happened underneath: which components
+rendered and why, which effects ran, and what TanStack Query, TanStack Router and Redux did. The
+agent asks Genie through the `genie-react` CLI and gets evidence back, or a pass or fail verdict.
 
-<Cards>
-  <Card title="1. Install Genie" href="/docs/getting-started/install" />
-  <Card title="2. Connect and inspect your app" href="/docs/getting-started/first-check" />
-</Cards>
+The examples below are real runs against
+[`apps/vite-demo`](https://github.com/Genie-sa/genie-react/tree/main/apps/vite-demo). Its
+`MemoChild` is wrapped in `memo`, but `App` passes it a new `badge` object on every render.
 
-Once the intended session is ready, give your agent a concrete task:
+## Verify a fix
 
-> Use Genie to find why Checkout renders when I type in search. Fix it, then repeat the interaction and verify checkout still works.
+Declare what must stay true, do the interaction, and let Genie decide. `begin` prints the `<id>`:
 
-The [agent workflow](/docs/getting-started/agent-workflow) explains how to discover tools, target the
-right session, and collect evidence. [CLI output](/docs/getting-started/cli-output) covers JSON,
-scripting, and differences between current source and published packages.
+```bash
+npx @genie-react/cli verify begin --session my-agent --name "click the counter" \
+  --claim 'render MemoChild max 0' --claim 'render App min 1'
+agent-browser --session my-agent click button.counter
+npx @genie-react/cli verify end <id> --session my-agent
+```
 
-## Choose a task
+```text
+fail vfy_… "click the counter"  1 commit, quiet after 618 ms (react, query)
+  1 fail render MemoChild max 0  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,…}
+  2 pass render App min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,…}
+```
 
-| What you need to know | Follow this guide |
-| --- | --- |
-| Why did this component render? | [Render optimization](/docs/workflows/render-optimization) |
-| Is the delay in a request or React rendering? | [Interaction timeline](/docs/workflows/interaction-timeline) |
-| Did fresh Query data reach the UI? | [Query updates](/docs/workflows/query) |
-| Do loading and error screens work? | [Loading and errors](/docs/workflows/loading-and-errors) |
-| Did the fix help across repeated runs? | [Performance comparison](/docs/workflows/performance-proof) |
-| Can the agent use our fixtures or login helpers? | [App tools](/docs/tools/app-tools) |
+After the fix, the same three commands print `pass` and exit 0. A failed claim exits 1.
 
-Genie labels incomplete coverage and uncertain causes. Read those labels before treating an empty
-result as a clean bill of health or a smaller timing as proof of an improvement.
+## Optimize
 
-Use the [tool reference](/docs/tools) for individual calls and the [case studies](/docs/case-studies)
-for recorded examples with their limits.
+Measure, change the code, and measure again. Thirty clicks on the counter:
+
+```bash
+npx @genie-react/cli call react_clear_renders --session my-agent '{}'
+for i in $(seq 30); do agent-browser --session my-agent click button.counter; done
+npx @genie-react/cli call react_get_renders --session my-agent '{"component":"MemoChild"}' \
+  --fields name,renders,necessity,necessityReason
+```
+
+```text
+[1]:
+  - {name:MemoChild,renders:30,necessity:unnecessary,necessityReason:inputs-unchanged}
+```
+
+The full result names the cause: `← props exact badge {referenceOnly:true}`, a new object with the
+same contents. Moving `{ text: 'lab' }` out of `App` and repeating the run gives 0 renders.
+
+## Validate every UI state
+
+Put a screen into its loading, empty or error state without clicking through the app:
+
+```bash
+npx @genie-react/cli call query_simulate_state --session my-agent \
+  '{"queryKey":["greeting"],"state":"error"}'
+agent-browser --session my-agent get text '#lab'
+npx @genie-react/cli call query_restore_state --session my-agent '{"queryKey":["greeting"]}'
+```
+
+The page shows `query: error` until the restore puts the real data back.
+
+## Install
+
+From your app folder:
+
+```bash
+pnpm add -D genie-react @genie-react/cli
+npx @genie-react/cli init
+```
+
+Then [connect your app](/docs/getting-started/install) and [give your agent a task](/docs/getting-started/agent).

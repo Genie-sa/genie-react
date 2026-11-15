@@ -1,93 +1,226 @@
 ---
-title: Install
-description: Add Genie, inspect setup changes, and confirm one live session.
+title: Install and connect
+description: Add Genie to a Vite, Next.js, React Native or other React app and check the connection.
 icon: PackagePlus
 ---
 
-Run setup from the app folder containing its `package.json`. You need a development build of
-React 18 or newer and Node.js 22.12.0 or newer. The verification examples use Bash and `jq`.
+You need a development build of React 18 or newer and Node.js 22.12 or newer.
 
-## Add the packages
+## Install
+
+From the app folder:
 
 ```bash
 pnpm add -D genie-react @genie-react/cli
-```
-
-Use your project's package manager. If the project already has Genie installed, check the
-[CLI release and output note](/docs/getting-started/cli-output) before using the JSON examples.
-
-## Review and apply setup
-
-```bash
-npx @genie-react/cli init --dry-run
 npx @genie-react/cli init
 ```
 
-`init` detects Vite and Next.js, updates supported configuration, and installs the agent skill. It
-runs without prompts. `--yes` is accepted for existing automation and makes the same changes.
+`init` wires Vite and Next.js and installs the agent skill. `init --dry-run` previews the changes,
+and `manualSteps` lists what is left for you. Then follow the section for your framework.
 
-The skill lands in `.agents/skills/genie`, which Codex, Cursor, and other Agent Skills clients read.
-Claude Code reads only `.claude/skills`, so `init` also links `.claude/skills/genie` to that copy, or
-copies it where symlinks are unavailable. When `@genie-react/cli` is installed, the skill's commands
-call its binary directly, such as `node_modules/.bin/genie-react` from the app folder or
-`../../node_modules/.bin/genie-react` when a workspace hoists it, because an agent runs the CLI on
-every step and a package-manager wrapper adds 10–350 ms to each call. Before the CLI is installed, on
-Windows, and with Yarn Plug'n'Play, the skill uses the package manager found from your lockfile, as
-the commands the CLI suggests always do: `npx genie-react` for npm, `pnpm exec genie-react` for
-pnpm, `yarn genie-react` for Yarn 2+, `yarn --silent genie-react` for Yarn 1, or `bunx genie-react`
-for Bun. Without a lockfile they use npm. Rerun `init` after installing to switch the skill to the
-binary. `doctor` reports either location when it drifts from the installed CLI; rerun `init` to
-refresh it. If your agent loads the skill from a directory outside the project, such as
-`/opt/skills/genie`, set `GENIE_SKILL_DIR` to it. `doctor` then checks that directory instead of the
-two project locations. It accepts the skill as shipped in `@genie-react/cli` or as `init` renders it
-for this project.
+## Vite and TanStack Start
 
-`init` writes only into an empty directory or one that already holds Genie's skill. It never
-follows a symlink out of the project. Any other file, directory, or symlink at either location is
-left untouched and reported as a manual step with `reason: "skill_path_conflict"`. Its `path` names
-the entry in the way: the skill path itself, a parent such as `.agents`, or a symlinked skill file.
-`doctor` reports the same entry. Remove or replace only that file, directory, or symlink, then rerun
-`init`.
+`init` adds the plugin, which runs Genie's hub inside the dev server:
 
-Read `data.artifacts`, `data.manualSteps`, and `userActionRequired` in the receipt. A successful exit
-can still require manual wiring. Plain Vite apps, for example, need `<Genie />` near the app root for
-the additional collectors. Follow the matching [platform setup](/docs/setup) until each manual step
-is complete. If setup fails partway through, inspect the files before retrying; changes may already
-have been applied.
+```ts title="vite.config.ts"
+import { defineConfig } from 'vite'
+import { genie } from 'genie-react/vite'
 
-## Start the app and name its session
-
-Keep the development server running in its own terminal:
-
-```bash title="Terminal 1"
-pnpm dev
+export default defineConfig({
+  plugins: [genie()],
+})
 ```
 
-Open the app's local URL with `?_genie=setup-check`. If the URL already has a query string, append
-`&_genie=setup-check`. In a second terminal, check the running stack and select that session:
+Render `<Genie />` once inside your Query and Router providers to add their tools:
 
-```bash title="Terminal 2"
-npx @genie-react/cli doctor --live
-npx @genie-react/cli status --session setup-check --sessions-only
+```tsx
+import { Genie } from 'genie-react'
+
+{import.meta.env.DEV && <Genie />}
 ```
 
-Continue when `doctor` reports `ok:true` and the selected status session has `ready:true` and
-`staleMs:null`. On failure, follow `remediation`, keep the server running, and open or reload the app
-before retrying. [Troubleshooting](/docs/reference/troubleshooting) covers connection and collector
-failures.
+Outside the providers, pass them in: `<Genie queryClient={queryClient} router={router} />`.
+Production builds leave Genie out.
 
-## Make the first read
+## Next.js
+
+`init` adds `GenieScript` to the root layout and creates `instrumentation.ts`, which starts the hub:
+
+```tsx title="app/layout.tsx"
+import { GenieScript } from 'genie-react/next'
+import type { ReactNode } from 'react'
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        <GenieScript />
+        {children}
+      </body>
+    </html>
+  )
+}
+```
+
+```ts title="instrumentation.ts"
+export async function register(): Promise<void> {
+  if (process.env.NODE_ENV !== 'production' && process.env.NEXT_RUNTIME === 'nodejs') {
+    const { registerGenie } = await import('genie-react/next')
+    await registerGenie()
+  }
+}
+```
+
+For Query tools, register your `QueryClientProvider`'s client. Render this after `<GenieScript />`:
+
+```tsx title="app/genie-query-tools.tsx"
+'use client'
+
+import { useEffect } from 'react'
+import { queryClient } from './query-client'
+
+export function GenieQueryTools() {
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return
+    let unregister: (() => void) | undefined
+    let cancelled = false
+    void Promise.all([import('genie-react/collectors/query'), import('genie-react/protocol')]).then(
+      ([{ queryCollector }, { registerGenieCollector }]) => {
+        if (!cancelled) unregister = registerGenieCollector(queryCollector(queryClient))
+      },
+    )
+    return () => {
+      cancelled = true
+      unregister?.()
+    }
+  }, [])
+  return null
+}
+```
+
+`apps/next-demo` shows the full setup.
+
+## React Native and Expo
+
+Load the DevTools hook before React, from its own module so the import is not hoisted past the `if`:
+
+```ts title="genie-hook.ts"
+if (__DEV__) require('genie-react/hook')
+```
+
+```ts title="index.ts"
+import './genie-hook'
+import { registerRootComponent } from 'expo'
+```
+
+Mount Genie once near the root. `AppState` lets `verify` see when the app went to the background:
+
+```tsx
+import { AppState } from 'react-native'
+
+const DevGenie = __DEV__
+  ? (require('genie-react/native') as typeof import('genie-react/native')).Genie
+  : () => null
+
+<DevGenie
+  appName="My app"
+  url="ws://127.0.0.1:4390/__genie/ws"
+  queryClient={queryClient}
+  appState={AppState}
+/>
+```
+
+Run `npx @genie-react/cli hub --port 4390` on your machine. The iOS Simulator reaches it at
+`ws://127.0.0.1:4390/__genie/ws`, the Android Emulator at `ws://10.0.2.2:4390/__genie/ws`, and a
+physical device through a port forward. React Navigation and Expo Router need
+[app tools](/docs/tools/app-tools) for navigation. See `examples/expo-demo`.
+
+## Other bundlers
+
+For webpack, Rspack, esbuild, Parcel and others, run the standalone hub:
 
 ```bash
-npx @genie-react/cli tools react_get_tree --session setup-check
-npx @genie-react/cli call react_get_tree --session setup-check '{"depth":2}'
+npx @genie-react/cli hub --port 4390
 ```
 
-A tree response confirms that calls reached the mounted app. Next, use
-[First live check](/docs/getting-started/first-check) for a reproducible demo with a visible assertion,
-or follow the [agent workflow](/docs/getting-started/agent-workflow) in your own app.
+In development only, load its client first in the document head:
 
-<Callout type="info" title="Development only">
-  The hub listens on localhost. Keep manual integrations behind development guards. The Vite
-  integration and Next.js script component skip production.
-</Callout>
+```html
+<script src="http://127.0.0.1:4390/__genie/client.js"></script>
+```
+
+To bundle the client instead, import `genie-react/hook` before React and start one client:
+
+```ts
+import 'genie-react/hook'
+import { createGenieClient, reactCollector, sessionCollector } from 'genie-react/client'
+import { memoryCollector, perfCollector, timelineCollector } from 'genie-react/collectors'
+import { queryCollector } from 'genie-react/collectors/query'
+import { queryClient } from './query-client'
+
+createGenieClient({
+  url: 'ws://127.0.0.1:4390/__genie/ws',
+  collectors: [
+    sessionCollector(),
+    reactCollector(),
+    memoryCollector(),
+    perfCollector(),
+    timelineCollector({ queryClient }),
+    queryCollector(queryClient),
+  ],
+}).start()
+```
+
+Without TanStack Query, drop its two lines.
+
+## Redux
+
+Register the collector where you create the store:
+
+```ts title="src/store.ts"
+import { configureStore } from '@reduxjs/toolkit'
+import { reduxCollector } from 'genie-react/collectors/redux'
+
+export const store = configureStore({ reducer })
+export const genieRedux = reduxCollector(store, { name: 'app' })
+```
+
+Then pass `reduxStore={store}` to `<Genie />` on Vite or React Native, add `genieRedux` to a
+bundled client's `collectors`, or call `registerGenieCollector(genieRedux)` on Next.js. This adds
+the [Redux tools](/docs/tools/redux).
+
+## Check the connection
+
+Start the dev server, open the app in an agent-browser session, and wait for Genie. This is
+`apps/vite-demo`; use your own URL:
+
+```bash
+agent-browser --session my-agent open http://localhost:3040/
+npx @genie-react/cli status --session my-agent --wait 15000
+```
+
+```text
+connected: true
+ready: true
+app: {name:vite-demo,url:http://localhost:3040/,reactVersion:19.2.7,reactMounted:true}
+domains: [session,react,app,memory,perf,plugin,timeline,query]
+```
+
+`domains` lists the tool groups. If `status` fails, run `npx @genie-react/cli doctor --live` or see
+[troubleshooting](/docs/reference/troubleshooting).
+
+## Packages
+
+| Import | Use |
+| --- | --- |
+| `genie-react` | `<Genie />` and app tool hooks |
+| `genie-react/vite` | Vite plugin with the hub built in |
+| `genie-react/next` | `GenieScript` and `registerGenie` for Next.js |
+| `genie-react/native` | React Native and Expo component |
+| `genie-react/hook` | The DevTools hook for manual setups |
+| `genie-react/client`, `genie-react/collectors` | A hand-built client and its collectors |
+| `genie-react/tools` | App tool hooks without TanStack imports |
+| `@genie-react/cli` | The `genie-react` command |
+
+Supported peers: React 18+, Vite 5+, TanStack Query 5+, TanStack Router 1+, Redux 4 and 5, and
+Redux Toolkit 1.9 and 2.

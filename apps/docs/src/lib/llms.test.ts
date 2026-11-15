@@ -46,8 +46,10 @@ describe('buildLlmsText', () => {
     }
   })
 
-  it('links section indexes at their published markdown routes', () => {
-    expect(text).toContain('[Getting started](https://genie-react.com/docs/getting-started.md)')
+  it('links the entry pages at their published markdown routes', () => {
+    expect(text).toContain(
+      '[Install and connect](https://genie-react.com/docs/getting-started/install.md)',
+    )
     expect(text).toContain('[Tools](https://genie-react.com/docs/tools.md)')
   })
 

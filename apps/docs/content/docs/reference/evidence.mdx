@@ -1,63 +1,71 @@
 ---
-title: Read evidence safely
-description: Know what Genie observed, inferred, missed, or could not prove.
+title: Read evidence
+description: Evidence grades, coverage, ownership and the reasons verify refuses.
 icon: BadgeCheck
 ---
 
-Genie reports the strength and coverage of runtime evidence. Read these fields before changing code.
+Genie grades each piece of evidence and reports what it could not see.
 
-| Field                               | Meaning                                                | Agent action                                           |
-| ----------------------------------- | ------------------------------------------------------ | ------------------------------------------------------ |
-| `exact`                             | Genie observed the direct runtime link.                | Use it as the main edit lead.                          |
-| `inferred`                          | The link is useful but not proven.                     | Confirm it with another check.                         |
-| `unknown`                           | Genie could not prove the cause.                       | Do not guess from this result.                         |
-| `not-proven-safe`                   | A render may still affect behavior.                    | Check DOM, ARIA, focus, URL, network, and transitions. |
-| `coverage.complete`                 | The measurement has no known global coverage gap.       | When false, inspect question-specific evidence.        |
-| `coverage.inputAttributionComplete` | Every captured render has complete input evidence.     | Only then rule out an input cause.                     |
-| `attribution.status: stale`         | React committed while evidence was read.               | Wait for React to settle and retry.                    |
-| `propsNotEnumerated`                | Props were not a plain object; Genie left them unread. | Inspect a known prop or path.                          |
+## Grades
 
-Genie tags every `Proxy` created after its hook loads and never reads a tagged proxy's keys, in props
-or in prop values. A `Proxy` created before Genie loaded is indistinguishable from its target. In
-development, `Function.prototype.toString.call(Proxy)` drops the name but still reports
-`[native code]`.
+| Value | Meaning | What to do |
+| --- | --- | --- |
+| `exact` | Genie observed the link directly. | Act on it. |
+| `inferred` | The link is likely but not proven. | Confirm it with another check. |
+| `unknown` | Genie could not tell. | Do not guess from it. |
+| `not-proven-safe` | A render may still affect behavior. | Check the DOM, focus, URL and requests. |
 
-## Coverage is per question
+## Coverage
 
-A timing profile can be complete while input attribution is partial. A before/after diff reports
-coverage for both runs. Do not use partial evidence to prove that a render has no cause.
+Render and effect reads carry a `coverage` object:
 
-For `react_component_cohort`, incomplete global coverage does not invalidate every returned instance.
-Treat a returned `mounted-updated`, `mounted-idle`, or `unmounted` status as authoritative for that
-instance, and treat `mounted-unknown` as unknown. The tool emits top-level `absent` only when its
-root and lifecycle evidence is sufficient; do not manufacture absence from `matched: 0` when the
-status is `unknown`, or from instances omitted by the result limit.
+| Field | Meaning |
+| --- | --- |
+| `complete` | No known gap in what Genie measured. |
+| `inputAttributionComplete` | Every captured render has complete input evidence. Only then can you rule out a cause. |
+| `semantics` | `exact` counts, or `lower-bound` when some work went unseen. |
+| `unobservedCommits` | Commits with no window open. They come with `commits-not-observed`. |
+| `pausedCommits` | Commits after `react_profile_stop`. |
+| `incompleteBecause` | One entry per gap, with a `next` step. |
+
+An empty list with incomplete coverage does not mean nothing happened. `attribution.status: stale`
+means React committed during the read; read again after the app settles. `propsNotEnumerated` means
+the props were a `Proxy` or other non-plain object, which Genie does not read.
+
+## Ownership
+
+Each component is `app`, `library` or `unknown`, judged by its own code. The default `appOnly: true`
+hides only known library code. `unknown` results stay, and `filteredNote` counts both.
 
 ## Effects
 
-Effect events show what React scheduled. They do not prove that the effect body or cleanup ran. They
-also do not prove a later request, state write, or navigation.
-
-Effect hotness asks whether an effect runs more often than its inputs justify: an effect with
-dependencies is hot after at least three re-runs (by default) in which no dependency changed value.
-Re-runs whose changed dependencies cannot be compared, and samples under three updates, return
-`insufficient-data`. The reported 95% interval applies only to effect hotness. Genie does not invent a
-general confidence score for causal evidence.
-
-## Query observers
-
-Query evidence may include the exact observer, component subscriber, hook callsite, tracked fields,
-and changed paths. Opaque values stay root-only and incomplete.
-
-- `current-observation` belongs to the active clear-and-measure window.
-- `previous-observation` is older evidence.
+A scheduled effect did not necessarily run; `execution.status` says whether its body ran.
+`strict-mode-replay` is StrictMode's development re-run. An effect is `hot` after three or more
+re-runs in which no dependency changed value. Fewer samples, or dependencies Genie cannot compare,
+give `insufficient-data`.
 
 ## Source locations
 
-A component location can be a JSX use site or a definition fallback. Treat that source as inferred.
-An exact hook callsite is a stronger edit target when present.
+`source.role` says what a location points at: `component-body`, `element-callsite` (the JSX that
+rendered it) or `hook-callsite`, the most precise place to edit.
 
-## Router state
+## Refusals
 
-`router_get_state` reads Router state and browser history in one call. Check `locationSync` before
-trusting the URL.
+`verify` refuses instead of passing on evidence that cannot prove a claim.
+
+| Reason | Cause |
+| --- | --- |
+| `no_activity` | No React commit in the window. The action went to another tab or changed nothing. |
+| `not_quiescent` | Work was still arriving after the app settled. |
+| `coverage_incomplete`, `budget_exhausted` | The analysis skipped part of the target. Rerun with the budget it prints. |
+| `evidence_truncated`, `evidence_unavailable` | Events were evicted or a read failed. |
+| `evidence_inferred` | The deciding cause is only `inferred`. |
+| `target_not_found`, `target_ambiguous`, `target_inactive` | The component name matched nothing, several things, or a hidden or frozen instance. |
+| `session_changed`, `window_interrupted`, `window_lost` | The tab reloaded or the window was reset. |
+| `code_changed` | Fast Refresh ran during the window. |
+| `document_hidden` | The tab was hidden. |
+| `override_active` | A Genie override was active. Reset it first. |
+| `unsupported_environment`, `capability_unavailable` | A production React build, or a missing collector. |
+| `too_few_samples`, `not_comparable` | Comparison claims without enough comparable runs. |
+
+`inconclusive` is complete evidence that does not decide, such as `strict_mode_replay`.

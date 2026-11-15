@@ -6,9 +6,15 @@ icon: History
 
 The JSON examples below show selected fields from the full response.
 
-These tools exist when the app registers the [Redux collector](/docs/setup/redux). To find the
-action behind a render, read the `external-store` cause from `react_render_causes`: its `redux`
-field names the actions and grades the link.
+These tools exist when the app registers the [Redux collector](/docs/getting-started/install#redux).
+To find the action behind a render, read the `external-store` cause from `react_render_causes`: its
+`redux` field names the actions and grades the link. The history keeps the last 500 records.
+
+The collector supports Redux 4 and 5 and Redux Toolkit 1.9 and 2, with react-redux 8 and 9 for the
+render join. It does not record dispatches that bypass the wrapped `dispatch`, such as sagas, epics
+and the RTK listener middleware; their state changes appear as `unrecorded-change`. The mutation check
+compares plain objects and arrays only, and skips frozen state. Pass `{ detectMutations: false }` to
+`reduxCollector` to turn the check off.
 
 ## `redux_actions`
 

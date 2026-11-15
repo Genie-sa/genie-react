@@ -1,0 +1,129 @@
+---
+title: Validate UI states
+description: Put a screen into its loading, empty, error, long-text or broken state without clicking through the app, then restore it.
+icon: ScanSearch
+---
+
+Some states take minutes to reach by hand, and some last a few milliseconds. Genie holds them still
+so the UI driver can check and screenshot them. Every example ran against `apps/vite-demo`.
+
+## Loading and error
+
+Hold a real query in a state:
+
+```bash
+npx @genie-react/cli call query_simulate_state --session my-agent \
+  '{"queryKey":["greeting"],"state":"pending"}'
+agent-browser --session my-agent get text '#lab'
+```
+
+```text
+ok: true
+queryHash: "[\"greeting\"]"
+simulatedState: pending
+originalStatus: success
+```
+
+The page shows `query: loading…`. Use `"state":"error"` for the error branch. Restore the real data:
+
+```bash
+npx @genie-react/cli call query_restore_state --session my-agent '{"queryKey":["greeting"]}'
+```
+
+## Empty lists and long text
+
+Write test data into the cache. The UI renders it like a real response:
+
+```bash
+npx @genie-react/cli call query_set_data --session my-agent '{"queryKey":["tasks"],"data":[]}'
+agent-browser --session my-agent get text '#tasks'
+```
+
+```text
+Task manager
+
+role: guest · read-only
+
+add task
+```
+
+The list renders nothing at all: the demo has no empty state. To test long text, write one row with a
+long `title`. Run `query_refetch` with the same key to get the real data back.
+
+## Error boundaries and Suspense
+
+Find the component, then force its nearest boundary:
+
+```bash
+id=$(npx @genie-react/cli call react_find_components --session my-agent \
+  '{"query":"Bomb","exact":true}' --json | jq -r '.matches[0].id')
+npx @genie-react/cli call react_force_error_boundary --session my-agent "{\"id\":$id,\"forceError\":true}"
+```
+
+```text
+ok: true
+boundaryId: 13761746305272
+boundaryName: LabErrorBoundary
+erroring: true
+activeOverrides: 1
+```
+
+The page shows `boundary caught: Simulated error coming from DevTools`. `react_toggle_suspense_fallback`
+with `"showFallback":true` holds a Suspense fallback the same way.
+
+## Props and Context
+
+Override one instance's props or the Context value it reads:
+
+```bash
+id=$(npx @genie-react/cli call react_find_components --session my-agent \
+  '{"query":"ThemeReadout","exact":true}' --json | jq -r '.matches[0].id')
+npx @genie-react/cli call react_override_context --session my-agent \
+  "{\"id\":$id,\"context\":\"ThemeContext\",\"value\":{\"label\":\"review\",\"accent\":\"#ff4d8d\"}}"
+```
+
+The page shows `theme label: review`. `react_override_props` replaces props the same way, and
+`react_override_hook_state` sets one `useState` value. `react_inspect_component` and
+`react_inspect_context` show the current values first. Component IDs change after a reload, so find
+them again each time.
+
+## App tools
+
+Your app can register its own tools for login, fixtures and fault injection. The demo registers
+these:
+
+```bash
+npx @genie-react/cli tools app --session my-agent
+npx @genie-react/cli call app_chaos --session my-agent '{"failNextRequests":1}'
+npx @genie-react/cli call query_refetch --session my-agent '{"queryKey":["tasks"]}'
+agent-browser --session my-agent get text '[role="alert"]'
+```
+
+```text
+tasks failed to load: injected API failure (armed via app_chaos) retry
+```
+
+That is the real error path, from a failed request. [App tools](/docs/tools/app-tools) shows how to
+register them.
+
+## Clean up
+
+Reset every override and Query simulation you made, then check the screen:
+
+```bash
+npx @genie-react/cli call react_reset_overrides --session my-agent '{}'
+npx @genie-react/cli call query_restore_state --session my-agent '{"all":true}'
+```
+
+```text
+ok: true
+cleared[2]:
+  - {kind:error,componentName:LabErrorBoundary,outcome:released}
+  - {kind:context,componentName:ThemeContext,outcome:restored}
+remaining: 0
+commitObserved: true
+```
+
+Require `remaining: 0`. `released` means Genie stopped forcing the state, and the app renders it
+from its own data again. Cache writes from `query_set_data` are not simulations; refetch or reload
+to undo them.

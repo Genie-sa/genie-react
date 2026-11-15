@@ -12,8 +12,8 @@ Clears render counters and starts a new causal observation window.
 
 Genie analyses renders and effects only while something observes them: a window from this tool,
 `react_profile_start`, `devtools_interaction_begin` or `verify begin`, an open `react_measure`
-span, or a recording timeline. `react_profile_stop` pauses the analysis. With none open, React
-commits cost close to nothing extra, and Genie keeps only what a later read needs about the present:
+span, or a recording timeline. `react_profile_stop` pauses the analysis. With none open, Genie
+keeps only what a later read needs about the present:
 error boundary catches, document commit IDs, mount generations, Suspense and hydration state, and
 the tree itself. A render or effect read made with no window open reports those commits as
 `coverage.unobservedCommits` with the reason `commits-not-observed`, so an empty result never reads

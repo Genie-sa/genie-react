@@ -1,0 +1,109 @@
+---
+title: Optimize a slow interaction
+description: Find the components that render for nothing, fix the cause, and prove the change over repeated runs.
+icon: Gauge
+---
+
+The loop is measure, change, measure again. Every step below ran against `apps/vite-demo`.
+
+## Find the work
+
+Open a window, do the interaction once, and rank what rendered:
+
+```bash
+npx @genie-react/cli call react_clear_renders --session my-agent '{}'
+agent-browser --session my-agent click button.counter
+npx @genie-react/cli call react_get_renders --session my-agent '{"sort":"selfTime","limit":5}' \
+  --fields name,renders,necessity,necessityReason
+```
+
+```text
+[5]:
+  each: {renders:1}
+  - {name:App,necessity:necessary,necessityReason:dom-changed}
+  - {name:TaskPanel,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:FlagsPanel,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:PricingCard,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:MemoChild,necessity:unnecessary,necessityReason:inputs-unchanged}
+```
+
+`unnecessary` means the render changed nothing. Sort by `renders` for the most frequent renders.
+
+## Read the cause
+
+```bash
+npx @genie-react/cli call react_render_causes --session my-agent '{"component":"MemoChild","limit":1}'
+```
+
+```text
+events[1] (componentName #componentId {fields}, then ← kind evidence name {fields} per cause):
+  MemoChild #13761746305048 {…,necessity:unnecessary,necessityReason:inputs-unchanged,source:{location:/src/App.tsx:194:9,…}}
+    ← props exact badge {referenceOnly:true}
+```
+
+`badge` is a new object with the same contents on every render, passed at `App.tsx:194`. `exact`
+means Genie saw the link directly. Confirm an `inferred` cause before you act on it.
+
+## Change and measure again
+
+Make the smallest fix the cause explains, then repeat the same window and action. In the demo, 30
+clicks rendered `MemoChild` 30 times before hoisting `{ text: 'lab' }` and 0 times after. Lock it in
+with a [verify](/docs/guides/verify-a-fix) claim such as `render MemoChild max 0`.
+
+## Prove it over repeated runs
+
+Runs vary. To claim a change does less work or runs faster, capture six runs on each side and
+compare:
+
+```bash
+capture_run() {
+  npx @genie-react/cli call react_clear_renders --session my-agent '{}' >/dev/null
+  for i in 1 2 3 4 5; do agent-browser --session my-agent click button.counter >/dev/null; done
+  npx @genie-react/cli call devtools_capture_create --session my-agent \
+    "{\"name\":\"$1\",\"include\":[\"react\"]}" --json | jq -r .captureId
+}
+before=$(for run in 1 2 3 4 5 6; do capture_run before; done | jq -Rsc 'split("\n")[:-1]')
+# Change the code, then:
+after=$(for run in 1 2 3 4 5 6; do capture_run after; done | jq -Rsc 'split("\n")[:-1]')
+npx @genie-react/cli call devtools_capture_compare --session my-agent \
+  "{\"baselineCaptureIds\":$before,\"candidateCaptureIds\":$after,\"metrics\":[\"react.renders\"]}"
+```
+
+```text
+overall: informational
+metrics[1] (metric verdict {fields}, then one line per reason):
+  react.renders informational {…,baseline:{samples:5,median:60,…},candidate:{samples:5,median:55,…},comparable:true,…}
+    reason: "improved 8.3333% (median 60 -> 55, p=0.0079)"
+```
+
+Genie drops the first run of each side as warm-up. Claim an improvement only when the metric is
+`comparable: true` and the reason says `improved`. Add `budgets` to fail on a regression. The hub
+keeps the latest 20 captures; pin the ones you need with `devtools_capture_pin`.
+
+## Request or render
+
+When the screen updates slowly, find out whether you wait on data or on React:
+
+```bash
+id=$(npx @genie-react/cli call timeline_start --session my-agent '{"name":"run mutation"}' --json | jq -r .id)
+agent-browser --session my-agent find text 'run mutation' click
+npx @genie-react/cli call devtools_wait --session my-agent '{"condition":"settled","timeoutMs":5000}'
+npx @genie-react/cli call timeline_stop --session my-agent "{\"id\":\"$id\"}"
+npx @genie-react/cli call timeline_read --session my-agent "{\"id\":\"$id\"}" --fields domain,type,atMs,details
+```
+
+```text
+[3]:
+  - {domain:react,type:commit,atMs:30.5,details:{rendererId:0,renderDurationMs:1.7,documentCommitId:106}}
+  - {domain:query,type:updated,atMs:313.6,details:{queryHash:"[\"greeting\"]",action:success,status:success,fetchStatus:idle}}
+  - {domain:react,type:commit,atMs:316.1,details:{rendererId:0,renderDurationMs:1.8,documentCommitId:107}}
+```
+
+The 300 ms went to the mutation; React needed under 2 ms per commit. Events line up by time only,
+so confirm a link with render causes. See the [timeline tools](/docs/tools/timeline).
+
+## Frame rate and memory
+
+`browser_fps` samples frames while the UI driver scrolls or animates. Trust a sample only with
+`hidden: false` and `comparable: true`. `browser_get_memory` reads the JS heap; compare repeated
+`browser_measure_memory` samples for a trend. See the [browser tools](/docs/tools/browser).

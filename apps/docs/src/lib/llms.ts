@@ -38,17 +38,15 @@ The genie-react package connects a running React or React Native app to a local 
 
 ## When to use Genie React
 
-Use Genie React to inspect a running app:
+Pair Genie with a UI driver (agent-browser or agent-device). The driver acts on the app; Genie shows what happened inside it:
 
-- Debug why a component rendered: join one UI action to its hook changes, renders, effects, and source locations.
-- Optimize render performance: find expensive components, prove a fix with before/after runs, and check memory and frame rate.
-- Read and manipulate live state: props, hooks, Context, TanStack Query cache, and TanStack Router navigation.
-- Test hard-to-reach UI states: force loading and error branches, verify the UI, then restore the app.
-- Verify a fix end to end: pair Genie with a UI driver (agent-browser or agent-device) so the agent drives the UI and checks the result against live evidence.
+- Verify a fix: \`genie-react verify\` decides declared claims about one interaction and exits with the verdict.
+- Optimize: find components that render for nothing, name the cause, and compare repeated runs before and after a change.
+- Validate UI states: hold loading, empty and error states, override props and Context, then restore the app.
+- Debug renders and effects: join one action to its render causes, effect runs and source locations.
+- Read TanStack Query, TanStack Router and Redux state.
 
-Use a local development build. Inspect source separately when runtime evidence leaves a question open.
-
-Run \`npx @genie-react/cli\` in the app folder. Follow [Getting started](${siteUrl}/docs/getting-started.md). Check [CLI output](${siteUrl}/docs/getting-started/cli-output.md) for JSON framing and release differences. Discover the running app with \`npx @genie-react/cli tools\`; use [Tools](${siteUrl}/docs/tools.md).
+Use a local development build. Run \`npx @genie-react/cli\` in the app folder. Follow [Install and connect](${siteUrl}/docs/getting-started/install.md). Read the [CLI reference](${siteUrl}/docs/reference/cli.md) for output and exit codes. Discover the running app with \`npx @genie-react/cli tools\`; use [Tools](${siteUrl}/docs/tools.md).
 
 ## Machine-readable resources
 
