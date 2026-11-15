@@ -24,7 +24,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.1.2",
     "genie-react": "workspace:*",
-    "oxlint": "^1.87.0",
+    "oxlint": "^1.93.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.3"
   }
