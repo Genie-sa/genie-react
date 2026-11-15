@@ -386,7 +386,7 @@ describe('queryCollector', () => {
       queryKey: ['settings'],
       data: { theme: 'dark', count: 3 },
     })
-    expect(written).toEqual({ ok: true })
+    expect(written).toEqual({ ok: true, queryHash: '["settings"]', created: true })
 
     const queryHash = client.getQueryCache().getAll()[0]?.queryHash as string
     const read = (await call(collector, 'query_get', { queryHash, depth: 3 })) as { data: unknown }
@@ -442,7 +442,11 @@ describe('queryCollector', () => {
     })
 
     const restored = await call(collector, 'query_restore_state', { queryHash, all: false })
-    expect(restored).toEqual({ ok: true, restored: 1 })
+    expect(restored).toEqual({
+      ok: true,
+      restored: 1,
+      outcomes: [{ queryHash, outcome: 'restored', refetched: false }],
+    })
     expect(client.getQueryState(['greeting'])).toMatchObject({
       data: { message: 'hello' },
       error: null,
@@ -460,9 +464,10 @@ describe('queryCollector', () => {
     await call(collector, 'query_simulate_state', { queryKey: ['one'], state: 'pending' })
     await call(collector, 'query_simulate_state', { queryKey: ['two'], state: 'error' })
 
-    expect(await call(collector, 'query_restore_state', { all: true })).toEqual({
+    expect(await call(collector, 'query_restore_state', { all: true })).toMatchObject({
       ok: true,
       restored: 2,
+      outcomes: [{ outcome: 'restored' }, { outcome: 'restored' }],
     })
     expect(client.getQueryData(['one'])).toBe(1)
     expect(client.getQueryData(['two'])).toBe(2)

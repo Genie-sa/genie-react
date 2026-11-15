@@ -66,15 +66,53 @@ describe('browser_get_memory runtime contract', () => {
     expect(tool.contract.name).toBe('browser_get_memory')
     expect(tool.contract.title).toBe('JavaScript heap usage')
     expect(tool.contract.description).toBe(
-      'Read the current JavaScript heap size (used/total/limit, in bytes) via performance.memory when the runtime exposes numeric fields. This is runtime-wide, not React-specific memory. Chromium and React Native/Hermes expose different fields and precision; otherwise this returns supported:false with an explanatory note.',
+      'Read the current JavaScript heap size (used/total/limit, in bytes) via performance.memory when the runtime exposes numeric fields. This is runtime-wide, not React-specific memory. Chromium and React Native/Hermes expose different fields and precision; otherwise this returns supported:false with an explanatory note. In a browser, precision is possibly-quantized: Chromium rounds the values into coarse buckets and caches them unless launched with --enable-precise-memory-info, so a real heap change can read as none. Prefer browser_measure_memory for before/after comparisons.',
     )
     expect(result).toEqual({
       supported: true,
       usedJSHeapSize: 10,
       totalJSHeapSize: 20,
+      precision: 'runtime-reported',
       note: 'JavaScript heap reported by the current runtime, not React-specific memory. Availability and precision vary by runtime.',
     })
     expect(tool.contract.input.safeParse({}).success).toBe(true)
+    expect(tool.contract.output.safeParse(result).success).toBe(true)
+  })
+})
+
+describe('browser memory precision and availability', () => {
+  it('labels Chromium heap readings as possibly quantized', async () => {
+    vi.stubGlobal('performance', {
+      memory: { usedJSHeapSize: 10_000_000, totalJSHeapSize: 10_000_000, jsHeapSizeLimit: 1 },
+    })
+    vi.stubGlobal('navigator', { product: 'Gecko' })
+
+    const result = toolByName(memoryCollector().tools, 'browser_get_memory').handler(
+      {} as never,
+      noopContext,
+    )
+
+    expect(result).toMatchObject({ supported: true, precision: 'possibly-quantized' })
+    expect((result as { note: string }).note).toContain('--enable-precise-memory-info')
+  })
+
+  it('reports a refused standardized measurement as unsupported instead of failing', async () => {
+    vi.stubGlobal('crossOriginIsolated', true)
+    vi.stubGlobal('performance', {
+      measureUserAgentSpecificMemory: () =>
+        Promise.reject(
+          new DOMException(
+            'performance.measureUserAgentSpecificMemory is not available.',
+            'SecurityError',
+          ),
+        ),
+    })
+    const tool = toolByName(memoryCollector().tools, 'browser_measure_memory')
+
+    const result = await tool.handler({} as never, noopContext)
+
+    expect(result).toMatchObject({ supported: false })
+    expect((result as { note: string }).note).toContain('SecurityError')
     expect(tool.contract.output.safeParse(result).success).toBe(true)
   })
 })

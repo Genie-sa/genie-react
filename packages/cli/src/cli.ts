@@ -12,6 +12,7 @@ import {
 } from './cli-help'
 import { writeDiagnostic, writeJson } from './cli-output'
 import { formatAgentFailure } from './failure-format'
+import { FEEDBACK_HINT, feedbackSuggestion } from './feedback-options'
 import { isRecord } from './guards'
 import { installOutputFailureHandler, setOutputContext } from './output-safety'
 import { genieCommand } from './package-manager'
@@ -284,6 +285,21 @@ async function main(): Promise<number> {
         force: values.force,
       })
     }
+    case 'feedback': {
+      const { runFeedbackCommand } = await import('./feedback-command')
+      return runFeedbackCommand({
+        message: values.message,
+        title: values.title,
+        kind: values.kind,
+        reason: values.reason,
+        tool: values.tool,
+        submit: values.submit ?? false,
+        draft: values.draft,
+        allowDuplicate: values['allow-duplicate'] ?? false,
+        cliVersion: agentOptions.cliVersion,
+        maxBytes,
+      })
+    }
     default:
       return 1
   }
@@ -308,9 +324,10 @@ main()
         JSON.parse(
           formatAgentFailure(
             'operational_failure',
-            `CLI operation failed. Inspect local setup with ${genieCommand(['doctor']).command} before retrying.`,
+            `CLI operation failed. Inspect local setup with ${genieCommand(['doctor']).command} before retrying. ${FEEDBACK_HINT}`,
             {
               next: genieCommand(['doctor']),
+              feedback: feedbackSuggestion('operational_failure'),
             },
           ),
         ),

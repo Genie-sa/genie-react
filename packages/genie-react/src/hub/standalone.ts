@@ -31,6 +31,11 @@ export function createStandaloneBridge(options?: StandaloneBridgeOptions): Stand
   const clientBundlePath = options?.clientBundlePath ?? defaultClientBundlePath()
   const rootDir = options?.rootDir ?? process.cwd()
   const server = createServer((req, res) => {
+    if (!bridge.trustsHostHeader(req.headers.host)) {
+      res.writeHead(421, { 'content-type': 'text/plain' })
+      res.end('Genie hub: requests must address this machine by a loopback name or IP address')
+      return
+    }
     const path = req.url?.split('?')[0] ?? ''
     if (req.method === 'GET' && path === GENIE_CLIENT_PATH) {
       void serveClientBundle(res, clientBundlePath)

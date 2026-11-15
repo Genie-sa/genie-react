@@ -8,6 +8,7 @@ import {
   encodeMessage,
   errorMessage,
   GENIE_PROTOCOL_VERSION,
+  GENIE_REACT_VERSION,
   GENIE_WS_PATH,
   newId,
   safeDiagnostic,
@@ -289,6 +290,7 @@ export class GenieClient {
       app: this.appInfo(),
       capabilities: this.capabilities(),
       tools: this.descriptors(),
+      runtimeVersion: GENIE_REACT_VERSION,
     })
   }
 

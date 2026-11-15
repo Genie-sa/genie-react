@@ -44,6 +44,8 @@ export function compareCaptureCohorts(
   input: ParsedComparisonInput,
   identity: { comparisonId: string; createdAt: string },
 ): CaptureComparison {
+  baseline = chronological(baseline)
+  candidate = chronological(candidate)
   const warmupBaselineCaptureIds = baseline
     .slice(0, input.warmupRuns)
     .map((capture) => capture.captureId)
@@ -95,6 +97,13 @@ export function compareCaptureCohorts(
   }
 }
 
+/** Warm-up means the first runs taken, so cohorts are ordered by capture time, not by the order the caller listed IDs. */
+function chronological(captures: CaptureArtifact[]): CaptureArtifact[] {
+  return [...captures].sort(
+    (left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt),
+  )
+}
+
 function compareMetric(
   metric: CaptureMetric,
   baseline: CaptureArtifact[],
@@ -104,8 +113,12 @@ function compareMetric(
 ): MetricResult {
   const baselineSamples = samplesFor(metric, baseline)
   const candidateSamples = samplesFor(metric, candidate)
-  const baselineFiltered = rejectOutliers(baselineSamples.samples, input.outlierThreshold)
-  const candidateFiltered = rejectOutliers(candidateSamples.samples, input.outlierThreshold)
+  const isOutlier = pooledOutlierRule(
+    [...baselineSamples.samples, ...candidateSamples.samples],
+    input.outlierThreshold,
+  )
+  const baselineFiltered = partitionOutliers(baselineSamples.samples, isOutlier)
+  const candidateFiltered = partitionOutliers(candidateSamples.samples, isOutlier)
   const baselineValues = baselineFiltered.kept.map((sample) => sample.value)
   const candidateValues = candidateFiltered.kept.map((sample) => sample.value)
   const baselineStats = summarizeSamples(baselineValues)
@@ -365,24 +378,25 @@ function renderCoverageSignature(
   })
 }
 
-function rejectOutliers(
-  samples: MetricSample[],
-  threshold: number,
-): { kept: MetricSample[]; rejected: MetricSample[] } {
-  if (samples.length < 3) return { kept: [...samples], rejected: [] }
+/** Modified z-scores (Iglewicz and Hoaglin) over both cohorts pooled: a label-blind rule keeps the permutation test exact where per-cohort trimming inflates false A/A changes, and a zero MAD falls back to the mean absolute deviation instead of rejecting every value off the median. */
+function pooledOutlierRule(samples: MetricSample[], threshold: number): (value: number) => boolean {
+  if (samples.length < 3) return () => false
   const values = samples.map((sample) => sample.value).sort((left, right) => left - right)
   const median = quantile(values, 0.5)
   const deviations = values.map((value) => Math.abs(value - median)).sort((a, b) => a - b)
   const mad = quantile(deviations, 0.5)
-  const isOutlier =
-    mad === 0
-      ? (sample: MetricSample) =>
-          samples.filter((candidate) => candidate.value === median).length >=
-            Math.ceil(samples.length / 2) && sample.value !== median
-      : (sample: MetricSample) => (0.6745 * Math.abs(sample.value - median)) / mad > threshold
+  const meanDeviation = deviations.reduce((sum, value) => sum + value, 0) / deviations.length
+  const scale = mad > 0 ? mad / 0.6745 : meanDeviation * 1.253314
+  return (value) => scale > 0 && Math.abs(value - median) / scale > threshold
+}
+
+function partitionOutliers(
+  samples: MetricSample[],
+  isOutlier: (value: number) => boolean,
+): { kept: MetricSample[]; rejected: MetricSample[] } {
   const kept: MetricSample[] = []
   const rejected: MetricSample[] = []
-  for (const sample of samples) (isOutlier(sample) ? rejected : kept).push(sample)
+  for (const sample of samples) (isOutlier(sample.value) ? rejected : kept).push(sample)
   return { kept, rejected }
 }
 
@@ -439,13 +453,15 @@ function permutationPValue(baseline: number[], candidate: number[]): number | nu
   const meanDifference = (baselineSum: number): number =>
     Math.abs((total - baselineSum) / candidateSize - baselineSum / baselineSize)
   const observed = meanDifference(baseline.reduce((sum, value) => sum + value, 0))
+  // Sums of large values accumulate rounding far above Number.EPSILON, so ties are judged relative to the data's magnitude.
+  const tolerance = 1e-9 * Math.max(1, ...combined.map((value) => Math.abs(value)))
   let permutations = 0
   let atLeastAsExtreme = 0
 
   const visit = (start: number, chosen: number, baselineSum: number): void => {
     if (chosen === baselineSize) {
       permutations += 1
-      if (meanDifference(baselineSum) + Number.EPSILON >= observed) atLeastAsExtreme += 1
+      if (meanDifference(baselineSum) >= observed - tolerance) atLeastAsExtreme += 1
       return
     }
     const remaining = baselineSize - chosen
