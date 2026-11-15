@@ -868,6 +868,116 @@ describe('agent failure output', () => {
     })
   })
 
+  it('maps another agent disturbing the caller window to a conflict that names the cause', async () => {
+    const failure = await describeFailure(
+      new BridgeCallError('raw', {
+        errorCode: 'conflict',
+        details: {
+          hubCode: 'OBSERVATION_SUPERSEDED',
+          ownership: {
+            resource: 'render-window',
+            cause: 'restarted',
+            tool: 'react_clear_renders',
+            ageMs: 1200,
+          },
+        },
+      }),
+      { tool: 'react_render_causes', session: 'agent-a' },
+    )
+    expect(failure).toMatchObject({
+      reason: 'conflict',
+      errorCode: 'conflict',
+      userActionRequired: true,
+      details: {
+        hubCode: 'OBSERVATION_SUPERSEDED',
+        ownership: { resource: 'render-window', cause: 'restarted', tool: 'react_clear_renders' },
+      },
+    })
+    expect(failure.message).toContain('Start a new window')
+    expect(failure.message).not.toContain('raw')
+  })
+
+  it('says the tab reloaded, not that another agent interfered, when a reload ended the window', async () => {
+    const failure = await describeFailure(
+      new BridgeCallError('raw', {
+        errorCode: 'conflict',
+        details: {
+          hubCode: 'OBSERVATION_SUPERSEDED',
+          ownership: { resource: 'render-window', cause: 'reloaded' },
+        },
+      }),
+      { tool: 'react_component_cohort', session: 'agent-a' },
+    )
+    expect(failure).toMatchObject({
+      reason: 'conflict',
+      details: { ownership: { resource: 'render-window', cause: 'reloaded' } },
+    })
+    expect(failure.message).toContain('The tab reloaded')
+    expect(failure.message).toContain('Start a new window')
+    expect(failure.message).not.toContain('Another agent')
+  })
+
+  it('drops an ownership tool name that is not identifier-shaped', async () => {
+    const failure = await describeFailure(
+      new BridgeCallError('raw', {
+        errorCode: 'conflict',
+        details: {
+          hubCode: 'STATE_HELD',
+          ownership: {
+            resource: 'overrides',
+            cause: 'held',
+            tool: 'rm -rf /; echo',
+            otherCallers: 2,
+          },
+        },
+      }),
+      { tool: 'react_reset_overrides' },
+    )
+    expect(failure.details).toEqual({
+      hubCode: 'STATE_HELD',
+      ownership: { resource: 'overrides', cause: 'held', otherCallers: 2 },
+    })
+  })
+
+  it('reports a tab claimed by another agent as a session choice, not a retryable disconnect', async () => {
+    const failure = await describeFailure(
+      new BridgeCallError('raw', {
+        errorCode: 'unknown-session',
+        details: {
+          hubCode: 'SESSION_CLAIMED',
+          ownership: { resource: 'tab', cause: 'claimed', otherCallers: 1 },
+        },
+      }),
+      {
+        tool: 'react_get_renders',
+        sessions: async () => [
+          {
+            sessionId: 'doc-1',
+            logicalSessionId: 'tab-1',
+            sessionName: 'checkout',
+            app: { url: 'http://localhost:5173/' },
+            domains: [],
+            toolCount: 1,
+            connectedAt: 0,
+            ready: true,
+            current: false,
+            logicalSessionCollision: false,
+            collisionWithSessionIds: [],
+          },
+        ],
+      },
+    )
+    expect(failure).toMatchObject({
+      reason: 'unknown_session',
+      userActionRequired: true,
+      details: {
+        hubCode: 'SESSION_CLAIMED',
+        session: { connected: [{ sessionId: 'doc-1', sessionName: 'checkout' }] },
+      },
+    })
+    expect(failure.message).not.toContain('Retry the call')
+  })
+
   it('builds correctedExample from typed placeholders, never the app example values', async () => {
     const failure = await describeFailure(
       new BridgeCallError('raw', {

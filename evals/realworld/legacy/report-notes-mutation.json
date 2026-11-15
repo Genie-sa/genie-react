@@ -1,0 +1,43 @@
+{
+  "id": "report-notes-mutation",
+  "kind": "bug",
+  "category": "fix",
+  "prompt": "Notes I add on the Reports page do not appear until I leave the page and come back.",
+  "truth": {
+    "components": ["ReportNotesList", "reportsReducer"],
+    "files": ["src/features/reports/state/reducer.ts"],
+    "causePatterns": ["mutat|push|same reference|in place", "reducer|state"],
+    "summary": "The hand-written reports reducer pushes the note onto state.notes and returns the same state object, so combineReducers keeps the old root state, no subscriber is notified, and the connected list never re-renders."
+  },
+  "referenceAnswer": {
+    "component": "reportsReducer",
+    "cause": "REPORT_NOTE_ADDED mutates state.notes with push and returns the same state, so the store reference never changes and connected components are not notified.",
+    "file": "src/features/reports/state/reducer.ts"
+  },
+  "decoyAnswers": [
+    {
+      "component": "ReportNotesList",
+      "cause": "ReportNotesList is a PureComponent, so it blocks the update.",
+      "file": "src/features/reports/report-notes-list.tsx"
+    },
+    {
+      "component": "NoteComposer",
+      "cause": "The composer does not dispatch the action.",
+      "file": "src/features/reports/note-composer.tsx"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/features/reports/state/reducer.ts",
+      "find": "      state.notes.push(action.note)\n      return state\n",
+      "replace": "      return { ...state, notes: [...state.notes, action.note] }\n"
+    }
+  ],
+  "probe": {
+    "script": "probes/report-notes-mutation.mjs"
+  },
+  "genieEvidence": {
+    "observability": "app-tools-only",
+    "notes": "Genie's React tools can only show the absence of a render: ReportNotesList has no update after the click. The decisive evidence is from app tools: app_redux_actions reports NOTE_ADDED with changedSlices [], and app_redux_state shows the note in the store."
+  }
+}

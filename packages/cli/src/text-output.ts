@@ -28,7 +28,12 @@ export interface ShellCommand {
 
 /** JSON string literal that additionally escapes code points able to fake or hide a line break. */
 export function quoteString(value: string): string {
-  return JSON.stringify(value).replace(INVISIBLE_OR_BREAKING, escapeCodePoint)
+  return jsonText(value)
+}
+
+/** `JSON.stringify` output with bidirectional overrides, invisible and line-breaking code points escaped as `\uXXXX`; they occur only inside string literals, so the document parses to the same values. */
+export function jsonText(value: unknown): string {
+  return (JSON.stringify(value) ?? 'null').replace(INVISIBLE_OR_BREAKING, escapeCodePoint)
 }
 
 /** CLI-composed prose shown unquoted, such as an envelope message; control and line-breaking characters are escaped. */

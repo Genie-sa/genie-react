@@ -36,7 +36,8 @@ npx @genie-react/cli call react_list_overrides '{}'
 ```
 
 The final list must report `total:0`. Inspect each reset outcome too. `restored` means Genie reapplied
-the captured value. `released` and `skipped-unmounted` mean the override is no longer tracked but
+the captured value. `superseded` means the app had already replaced the overridden value, which
+Genie left as is. `released` and `skipped-unmounted` mean the override is no longer tracked but
 its original state was not necessarily restored. Reload or reproduce the app's normal reset flow
 when needed, then verify the visible state.
 

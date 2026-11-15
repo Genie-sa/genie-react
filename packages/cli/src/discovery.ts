@@ -1,4 +1,4 @@
-import { type Dirent, readdirSync } from 'node:fs'
+import { type Dirent, existsSync, readdirSync } from 'node:fs'
 import { access, readFile, unlink } from 'node:fs/promises'
 import { basename, dirname, join, relative } from 'node:path'
 import { agentTokenFile, readAgentToken, readAgentTokenFile } from 'genie-react/hub/token'
@@ -233,9 +233,19 @@ export function ancestorDirectories(startDir: string): string[] {
   return directories
 }
 
-// Walks up to the filesystem root, so `genie-react call` works from nested dirs and monorepo roots.
-async function readDiscoveryUpward(startDir: string): Promise<LocatedDiscovery | null> {
+/** `startDir` and its parents up to and including the nearest git checkout or worktree root: a linked worktree nested in another checkout must never reach that checkout's hub. */
+function discoveryScope(startDir: string): string[] {
+  const scope: string[] = []
   for (const dir of ancestorDirectories(startDir)) {
+    scope.push(dir)
+    if (existsSync(join(dir, '.git'))) break
+  }
+  return scope
+}
+
+// Walks up to the checkout root, so `genie-react call` works from nested dirs and monorepo roots.
+async function readDiscoveryUpward(startDir: string): Promise<LocatedDiscovery | null> {
+  for (const dir of discoveryScope(startDir)) {
     const path = join(dir, GENIE_DISCOVERY_FILE)
     try {
       const raw = await readFile(path, 'utf8')
@@ -259,7 +269,7 @@ async function readDiscoveryUpward(startDir: string): Promise<LocatedDiscovery |
   return null
 }
 
-// Search downward only from a monorepo root; a nested directory could select a sibling app, while home or `/` would be costly.
+// Search downward only from a monorepo root, and never into a nested checkout or worktree (it has its own `.git`); a nested directory could select a sibling app, while home or `/` would be costly.
 async function readWorkspaceDiscoveries(cwd: string): Promise<LocatedDiscovery[]> {
   if (!(await hasAnyFile(cwd, DISCOVERY_ROOT_MARKERS))) return []
   const found: LocatedDiscovery[] = []
@@ -285,8 +295,14 @@ function discoveryFilesBelow(root: string): string[] {
     }
     for (const entry of entries) {
       if (!entry.isDirectory() || entry.isSymbolicLink()) continue
-      if (entry.name === '.genie') files.push(join(dir, entry.name, 'bridge.json'))
-      else if (!IGNORED_DISCOVERY_DIRS.has(entry.name)) visit(join(dir, entry.name), depth + 1)
+      if (entry.name === '.genie') {
+        files.push(join(dir, entry.name, 'bridge.json'))
+        continue
+      }
+      if (IGNORED_DISCOVERY_DIRS.has(entry.name)) continue
+      const child = join(dir, entry.name)
+      if (existsSync(join(child, '.git'))) continue
+      visit(child, depth + 1)
     }
   }
   visit(root, 0)

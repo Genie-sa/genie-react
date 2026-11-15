@@ -14,7 +14,7 @@ Text is the default because an agent's context is the scarce resource: the same 
 | `batch --ndjson` | JSONL in either case |
 | `GENIE_OUTPUT` set to anything else | `invalid_input` failure, exit 1 |
 
-`--json` always wins over `GENIE_OUTPUT`. The output is the same on a terminal and in a pipe: there is no TTY detection, no color and no ANSI escapes in either format. Exit codes do not depend on the format.
+`--json` always wins over `GENIE_OUTPUT`. The output is the same on a terminal and in a pipe: there is no TTY detection, no color and no ANSI escapes in either format. Exit codes do not depend on the format. JSON output escapes the line separators, bidirectional controls, zero-width characters and C1 controls inside strings as `\uXXXX`, as text does, so an app string cannot reorder or hide what a terminal shows; the document parses to the same values.
 
 | Surface | Text | `--json` |
 | --- | --- | --- |
@@ -112,6 +112,7 @@ Reasons are snake_case and stable:
 | `not_connected` | No app is connected | |
 | `bridge_unreachable` | No bridge answered at the selected URL, or its connection closed before a call answered | `bridge: {url, source?}`; `source: "fallback"` means the URL was only the default guess |
 | `bridge_rejected` | The hub refused the connection (agent token, browser origin), or the CLI refused a hub from another genie-react `major.minor` release line (`errorCode: "version-mismatch"`) | `versions: {cli, hub}`; `hub: null` means the hub does not report its version |
+| `conflict` | Another agent restarted, paused or changed the render window or recording the call depends on (`hubCode: "OBSERVATION_SUPERSEDED"`), or holds the overrides, Query simulation or recording the call would reset or replace (`hubCode: "STATE_HELD"`) | `hubCode`, `ownership: {resource, cause, tool?, ageMs?, otherCallers?}` |
 | `busy`, `timeout` | The app could not answer in time | |
 | `operational_failure` | Connectivity or local failure | |
 
@@ -129,15 +130,18 @@ Every CLI-owned envelope carries `schemaVersion: "2.0"`. Version 2.0 renamed eve
 
 ## Tab targeting
 
-Untargeted calls go to the only connected tab, or to the tab untargeted calls already used; opening another tab does not move them. A tab is identified across navigations and reloads, and status lists one row per tab with its current document. Batch rows carry `session` (`{sessionId, logicalSessionId?, sessionName?}`, the tab that answered). A raw `call` result keeps its shape, so with several tabs connected the CLI writes the answering session as a stderr `session` diagnostic, and a `session-retargeted` diagnostic when the default tab is gone or unresponsive and another tab answered. Session values that are not shell-safe identifiers are omitted.
+Untargeted calls go to the only connected tab, or to the tab the same agent's untargeted calls already used; opening another tab, or another agent's first call, does not move them. Untargeted calls never land on a tab another agent used in the last 10 minutes. Each CLI process sends a caller identity: `GENIE_AGENT` when set (1–64 letters, digits, `.`, `_` or `-`; anything else fails with `invalid_input`), else a hash of the Claude Code or Codex session ID, else a hash of the git worktree root. The hub keeps the default tab, render windows, recordings, overrides and Query simulations per caller. A tab is identified across navigations and reloads, and status lists one row per tab with its current document. Batch rows carry `session` (`{sessionId, logicalSessionId?, sessionName?}`, the tab that answered). A raw `call` result keeps its shape, so with several tabs connected the CLI writes the answering session as a stderr `session` diagnostic, and a `session-retargeted` diagnostic when the default tab is gone or unresponsive and another tab answered. Session values that are not shell-safe identifiers are omitted.
 
 Session failures carry `details.hubCode`, which the CLI trusts only on the `not-connected` and `unknown-session` wire codes that hub routing alone produces:
 
 - `SESSION_AMBIGUOUS` (`reason:"unknown_session"`): several tabs match an untargeted call or a shared `--session` name. `details.session.connected` lists the matching tabs; pass `--session <target>` or set `GENIE_SESSION`.
+- `SESSION_CLAIMED` (`reason:"unknown_session"`): every connected tab is in use by another agent, so an untargeted call took none. `details.session.connected` lists them and `details.ownership.otherCallers` counts the agents; open your own tab with `?_genie=<name>` and pass `--session <name>`, or pass `--session <target>` to share one deliberately.
 - `SESSION_RELOADING` (`reason:"not_connected"`): the default tab is reloading while several other tabs are open. Retry after `retryInMs`.
 - `SESSION_SUPERSEDED` and `SESSION_DISCONNECTED` (`reason:"not_connected"`): a newer page load replaced the document, or the document closed, before the call answered. `details.mayHaveCompleted: true` marks a tool that is not read-only; inspect app state before retrying. Otherwise retry the call.
 
-These failures set `userActionRequired: false` except `SESSION_AMBIGUOUS`.
+These failures set `userActionRequired: false` except `SESSION_AMBIGUOUS` and `SESSION_CLAIMED`.
+
+Ownership failures use the hub-only wire code `conflict`, which an app cannot send, so the CLI trusts their `hubCode` on every tool. They set `userActionRequired: true`. `details.ownership.resource` is `render-window`, `timeline`, `overrides` or `query-simulation`; `cause` is `restarted`, `paused`, `changed-state` (another agent ran a tool that is not read-only inside the window), `reloaded` (the tab loaded a new document after the window started) or `held`. A successful call on a tab another agent used recently writes a `session-shared` diagnostic, and a call that disturbed another agent's window writes `window-displaced`.
 
 Setup receipts list planned, applied, already-present and manual artifacts, including the discovery ignore entry and bundled skill files. Source contents are omitted. Required manual component wiring and package-manager install/dev commands remain available as structured instructions. A setup operation that fails after a write reports that changes may have applied; the CLI does not claim rollback.
 
@@ -145,7 +149,7 @@ Setup receipts list planned, applied, already-present and manual artifacts, incl
 
 The default ceiling is 102,400 bytes per document or per batch or hub record, including its newline, in either format. An explicit batch `--max-bytes` buffers results and bounds the whole command. Hub lifecycle records are independently bounded. JSONL streams are not presented as one JSON document with a fixed total size.
 
-`--max-bytes` accepts 512–50,000,000. An oversized response becomes an explicit `status:"truncated"` envelope (`truncated max_bytes:` in text) with size, omitted-path information, the heaviest selectable `largestPaths`, and runnable `suggestions` built from the invocation (summary view, a fitting `limit`, a `--select` branch, or a raised byte limit). For `call` and `tools`, the complete result is also written, in the output format, to `outputPath` in a private per-user directory (`genie-react-<uid>/out` under `$XDG_RUNTIME_DIR` or the OS temp dir) (directory 0700, files 0600; the newest 20 spill files are kept), following the Playwright CLI pattern. The envelope is not a complete result. An export artifact's content is separate from its stdout receipt.
+`--max-bytes` accepts 512–50,000,000. An oversized response becomes an explicit `status:"truncated"` envelope (`truncated max_bytes:` in text) with size, omitted-path information, the heaviest selectable `largestPaths`, and runnable `suggestions` built from the invocation (summary view, a fitting `limit`, a `--select` branch, or a raised byte limit). For `call` and `tools`, the complete result is also written, in the output format, to `outputPath` in a private per-user directory (`genie-react-<uid>/out` under `$XDG_RUNTIME_DIR` or the OS temp dir) (directory 0700, files 0600; a spill file is kept for at least an hour beyond the newest 20, and the oldest go only past 200 files, so parallel agents cannot delete a file another was just told to read), following the Playwright CLI pattern. The envelope is not a complete result. An export artifact's content is separate from its stdout receipt.
 
 ```sh
 npx @genie-react/cli call --help

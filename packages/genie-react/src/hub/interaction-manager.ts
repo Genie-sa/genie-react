@@ -2,7 +2,6 @@ import {
   type AgentErrorCode,
   type AgentToolContract,
   type AppInfo,
-  dehydrate,
   devtoolsInteractionBeginContract,
   devtoolsInteractionStopContract,
   type HubErrorCode,
@@ -386,7 +385,7 @@ export class InteractionManager<TSession extends InteractionSession> {
         component,
         evidence: await this.captureTool(active.session, 'react_component_cohort', {
           component,
-          exact: false,
+          exact: true,
           limit: 100,
         }),
       })
@@ -479,11 +478,7 @@ export class InteractionManager<TSession extends InteractionSession> {
       durationMs: Date.now() - started,
       ...(response.ok
         ? {
-            result: dehydrate(response.result, {
-              depth: 12,
-              maxEntries: 1_000,
-              maxStringLength: 10_000,
-            }),
+            result: structuredClone(response.result),
           }
         : { error: response.error ?? `${tool} failed.` }),
     }

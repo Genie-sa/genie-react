@@ -5,6 +5,7 @@ import {
   type AgentErrorCode,
   type AgentToolContract,
   type AnsweringSession,
+  type BridgeResultMessage,
   type BridgeStatusMessage,
   type BusyTelemetry,
   decodeAgentBoundMessage,
@@ -12,6 +13,7 @@ import {
   devtoolsWaitContract,
   encodeMessage,
   errorMessage,
+  GENIE_CALLER_HEADER,
   newId,
   reactQuiesceContract,
   sameReleaseLine,
@@ -39,6 +41,8 @@ export interface GenieAgentLinkOptions {
   clientVersion?: string
   /** Receive the tool catalog in status frames (default true); a caller that never reads `getStatus().tools` passes false and gets an empty list. */
   toolCatalog?: boolean
+  /** Identity shared by every CLI process of one agent; the hub keeps render windows, recordings, overrides and the default tab per caller. */
+  caller?: string
 }
 
 /** Grace added on top of a per-call `timeoutMs` so the bridge's typed answer (timeout/busy) wins the race with the link's own guard. */
@@ -93,6 +97,10 @@ export interface AnsweredResult {
   session?: AnsweringSession
   /** The untargeted default tab was gone or unresponsive, so another tab answered. */
   retargeted?: boolean
+  /** Other agents that used the answering tab recently. */
+  sharedWith?: number
+  /** This call disturbed other agents' render windows or recordings. */
+  displaced?: BridgeResultMessage['displaced']
 }
 
 interface Pending {
@@ -199,6 +207,7 @@ export class GenieAgentLink {
   private readonly failFastOnRefused: boolean
   private readonly clientVersion: string | undefined
   private readonly toolCatalog: boolean
+  private readonly caller: string | undefined
   private readonly pending = new Map<string, Pending>()
   private readonly openWaiters = new Set<OpenWaiter>()
   private ws: WebSocket | null = null
@@ -224,6 +233,7 @@ export class GenieAgentLink {
     this.failFastOnRefused = options.failFastOnRefused ?? false
     this.clientVersion = options.clientVersion
     this.toolCatalog = options.toolCatalog ?? true
+    this.caller = options.caller
   }
 
   start(): void {
@@ -294,6 +304,7 @@ export class GenieAgentLink {
           args,
           sessionId: sessionId ?? undefined,
           timeoutMs: options.timeoutMs,
+          ...(this.caller === undefined ? {} : { caller: this.caller }),
         }),
       )
       markPhase('call:sent')
@@ -338,7 +349,10 @@ export class GenieAgentLink {
     const query = new URLSearchParams({ role: 'agent' })
     if (!this.toolCatalog) query.set(AGENT_TOOLS_QUERY_PARAM, 'none')
     const ws = new WebSocket(`${url}?${query}`, {
-      headers: this.token ? { authorization: `Bearer ${this.token}` } : {},
+      headers: {
+        ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
+        ...(this.caller === undefined ? {} : { [GENIE_CALLER_HEADER]: this.caller }),
+      },
     })
     this.ws = ws
     this.connecting = false
@@ -405,6 +419,8 @@ export class GenieAgentLink {
           result: message.result,
           session: message.session,
           retargeted: message.retargeted,
+          sharedWith: message.sharedWith,
+          displaced: message.displaced,
         })
       } else {
         pending.reject(

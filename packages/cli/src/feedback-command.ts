@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { lstatSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { lstatSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   ensurePrivateDirectory,
@@ -28,6 +28,7 @@ import {
 } from './feedback-report'
 import { isRecord } from './guards'
 import { genieCommand } from './package-manager'
+import { pruneOwnFiles, SHARED_FILE_RETENTION } from './private-files'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 
 export interface FeedbackCommandOptions {
@@ -83,7 +84,6 @@ const NEW_ISSUE_URL_LIMIT = 8_000
 /** Input beyond this is discarded before scrubbing; the message is cut far below it anyway. */
 const INPUT_LIMIT_BYTES = 64 * 1024
 const DRAFT_LIMIT_BYTES = 256 * 1024
-const RETAINED_DRAFTS = 20
 const PRIVATE_FILE_MODE = 0o600
 const DRAFT_ID = /^fb_[0-9a-f-]{36}$/
 const DRAFT_FILE = /^fb_[0-9a-f-]{36}\.(?:json|md)$/
@@ -548,7 +548,7 @@ function saveDraft(report: FeedbackReport): Draft | undefined {
   } catch {
     return undefined
   }
-  pruneDrafts()
+  pruneOwnFiles(feedbackDirectory(), DRAFT_FILE)
   return draft
 }
 
@@ -580,7 +580,7 @@ function readDraft(options: FeedbackCommandOptions): Draft {
       (typeof parsed.signature !== 'string' || !SIGNATURE.test(parsed.signature)))
   ) {
     throw new FeedbackInputError(
-      `No saved feedback draft has that ID. Drafts are deleted once filed and only the newest ${RETAINED_DRAFTS} are kept; preview the report again.`,
+      `No saved feedback draft has that ID. Drafts are deleted once filed, and drafts older than an hour beyond the newest ${SHARED_FILE_RETENTION.keep}; preview the report again.`,
     )
   }
   return {
@@ -622,30 +622,6 @@ function removeDraft(id: string): void {
   for (const extension of ['json', 'md']) {
     rmSync(join(feedbackDirectory(), `${id}.${extension}`), { force: true })
   }
-}
-
-/** Removes only our own regular draft files beyond the newest few; anything else in the directory is left alone. */
-function pruneDrafts(): void {
-  const directory = feedbackDirectory()
-  let names: string[]
-  try {
-    names = readdirSync(directory).filter((name) => DRAFT_FILE.test(name))
-  } catch {
-    return
-  }
-  const drafts = names.flatMap((name) => {
-    const path = join(directory, name)
-    try {
-      const info = lstatSync(path)
-      return info.isFile() && isOwnedByCurrentUser(info.uid)
-        ? [{ path, modified: info.mtimeMs }]
-        : []
-    } catch {
-      return []
-    }
-  })
-  drafts.sort((left, right) => right.modified - left.modified)
-  for (const stale of drafts.slice(RETAINED_DRAFTS)) rmSync(stale.path, { force: true })
 }
 
 function envelope(fields: {

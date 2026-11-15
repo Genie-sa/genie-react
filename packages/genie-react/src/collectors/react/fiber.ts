@@ -19,13 +19,19 @@ import { dehydrate, isDehydratedNode } from '../../protocol'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 import { getNearestHostFibers } from './bippy-compat'
 import {
+  type ComponentMatch,
+  type ComponentNameSelector,
+  componentNameMatcher,
+  describeComponentMatch,
+} from './component-name'
+import {
   type customHookGroupingSchema,
   type hookEntrySchema,
   type hookKindSchema,
   MAX_HOOKS,
   type NodeId,
 } from './contracts'
-import { type CustomHookChain, customHookChains } from './hook-groups'
+import { type HookSlot, hookSlots } from './hook-groups'
 import {
   classifyFibersWithinBudget,
   type FiberClassification,
@@ -37,6 +43,7 @@ import {
   sourceProvenanceForSource,
 } from './source'
 import { isGeneratedClass, parseStyleSources, type StyleSourceRef } from './style-provenance'
+import { isClassComponentFiber, isSuspenseFiber } from './work-tags'
 
 type HookEntry = z.infer<typeof hookEntrySchema>
 
@@ -45,16 +52,29 @@ export type { NodeId }
 // The sole NodeId brand cast, isolated at the bippy getFiberId seam; the nominal brand erases at runtime.
 const asNodeId = (n: number): NodeId => n as NodeId
 
+const NODE_ID_BLOCK_SIZE = 2 ** 24
+const NODE_ID_BLOCKS = 2 ** 20
+
+// bippy numbers fibers from 0 in every document, so an id kept from before a reload would resolve to whichever component took that number. Starting each document in its own random block makes such an id miss instead; bippy only ever raises its counter.
+function seedDocumentNodeIds(): void {
+  const block = 1 + Math.floor(Math.random() * (NODE_ID_BLOCKS - 1))
+  setFiberId({} as Fiber, block * NODE_ID_BLOCK_SIZE - 1)
+}
+
+seedDocumentNodeIds()
+
 export interface TreeNode {
   id: NodeId
   parentId: NodeId | null
   name: string
   key: string | null
-  kind: 'component' | 'host'
+  kind: 'component' | 'host' | 'suspense'
+  errorBoundary?: true
   source?: ResolvedSource | null
   isLibrary?: boolean
   ownership?: FiberClassification['ownership']
   wrapperAncestry?: WrapperFrame[]
+  omittedDescendants?: number
 }
 
 export interface TreeResult {
@@ -64,10 +84,12 @@ export interface TreeResult {
   total: number
   truncated: boolean
   truncatedBy: 'depth' | 'maxNodes' | null
+  omitted: { depth: number; maxNodes: number }
   filteredNote?: string
 }
 
 export interface ProvenanceReport {
+  componentMatch?: ComponentMatch
   records: {
     id: NodeId
     name: string
@@ -370,6 +392,7 @@ export function wrapperAncestryOf(fiber: Fiber): WrapperFrame[] {
 
 function nameOfWithoutCompilerFrame(fiber: Fiber): string {
   return (
+    builtInNameOf(fiber) ??
     realNameOf(fiber.elementType) ??
     realNameOf(fiber.type) ??
     realNameOf(unwrapped(fiber.elementType)) ??
@@ -378,6 +401,34 @@ function nameOfWithoutCompilerFrame(fiber: Fiber): string {
     getDisplayName(fiber.elementType) ??
     'Anonymous'
   )
+}
+
+/** React's own element types carry a symbol or a context object instead of a name, so name them the way React DevTools does; a React 19 Provider's type is the context itself, whose displayName alone would read as a component. */
+function builtInNameOf(fiber: Fiber): string | null {
+  if (typeof fiber.type === 'function' || typeof fiber.type === 'string') return null
+  const tags = getReactWorkTagsForFiber(fiber)
+  switch (fiber.tag) {
+    case tags.SuspenseComponent:
+      return 'Suspense'
+    case tags.SuspenseListComponent:
+      return 'SuspenseList'
+    case tags.ActivityComponent:
+    case tags.OffscreenComponent:
+      return 'Activity'
+    case tags.Profiler:
+      return 'Profiler'
+    case tags.ContextProvider:
+      return `${contextDisplayName(contextOf(fiber))}.Provider`
+    case tags.ContextConsumer:
+      return `${contextDisplayName(contextOf(fiber))}.Consumer`
+    default:
+      return null
+  }
+}
+
+export function contextDisplayName(context: unknown): string {
+  const name = safeTypeField(context, 'displayName')
+  return typeof name === 'string' && name ? name : 'Context'
 }
 
 export function nameOf(fiber: Fiber): string {
@@ -397,8 +448,40 @@ function fiberKind(fiber: Fiber): string {
     case tags.MemoComponent:
     case tags.SimpleMemoComponent:
       return 'memo'
+    case tags.SuspenseComponent:
+      return 'suspense'
     default:
       return isHostFiber(fiber) ? 'host' : 'other'
+  }
+}
+
+/** Components and Suspense boundaries: the fibers the tree lists and search finds, so every boundaryId react_suspense and react_error_state report is a node. */
+function isTreeEntryFiber(fiber: Fiber): boolean {
+  return isCompositeFiber(fiber) || isSuspenseFiber(fiber)
+}
+
+/** A class component React treats as an error boundary: it defines getDerivedStateFromError or componentDidCatch. */
+export function isErrorBoundaryFiber(fiber: Fiber): boolean {
+  if (!isClassComponentFiber(fiber)) return false
+  const type = fiber.type as { getDerivedStateFromError?: unknown; prototype?: unknown } | null
+  const prototype = type?.prototype as { componentDidCatch?: unknown } | undefined
+  return (
+    typeof type?.getDerivedStateFromError === 'function' ||
+    typeof prototype?.componentDidCatch === 'function'
+  )
+}
+
+function treeNodeFor(fiber: Fiber, id: NodeId, parentId: NodeId | null): TreeNode {
+  const composite = isCompositeFiber(fiber)
+  const wrapperAncestry = composite ? wrapperAncestryOf(fiber) : []
+  return {
+    id,
+    parentId,
+    name: nameOf(fiber),
+    key: fiber.key,
+    kind: composite ? 'component' : isSuspenseFiber(fiber) ? 'suspense' : 'host',
+    ...(isErrorBoundaryFiber(fiber) ? { errorBoundary: true as const } : {}),
+    ...(wrapperAncestry.length > 0 ? { wrapperAncestry } : {}),
   }
 }
 
@@ -471,15 +554,15 @@ export async function buildTree(
   const candidateLimit = options.appOnly ? 5000 : options.maxNodes
   const entries: { node: TreeNode; fiber: Fiber }[] = []
   let total = 0
-  let depthClipped = false
-  let nodeCapped = false
+  let omittedByDepth = 0
+  let omittedByMaxNodes = 0
 
   // Past the depth/node caps the walk hands off to this tight counter, so one pass serves both the capped collection and the full-tree `total`.
   const countOnly = (fiber: Fiber): number => {
     let counted = 0
     let child: Fiber | null = fiber.child
     while (child) {
-      if (isCompositeFiber(child) || (options.includeHost && isHostFiber(child))) {
+      if (isTreeEntryFiber(child) || (options.includeHost && isHostFiber(child))) {
         total += 1
         counted += 1
       }
@@ -489,35 +572,26 @@ export async function buildTree(
     return counted
   }
 
+  const clipAtDepth = (node: TreeNode | undefined, fiber: Fiber): void => {
+    const descendants = countOnly(fiber)
+    if (descendants === 0 || !node) return
+    node.omittedDescendants = descendants
+    omittedByDepth += descendants
+  }
+
   const visit = (fiber: Fiber, parentId: NodeId | null, depth: number): void => {
     let child: Fiber | null = fiber.child
     while (child) {
-      const composite = isCompositeFiber(child)
-      const keep = composite || (options.includeHost && isHostFiber(child))
+      const keep = isTreeEntryFiber(child) || (options.includeHost && isHostFiber(child))
       if (keep) {
         total += 1
         if (entries.length >= candidateLimit) {
-          nodeCapped = true
-          countOnly(child)
+          omittedByMaxNodes += 1 + countOnly(child)
         } else {
           const id = registerFiber(child)
-          entries.push({
-            node: {
-              id,
-              parentId,
-              name: nameOf(child),
-              key: child.key,
-              kind: composite ? 'component' : 'host',
-              ...(composite && wrapperAncestryOf(child).length > 0
-                ? { wrapperAncestry: wrapperAncestryOf(child) }
-                : {}),
-            },
-            fiber: child,
-          })
+          entries.push({ node: treeNodeFor(child, id, parentId), fiber: child })
           if (depth > 0) visit(child, id, depth - 1)
-          else {
-            if (countOnly(child) > 0) depthClipped = true
-          }
+          else clipAtDepth(entries[entries.length - 1]?.node, child)
         }
       } else {
         visit(child, parentId, depth)
@@ -528,23 +602,10 @@ export async function buildTree(
 
   if (options.includeRoot) {
     const id = registerFiber(root)
-    const composite = isCompositeFiber(root)
     total += 1
-    entries.push({
-      node: {
-        id,
-        parentId: null,
-        name: nameOf(root),
-        key: root.key,
-        kind: composite ? 'component' : 'host',
-        ...(composite && wrapperAncestryOf(root).length > 0
-          ? { wrapperAncestry: wrapperAncestryOf(root) }
-          : {}),
-      },
-      fiber: root,
-    })
+    entries.push({ node: treeNodeFor(root, id, null), fiber: root })
     if (options.depth > 0) visit(root, id, options.depth - 1)
-    else if (countOnly(root) > 0) depthClipped = true
+    else clipAtDepth(entries[0]?.node, root)
   } else {
     visit(root, null, options.depth)
   }
@@ -555,7 +616,7 @@ export async function buildTree(
 
   if (options.appOnly) {
     const folded = await foldLibrarySubtrees(entries)
-    nodeCapped ||= folded.nodes.length > options.maxNodes
+    omittedByMaxNodes += Math.max(0, folded.nodes.length - options.maxNodes)
     nodes = folded.nodes.slice(0, options.maxNodes)
     ownership = folded.ownershipCoverage
     classificationPartial = folded.partial
@@ -571,7 +632,7 @@ export async function buildTree(
     }
   }
 
-  const truncatedBy = nodeCapped ? 'maxNodes' : depthClipped ? 'depth' : null
+  const truncatedBy = omittedByMaxNodes > 0 ? 'maxNodes' : omittedByDepth > 0 ? 'depth' : null
   const result: TreeResult = {
     ...(ownership ? { ownershipCoverage: ownership } : {}),
     rootId: nodes[0]?.id ?? null,
@@ -579,6 +640,7 @@ export async function buildTree(
     total,
     truncated: truncatedBy !== null,
     truncatedBy,
+    omitted: { depth: omittedByDepth, maxNodes: omittedByMaxNodes },
     ...(filteredNote ? { filteredNote } : {}),
   }
   // A partial classification can improve as source caches warm, so only complete results are worth pinning until the next commit.
@@ -592,12 +654,13 @@ const PROVENANCE_SCAN_LIMIT = 5_000
 
 export async function buildProvenanceReport(
   roots: readonly Fiber[],
-  options: { component?: string; limit: number; appOnly: boolean },
+  options: ComponentNameSelector & { limit: number; appOnly: boolean },
 ): Promise<ProvenanceReport> {
   const candidates: Fiber[] = []
   let scanned = 0
   let scanTruncated = false
-  const needle = options.component?.toLowerCase()
+  const named = componentNameMatcher(options)
+  const seenNames = new Set<string>()
   const stack: Fiber[] = [...roots].reverse()
   while (stack.length > 0) {
     const fiber = stack.pop()
@@ -610,7 +673,8 @@ export async function buildProvenanceReport(
     if (fiber.child) stack.push(fiber.child)
     if (!isCompositeFiber(fiber)) continue
     const name = nameOf(fiber)
-    if (needle && !name.toLowerCase().includes(needle)) continue
+    if (options.component !== undefined) seenNames.add(name)
+    if (!named(name)) continue
     scanned += 1
     candidates.push(fiber)
   }
@@ -648,7 +712,9 @@ export async function buildProvenanceReport(
       : unresolved > 0 || sourceMaps.served > 0 || partial
         ? 'degraded'
         : 'healthy'
+  const componentMatch = describeComponentMatch(options, seenNames)
   return {
+    ...(componentMatch === undefined ? {} : { componentMatch }),
     records,
     summary: {
       scanned,
@@ -746,7 +812,7 @@ export function findByName(root: Fiber, query: string, exact: boolean, limit: nu
     let child: Fiber | null = fiber.child
     while (child) {
       if (matches.length >= limit) return
-      if (isCompositeFiber(child)) {
+      if (isTreeEntryFiber(child)) {
         const name = nameOf(child)
         const hit = exact ? name === query : name.toLowerCase().includes(needle)
         if (hit)
@@ -831,6 +897,14 @@ const isBasicStateReducer = (queue: { lastRenderedReducer?: unknown }): boolean 
   return typeof reducer === 'function' && reducer.name === 'basicStateReducer'
 }
 
+// useActionState's action slot has no reducer at all: it is not state an override can drive.
+const hasReducer = (queue: { lastRenderedReducer?: unknown }): boolean =>
+  typeof queue.lastRenderedReducer === 'function'
+
+// useOptimistic's queue holds a null reducer after mount but the app's reducer, or React's basic one, after every update, so only its bound dispatcher tells it from useState and useReducer.
+const isOptimisticQueue = (queue: { dispatch: unknown }): boolean =>
+  typeof queue.dispatch === 'function' && queue.dispatch.name.endsWith('dispatchOptimisticSetState')
+
 // A single-key { current } object is the useRef signature; useMemo/useCallback store [value, deps] arrays, checked before this so they don't fall through to ref.
 const isRefState = (v: unknown): boolean =>
   isObject(v) && !Array.isArray(v) && 'current' in v && Object.keys(v).length === 1
@@ -851,7 +925,10 @@ export function isStatefulHook(hook: MemoizedState): boolean {
 
 /** Structurally classify a hook from its runtime shape (React 18/19). Never throws — unknown shapes fall to 'other'. */
 export function classifyHook(hook: MemoizedState): HookKind {
-  if (hasDispatchQueue(hook)) return isBasicStateReducer(hook.queue) ? 'state' : 'reducer'
+  if (hasDispatchQueue(hook)) {
+    if (!hasReducer(hook.queue) || isOptimisticQueue(hook.queue)) return 'other'
+    return isBasicStateReducer(hook.queue) ? 'state' : 'reducer'
+  }
   const ms = hook.memoizedState
   if (isEffectHookState(ms)) {
     return typeof ms.tag === 'number' && (ms.tag & HOOK_LAYOUT) !== 0 ? 'layout-effect' : 'effect'
@@ -880,16 +957,19 @@ function describeHook(
   kind: HookKind,
   index: number,
   stateIndex: number | null,
-  customHooks: CustomHookChain | undefined,
+  slot: HookSlot | undefined,
   depth: number,
 ): HookEntry {
   const ms = hook.memoizedState
   const valueOrDeps = isEffectHookState(ms)
     ? { deps: inspectValue(ms.deps, { depth }) }
     : { value: inspectValue(ms, { depth }) }
+  const reactHook = slot?.hook ?? (slot && isEffectEventState(ms) ? 'useEffectEvent' : null)
+  const customHooks = slot?.customHooks
   return {
     index,
     kind,
+    ...(reactHook ? { hook: reactHook } : {}),
     stateful: stateIndex !== null,
     ...(stateIndex !== null ? { stateIndex } : {}),
     ...(customHooks === null || customHooks?.length ? { customHooks } : {}),
@@ -897,16 +977,23 @@ function describeHook(
   }
 }
 
+// React 19.2+ stores a useEffectEvent slot as a lone `{ impl }` ref, the one primitive the hook tree leaves out.
+const isEffectEventState = (value: unknown): boolean =>
+  isObject(value) &&
+  Object.keys(value).length === 1 &&
+  isDataDescriptor(safeOwnPropertyDescriptor(value, 'impl')) &&
+  typeof value.impl === 'function'
+
 /** Shadow-renders the component with React DevTools' hook inspector, the same re-render DevTools runs on select. */
-function inspectCustomHookChains(
+function inspectHookSlots(
   fiber: Fiber,
   chain: readonly MemoizedState[],
   slotKinds: readonly HookKind[],
-): CustomHookChain[] | null {
+): HookSlot[] | null {
   if (slotKinds.length === 0) return []
   const truncated = chain.at(-1)?.next != null
   try {
-    return customHookChains(getFiberHooks(fiber), slotKinds, truncated)
+    return hookSlots(getFiberHooks(fiber), slotKinds, truncated)
   } catch {
     return null
   }
@@ -939,10 +1026,10 @@ export function inspectFiber(
   } else if (kind === 'function' || kind === 'memo' || kind === 'forwardRef') {
     const chain = hookChain(fiber)
     const kinds = chain.map(classifyHook)
-    const customHooks = inspectCustomHookChains(fiber, chain, kinds)
-    customHookGrouping = !customHooks
+    const slots = inspectHookSlots(fiber, chain, kinds)
+    customHookGrouping = !slots
       ? 'unavailable'
-      : customHooks.includes(null)
+      : slots.some((slot) => slot.customHooks === null)
         ? 'partial'
         : 'exact'
     let statefulOrdinal = 0
@@ -953,7 +1040,7 @@ export function inspectFiber(
         kinds[index] ?? 'other',
         index,
         stateIndex,
-        customHooks?.[index],
+        slots?.[index],
         options.depth,
       )
     })
@@ -1006,6 +1093,7 @@ export function domForFiber(fiber: Fiber, options: { limit: number }): DomForRes
   }
   for (const host of getNearestHostFibers(fiber)) {
     if (isElement(host.stateNode)) push(describeHostElement(host.stateNode))
+    else if (isTextNode(host.stateNode)) push(describeTextNode(host.stateNode))
     else if (isNativeHostFiber(host)) push(describeNativeHostFiber(host))
   }
   return { id: asNodeId(getFiberId(fiber)), name: nameOf(fiber), elements, total }
@@ -1041,6 +1129,27 @@ export function hostElementsWithin(fiber: Fiber): Element[] {
     if (node.child) stack.push(node.child)
   }
   return elements
+}
+
+const isTextNode = (node: unknown): node is Text =>
+  typeof node === 'object' && node !== null && (node as { nodeType?: number }).nodeType === 3
+
+/** A text node has no selector of its own, so it is located through the element that contains it. */
+function describeTextNode(node: Text): HostElementInfo {
+  const parent = node.parentElement
+  const rawText = node.data.trim()
+  return {
+    tag: '#text',
+    selector: parent ? hostSelectorOf(parent) : '#text',
+    domId: null,
+    testId: null,
+    role: null,
+    ariaLabel: null,
+    name: null,
+    classes: [],
+    styleSources: [],
+    text: rawText ? truncateText(rawText) : null,
+  }
 }
 
 const isNativeHostFiber = (fiber: Fiber): boolean =>
@@ -1132,6 +1241,7 @@ export function hostSelectorOf(el: Element): string {
 export interface ContextInfo {
   name: string
   value: unknown
+  provider: { id: NodeId; name: string } | null
 }
 
 export interface ContextResult {
@@ -1157,7 +1267,7 @@ export function contextDependencies(fiber: Fiber): ContextDependencyInfo[] {
       seen.add(node.context)
       dependencies.push({
         context: node.context,
-        name: node.context?.displayName || 'Context',
+        name: contextDisplayName(node.context),
         value: node.memoizedValue,
       })
     }
@@ -1167,9 +1277,29 @@ export function contextDependencies(fiber: Fiber): ContextDependencyInfo[] {
 }
 
 export function contextsForFiber(fiber: Fiber, options: { depth: number }): ContextResult {
-  const contexts = contextDependencies(fiber).map(({ name, value }) => ({
-    name,
-    value: dehydrate(value, { depth: options.depth }),
-  }))
+  const contexts = contextDependencies(fiber).map(({ context, name, value }) => {
+    const provider = nearestContextProvider(fiber, context)
+    return {
+      name,
+      value: dehydrate(value, { depth: options.depth }),
+      provider: provider ? { id: registerFiber(provider), name: nameOf(provider) } : null,
+    }
+  })
   return { id: asNodeId(getFiberId(fiber)), name: nameOf(fiber), contexts }
+}
+
+/** The context a Provider or Consumer fiber serves: `type._context` for `<Ctx.Provider>` (React ≤18) and `<Ctx.Consumer>`, the type itself for `<Ctx>` (React 19). */
+export function contextOf(fiber: Fiber): unknown {
+  return safeTypeField(fiber.type, '_context') ?? fiber.type
+}
+
+/** The Provider whose value a consumer reads: the closest matching one above it, or null when it reads the context's default value. */
+export function nearestContextProvider(fiber: Fiber, context: unknown): Fiber | null {
+  const tags = getReactWorkTagsForFiber(fiber)
+  for (let current = fiber.return; current; current = current.return) {
+    if (current.tag === tags.ContextProvider && contextOf(current) === context) {
+      return current
+    }
+  }
+  return null
 }

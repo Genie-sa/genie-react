@@ -35,6 +35,15 @@ The app's dev process owns the hub. When the hub is unreachable, start it:
 
 Untargeted calls stay on the first tab they used. With several tabs and none targeted yet, they fail with `unknown_session` and list the tabs in `details.session.connected`.
 
+### Beside other agents
+
+Other agents may use the same app, hub, or tab. To keep your evidence yours:
+
+- Use your own tab and session name; never share one unless the task says to. A tab another agent used is skipped by untargeted calls (`SESSION_CLAIMED`).
+- Genie tells agents apart by `GENIE_AGENT`, else your harness session, else your git worktree. Subagents sharing your shell, or two agents in one worktree without a harness session, need a distinct `GENIE_AGENT=<name>` prefix on every command.
+- Render windows, profiling, timelines, overrides and Query simulations belong to one tab. Genie fails a read from a window another agent restarted, paused or changed (`reason: conflict`, `OBSERVATION_SUPERSEDED`), and refuses to reset another agent's overrides, simulation or recording (`STATE_HELD`). Start your own window again; never retry over theirs.
+- A `! session-shared` or `! window-displaced` diagnostic means you are on a tab another agent uses; move to your own.
+
 ## 2. Discover the smallest useful tool
 
 ```bash

@@ -1,0 +1,18 @@
+{
+  "id": "decoy-sync-label-tick",
+  "kind": "decoy",
+  "category": "decoy",
+  "prompt": "The \"Synced Ns ago\" label in the top bar renders every second. Is that a wasted render?",
+  "truth": {
+    "components": ["LastSyncedLabel"],
+    "files": ["src/layout/last-synced-label.tsx"],
+    "summary": "The label is a clock: it sets state once a second to show a new value and clears its interval on unmount."
+  },
+  "flaggedWhen": "Genie classifies the ticks as unnecessary or reports no observed input change.",
+  "probe": {
+    "script": "probes/decoy-sync-label-tick.mjs"
+  },
+  "genieEvidence": {
+    "notes": "react_get_renders attributes each tick to state (exact)."
+  }
+}

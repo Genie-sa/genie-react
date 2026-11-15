@@ -42,24 +42,35 @@ npx @genie-react/cli call react_get_tree \
   ],
   "total": 18,
   "truncated": false,
-  "truncatedBy": null
+  "truncatedBy": null,
+  "omitted": { "depth": 0, "maxNodes": 0 }
 }
 ```
+
+`omitted` counts the nodes each limit left out; both can be non-zero, so raising one limit can still
+leave nodes out. A node that `depth` cut off carries `omittedDescendants`; pass its `id` as `rootId`
+to read them.
 
 Without `rootId`, the tree starts at the app's root. A root mounted inside another root's DOM, such
 as a widget that bundles its own React (Clerk) or a separate `createRoot` island, is never chosen as
 the app root. Those roots are listed in `otherRoots` as `{ "rootId", "name" }`, one per root's top
 component; the field is absent when the page has one root.
 
+A node's `kind` is `component`, `host`, or `suspense` for a Suspense boundary. Error boundaries are
+`component` nodes with `errorBoundary: true`. The `boundaryId` that `react_error_state` and the `id`
+that `react_suspense` report are these node ids, so a boundary can be passed to
+`react_inspect_component`, found with `react_find_components` (`"component":"Suspense"`), and read as
+`rootId`.
+
 **Agent use:** Use `rootId` to inspect the returned instance, or raise `depth` or `maxNodes` when
-`truncatedBy` shows that the tree is incomplete. Pass an `otherRoots` entry's `rootId` to read that
+`omitted` shows that the tree is incomplete. Pass an `otherRoots` entry's `rootId` to read that
 root's tree.
 
 ## `react_provenance`
 
 Reports wrapper ancestry, source roles, ownership, and source-map health for mounted components.
 
-**Input:** `component` is an optional component-name substring. `limit` is an integer from 1 to 500
+**Input:** `component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. `limit` is an integer from 1 to 500
 and defaults to 200. `appOnly` defaults to `false`; `true` keeps only records with resolved app
 ownership.
 
@@ -125,7 +136,7 @@ fallback is ambiguous, so first fix or inspect source maps instead of treating i
 
 Finds mounted components by display name.
 
-**Input:** `component` is the canonical non-empty display-name selector. Legacy `query` remains an alias; provide at least one and make them agree if both are supplied. `exact` defaults to `false`. `limit` is an integer from 1 to 200 and defaults to 50. `appOnly` defaults to `false`; `true` excludes library and unknown ownership before the output limit. The search covers every live React root, the app root first, including widgets that bundle their own React. `ownershipCoverage`, `scanTruncated`, and `omittedByLimit` disclose the bounded candidate scan (up to 5000 matching components).
+**Input:** `component` is the canonical non-empty display-name selector. Legacy `query` remains an alias; provide at least one and make them agree if both are supplied. `exact` defaults to `false`. `limit` is an integer from 1 to 200 and defaults to 50. `appOnly` defaults to `false`; `true` excludes library and unknown ownership before the output limit. The search covers every live React root, the app root first, including widgets that bundle their own React. `ownershipCoverage`, `scanTruncated`, and `omittedByLimit` disclose the bounded candidate scan (up to 5000 matching components). `cursor` continues a search with the `nextCursor` it returned; pass only `cursor` and optional `limit`. The match order is fixed when the search starts, so pages never repeat or skip a match, and a match that unmounted between pages is counted in `unmountedSinceSearch` instead of returned.
 
 ```bash
 npx @genie-react/cli call react_find_components \
@@ -146,14 +157,23 @@ npx @genie-react/cli call react_find_components \
       "source": {
         "file": "/src/CheckoutForm.tsx",
         "line": 18,
-        "column": 1,
-        "functionName": "CheckoutForm"
+        "column": 5,
+        "functionName": "Checkout",
+        "role": "element-callsite"
       },
       "isLibrary": false
     }
-  ]
+  ],
+  "omittedByLimit": 0,
+  "nextCursor": null,
+  "unmountedSinceSearch": 0
 }
 ```
+
+`source.role` says what the location is: `element-callsite` is where the element was created, inside
+the parent that `functionName` names; `component-body` is a line inside the component. `line` is
+`null` when the file on disk did not show the element at the mapped line, which happens when a
+plugin transforms the file without passing a source map on.
 
 **Agent use:** Choose the mounted instance whose ancestor `path`, props, and source match the bug,
 then pass its `id` to inspection or mutation tools.
@@ -182,6 +202,7 @@ npx @genie-react/cli call react_inspect_component \
     {
       "index": 4,
       "kind": "state",
+      "hook": "useState",
       "stateful": true,
       "stateIndex": 0,
       "customHooks": ["useCheckout", "useStepper"],
@@ -193,7 +214,9 @@ npx @genie-react/cli call react_inspect_component \
 }
 ```
 
-Each hook's `customHooks` lists the custom hooks that called it, outermost first. It is absent when
+Each hook's `hook` names the React hook that allocated the slot; a hook with several slots, such as
+`useTransition` or `useSyncExternalStore`, names each of them. Only `kind` `state` and `reducer` can be
+overridden. Each hook's `customHooks` lists the custom hooks that called it, outermost first. It is absent when
 the component called the hook directly. To build it, Genie re-renders the component once with React's
 hook inspector, the same re-render React DevTools runs when you select a component.
 `customHookGrouping` says how far to trust it:
@@ -203,6 +226,13 @@ hook inspector, the same re-render React DevTools runs when you select a compone
 | `exact`       | Every hook carries its custom-hook chain.                                                                 |
 | `partial`     | Hooks with `customHooks: null` were hidden from the inspector (`useEffectEvent`); the rest are exact.     |
 | `unavailable` | The re-render threw or called different hooks than the mounted render, so no hook carries `customHooks`. |
+
+Values past `depth` or the size limits are placeholders with `__genie_dehydrated__: true`, a `kind`,
+a `preview`, and the `path` to re-request. Maps, Sets, Errors, and typed arrays are objects tagged with
+`__type`. An object in the app's own data that has a `__genie_dehydrated__`, `__type`, or `…` key is
+shown as `{"__type":"Object","entries":[[key, value], …]}`, so those keys always mean Genie's encoding.
+`stateIndex` numbers the same hooks in `react_render_causes`, `react_get_renders`, and
+`react_override_hook_state`.
 
 **Agent use:** Use the returned `stateIndex` and current value to decide whether a hook override is
 needed and which nested `path` to change. Use `customHooks` to find the hook to edit: the last entry is
@@ -242,6 +272,9 @@ npx @genie-react/cli call react_dom_for_component \
   "total": 1
 }
 ```
+
+A text node the component renders outside any element of its own is listed with `tag: "#text"` and
+the selector of the element that contains it.
 
 **Agent use:** Use the returned role, label, test ID, or selector for the next browser action. Prefer
 semantic fields when generated CSS classes make the selector brittle.
@@ -327,13 +360,15 @@ npx @genie-react/cli call stylex_inspect \
         { "property": "width", "value": "var(--x-width)", "condition": null, "className": "width-x5lhr3w", "tokens": [{ "variable": "--x-width", "value": "80%" }] }
       ],
       "dynamic": [{ "variable": "--x-width", "value": "80%" }],
+      "inline": [],
       "unresolvedClasses": []
     }
   ]
 }
 ```
 
-`status.hint` names the StyleX plugin option that unlocks more when `system` is `none` or
+`inline` lists ordinary properties from the element's `style` attribute; they beat class rules, and
+each declaration they override has `overriddenByInline: true`. `status.hint` names the StyleX plugin option that unlocks more when `system` is `none` or
 `styleSrc` is false. `line` is the style key's line (`card: {`).
 
 **Requires** StyleX dev output: set `dev: true` and `debug: true` on the StyleX bundler plugin
@@ -367,11 +402,18 @@ npx @genie-react/cli call react_inspect_context \
   "id": 42,
   "name": "CheckoutForm",
   "contexts": [
-    { "name": "ThemeContext", "value": { "mode": "dark" } },
-    { "name": "AuthContext", "value": { "role": "buyer" } }
+    {
+      "name": "ThemeContext",
+      "value": { "mode": "dark" },
+      "provider": { "id": 12, "name": "ThemeContext.Provider" }
+    },
+    { "name": "AuthContext", "value": { "role": "guest" }, "provider": null }
   ]
 }
 ```
+
+`provider` is the closest matching Provider above the component, whose value it reads; `null` means
+no Provider is mounted above it, so the value is the context default.
 
 **Agent use:** Compare the consumed value with the expected provider value, then inspect or override
 the named Context if the wrong provider or stale value explains the UI.

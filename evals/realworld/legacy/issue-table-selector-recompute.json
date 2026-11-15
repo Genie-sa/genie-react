@@ -1,0 +1,51 @@
+{
+  "id": "issue-table-selector-recompute",
+  "kind": "bug",
+  "category": "optimise",
+  "prompt": "Typing a name for a saved view above the issue table is laggy. Each keystroke takes a noticeable moment.",
+  "truth": {
+    "components": ["IssueTable", "selectVisibleIssues"],
+    "files": ["src/store/issue-selectors.ts"],
+    "causePatterns": [
+      "selector|createSelector|reselect|memo",
+      "input|object|@identity|recompute|cache"
+    ],
+    "summary": "selectVisibleIssues is a createSelector whose input selector returns a new { filters, sort } object on every call, so the memoisation never hits: every dispatched action filters and sorts all 3,240 issues and hands IssueTable a new page object."
+  },
+  "referenceAnswer": {
+    "component": "IssueTable",
+    "cause": "The selectIssueQuery input selector returns a new object each call, so selectVisibleIssues recomputes and returns a new array on every action, including saved-view name keystrokes.",
+    "file": "src/store/issue-selectors.ts"
+  },
+  "decoyAnswers": [
+    {
+      "component": "SavedViews",
+      "cause": "The view name is stored in Redux instead of local state.",
+      "file": "src/features/issues/saved-views.tsx"
+    },
+    {
+      "component": "IssueRow",
+      "cause": "Rows get an inline onToggle handler.",
+      "file": "src/features/issues/issue-table.tsx"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/store/issue-selectors.ts",
+      "find": "const selectIssueQuery = (state: RootState) => ({\n  filters: state.issues.filters,\n  sort: state.issues.sort,\n})\n",
+      "replace": "const selectIssueFilters = (state: RootState) => state.issues.filters\nconst selectIssueSort = (state: RootState) => state.issues.sort\n"
+    },
+    {
+      "file": "src/store/issue-selectors.ts",
+      "find": "  [selectAllIssues, selectIssueQuery],\n  (issues, { filters, sort }) => {",
+      "replace": "  [selectAllIssues, selectIssueFilters, selectIssueSort],\n  (issues, filters, sort) => {"
+    }
+  ],
+  "probe": {
+    "script": "probes/issue-table-selector-recompute.mjs"
+  },
+  "genieEvidence": {
+    "observability": "partial",
+    "notes": "react_get_renders shows IssueTable re-rendering per keystroke, with prop 'rows' changed by reference on the inner class (appOnly:false). The recomputation cost sits in mapStateToProps during the store notification, outside any component render, so Genie's render timings do not show it."
+  }
+}

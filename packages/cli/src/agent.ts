@@ -22,6 +22,7 @@ import {
   INVOKE_GRACE_MS,
 } from './agent-link'
 import { renderBatchItemText } from './batch-output'
+import { resolveCallerIdentity } from './caller-identity'
 import {
   DEFAULT_MAX_BYTES,
   outputFormat,
@@ -67,6 +68,7 @@ import {
   type OverflowRecovery,
   selectResult,
 } from './result-selection'
+import { jsonText } from './text-output'
 import {
   groupIndex,
   resolveToolsSelector,
@@ -278,6 +280,7 @@ async function connect(opts: AgentOptions, toolCatalog: boolean): Promise<Connec
     // A per-call --timeout still wins per-invoke (timeoutMs + grace); this is the default when none is given.
     invokeTimeoutMs: opts.timeoutMs ? opts.timeoutMs + INVOKE_GRACE_MS : 20_000,
     sessionId: resolveSession(opts.session),
+    caller: resolveCallerIdentity(cwd).id,
     failFastOnRefused: source === 'fallback',
     clientVersion: opts.cliVersion,
     toolCatalog,
@@ -343,7 +346,7 @@ function overflowRecovery(
 /** `--fields` output: the top-level object projected when any requested key exists on it; otherwise one JSONL row per record in the FIRST array-of-records field (key order, empty → zero rows). Deterministic — the projected source never depends on which array happens to have rows. */
 export function projectFields(result: unknown, fields: string[]): string {
   return projectRows(result, fields)
-    .map((row) => JSON.stringify(row))
+    .map((row) => jsonText(row))
     .join('\n')
 }
 
@@ -637,6 +640,7 @@ export async function runCall(
     })
     const { result } = answered
     reportAnsweringTab(link, answered)
+    reportOtherAgents(answered)
     const operationId = operationIdOf(result)
     if (operationId) setOutputContext({ operation: `call ${tool}`, operationId })
     const rendered = renderResult(
@@ -903,6 +907,7 @@ export async function runBatch(
         })
         const { result, session } = answered
         if (answered.retargeted) reportAnsweringTab(link, answered)
+        reportOtherAgents(answered)
         const operationId = operationIdOf(result)
         setOutputContext({
           operation: `batch ${item.tool}`,
@@ -932,12 +937,7 @@ export async function runBatch(
       if (opts.maxBytes !== undefined) out(renderOutputLines(texts.join('\n'), opts.maxBytes))
     } else if (opts.json) writeOutput(results, { maxBytes: opts.maxBytes })
     else if (opts.maxBytes !== undefined) {
-      out(
-        renderOutputLines(
-          results.map((result) => JSON.stringify(result)).join('\n'),
-          opts.maxBytes,
-        ),
-      )
+      out(renderOutputLines(results.map((result) => jsonText(result)).join('\n'), opts.maxBytes))
     }
     return anyFailed ? 1 : 0
   } catch (error) {
@@ -1195,6 +1195,23 @@ function emitToolsResult(
 }
 
 /** Raw tool output has no envelope, so with several tabs open, or when the default tab was replaced, the answering tab is reported on stderr. */
+/** Agents read stderr too, so sharing a tab or disturbing another agent's window never goes unnoticed. */
+function reportOtherAgents({ sharedWith, displaced }: AnsweredResult): void {
+  if (displaced) {
+    writeDiagnostic(
+      'window-displaced',
+      `This call replaced or disturbed the ${displaced.resource} of ${displaced.otherCallers} other agent${displaced.otherCallers === 1 ? '' : 's'} on this tab; their dependent reads now fail with OBSERVATION_SUPERSEDED. Use your own tab: open the app with ?_genie=<your-name> and pass --session <your-name>.`,
+      displaced,
+    )
+  } else if (sharedWith) {
+    writeDiagnostic(
+      'session-shared',
+      `${sharedWith} other agent${sharedWith === 1 ? '' : 's'} used this tab recently. Render windows, recordings and overrides are per tab, so Genie fails reads another agent disturbed; use your own tab to avoid that.`,
+      { otherCallers: sharedWith },
+    )
+  }
+}
+
 function reportAnsweringTab(link: GenieAgentLink, { session, retargeted }: AnsweredResult): void {
   const answering = safeAnsweringSession(session)
   if (!answering) return

@@ -16,3 +16,4 @@ coverage
 .vercel
 *.tgz
 evals/results
+.genie-apps-e2e-*

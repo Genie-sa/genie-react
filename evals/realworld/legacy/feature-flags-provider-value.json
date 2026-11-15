@@ -1,0 +1,48 @@
+{
+  "id": "feature-flags-provider-value",
+  "kind": "bug",
+  "category": "optimise",
+  "prompt": "Collapsing the sidebar on the board freezes the page for a moment. The profiler shows hundreds of small components rendering.",
+  "truth": {
+    "components": ["FeatureFlagsProvider", "FeatureGate"],
+    "files": ["src/contexts/feature-flags.tsx"],
+    "causePatterns": ["context|provider|value", "object|@identity|useMemo|isEnabled"],
+    "summary": "FeatureFlagsProvider builds its context value inline ({ flags, isEnabled }) on every render. AppShell re-renders on UI state changes, so every FeatureGate and PriorityPicker on 420 board cards re-renders."
+  },
+  "referenceAnswer": {
+    "component": "FeatureFlagsProvider",
+    "cause": "The provider creates a new { flags, isEnabled } value object on every render, so every consumer re-renders when AppShell renders.",
+    "file": "src/contexts/feature-flags.tsx"
+  },
+  "decoyAnswers": [
+    {
+      "component": "BoardCard",
+      "cause": "BoardCard is memoized, so this cannot be a context problem.",
+      "file": "src/features/board/board-card.tsx"
+    },
+    {
+      "component": "AppShell",
+      "cause": "AppShell subscribes to too much UI state.",
+      "file": "src/layout/app-shell.tsx"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/contexts/feature-flags.tsx",
+      "find": "import { createContext, type ReactNode, useContext } from 'react'\n",
+      "replace": "import { createContext, type ReactNode, useContext, useMemo } from 'react'\n"
+    },
+    {
+      "file": "src/contexts/feature-flags.tsx",
+      "find": "  const value = { flags, isEnabled: (name: string) => flags[name] === true }\n",
+      "replace": "  const value = useMemo(() => ({ flags, isEnabled: (name: string) => flags[name] === true }), [flags])\n"
+    }
+  ],
+  "probe": {
+    "script": "probes/feature-flags-provider-value.mjs"
+  },
+  "genieEvidence": {
+    "observability": "full",
+    "notes": "react_get_renders attributes each FeatureGate render to context (exact, 'Context[0]'), and the full view's deep diff isolates /isEnabled as the changed field. The context has no displayName, so it is reported only as Context[0]."
+  }
+}

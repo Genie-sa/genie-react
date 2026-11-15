@@ -1,0 +1,18 @@
+{
+  "id": "decoy-toolbar-shallow-equal",
+  "kind": "decoy",
+  "category": "decoy",
+  "prompt": "IssueTableToolbar's useAppSelector returns an object. Is it the same re-render problem as the account menu?",
+  "truth": {
+    "components": ["IssueTableToolbar"],
+    "files": ["src/features/issues/issue-table-toolbar.tsx"],
+    "summary": "The selector returns { total, selectedCount } but passes shallowEqual, so a new object with equal fields does not re-render."
+  },
+  "flaggedWhen": "Genie reports IssueTableToolbar updates while typing a saved-view name.",
+  "probe": {
+    "script": "probes/decoy-toolbar-shallow-equal.mjs"
+  },
+  "genieEvidence": {
+    "notes": "react_get_renders reports no updates for IssueTableToolbar."
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "id": "cycle-time-empty-range",
+  "kind": "bug",
+  "category": "verify",
+  "prompt": "Please check that the Reports page works for every project. Someone said a widget is missing for Documentation.",
+  "truth": {
+    "components": ["CycleTimeWidget", "WidgetBoundary"],
+    "files": [
+      "src/features/reports/cycle-time-widget.tsx",
+      "src/features/reports/widget-boundary.tsx"
+    ],
+    "causePatterns": ["empty|no samples|zero|undefined|toFixed", "boundary|throw|error|null"],
+    "summary": "Documentation has no completed issues, so CycleTimeWidget reads sorted[0] of an empty array and calls toFixed on undefined. WidgetBoundary catches the error and renders null, so the widget silently disappears."
+  },
+  "referenceAnswer": {
+    "component": "CycleTimeWidget",
+    "cause": "With no completed issues, percentile() returns undefined and .toFixed throws; WidgetBoundary catches it and renders nothing.",
+    "file": "src/features/reports/cycle-time-widget.tsx"
+  },
+  "decoyAnswers": [
+    {
+      "component": "WorkloadWidget",
+      "cause": "The workload feature flag hides the widget.",
+      "file": "src/features/reports/workload-widget.tsx"
+    },
+    {
+      "component": "ReportsPage",
+      "cause": "The cycle-time request fails for Documentation.",
+      "file": "src/features/reports/state/actions.ts"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/features/reports/cycle-time-widget.tsx",
+      "find": "    const days = this.props.report.samples.map((sample) => sample.days).sort((a, b) => a - b)\n",
+      "replace": "    const days = this.props.report.samples.map((sample) => sample.days).sort((a, b) => a - b)\n    if (days.length === 0) {\n      return (\n        <WidgetFrame title=\"Cycle time\" summary=\"0 issues\">\n          <p className=\"muted\">No issues were completed in this range</p>\n        </WidgetFrame>\n      )\n    }\n"
+    }
+  ],
+  "probe": {
+    "script": "probes/cycle-time-empty-range.mjs"
+  },
+  "genieEvidence": {
+    "observability": "full",
+    "notes": "react_error_state reports the caught error exactly: boundary WidgetBoundary at reports-page.tsx, throwing component CycleTimeWidget, message, and a blankTreeHint. The stack is null."
+  }
+}

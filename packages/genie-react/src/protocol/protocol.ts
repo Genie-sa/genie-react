@@ -181,12 +181,50 @@ export const HUB_ERROR_CODES = [
   'SESSION_RELOADING',
   /** A newer page load in the same tab replaced the document before it answered. */
   'SESSION_SUPERSEDED',
+  /** Every tab an untargeted call could use is in use by another caller. */
+  'SESSION_CLAIMED',
+  /** Another caller restarted, paused or changed the state of the caller's render window or recording. */
+  'OBSERVATION_SUPERSEDED',
+  /** Another caller holds the overrides, Query simulation or recording this call would reset or replace. */
+  'STATE_HELD',
 ] as const
 export type HubErrorCode = (typeof HUB_ERROR_CODES)[number]
 
 export function isHubErrorCode(value: unknown): value is HubErrorCode {
   return HUB_ERROR_CODES.some((code) => code === value)
 }
+
+export const OWNERSHIP_RESOURCES = [
+  'render-window',
+  'timeline',
+  'overrides',
+  'query-simulation',
+  'tab',
+] as const
+export type OwnershipResource = (typeof OWNERSHIP_RESOURCES)[number]
+
+/** `restarted`: a new window or recording replaced it; `paused`: profiling stopped; `changed-state`: a state-changing tool ran inside it; `reloaded`: the tab loaded a new document, which starts with empty evidence; `held`: the caller would reset another caller's state; `claimed`: the tab is in use by another caller. */
+export const OWNERSHIP_CAUSES = [
+  'restarted',
+  'paused',
+  'changed-state',
+  'reloaded',
+  'held',
+  'claimed',
+] as const
+export type OwnershipCause = (typeof OWNERSHIP_CAUSES)[number]
+
+export const ownershipConflictSchema = z.object({
+  resource: z.enum(OWNERSHIP_RESOURCES),
+  cause: z.enum(OWNERSHIP_CAUSES),
+  /** The tool another caller ran; absent when the change happened outside the hub's view. */
+  tool: z.string().optional(),
+  /** How long ago another caller made the change or last used the state it holds. */
+  ageMs: z.number().int().nonnegative().optional(),
+  /** How many other callers hold the state or use the tab. */
+  otherCallers: z.number().int().positive().optional(),
+})
+export type OwnershipConflict = z.infer<typeof ownershipConflictSchema>
 
 /** Structured specifics behind a failed call, so an agent can repair it without parsing `error` prose. */
 export const toolErrorDetailsSchema = z.object({
@@ -207,14 +245,16 @@ export const toolErrorDetailsSchema = z.object({
   mayHaveCompleted: z.boolean().optional(),
   /** The recording that blocks a new interaction on the same tab (`INTERACTION_ACTIVE`). */
   interactionId: z.string().optional(),
+  /** What another caller did to per-tab state this call depends on (`OBSERVATION_SUPERSEDED`, `STATE_HELD`, `SESSION_CLAIMED`). */
+  ownership: ownershipConflictSchema.optional(),
 })
 export type ToolErrorDetails = z.infer<typeof toolErrorDetailsSchema>
 
 // Details are advisory: a malformed or newer shape degrades to absent instead of rejecting the whole frame.
 const errorDetailsField = toolErrorDetailsSchema.optional().catch(undefined)
-/** Only the hub authors `hubCode`, `mayHaveCompleted`, and `interactionId`, so parsing an app frame strips ones an app tries to forge. */
+/** Only the hub authors `hubCode`, `mayHaveCompleted`, `interactionId` and `ownership`, so parsing an app frame strips ones an app tries to forge. */
 const appErrorDetailsField = toolErrorDetailsSchema
-  .omit({ hubCode: true, mayHaveCompleted: true, interactionId: true })
+  .omit({ hubCode: true, mayHaveCompleted: true, interactionId: true, ownership: true })
   .optional()
   .catch(undefined)
 
@@ -277,6 +317,9 @@ export type AppBoundMessage = z.infer<typeof appBoundMessageSchema>
 
 // ── Agent (CLI) → Bridge ────────────────────────────────────────────────────
 
+export const CALLER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+export const callerIdSchema = z.string().regex(CALLER_ID_PATTERN)
+
 export const agentInvokeSchema = z.object({
   kind: z.literal('agent/invoke'),
   id: z.string(),
@@ -292,6 +335,12 @@ export const agentInvokeSchema = z.object({
     .number()
     .optional()
     .describe('Per-call full-timeout override; the bridge clamps it to [1000, 120000].'),
+  caller: callerIdSchema
+    .optional()
+    .catch(undefined)
+    .describe(
+      'Stable identity of the agent making the call, the same across its CLI processes; the hub keeps render windows, recordings, overrides and the default tab per caller.',
+    ),
 })
 
 export const agentPingSchema = z.object({
@@ -308,6 +357,8 @@ export type AgentMessage = z.infer<typeof agentMessageSchema>
 export const agentErrorCodeSchema = z.enum([
   'not-connected',
   'unknown-session',
+  /** Hub-only: another caller owns or changed per-tab state this call depends on; `errorDetails.ownership` says what. */
+  'conflict',
   'busy',
   'timeout',
   'invalid-args',
@@ -337,6 +388,13 @@ export const bridgeResultSchema = z.object({
   session: answeringSessionSchema.optional(),
   /** The untargeted call's default tab was gone or unresponsive, so another tab answered. */
   retargeted: z.boolean().optional(),
+  /** How many other callers used the answering tab recently; its render window, recordings and overrides are shared with them. */
+  sharedWith: z.number().int().positive().optional().catch(undefined),
+  /** This call restarted, paused or changed the state inside other callers' render windows or recordings, so their dependent reads now fail with `OBSERVATION_SUPERSEDED`. */
+  displaced: z
+    .object({ resource: z.enum(OWNERSHIP_RESOURCES), otherCallers: z.number().int().positive() })
+    .optional()
+    .catch(undefined),
   busyTelemetry: z
     .object({
       lastHeartbeatAgeMs: z.number().nonnegative(),
@@ -346,6 +404,7 @@ export const bridgeResultSchema = z.object({
     })
     .optional(),
 })
+export type BridgeResultMessage = z.infer<typeof bridgeResultSchema>
 export type BusyTelemetry = NonNullable<z.infer<typeof bridgeResultSchema>['busyTelemetry']>
 
 export const bridgeStatusSchema = z.object({

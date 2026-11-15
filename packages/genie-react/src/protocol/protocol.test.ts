@@ -339,6 +339,7 @@ describe('capture protocol', () => {
         baselineCaptureIds: ['cap_before'],
         candidateCaptureIds: ['cap_after'],
         overall: 'informational',
+        notComparableReasons: [],
         metrics: [],
         violations: [],
         warnings: [],

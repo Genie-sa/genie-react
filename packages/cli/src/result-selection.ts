@@ -1,5 +1,6 @@
 import { isRecord } from './guards'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
+import { jsonText } from './text-output'
 
 const MAX_COUNTED_PATHS = 1_000_000
 
@@ -121,8 +122,8 @@ export interface DocumentFormatter {
 
 export const JSON_FORMATTER: DocumentFormatter = {
   extension: 'json',
-  render: (value) => JSON.stringify(value),
-  renderEnvelope: (envelope) => JSON.stringify(envelope),
+  render: (value) => jsonText(value),
+  renderEnvelope: (envelope) => jsonText(envelope),
 }
 
 const LARGEST_PATH_LIMIT = 5

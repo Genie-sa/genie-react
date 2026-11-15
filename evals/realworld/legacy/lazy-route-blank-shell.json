@@ -1,0 +1,53 @@
+{
+  "id": "lazy-route-blank-shell",
+  "kind": "bug",
+  "category": "fix",
+  "prompt": "Clicking Settings or Reports in the sidebar blanks the whole screen, top bar included, until the page appears. On slow connections it looks like the app crashed.",
+  "truth": {
+    "components": ["App", "AppShell"],
+    "files": ["src/app.tsx", "src/layout/app-shell.tsx"],
+    "causePatterns": ["Suspense|fallback|lazy", "root|shell|null|outside|above|whole|layout"],
+    "summary": "The only Suspense boundary for the lazy routes wraps all of <Routes> in App with fallback={null}. While a route chunk loads, React hides the whole tree, shell included, and shows nothing."
+  },
+  "referenceAnswer": {
+    "component": "App",
+    "cause": "The lazy routes suspend to the single root <Suspense fallback={null}>, which sits above AppShell, so the whole app is hidden and nothing is shown while the chunk loads.",
+    "file": "src/app.tsx"
+  },
+  "decoyAnswers": [
+    {
+      "component": "SettingsPage",
+      "cause": "The settings page throws while loading.",
+      "file": "src/features/settings/settings-page.tsx"
+    },
+    {
+      "component": "RequireAuth",
+      "cause": "RequireAuth re-checks the session on navigation.",
+      "file": "src/features/auth/require-auth.tsx"
+    }
+  ],
+  "referenceFix": [
+    {
+      "file": "src/layout/app-shell.tsx",
+      "find": "import classNames from 'classnames'\n",
+      "replace": "import classNames from 'classnames'\nimport { Suspense } from 'react'\n"
+    },
+    {
+      "file": "src/layout/app-shell.tsx",
+      "find": "import { useGetConfigQuery } from '../api/service'\n",
+      "replace": "import { useGetConfigQuery } from '../api/service'\nimport { Spinner } from '../components/spinner'\n"
+    },
+    {
+      "file": "src/layout/app-shell.tsx",
+      "find": "          <Outlet />\n",
+      "replace": "          <Suspense fallback={<Spinner label=\"Loading page\" />}>\n            <Outlet />\n          </Suspense>\n"
+    }
+  ],
+  "probe": {
+    "script": "probes/lazy-route-blank-shell.mjs"
+  },
+  "genieEvidence": {
+    "observability": "full",
+    "notes": "react_suspense works on React 18: it reports the boundary at app.tsx:15 in state fallback (exact) and says blockers are unavailable before React 19. It does not say that the boundary is an ancestor of the shell or that its fallback is empty; the probe adds a DOM visibility check."
+  }
+}
