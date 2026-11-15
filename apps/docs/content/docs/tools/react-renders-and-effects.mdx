@@ -63,12 +63,12 @@ does not repair an earlier incomplete commit.
 
 Summarizes component render counts, changed inputs, timing, mount identity, and source.
 
-**Input:** `component` is an optional component-name substring. `sort` is `renders`, `updates`, `unnecessary`,
+**Input:** `component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. `sort` is `renders`, `updates`, `unnecessary`,
 `referenceOnly`, `unstable`, or `selfTime` and defaults to `renders`. `limit` is an integer from 1 to
 200 and defaults to 40. `appOnly` defaults to `true`. `nameFilter` accepts a case-insensitive
 whole-name glob (1–160 characters): `*` matches any text and `?` matches one character. `excludeNames`
 accepts up to 50 such globs. `minUpdates` is a nonnegative integer and defaults to 0. These selectors
-combine with the existing `component` substring and run before source classification and the cap.
+combine with `component` and run before source classification and the cap.
 `view` is `summary` (default) or `full`. The summary keeps counts, timing, cause kinds and names,
 input evidence, and one `source` with `location` and `ownership` per component. `full` adds input
 values and `deepDiff`, behavior `assessment`, `instance` details, `sourceProvenance`, and the legacy
@@ -253,7 +253,7 @@ and are never removed by this check.
 
 **Input:** `commit` and `afterCommit` are optional nonnegative integers and are mutually exclusive.
 Both match the `documentCommitId` shown on every event.
-`component` is an optional substring. `limit` is an integer from 1 to 500 and defaults to 100.
+`component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. `limit` is an integer from 1 to 500 and defaults to 100.
 `appOnly` defaults to `true`. `view` is `summary` (default) or `full`; the summary names each cause,
 while `full` adds input values, `deepDiff`, Query notification details, `assessment`, `instance`,
 and source attribution.
@@ -435,7 +435,7 @@ manufacture absence from `matched: 0` when the status is `unknown`, or from omit
 
 Ranks effect schedules and reports dependency, cleanup, hotness, and ownership evidence.
 
-**Input:** `component` is an optional substring. `onlyHot` defaults to `false`. `appOnly` defaults to
+**Input:** `component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. `onlyHot` defaults to `false`. `appOnly` defaults to
 `true`. `packageName` is an optional trimmed string of 1–214 characters and requires
 `appOnly:false`. `minUpdates` is an integer from 1 to 1000 and defaults to 3. Legacy `minFireRate`
 is from 0.1 to 1 and defaults to 1. Preferred `minScheduleRate` is optional, is from 0.1 to 1, and
@@ -536,7 +536,7 @@ the app.
 
 Returns the preferred causal timeline for effect scheduling, execution, cleanup, and observed consequences.
 
-**Input:** `component` is an optional substring. `afterDocumentCommitId` is an optional nonnegative
+**Input:** `component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. `afterDocumentCommitId` is an optional nonnegative
 integer. `limit` is an integer from 1 to 500 and defaults to 100.
 `appOnly` defaults to `false`. Set it to `true` to filter by the component that owns the scheduled
 effect. This ownership differs from the hook source reported by `react_effect_audit`.
@@ -687,7 +687,7 @@ runs that started before the observation are not reported.
 
 Returns the same bounded effect causal timeline under the legacy event-oriented name.
 
-**Input:** `component` is an optional substring. `afterDocumentCommitId` is an optional nonnegative
+**Input:** `component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. `afterDocumentCommitId` is an optional nonnegative
 integer. `limit` is an integer from 1 to 500 and defaults to 100.
 `appOnly` defaults to `false` and filters by the component that owns the scheduled effect.
 Read `ownershipCoverage` when interpreting an empty or partial result.
@@ -1126,7 +1126,7 @@ the current window, not deleted from source.
 Returns bounded render-cost and render-count leaderboards for the current profile.
 
 **Input:** `limit` is an integer from 1 to 100 and defaults to 20.
-`component` is an optional display-name substring and filters before the leaderboard limit.
+`component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. It filters before the leaderboard limit.
 `appOnly` defaults to `false`; set it to `true` for proven app-owned components. Unknown ownership
 excluded by that filter lowers coverage.
 
@@ -1186,7 +1186,7 @@ may be evicted at capacity; opening fails if all 20 are open. Reload/Fast Refres
 Reads the labelled span's owned commits.
 
 **Input:** `handle` is required (1–100 characters), `close` defaults to
-`false`, `component` optionally filters by name substring, `appOnly` defaults to `true`, and `limit`
+`false`, `component` optionally filters by exact display name (set `exact` to `false` for a substring), `appOnly` defaults to `true`, and `limit`
 is an integer from 1 to 200 (default 40). Set `close:true` after driving the interaction and waiting
 for commits to settle. Re-reading a closed span preserves its captured counts.
 
@@ -1251,7 +1251,8 @@ Tool-catalog refreshes in the same document preserve the wait. Add `--fail-on-re
 nonzero exit on a result with `ok:false`.
 
 Once commits are quiet, quiesce reads [`react_pending_work`](#react_pending_work): a pending or
-suspended transition, or a Suspense boundary showing its fallback, keeps the outcome from `idle`, and
+suspended transition, a Suspense boundary showing its fallback, or server HTML React has not hydrated
+keeps the outcome from `idle`, and
 a timeout names the blocking work in `reason`. `pendingWork` is `null` when the app runtime predates
 that tool; idle then covers commits only. Quiesce does not observe timers, promises that never reach
 React, query freshness, or continuous canvas/native frames.
@@ -1273,13 +1274,16 @@ npx @genie-react/cli call react_pending_work '{}' --json
   "documentCommitId": 42,
   "scheduledRoots": 1,
   "suspendedBoundaries": 1,
-  "boundaries": [{ "boundaryId": 17, "boundaryName": "Suspense" }],
+  "dehydratedBoundaries": 0,
+  "boundaries": [{ "boundaryId": 17, "boundaryName": "Suspense", "state": "fallback" }],
   "scanTruncated": false
 }
 ```
 
 **Agent use:** `scheduledRoots` counts mounted roots with uncommitted or suspended updates, such as a
-transition waiting on data. `suspendedBoundaries` counts Suspense boundaries showing a fallback;
-boundaries held open by `react_toggle_suspense_fallback` are excluded. `boundaries` lists at most 20
-of them. `scanTruncated: true` means the fiber scan stopped at its limit, so the boundary count is a
+transition waiting on data. `suspendedBoundaries` counts Suspense boundaries showing a fallback and
+`dehydratedBoundaries` counts server-rendered boundaries React has not hydrated yet; these are the
+boundaries `react_suspense` reports as `fallback` and `dehydrated`, and boundaries inside a hidden
+`Activity` are not counted. Boundaries held open by `react_toggle_suspense_fallback` are excluded.
+`boundaries` lists at most 20 of them with their `state`. `scanTruncated: true` means the fiber scan stopped at its limit, so the boundary count is a
 lower bound. `react_quiesce` and `devtools_wait` read this tool before they report React idle.

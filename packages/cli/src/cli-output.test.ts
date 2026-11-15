@@ -12,6 +12,13 @@ import {
 import { agentFailure, formatAgentFailure } from './failure-format'
 import { renderBoundedText } from './result-selection'
 
+const UNSAFE =
+  /[\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g
+
+function unsafeCodePoints(text: string): string[] {
+  return text.match(UNSAFE) ?? []
+}
+
 afterEach(() => {
   setOutputFormat('json')
   vi.restoreAllMocks()
@@ -185,6 +192,26 @@ describe('text output', () => {
       reason: 'session',
       message: 'm',
     })
+  })
+
+  it('escapes bidirectional overrides and invisible code points in every JSON writer, losslessly', () => {
+    setOutputFormat('json')
+    const hostile = 'user\u202e\u2066gnp.exe\u2069\u200b\u2028\u061c'
+    const value = { name: hostile, [hostile]: [hostile] }
+    const documents = [
+      renderOutput(value),
+      renderFailure({ status: 'error', reason: 'tool_error', message: hostile, details: value }),
+      renderRows([value, value]),
+      renderDiagnostic('session', hostile, value),
+      formatAgentFailure('tool_error', hostile, { details: { unknownKeys: [hostile] } }),
+    ]
+    for (const document of documents) {
+      expect(unsafeCodePoints(document)).toEqual([])
+      for (const line of document.split('\n')) {
+        expect(JSON.stringify(JSON.parse(line))).toContain(JSON.stringify(hostile).slice(1, -1))
+      }
+    }
+    expect(JSON.parse(renderOutput(value))).toEqual(value)
   })
 
   it('keeps JSON lines bounded as before', () => {

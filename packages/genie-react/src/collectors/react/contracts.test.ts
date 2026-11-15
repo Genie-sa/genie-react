@@ -236,7 +236,11 @@ describe('react_provenance contract', () => {
     })
 
     expect(result.summary.sourceMaps.status).toBe('unknown')
-    expect(reactProvenanceContract.input.parse({})).toEqual({ limit: 200, appOnly: false })
+    expect(reactProvenanceContract.input.parse({})).toEqual({
+      exact: true,
+      limit: 200,
+      appOnly: false,
+    })
   })
 })
 
@@ -266,6 +270,7 @@ describe('react_effect_audit contract', () => {
 describe('react_render_causes contract', () => {
   it('applies bounded defaults and makes commit selectors mutually exclusive', () => {
     expect(reactRenderCausesContract.input.parse({})).toEqual({
+      exact: true,
       limit: 100,
       appOnly: true,
       view: 'summary',

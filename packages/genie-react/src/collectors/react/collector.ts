@@ -124,6 +124,7 @@ function currentEffectCoverage() {
 
 async function effectTimeline({
   component,
+  exact,
   afterDocumentCommitId,
   limit,
   appOnly,
@@ -134,6 +135,7 @@ async function effectTimeline({
   const report = await getEffectScheduleEventsWithOwnership({
     appOnly,
     component,
+    exact,
     afterDocumentCommitId,
     limit,
   })
@@ -242,8 +244,8 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactProvenanceContract,
-        handler: ({ component, limit, appOnly }) =>
-          buildProvenanceReport(findAllRootFibers(), { component, limit, appOnly }),
+        handler: ({ component, exact, limit, appOnly }) =>
+          buildProvenanceReport(findAllRootFibers(), { component, exact, limit, appOnly }),
       }),
       defineCollectorTool({
         contract: reactFindComponentsContract,
@@ -455,13 +457,20 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactRendersSinceContract,
-        handler: ({ handle, close, component, appOnly, limit }) =>
-          readMeasurementSpan(handle, close, { component, appOnly, limit, sort: 'renders' }),
+        handler: ({ handle, close, component, exact, appOnly, limit }) =>
+          readMeasurementSpan(handle, close, {
+            component,
+            exact,
+            appOnly,
+            limit,
+            sort: 'renders',
+          }),
       }),
       defineCollectorTool({
         contract: reactGetRendersContract,
         handler: async ({
           component,
+          exact,
           nameFilter,
           excludeNames,
           minUpdates,
@@ -474,6 +483,7 @@ export function reactCollector(): GenieCollector {
         }) => {
           const report = await getRendersMeasurement({
             component,
+            exact,
             nameFilter,
             excludeNames,
             minUpdates,
@@ -522,6 +532,7 @@ export function reactCollector(): GenieCollector {
           const { unstableComponents, unnecessaryComponents, topUnstableProps, ...summaryView } =
             reportSummary
           return {
+            componentMatch: report.componentMatch,
             tracking: report.tracking,
             renderCollection: report.renderCollection,
             ...report.measurementEnvironment,
@@ -550,11 +561,12 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactRenderCausesContract,
-        handler: async ({ commit, afterCommit, component, limit, appOnly, view }) => {
+        handler: async ({ commit, afterCommit, component, exact, limit, appOnly, view }) => {
           const report = await getRenderCauseMeasurement({
             commit,
             afterCommit,
             component,
+            exact,
             limit,
             appOnly,
           })
@@ -573,6 +585,7 @@ export function reactCollector(): GenieCollector {
             'causal',
           )
           return {
+            componentMatch: report.componentMatch,
             tracking: report.tracking,
             commits: report.commits,
             documentCommitId: report.documentCommitId,
@@ -625,6 +638,7 @@ export function reactCollector(): GenieCollector {
         contract: reactEffectAuditContract,
         handler: async ({
           component,
+          exact,
           onlyHot,
           appOnly,
           packageName,
@@ -639,6 +653,7 @@ export function reactCollector(): GenieCollector {
           const analysisGeneration = getAnalysisGeneration()
           const coverage = currentEffectCoverage()
           const {
+            componentMatch,
             components,
             omittedByLimit,
             effectsOmittedByLimit,
@@ -648,6 +663,7 @@ export function reactCollector(): GenieCollector {
             packageFilter,
           } = await getEffectAuditReport({
             component,
+            exact,
             onlyHot,
             appOnly,
             packageName,
@@ -671,6 +687,7 @@ export function reactCollector(): GenieCollector {
               )
             : undefined
           return {
+            componentMatch,
             tracking,
             commits,
             documentCommitId,
@@ -767,14 +784,19 @@ export function reactCollector(): GenieCollector {
       }),
       defineCollectorTool({
         contract: reactProfileReportContract,
-        handler: async ({ limit, component, appOnly }) => {
-          const measurement = await getRendersLeaderboardsMeasurement(limit, { component, appOnly })
+        handler: async ({ limit, component, exact, appOnly }) => {
+          const measurement = await getRendersLeaderboardsMeasurement(limit, {
+            component,
+            exact,
+            appOnly,
+          })
           const { boards } = measurement
           const bySelfTime = boards.slowest
           const byRenders = boards.mostRerendered
           const byUnnecessary = boards.mostUnnecessary
           const byUnstable = boards.mostUnstable
           return {
+            componentMatch: boards.componentMatch,
             ...getMeasurementEnvironment(),
             commits: measurement.commits,
             tracking: measurement.tracking,

@@ -56,7 +56,13 @@ import {
   type UpgradePolicyOptions,
   type UpgradeVerdict,
 } from './upgrade-policy'
-import { matchesOf, parseQueryList, queryStateOf, routerStateOf } from './wire-guards'
+import {
+  matchesOf,
+  parseQueryList,
+  queryStateOf,
+  routerSettlement,
+  routerStateOf,
+} from './wire-guards'
 import { ws } from './ws-env'
 
 type BridgeLogLevel = 'info' | 'warn' | 'error'
@@ -326,7 +332,12 @@ export class GenieBridge {
     this.log = options.logger ?? (() => {})
     this.upgradePolicy = new UpgradePolicy(options)
     this.captures = new CaptureManager({
-      resolveSession: (target) => this.targetSession(target),
+      resolveSession: (target) => {
+        const resolution = this.resolveTarget(target)
+        return resolution.ok
+          ? { session: resolution.session, standIn: resolution.standIn === true }
+          : null
+      },
       sessionUnavailable: (target) => this.sessionUnavailable(target),
       isCurrentSession: (session) => this.isCurrent(session),
       request: (session, tool, args) => this.appRequestForSession(tool, args, session),
@@ -1427,7 +1438,11 @@ export class GenieBridge {
     request: (tool: string, args: unknown) => Promise<AppResponse>,
   ): Promise<WaitCheck> {
     if (input.condition === 'component') {
-      const res = await request('react_find_components', { query: input.name ?? '', limit: 1 })
+      const res = await request('react_find_components', {
+        component: input.name ?? '',
+        exact: true,
+        limit: 1,
+      })
       const matches = matchesOf(res.result)
       return {
         state: res.ok && matches !== undefined && matches.length > 0 ? 'met' : 'pending',
@@ -1485,15 +1500,13 @@ export class GenieBridge {
       const res = await request('router_get_state', {})
       const state = routerStateOf(res.result)
       if (!res.ok || !state) return { state: 'pending' }
+      const settlement = routerSettlement(state)
       return {
         state:
-          (input.name ? state.pathname === input.name : true) && !state.isLoading
+          (input.name ? state.pathname === input.name : true) && settlement.settled
             ? 'met'
             : 'pending',
-        lastObserved: {
-          pathname: state.pathname ?? null,
-          isLoading: state.isLoading ?? null,
-        },
+        lastObserved: settlement.observed,
       }
     }
     return { state: 'pending' }
@@ -1623,12 +1636,10 @@ export class GenieBridge {
         input.deadline,
       )
       const result = routerStateOf(response.result)
+      const settlement = result ? routerSettlement(result) : null
       return {
-        status: response.ok && result?.isLoading === false ? 'met' : 'pending',
-        lastObserved: {
-          isLoading: result?.isLoading ?? null,
-          pathname: result?.pathname ?? null,
-        },
+        status: response.ok && settlement?.settled === true ? 'met' : 'pending',
+        lastObserved: settlement?.observed ?? null,
       }
     }
     if (!toolDescriptor(session, 'browser_fps')) return unsupported('browser_fps')
@@ -2064,12 +2075,21 @@ function pendingWorkReason(work: PendingReactWork): string | null {
       `${work.scheduledRoots} root${work.scheduledRoots === 1 ? ' has' : 's have'} an uncommitted or suspended update (for example a pending transition)`,
     )
   }
-  if (work.suspendedBoundaries > 0) {
+  const named = (state: PendingReactWork['boundaries'][number]['state']): string => {
     const names = work.boundaries
+      .filter((boundary) => boundary.state === state)
       .map((boundary) => safeDiagnostic(boundary.boundaryName, 80))
       .join(', ')
+    return names ? ` (${names})` : ''
+  }
+  if (work.suspendedBoundaries > 0) {
     parts.push(
-      `${work.suspendedBoundaries} Suspense boundar${work.suspendedBoundaries === 1 ? 'y shows' : 'ies show'} a fallback${names ? ` (${names})` : ''}`,
+      `${work.suspendedBoundaries} Suspense boundar${work.suspendedBoundaries === 1 ? 'y shows' : 'ies show'} a fallback${named('fallback')}`,
+    )
+  }
+  if (work.dehydratedBoundaries > 0) {
+    parts.push(
+      `${work.dehydratedBoundaries} server-rendered Suspense boundar${work.dehydratedBoundaries === 1 ? 'y has' : 'ies have'} not hydrated${named('dehydrated')}`,
     )
   }
   return parts.length === 0 ? null : `React work is still pending: ${parts.join('; ')}.`

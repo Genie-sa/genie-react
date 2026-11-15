@@ -240,7 +240,12 @@ describe('GenieBridge interaction capture', () => {
         renders: { status: 'ok', tool: 'react_get_renders', args: { view: 'full' } },
         causes: { status: 'ok', tool: 'react_render_causes', args: { view: 'full' } },
         effects: { status: 'ok', tool: 'react_effect_timeline' },
-        cohorts: [{ component: 'Row', evidence: { status: 'ok' } }],
+        cohorts: [
+          {
+            component: 'Row',
+            evidence: { status: 'ok', args: { component: 'Row', exact: true } },
+          },
+        ],
       },
     })
 

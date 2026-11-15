@@ -21,6 +21,7 @@ import {
 import { safeStructuredClone } from '../structured-clone'
 import { getTimings } from './bippy-compat'
 import { type CommitWorkBudget, commitWorkExhaustions, consumeCommitWork } from './commit-budget'
+import type { ComponentMatch } from './component-name'
 import { recordResultingEffectCommit } from './effect-events'
 import {
   clearEffects,
@@ -105,6 +106,7 @@ import {
   buildRendersLeaderboards,
   buildRendersMeasurementReport,
   buildRendersReport,
+  describeRecordMatch,
   type RenderCauseQuery,
   type RenderQuery,
   renderRecordFilter,
@@ -122,7 +124,12 @@ import {
 import { captureReportEpoch, reportAttribution, reportStateMatches } from './report-attribution'
 import { isSafeRenderer, supportedCommitHandler } from './safe-instrumentation'
 import { clearSourceCache } from './source'
-import { canBailOutOnProps, isHostTextFiber, isSuspenseFiber } from './work-tags'
+import {
+  canBailOutOnProps,
+  comparesPropsShallowly,
+  isHostTextFiber,
+  isSuspenseFiber,
+} from './work-tags'
 
 export type {
   RenderCause,
@@ -734,6 +741,7 @@ interface RenderMeasurement {
   documentCommitId: number
   observation: ObservationWindow | null
   attribution: ReportAttribution
+  componentMatch: ComponentMatch | undefined
   summary: RenderSummary
   sourceClassification: SourceClassificationCoverage
   components: RenderReport[]
@@ -818,6 +826,7 @@ export async function getRendersMeasurement(
     }
     candidates.push(record)
   }
+  const componentMatch = describeRecordMatch(records, query)
   const recordsAtStart = snapshotRenderRecords(candidates)
   const commitsAtStart = commits
   const epoch = captureReportEpoch()
@@ -859,6 +868,7 @@ export async function getRendersMeasurement(
     observation,
     attribution: reportAttribution(epoch),
     ...report,
+    componentMatch,
     skippedCommitFibers: skippedAtStart,
     droppedUnmountFibers: droppedUnmountsAtStart,
     analysisFailedFibers: failedAtStart,
@@ -918,6 +928,7 @@ export async function getRenderCauseEventsReport(query: RenderCauseQuery): Promi
 }
 
 export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promise<{
+  componentMatch: ComponentMatch | undefined
   tracking: boolean
   commits: number
   documentCommitId: number
@@ -992,7 +1003,7 @@ export async function getRendersLeaderboards(limit: number): Promise<{
 
 export async function getRendersLeaderboardsMeasurement(
   limit: number,
-  selection: Pick<RenderQuery, 'component' | 'appOnly'> = {},
+  selection: Pick<RenderQuery, 'component' | 'exact' | 'appOnly'> = {},
 ): Promise<{
   commits: number
   tracking: boolean
@@ -1317,8 +1328,11 @@ function recordRenderAtomic(
     ...externalStoreChanges,
   ]
   const propsCauseRender = bailsOutOnProps && propCauses.length > 0
+  // With every prop equal, React bails out of such a fiber however its parent rendered, so the trigger is an input Genie cannot see, such as forceUpdate.
+  const parentCannotExplain =
+    coverage.complete && propChanges.length === 0 && comparesPropsShallowly(fiber)
   const parentResult =
-    otherCauses.length === 0 && !propsCauseRender
+    otherCauses.length === 0 && !propsCauseRender && !parentCannotExplain
       ? renderedParentCause(fiber, commitWork, commitEvidence?.renderedFibers)
       : { cause: null, complete: true }
   const parentCause = parentResult.cause
