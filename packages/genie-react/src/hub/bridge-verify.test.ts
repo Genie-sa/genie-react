@@ -62,9 +62,21 @@ afterEach(async () => {
   await handle.close()
 })
 
-async function invoke(tool: string, args: unknown): Promise<Frame> {
+async function invoke(
+  tool: string,
+  args: unknown,
+  caller?: string,
+  sessionId?: string,
+): Promise<Frame> {
   const id = newId()
-  send(agent.ws, { kind: 'agent/invoke', id, tool, args })
+  send(agent.ws, {
+    kind: 'agent/invoke',
+    id,
+    tool,
+    args,
+    ...(caller ? { caller } : {}),
+    ...(sessionId ? { sessionId } : {}),
+  })
   return agent.inbox.wait(isResult(id), 30_000)
 }
 
@@ -170,6 +182,34 @@ describe('verify through the hub against a real React tree', () => {
     const ended = await invoke('devtools_verify_end', { verificationId })
     expect(ended.result.verdict).toBe('refused')
     expect((await invoke('react_clear_renders', {})).ok).toBe(true)
+  })
+
+  it('tells another agent its window was replaced when a verification starts on the tab', async () => {
+    await mounted(createElement(DebouncedSearch), 'idle')
+    const tab = (await invoke('devtools_status', {})).result.sessions[0].sessionId as string
+    expect((await invoke('react_clear_renders', {}, 'agent-a', tab)).ok).toBe(true)
+    const began = await invoke(
+      'devtools_verify_begin',
+      { name: 'b runs', claims: [badgeMax0], settle: { quietMs: 400, timeoutMs: 5_000 } },
+      'agent-b',
+      tab,
+    )
+
+    expect(began).toMatchObject({
+      ok: true,
+      displaced: { resource: 'render-window', otherCallers: 1 },
+    })
+    expect(await invoke('react_get_renders', { limit: 1 }, 'agent-a', tab)).toMatchObject({
+      ok: false,
+      errorDetails: { hubCode: 'OBSERVATION_SUPERSEDED' },
+    })
+    const ended = await invoke(
+      'devtools_verify_end',
+      { verificationId: began.result.verificationId },
+      'agent-b',
+      tab,
+    )
+    expect(ended.ok).toBe(true)
   })
 
   it('refuses every claim when the page reloads in the middle of the window', async () => {

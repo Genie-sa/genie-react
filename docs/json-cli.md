@@ -139,7 +139,7 @@ Every CLI-owned envelope carries `schemaVersion: "2.0"`. Version 2.0 renamed eve
 | Code | Class | Meaning |
 | --- | --- | --- |
 | 0 | `success` | pass, or `begin`, `show` and `abort` succeeded |
-| 1 | `failure` | fail: the evidence proves a claim false; also `tool_error`, `tool_unavailable` and `operational_failure` |
+| 1 | `failure` | fail: the evidence proves a claim false; also `tool_error`, `tool_unavailable`, `operational_failure` and `conflict` |
 | 2 | `usage` | `invalid_input`, `invalid_args`, `unknown_tool`, `unknown_session`, an unknown flag or a malformed claim |
 | 3 | `needs-human` | `bridge_rejected` |
 | 4 | `refused` | the evidence is not good enough; each refusal names one reason and a fix |
