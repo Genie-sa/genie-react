@@ -18,6 +18,7 @@ import { captureReportEpoch, reportAttribution, reportStateMatches } from './rep
 import {
   classifyFibersWithinBudget,
   type FiberClassification,
+  isHiddenByAppOnly,
   ownershipCoverage,
   type SourceProvenance,
   sourceProvenanceForSource,
@@ -323,10 +324,10 @@ export async function getRenderCohort(
     [...mountedUnfiltered, ...unmountedUnfiltered].map((entry) => entry.sourceOwnership),
   )
   const mounted = mountedUnfiltered.filter(
-    (entry) => !query.appOnly || entry.sourceOwnership === 'app',
+    (entry) => !query.appOnly || !isHiddenByAppOnly(entry.sourceOwnership),
   )
   const unmounted = unmountedUnfiltered.filter(
-    (entry) => !query.appOnly || entry.sourceOwnership === 'app',
+    (entry) => !query.appOnly || !isHiddenByAppOnly(entry.sourceOwnership),
   )
   const all = [...mounted, ...unmounted]
   const mountedUpdated = mounted.filter((entry) => entry.status === 'mounted-updated').length

@@ -1,4 +1,4 @@
-import { effectOrdinal } from './helpers.mjs'
+import { effectRuns } from './helpers.mjs'
 
 /** @param {import('../../lib/probe-context.mjs').ProbeContext} ctx */
 export default async function probe(ctx) {
@@ -7,14 +7,14 @@ export default async function probe(ctx) {
   const rows = ctx.page.locator('[role=row][data-order-id]')
   await rows.nth(1).waitFor()
   await ctx.settle()
-  let ordinal = -1
   for (const index of [0, 1]) {
     await rows.nth(index).locator('a').click()
     await ctx.page.getByRole('tab', { name: 'Activity' }).click()
     await ctx.page.getByRole('tab', { name: 'Activity', selected: true }).waitFor()
     await ctx.settle()
-    if (ordinal === -1)
-      ordinal = effectOrdinal(await ctx.inspect('OrderActivityTab'), (hooks) => hooks.length === 0)
+    // Reading while the tab is mounted lets Genie attribute its effects; React clears an unmounted component's hooks.
+    if (index === 0)
+      await ctx.genie.call('react_effect_timeline', { component: 'OrderActivityTab', limit: 1 })
     await ctx.page.getByRole('link', { name: 'All orders' }).click()
     await rows.nth(1).waitFor()
     await ctx.settle()
@@ -30,12 +30,10 @@ export default async function probe(ctx) {
   )
   const timeline = await ctx.genie.call('react_effect_timeline', {
     component: 'OrderActivityTab',
+    appOnly: true,
     limit: 200,
   })
-  const runs = (timeline.events ?? []).filter(
-    (/** @type {any} */ event) =>
-      event.effectIndex === ordinal && event.execution?.status === 'observed',
-  )
+  const runs = effectRuns(timeline, (hooks) => hooks.length === 0)
   const withoutCleanup = runs.filter(
     (/** @type {any} */ event) => event.cleanupExecution?.reason === 'no-cleanup-returned',
   )

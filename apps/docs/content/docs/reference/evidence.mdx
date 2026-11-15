@@ -38,7 +38,9 @@ status is `unknown`, or from instances omitted by the result limit.
 Effect events show what React scheduled. They do not prove that the effect body or cleanup ran. They
 also do not prove a later request, state write, or navigation.
 
-Effect hotness needs at least three updates by default. A smaller sample returns
+Effect hotness asks whether an effect runs more often than its inputs justify: an effect with
+dependencies is hot after at least three re-runs (by default) in which no dependency changed value.
+Re-runs whose changed dependencies cannot be compared, and samples under three updates, return
 `insufficient-data`. The reported 95% interval applies only to effect hotness. Genie does not invent a
 general confidence score for causal evidence.
 

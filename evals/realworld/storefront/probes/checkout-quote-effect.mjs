@@ -33,5 +33,14 @@ export async function probe(ctx) {
     runs.length === 0,
     `ShippingOptions effect executed ${runs.length} times for 9 keystrokes`,
   )
+  const audit = await ctx.call('react_effect_audit', { component: 'ShippingOptions' })
+  const quoteEffect = audit.components
+    .find((/** @type {any} */ entry) => entry.name === 'ShippingOptions')
+    ?.effects.find((/** @type {any} */ effect) => effect.hook === 'useEffect')
+  ctx.check(
+    'the quote effect is not hot',
+    quoteEffect !== undefined && quoteEffect.hotness.label !== 'hot',
+    `quote effect hotness ${quoteEffect?.hotness.label} (${quoteEffect?.hotness.basis}, re-runs ${JSON.stringify(quoteEffect?.hotness.reruns)})`,
+  )
   await ctx.call('app_reset')
 }

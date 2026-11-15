@@ -101,9 +101,10 @@ cursor. No snapshot is retained, `pagination.snapshotId` and `expiresAt` are nul
 snapshot limit does not apply. Background React quiet waits use this mode so polling cannot evict
 an active paginated report.
 
-Source ownership is separate from pagination. If `sourceClassification.complete` is false,
-`appOnly:true` excludes unknown ownership and the result remains a lower bound even after its last
-page. Retry without `cursor` after source warmup to include newly classified rows.
+Source ownership is separate from pagination. `appOnly:true` hides only components known to be
+library code; components with unresolved ownership stay in the result, marked
+`sourceOwnership: "unknown"`, and `filteredNote` counts them. Retry without `cursor` after source
+warmup to classify them.
 
 Both `react_get_renders` and `react_profile_report` expose `bundle` (`development`, `production`,
 `mixed`, or `unknown`), `timingsBundleDependent: true`, and `countsScope: "observed-run"`.
@@ -118,10 +119,9 @@ completed source lookups (including unresolved results and cache hits). `complet
 when every candidate has app or library evidence. Unknown ownership never counts as library.
 
 Cold documents can exceed the source lookup budget. Genie warms the remaining sources in the
-background; retry the report to check recovery. If `appOnly:true` excludes unknown ownership,
-`comparable` is false with `app-source-classification-incomplete`, and summary semantics are
-`lower-bound` or `unknown`. `appOnly:false` keeps those records visible without inventing their
-ownership. If unknowns persist after relaunch, inspect this unfiltered report and restore source
+background; retry the report to check recovery. While `appOnly:true` results include unknown
+ownership, `comparable` is false with `app-source-classification-incomplete`, and summary semantics
+are `unknown`, because the summary may count library work. If unknowns persist after relaunch, inspect this unfiltered report and restore source
 metadata or source-map access before comparing app-only measurements.
 
 For `const FriendListRow = memo(() => ...)`, the wrapper does not retain the variable's name.
@@ -341,9 +341,9 @@ instances share once under `shared` (component, source, parent, rendering state 
 `logicalPath` prefix) and keeps per row only its status, mount id, key, index, the rest of its path,
 host selector and commit; a row lists a shared field only where its value differs. `view:"full"`
 returns every instance with its full descriptor and source provenance.
-`appOnly` defaults to `false`; set it to `true` to include only proven app-owned instances.
-Ownership includes mounted instances and cached unmount provenance. Unknown ownership is excluded
-by the app filter and lowers coverage. `documentCommitId` marks the captured traversal;
+`appOnly` defaults to `false`; set it to `true` to hide instances known to be library code.
+Ownership includes mounted instances and cached unmount provenance. Unknown ownership stays visible
+and lowers coverage. `documentCommitId` marks the captured traversal;
 `attribution.status: "stale"` means commits or a clear raced source lookup.
 
 Each instance also reports its current `renderingState`, independently of recorded updates:
@@ -443,7 +443,8 @@ manufacture absence from `matched: 0` when the status is `unknown`, or from omit
 Ranks effect schedules and reports dependency, cleanup, hotness, and ownership evidence.
 
 **Input:** `component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. `onlyHot` defaults to `false`. `appOnly` defaults to
-`true`. `packageName` is an optional trimmed string of 1–214 characters and requires
+`true` and hides effects declared in library code, including library hooks your components call;
+effects whose declaration is unresolved stay, with `provenance.ownership: "unknown"`. `packageName` is an optional trimmed string of 1–214 characters and requires
 `appOnly:false`. `minUpdates` is an integer from 1 to 1000 and defaults to 3. Legacy `minFireRate`
 is from 0.1 to 1 and defaults to 1. Preferred `minScheduleRate` is optional, is from 0.1 to 1, and
 takes precedence. `limit` is an integer from 1 to 200 and defaults to 40.
@@ -485,6 +486,9 @@ npx @genie-react/cli call react_effect_audit \
       "effects": [
         {
           "index": 1,
+          "hookIndex": 3,
+          "hook": "useEffect",
+          "customHooks": ["useSearch"],
           "kind": "effect",
           "depsMode": "list",
           "depCount": 1,
@@ -514,6 +518,8 @@ npx @genie-react/cli call react_effect_audit \
           },
           "hotness": {
             "label": "hot",
+            "basis": "reference-only-reruns",
+            "reruns": { "valueChanged": 0, "referenceOnly": 5, "undetermined": 0 },
             "samples": 5,
             "observedRate": 1,
             "minUpdates": 5,
@@ -532,8 +538,22 @@ npx @genie-react/cli call react_effect_audit \
 ```
 
 `index` counts the component's effect hooks in call order and stays stable across renders.
-React-internal effects pushed without a hook, such as `useSyncExternalStore`'s snapshot check, are
-not reported.
+`hookIndex` is the flat hook index `react_inspect_component` reports, and `customHooks` is the same
+chain, so one effect is addressed the same way in every tool. React-internal effects pushed without a
+hook, such as `useSyncExternalStore`'s snapshot check, are not reported.
+
+Each effect is attributed to the hook call that declared it, located with the same hook inspector
+React DevTools runs when you select a component (one shadow render per component type). `source`
+is that call (`role: "hook-callsite"`), so an effect inside a library hook is library-owned even in
+an app component, and `react_effect_timeline` reports the same ownership.
+
+`hotness` answers "does this effect run more often than its inputs justify?". An effect with
+dependencies is `hot` when it re-ran at least `minUpdates` times while every dependency that changed
+identity kept equal contents (`basis: "reference-only-reruns"`), for example a new object literal on
+each render. Re-runs driven by a changed value are not hot (`value-change-reruns`). When the changed
+dependencies cannot be compared, such as functions, the label is `insufficient-data`
+(`dependency-values-not-compared`). An effect without a dependency array is hot when it was
+scheduled on at least `minScheduleRate` of updates (`no-dependency-array`).
 
 **Agent use:** Inspect the exact hook callsite and changed dependency before editing the effect. A
 schedule does not prove execution or cleanup timing, and unknown ownership must not be assigned to
@@ -545,9 +565,13 @@ Returns the preferred causal timeline for effect scheduling, execution, cleanup,
 
 **Input:** `component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. `afterDocumentCommitId` is an optional nonnegative
 integer. `limit` is an integer from 1 to 500 and defaults to 100.
-`appOnly` defaults to `false`. Set it to `true` to filter by the component that owns the scheduled
-effect. This ownership differs from the hook source reported by `react_effect_audit`.
-Read `ownershipCoverage` even when filtering leaves no events.
+`appOnly` defaults to `false`. Set it to `true` to hide effects declared in library code. Each
+event carries the same `hookIndex`, `customHooks`, declaration `source` and ownership
+(`sourceOwnership`) as `react_effect_audit`; `componentOwnership` is the component's own.
+`dependencyChanges` says whether each changed slot changed value or only reference, and
+`dependencyComparison: "previous-unavailable"` means the previous dependencies could not be read, so
+an empty `changedDependencySlots` does not mean nothing changed. Read `filteredNote` and
+`ownershipCoverage` even when filtering leaves no events.
 
 ```bash
 npx @genie-react/cli call react_effect_timeline \
@@ -576,11 +600,17 @@ npx @genie-react/cli call react_effect_timeline \
       "componentName": "Search",
       "mountId": "mount:4",
       "effectIndex": 1,
+      "hookIndex": 3,
+      "hook": "useEffect",
+      "customHooks": ["useSearch"],
+      "sourceOwnership": "app",
       "kind": "effect",
       "phase": "update",
       "event": "scheduled",
       "evidence": "exact",
+      "dependencyComparison": "compared",
       "changedDependencySlots": [0],
+      "dependencyChanges": [{ "slot": 0, "change": "value" }],
       "changedDependencySlotsOmitted": 0,
       "dependencySlotsUnscanned": 0,
       "execution": {
@@ -696,8 +726,8 @@ Returns the same bounded effect causal timeline under the legacy event-oriented 
 
 **Input:** `component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. `afterDocumentCommitId` is an optional nonnegative
 integer. `limit` is an integer from 1 to 500 and defaults to 100.
-`appOnly` defaults to `false` and filters by the component that owns the scheduled effect.
-Read `ownershipCoverage` when interpreting an empty or partial result.
+`appOnly` defaults to `false` and hides effects declared in library code.
+Read `filteredNote` and `ownershipCoverage` when interpreting an empty or partial result.
 
 ```bash
 npx @genie-react/cli call react_effect_events \
@@ -720,11 +750,17 @@ npx @genie-react/cli call react_effect_events \
       "componentName": "Search",
       "mountId": "mount:4",
       "effectIndex": 1,
+      "hookIndex": 3,
+      "hook": "useEffect",
+      "customHooks": ["useSearch"],
+      "sourceOwnership": "app",
       "kind": "effect",
       "phase": "update",
       "event": "scheduled",
       "evidence": "exact",
+      "dependencyComparison": "compared",
       "changedDependencySlots": [0],
+      "dependencyChanges": [{ "slot": 0, "change": "value" }],
       "changedDependencySlotsOmitted": 0,
       "dependencySlotsUnscanned": 0,
       "execution": { "status": "unobserved", "reason": "not-yet-observed" },
@@ -1157,8 +1193,8 @@ Stores current app-component aggregates as a named diff baseline.
 
 **Input:** `label` is a string and defaults to `baseline`; reusing a label replaces its snapshot.
 `appOnly` defaults to `true`. Use the same value for the later `react_renders_diff` call.
-If app filtering excludes unknown ownership, the baseline remains a lower bound; warming source
-metadata later cannot repair this stored baseline.
+If the baseline includes unknown ownership, its coverage stays incomplete; warming source metadata
+later cannot repair this stored baseline.
 
 ```bash
 npx @genie-react/cli call react_profile_snapshot \
@@ -1231,8 +1267,8 @@ Returns bounded render-cost and render-count leaderboards for the current profil
 
 **Input:** `limit` is an integer from 1 to 100 and defaults to 20.
 `component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. It filters before the leaderboard limit.
-`appOnly` defaults to `false`; set it to `true` for proven app-owned components. Unknown ownership
-excluded by that filter lowers coverage.
+`appOnly` defaults to `false`; set it to `true` to hide library components. Unknown ownership stays
+visible and lowers coverage.
 
 ```bash
 npx @genie-react/cli call react_profile_report \

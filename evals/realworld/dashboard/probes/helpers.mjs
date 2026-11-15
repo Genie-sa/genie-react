@@ -54,13 +54,16 @@ export async function waitForQuery(ctx, queryKey) {
 }
 
 /**
- * Returns the effect-hook ordinal `react_effect_timeline` reports for the first effect whose custom-hook chain matches.
- * @param {{ hooks: { kind: string, customHooks?: string[] }[] }} inspection
+ * Observed runs of the first effect whose custom-hook chain matches (none when no event matches), read from the `hookIndex` and `customHooks` that `react_effect_timeline` reports on each event.
+ * @param {{ events?: { hookIndex: number, customHooks: string[] | null, execution?: { status: string } }[] }} timeline
  * @param {(customHooks: string[]) => boolean} matches
  */
-export function effectOrdinal(inspection, matches) {
-  const effects = inspection.hooks.filter((hook) => hook.kind === 'effect')
-  const ordinal = effects.findIndex((hook) => matches(hook.customHooks ?? []))
-  if (ordinal === -1) throw new Error('No matching effect hook')
-  return ordinal
+export function effectRuns(timeline, matches) {
+  const events = (timeline.events ?? []).filter(
+    (event) => Array.isArray(event.customHooks) && matches(event.customHooks),
+  )
+  const hookIndex = Math.min(...events.map((event) => event.hookIndex))
+  return events.filter(
+    (event) => event.hookIndex === hookIndex && event.execution?.status === 'observed',
+  )
 }

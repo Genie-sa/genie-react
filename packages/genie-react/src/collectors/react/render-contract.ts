@@ -628,6 +628,12 @@ export const renderComponentSchema = z.object({
 const compactSourceSchema = z
   .object({
     location: z.string().nullable().describe('file:line:column of the usage or definition.'),
+    role: z
+      .enum(['element-callsite', 'component-body', 'hook-callsite'])
+      .optional()
+      .describe(
+        'What location points at: element-callsite is the JSX that created the component, in its parent; component-body is inside the component itself.',
+      ),
     ownership: z.enum(['app', 'library', 'unknown']),
   })
   .describe('Collapses source, sourceAttribution, sourceProvenance, sourceOwnership and isLibrary.')

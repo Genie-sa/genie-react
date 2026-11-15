@@ -42,20 +42,40 @@ const { clearSourceCache } = await import('./source')
 const asFiber = (shape: unknown): Fiber => shape as Fiber
 const at = (fileName: string) => ({ fileName, lineNumber: 1, columnNumber: 0 })
 
+/** Gives a fake component the evidence a real one carries: it renders a host element whose React 18 `_debugSource` names the file its code lives in, and nests any children inside that element. */
+function withOwnSource(
+  fiber: Fiber,
+  source: ReturnType<typeof at> | null,
+  children: Fiber | null = null,
+): Fiber {
+  const host = source
+    ? {
+        tag: 5,
+        type: 'div',
+        child: children,
+        sibling: null,
+        _debugOwner: fiber,
+        _debugSource: source,
+      }
+    : null
+  return Object.assign(fiber, { _debugSource: source, child: host ?? children })
+}
+
 const renderFiber = (name: string, source: ReturnType<typeof at> | null): Fiber => {
   const type = (): null => null
   Object.assign(type, { displayName: name })
-  return asFiber({
-    tag: 0,
-    type,
-    memoizedProps: {},
-    memoizedState: null,
-    actualDuration: 1,
-    selfBaseDuration: 1,
-    child: null,
-    alternate: null,
-    _debugSource: source,
-  })
+  return withOwnSource(
+    asFiber({
+      tag: 0,
+      type,
+      memoizedProps: {},
+      memoizedState: null,
+      actualDuration: 1,
+      selfBaseDuration: 1,
+      alternate: null,
+    }),
+    source,
+  )
 }
 
 const HAS_EFFECT = 0b0001
@@ -80,17 +100,19 @@ function effectFiber(
   }
   const type = (): null => null
   Object.assign(type, { displayName: name })
-  return asFiber({
-    tag: 0,
-    type,
-    updateQueue: { lastEffect: nodes[nodes.length - 1] },
-    memoizedState: nodes.reduceRight<unknown>(
-      (next, effect) => ({ memoizedState: effect, next }),
-      null,
-    ),
-    alternate: null,
-    _debugSource: source,
-  })
+  return withOwnSource(
+    asFiber({
+      tag: 0,
+      type,
+      updateQueue: { lastEffect: nodes[nodes.length - 1] },
+      memoizedState: nodes.reduceRight<unknown>(
+        (next, effect) => ({ memoizedState: effect, next }),
+        null,
+      ),
+      alternate: null,
+    }),
+    source,
+  )
 }
 
 beforeEach(() => {
@@ -123,7 +145,9 @@ describe('getRendersReport filteredNote count', () => {
         library: 0,
         unknown: 121,
       })
-      expect(cold.summary.trackedComponents).toBe(120)
+      expect(cold.summary.trackedComponents).toBe(241)
+      expect(cold.components).toHaveLength(200)
+      expect(cold.omittedByLimit).toBe(41)
 
       await vi.runAllTimersAsync()
       const warm = await getRendersMeasurement({ sort: 'renders', limit: 200, appOnly: true })
@@ -173,7 +197,7 @@ describe('getRendersReport filteredNote count', () => {
       library: 0,
       unknown: 1,
     })
-    Object.assign(unknown, { _debugSource: at('/src/Recovered.tsx') })
+    withOwnSource(unknown, at('/src/Recovered.tsx'))
     const recovered = await getRendersMeasurement({ sort: 'renders', limit: 50, appOnly: true })
     expect(recovered.sourceClassification).toEqual({
       complete: true,
@@ -186,14 +210,16 @@ describe('getRendersReport filteredNote count', () => {
     expect(recovered.components.map((entry) => entry.name)).toContain('UnknownOwner')
   })
 
-  it('does not attribute unresolved ownership to the app', async () => {
+  it('keeps unresolved ownership visible under appOnly, labelled unknown rather than app', async () => {
     recordRender(renderFiber('UnknownOwner', null), 'mount')
 
     const appOnly = await getRendersReport({ sort: 'renders', limit: 50, appOnly: true })
     const unfiltered = await getRendersReport({ sort: 'renders', limit: 50, appOnly: false })
 
-    expect(appOnly.components).toEqual([])
-    expect(appOnly.libraryHidden).toBe(1)
+    expect(appOnly.components).toMatchObject([
+      { name: 'UnknownOwner', sourceOwnership: 'unknown', isLibrary: false },
+    ])
+    expect(appOnly.libraryHidden).toBe(0)
     expect(unfiltered.components).toMatchObject([
       { name: 'UnknownOwner', sourceOwnership: 'unknown' },
     ])
@@ -216,8 +242,10 @@ describe('getRendersReport filteredNote count', () => {
         isLibrary: false,
       },
     ])
-    expect(appOnly.components).toEqual([])
-    expect(appOnly.libraryHidden).toBe(1)
+    expect(appOnly.components).toMatchObject([
+      { name: 'OpaqueMetroOwner', sourceOwnership: 'unknown' },
+    ])
+    expect(appOnly.libraryHidden).toBe(0)
   })
 
   it('counts library components hidden by appOnly, and 0 when appOnly is off', async () => {
@@ -340,8 +368,10 @@ describe('getRendersReport filteredNote count', () => {
     const measurement = await pending
 
     expect(measurement.attribution).toMatchObject({ status: 'stale' })
-    expect(measurement.libraryHidden).toBe(1)
-    expect(measurement.components).toEqual([])
+    expect(measurement.libraryHidden).toBe(0)
+    expect(measurement.components).toMatchObject([
+      { name: 'AtomicDashboard', sourceOwnership: 'unknown', isLibrary: false },
+    ])
   })
 
   it('marks an in-flight report stale when counters are cleared without a commit', async () => {
@@ -370,8 +400,10 @@ describe('getRendersReport filteredNote count', () => {
     expect(measurement.attribution.completedAtAnalysisGeneration).toBeGreaterThan(
       measurement.attribution.startedAtAnalysisGeneration,
     )
-    expect(measurement.libraryHidden).toBe(1)
-    expect(measurement.components).toEqual([])
+    expect(measurement.libraryHidden).toBe(0)
+    expect(measurement.components).toMatchObject([
+      { name: 'ClearedDuringRead', sourceOwnership: 'unknown' },
+    ])
   })
 
   it('does not store a mixed-state verification snapshot', async () => {
@@ -467,13 +499,16 @@ describe('getRendersReport filteredNote count', () => {
 })
 
 describe('getEffectAuditReport filteredNote count', () => {
-  it('does not attribute unresolved effect provenance to the app', async () => {
+  it('keeps unresolved effect provenance visible under appOnly without calling it app', async () => {
     recordEffect(effectFiber('UnknownEffectOwner', null, 1), 'mount')
 
     const appOnly = await getEffectAuditReport({ limit: 50, appOnly: true })
     const unfiltered = await getEffectAuditReport({ limit: 50, appOnly: false })
 
-    expect(appOnly.components).toEqual([])
+    expect(appOnly.components).toMatchObject([
+      { name: 'UnknownEffectOwner', effects: [{ provenance: { ownership: 'unknown' } }] },
+    ])
+    expect(appOnly.libraryEffectsHidden).toBe(0)
     expect(unfiltered.components[0]).toMatchObject({
       name: 'UnknownEffectOwner',
       componentProvenance: { ownership: 'unknown' },
@@ -499,8 +534,10 @@ describe('getEffectAuditReport filteredNote count', () => {
         reason: 'source-unresolved',
       },
     })
-    expect(appOnly.components).toEqual([])
-    expect(appOnly.libraryEffectsHidden).toBe(1)
+    expect(appOnly.components).toMatchObject([
+      { name: 'OpaqueMetroEffectOwner', effects: [{ provenance: { ownership: 'unknown' } }] },
+    ])
+    expect(appOnly.libraryEffectsHidden).toBe(0)
   })
 
   it('does not promote an exact but unsymbolicated Metro hook callsite to app ownership', async () => {
@@ -508,22 +545,12 @@ describe('getEffectAuditReport filteredNote count', () => {
       throw new Error('metro unreachable')
     })
     const fiber = Object.assign(effectFiber('OpaqueMetroHookOwner', at(EXPO_HERMES_BUNDLE), 1), {
-      __hooks: [{ name: 'Effect', hookSource: at(EXPO_HERMES_BUNDLE), subHooks: [] }],
+      __hooks: [{ id: 0, name: 'Effect', hookSource: at(EXPO_HERMES_BUNDLE), subHooks: [] }],
     })
     recordEffect(fiber, 'mount')
-    const getRetainedHookTree = (candidate: Fiber): never =>
-      (candidate as Fiber & { __hooks: unknown[] }).__hooks as never
 
-    const unfiltered = await getEffectAuditReport({
-      limit: 50,
-      appOnly: false,
-      getRetainedHookTree,
-    })
-    const appOnly = await getEffectAuditReport({
-      limit: 50,
-      appOnly: true,
-      getRetainedHookTree,
-    })
+    const unfiltered = await getEffectAuditReport({ limit: 50, appOnly: false })
+    const appOnly = await getEffectAuditReport({ limit: 50, appOnly: true })
 
     expect(unfiltered.components[0]?.effects[0]).toMatchObject({
       source: { file: 'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle' },
@@ -534,8 +561,8 @@ describe('getEffectAuditReport filteredNote count', () => {
         reason: 'hook-source-unresolved',
       },
     })
-    expect(appOnly.components).toEqual([])
-    expect(appOnly.libraryEffectsHidden).toBe(1)
+    expect(appOnly.components).toHaveLength(1)
+    expect(appOnly.libraryEffectsHidden).toBe(0)
   })
 
   it('counts library-origin effects hidden by appOnly, and 0 when off', async () => {
@@ -581,7 +608,7 @@ describe('getEffectAuditReport filteredNote count', () => {
       source: ReturnType<typeof at>,
     ): Fiber & { __hooks: unknown[] } =>
       Object.assign(fiber, {
-        __hooks: [{ name: 'Effect', hookSource: source, subHooks: [] }],
+        __hooks: [{ id: 0, name: 'Effect', hookSource: source, subHooks: [] }],
       })
     const app = withEffectHook(
       effectFiber('ColdAppEffect', at('/src/App.tsx'), 1),
@@ -594,12 +621,7 @@ describe('getEffectAuditReport filteredNote count', () => {
     recordEffect(app, 'mount')
     recordEffect(library, 'mount')
 
-    const report = await getEffectAuditReport({
-      limit: 50,
-      appOnly: true,
-      onlyHot: true,
-      getRetainedHookTree: (fiber) => (fiber as Fiber & { __hooks?: unknown[] }).__hooks as never,
-    })
+    const report = await getEffectAuditReport({ limit: 50, appOnly: true, onlyHot: true })
     const shownEffects = report.components.reduce(
       (sum, component) => sum + component.effects.length,
       0,
@@ -607,37 +629,48 @@ describe('getEffectAuditReport filteredNote count', () => {
 
     expect(report.components).toEqual([])
     expect(report.libraryEffectsHidden).toBe(1)
+    expect(report.shownByAppOnly).toEqual({ app: 1, unknown: 0 })
     expect(
       appOnlyFilteredNote(
         shownEffects,
         report.libraryEffectsHidden,
         'effects',
-        report.appEffectsAfterAppOnly,
+        report.shownByAppOnly.app,
+        report.shownByAppOnly.unknown,
       ),
-    ).toBe('0 app effects (1 library/unknown effects hidden — set appOnly:false to include)')
+    ).toBe('0 effects shown; 1 library effects hidden — set appOnly:false to include them')
   })
 })
 
 describe('appOnlyFilteredNote', () => {
   it('stays a plain disclosure while anything survives the filter', () => {
     expect(appOnlyFilteredNote(3, 12, 'components')).toBe(
-      '3 components shown (12 library/unknown components hidden — set appOnly:false to include)',
+      '3 components shown; 12 library components hidden — set appOnly:false to include them',
     )
     expect(appOnlyFilteredNote(1, 37, 'effects')).toBe(
-      '1 app effects (37 library/unknown effects hidden — set appOnly:false to include)',
+      '1 effects shown; 37 library effects hidden — set appOnly:false to include them',
     )
   })
 
-  it('escalates to a warning when the filter returns no app-owned result', () => {
-    expect(appOnlyFilteredNote(0, 148, 'components')).toBe(
-      'WARNING: appOnly returned no app-owned result, so this is not evidence that nothing happened. 0 components shown (148 library/unknown components hidden — set appOnly:false to include)',
+  it('counts the unknown-ownership results it kept, even when nothing was hidden', () => {
+    expect(appOnlyFilteredNote(4, 2, 'components', 1, 3)).toBe(
+      '4 components shown; 2 library components hidden — set appOnly:false to include them; 3 shown with ownership "unknown" because their source is unresolved',
     )
-    expect(appOnlyFilteredNote(0, 37, 'effects')).toMatch(
+    expect(appOnlyFilteredNote(2, 0, 'effects', 0, 2)).toBe(
+      '2 effects shown; 2 shown with ownership "unknown" because their source is unresolved',
+    )
+  })
+
+  it('escalates to a warning when the filter hid results and returned no app-owned one', () => {
+    expect(appOnlyFilteredNote(0, 148, 'components')).toBe(
+      'WARNING: appOnly returned no app-owned result, so this is not evidence that nothing happened. 0 components shown; 148 library components hidden — set appOnly:false to include them',
+    )
+    expect(appOnlyFilteredNote(2, 37, 'effects', 0, 2)).toMatch(
       /^WARNING: appOnly returned no app-owned result/,
     )
   })
 
-  it('says nothing when nothing was hidden', () => {
+  it('says nothing when nothing was hidden or left unattributed', () => {
     expect(appOnlyFilteredNote(0, 0, 'components')).toBeUndefined()
     expect(appOnlyFilteredNote(5, 0, 'effects')).toBeUndefined()
   })
@@ -671,8 +704,8 @@ describe('buildProvenanceReport ownership', () => {
       unresolved: 1,
       ownership: { app: 0, library: 0, unknown: 1 },
     })
-    expect(appOnly.records).toEqual([])
-    expect(appOnly.hiddenByOwnership).toBe(1)
+    expect(appOnly.records).toMatchObject([{ name: 'OpaqueMetroProvenance', ownership: 'unknown' }])
+    expect(appOnly.hiddenByOwnership).toBe(0)
   })
 })
 
@@ -683,16 +716,12 @@ describe('buildTree filteredNote', () => {
     return type
   }
   // root → App(/src) → LibRoot(node_modules) → LibChild(node_modules): the library subtree folds to its top node.
-  const treeFiber = (name: string, source: string, over: Record<string, unknown> = {}): Fiber =>
-    asFiber({
-      tag: 0,
-      type: treeType(name),
-      key: null,
-      child: null,
-      sibling: null,
-      _debugSource: at(source),
-      ...over,
-    })
+  const treeFiber = (name: string, source: string, over: { child?: Fiber | null } = {}): Fiber =>
+    withOwnSource(
+      asFiber({ tag: 0, type: treeType(name), key: null, sibling: null }),
+      at(source),
+      over.child ?? null,
+    )
 
   it('adds a filteredNote naming the folded library components when appOnly hides some', async () => {
     const libChild = treeFiber('LibChild', NODE_MODULES)
@@ -706,8 +735,8 @@ describe('buildTree filteredNote', () => {
       maxNodes: 400,
       appOnly: true,
     })
-    expect(result.filteredNote).toMatch(
-      /library\/unknown components hidden — set appOnly:false to include/,
+    expect(result.filteredNote).toBe(
+      '1 components shown; 2 library components hidden — set appOnly:false to include them',
     )
     expect(result.nodes.map((n) => n.name)).not.toContain('LibChild')
   })
@@ -738,6 +767,34 @@ describe('buildTree filteredNote', () => {
     ).toBe(true)
   })
 
+  it('counts depth on the levels it shows, so framework wrappers do not hide the app', async () => {
+    const panel = treeFiber('Panel', '/src/Panel.tsx')
+    const page = treeFiber('Page', '/src/Page.tsx', { child: panel })
+    let wrapped = page
+    for (let level = 9; level >= 0; level -= 1) {
+      wrapped = treeFiber(`RouterLayer${level}`, NODE_MODULES, { child: wrapped })
+    }
+    const app = treeFiber('App', '/src/App.tsx', { child: wrapped })
+    const root = asFiber({ tag: 3, type: null, child: app, _debugSource: null })
+
+    const result = await buildTree(root, {
+      depth: 1,
+      includeHost: false,
+      maxNodes: 400,
+      appOnly: true,
+    })
+
+    expect(result.nodes.map((node) => [node.name, node.omittedDescendants])).toEqual([
+      ['App', undefined],
+      ['Page', 1],
+    ])
+    expect(result.nodes[1]?.parentId).toBe(result.nodes[0]?.id)
+    expect(result).toMatchObject({ truncatedBy: 'depth', omitted: { depth: 1 } })
+    expect(result.filteredNote).toBe(
+      '2 components shown; 10 library components hidden — set appOnly:false to include them',
+    )
+  })
+
   it('warns when appOnly excludes every library boundary', async () => {
     const libChild = treeFiber('LibChild', NODE_MODULES)
     const libRoot = treeFiber('LibRoot', NODE_MODULES, { child: libChild })
@@ -754,7 +811,7 @@ describe('buildTree filteredNote', () => {
     expect(result.filteredNote).toMatch(/^WARNING: appOnly returned no app-owned result/)
   })
 
-  it('excludes opaque Metro ownership and reports it as unknown', async () => {
+  it('keeps an opaque Metro boundary visible as unknown while folding the library below it', async () => {
     vi.stubGlobal('fetch', async () => {
       throw new Error('metro unreachable')
     })
@@ -770,7 +827,9 @@ describe('buildTree filteredNote', () => {
       appOnly: true,
     })
 
-    expect(result.nodes).toEqual([])
+    expect(result.nodes.map((node) => [node.name, node.ownership])).toEqual([
+      ['OpaqueMetroBoundary', 'unknown'],
+    ])
     expect(result.ownershipCoverage).toMatchObject({ complete: false, unknown: 1 })
     expect(result.filteredNote).toMatch(/^WARNING: appOnly returned no app-owned result/)
     expect(
@@ -812,11 +871,12 @@ describe('buildTree filteredNote', () => {
       appOnly: true,
     })
 
-    // The partial note proves the call itself stopped at the 120 budget; the off-call warmup then finishes the remaining fibers.
-    expect(result.filteredNote).toContain('source ownership is incomplete')
-    expect(result.nodes.length).toBeGreaterThan(0)
+    // The unknown count proves the call itself stopped at the 120 budget; the off-call warmup then finishes the remaining fibers.
+    expect(result.filteredNote).toContain('11 shown with ownership "unknown"')
+    expect(result.nodes.filter((node) => node.ownership === 'unknown')).toHaveLength(11)
     await vi.waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(131)
+      // Each fiber resolves its own call site and the element it renders, so every fiber classified means two lookups each.
+      expect(fetchMock).toHaveBeenCalledTimes(262)
     })
   })
 })
