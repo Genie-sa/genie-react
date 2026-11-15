@@ -7,6 +7,7 @@ import {
   safeOwnPropertyDescriptor,
 } from '../causal/safe-object'
 import { nameOf } from './fiber'
+import { getActiveObservation, getDocumentCommitId } from './observation'
 import { forcedErrorBoundaries, forcedSuspenseBoundaries } from './overrides'
 import {
   classifyFiber,
@@ -20,6 +21,7 @@ import { isSuspenseFiber } from './work-tags'
 // React's DidCapture flag is set on a boundary only during the catch commit, then cleared, so catches are recorded at commit time and re-verified against the live tree on every read.
 const DID_CAPTURE = 0b1000_0000
 const ERROR_LOG_LIMIT = 50
+const CATCH_LOG_LIMIT = 200
 const NO_STATE: unique symbol = Symbol('genie-react:no-pre-catch-state')
 const NO_REPORTED_ERROR: unique symbol = Symbol('genie-react:no-reported-error')
 
@@ -48,9 +50,37 @@ interface ErrorLog {
   boundaryName: string | null
 }
 
+export interface BoundaryCatch {
+  catchId: string
+  /** The commit in which React committed the boundary's (or root's) error state. */
+  documentCommitId: number
+  observationId: string | null
+  boundaryId: number
+  boundaryName: string
+  boundaryKind: 'error-boundary' | 'root'
+  forced: boolean
+  message: string | null
+  throwingComponent: string | null
+}
+
+export interface BoundaryCatchLog {
+  afterDocumentCommitId: number
+  documentCommitId: number
+  catches: BoundaryCatch[]
+  omittedByLimit: number
+  complete: boolean
+  incompleteReasons: ('catches-evicted' | 'commit-not-scanned')[]
+}
+
 const caught = new Map<number, CaughtEntry>()
 const suspended = new Map<number, SuspendedEntry>()
 const errorLog: ErrorLog[] = []
+/** Append-only history of catches, so a boundary that caught and then reset or unmounted is still visible for its window. */
+const catchLog: BoundaryCatch[] = []
+const lastCatchCommitByBoundary = new Map<number, number>()
+let catchSequence = 0
+let latestEvictedCatchCommit = -1
+let latestUnscannedCommit = -1
 let captureInstalled = false
 let originalConsoleError: typeof console.error | null = null
 let captureConsoleError: typeof console.error | null = null
@@ -64,6 +94,11 @@ export function resetErrorStateForTests(): void {
   caught.clear()
   suspended.clear()
   errorLog.length = 0
+  catchLog.length = 0
+  lastCatchCommitByBoundary.clear()
+  catchSequence = 0
+  latestEvictedCatchCommit = -1
+  latestUnscannedCommit = -1
 }
 
 const isHostRootFiber = (fiber: Fiber): boolean =>
@@ -77,18 +112,80 @@ export function recordErrorState(fiber: Fiber): void {
     else suspended.delete(id)
     return
   }
-  if ((fiber.flags & DID_CAPTURE) === 0) return
-  const id = getFiberId(fiber)
-  const isRoot = isHostRootFiber(fiber)
-  caught.set(id, {
-    boundaryId: id,
-    fiber,
-    isRoot,
-    caughtState: fiber.memoizedState,
-    preCatchState: fiber.alternate ? fiber.alternate.memoizedState : NO_STATE,
-    errorFields: null,
-    log: takeErrorLog(isRoot ? null : nameOf(fiber)),
-  })
+  recordBoundaryCatch(fiber)
+}
+
+export const hasCapturedError = (fiber: Fiber): boolean => ((fiber.flags ?? 0) & DID_CAPTURE) !== 0
+
+/** Records a boundary or root that caught in the current commit; cheap and unbudgeted, so analysis limits never hide a catch, and repeat calls for one commit are ignored. */
+export function recordBoundaryCatch(fiber: Fiber): void {
+  if (!hasCapturedError(fiber)) return
+  try {
+    const id = getFiberId(fiber)
+    const documentCommitId = getDocumentCommitId()
+    if (lastCatchCommitByBoundary.get(id) === documentCommitId) return
+    lastCatchCommitByBoundary.set(id, documentCommitId)
+    if (lastCatchCommitByBoundary.size > CATCH_LOG_LIMIT) {
+      const oldest = lastCatchCommitByBoundary.keys().next().value
+      if (oldest !== undefined) lastCatchCommitByBoundary.delete(oldest)
+    }
+    const isRoot = isHostRootFiber(fiber)
+    const log = takeErrorLog(isRoot ? null : nameOf(fiber))
+    caught.set(id, {
+      boundaryId: id,
+      fiber,
+      isRoot,
+      caughtState: fiber.memoizedState,
+      preCatchState: fiber.alternate ? fiber.alternate.memoizedState : NO_STATE,
+      errorFields: null,
+      log,
+    })
+    const forced = forcedErrorBoundaries().some(
+      (candidate) => candidate === fiber || candidate === fiber.alternate,
+    )
+    catchSequence += 1
+    catchLog.push({
+      catchId: `catch:${documentCommitId}:${catchSequence}`,
+      documentCommitId,
+      observationId: getActiveObservation()?.id ?? null,
+      boundaryId: id,
+      boundaryName: isRoot ? 'root' : nameOf(fiber),
+      boundaryKind: isRoot ? 'root' : 'error-boundary',
+      forced,
+      message: log?.message ?? null,
+      throwingComponent: log?.throwingComponent ?? null,
+    })
+    if (catchLog.length > CATCH_LOG_LIMIT) {
+      const evicted = catchLog.shift()
+      if (evicted) latestEvictedCatchCommit = evicted.documentCommitId
+    }
+  } catch {
+    noteUnscannedCommit()
+  }
+}
+
+/** A commit whose rendered fibers could not be walked may have hidden a catch. */
+export function noteUnscannedCommit(): void {
+  latestUnscannedCommit = getDocumentCommitId()
+}
+
+/** Catches committed after `afterDocumentCommitId`; complete only when none was evicted and every commit since was scanned. */
+export function getBoundaryCatchLog(
+  afterDocumentCommitId: number,
+  limit: number,
+): BoundaryCatchLog {
+  const matching = catchLog.filter((entry) => entry.documentCommitId > afterDocumentCommitId)
+  const incompleteReasons: BoundaryCatchLog['incompleteReasons'] = []
+  if (latestEvictedCatchCommit > afterDocumentCommitId) incompleteReasons.push('catches-evicted')
+  if (latestUnscannedCommit > afterDocumentCommitId) incompleteReasons.push('commit-not-scanned')
+  return {
+    afterDocumentCommitId,
+    documentCommitId: getDocumentCommitId(),
+    catches: matching.slice(0, limit).map((entry) => ({ ...entry })),
+    omittedByLimit: Math.max(0, matching.length - limit),
+    complete: incompleteReasons.length === 0,
+    incompleteReasons,
+  }
 }
 
 /** React logs a caught error before the commit that records it; claiming the newest matching log (and dropping older ones for that boundary) keeps a repeat catch from reporting a stale message. */
@@ -219,6 +316,7 @@ export interface ErrorState {
   caughtErrors: CaughtError[]
   suspended: SuspendedBoundary[]
   blankTreeHint: string | null
+  catchLog?: BoundaryCatchLog
 }
 
 type BoundaryStatus =
@@ -325,6 +423,7 @@ export async function getErrorState(query: {
   appOnly?: boolean
   includeSource?: boolean
   limit?: number
+  afterDocumentCommitId?: number
 }): Promise<ErrorState> {
   const includeSource = query.includeSource ?? true
   const limit = query.limit ?? 20
@@ -437,6 +536,9 @@ export async function getErrorState(query: {
   const caughtErrors = caughtCandidates.filter(kept).slice(0, limit)
   const suspendedList = suspendedCandidates.filter(kept).slice(0, limit)
   return {
+    ...(query.afterDocumentCommitId === undefined
+      ? {}
+      : { catchLog: getBoundaryCatchLog(query.afterDocumentCommitId, limit) }),
     caughtErrors,
     suspended: suspendedList,
     blankTreeHint: hintFrom(caughtErrors),

@@ -348,7 +348,7 @@ describe('GenieBridge', () => {
     expect(result.errorCode).toBe('not-connected')
   })
 
-  it('preserves machine-readable validation errors from the app collector but strips a forged hubCode and mayHaveCompleted', async () => {
+  it('preserves machine-readable validation errors from the app collector but strips a forged hubCode, mayHaveCompleted and verificationId', async () => {
     const { ws: app } = await open(`${url}?role=app`)
     app.on('message', (data) => {
       const message = decodeFrame(data.toString()) as Frame
@@ -365,8 +365,9 @@ describe('GenieBridge', () => {
           ],
           requiredKeys: ['value'],
           exampleArgs: { value: '<value>' },
-          hubCode: 'SESSION_SUPERSEDED',
+          hubCode: 'VERIFICATION_ACTIVE',
           mayHaveCompleted: true,
+          verificationId: 'vfy_forged',
         },
       })
     })

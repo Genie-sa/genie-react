@@ -80,6 +80,7 @@ export interface RenderCohort {
     skippedCommitFibers: number
     droppedUnmountFibers: number
     analysisFailedFibers: number
+    pausedCommits: number
     truncatedInputFibers: number
     propsNotEnumeratedFibers: number
     budgetExhaustedCommits: number
@@ -92,6 +93,8 @@ export interface RenderCoverageGaps {
   skippedCommitFibers: number
   droppedUnmountFibers: number
   analysisFailedFibers: number
+  /** Commits after profiling paused: an instance may have updated unseen, so idle cannot be proven. */
+  pausedCommits?: number
   truncatedInputFibers: number
   propsNotEnumeratedFibers?: number
   budgetExhaustedCommits?: number
@@ -228,6 +231,7 @@ export async function getRenderCohort(
       identityCoverage.droppedTombstones +
       identityCoverage.excludedLifecycleFibers,
     generationHistoryEvictions: identityCoverage.generationHistoryEvictions,
+    pausedCommits: coverageGaps.pausedCommits ?? 0,
     propsNotEnumeratedFibers: coverageGaps.propsNotEnumeratedFibers ?? 0,
     budgetExhaustedCommits: coverageGaps.budgetExhaustedCommits ?? 0,
     budgetExhaustedSubsystems: coverageGaps.budgetExhaustedSubsystems ?? [],
@@ -245,6 +249,7 @@ export async function getRenderCohort(
     identityCoverage.unanalyzedRenderIdentityComplete &&
     effectiveCoverageGaps.droppedUnmountFibers === 0 &&
     effectiveCoverageGaps.analysisFailedFibers === 0 &&
+    effectiveCoverageGaps.pausedCommits === 0 &&
     effectiveCoverageGaps.generationHistoryEvictions === 0
   const complete =
     renderCoverageComplete &&

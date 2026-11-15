@@ -187,6 +187,10 @@ export const HUB_ERROR_CODES = [
   'OBSERVATION_SUPERSEDED',
   /** Another caller holds the overrides, Query simulation or recording this call would reset or replace. */
   'STATE_HELD',
+  /** A verification is recording on this document, so calls that would reset or skew its window are refused. */
+  'VERIFICATION_ACTIVE',
+  /** The hub holds no verification with this ID: it expired, was evicted, or the hub restarted. */
+  'VERIFICATION_UNKNOWN',
 ] as const
 export type HubErrorCode = (typeof HUB_ERROR_CODES)[number]
 
@@ -247,14 +251,22 @@ export const toolErrorDetailsSchema = z.object({
   interactionId: z.string().optional(),
   /** What another caller did to per-tab state this call depends on (`OBSERVATION_SUPERSEDED`, `STATE_HELD`, `SESSION_CLAIMED`). */
   ownership: ownershipConflictSchema.optional(),
+  /** The verification that holds the document lock (`VERIFICATION_ACTIVE`). */
+  verificationId: z.string().optional(),
 })
 export type ToolErrorDetails = z.infer<typeof toolErrorDetailsSchema>
 
 // Details are advisory: a malformed or newer shape degrades to absent instead of rejecting the whole frame.
 const errorDetailsField = toolErrorDetailsSchema.optional().catch(undefined)
-/** Only the hub authors `hubCode`, `mayHaveCompleted`, `interactionId` and `ownership`, so parsing an app frame strips ones an app tries to forge. */
+/** Only the hub authors `hubCode`, `mayHaveCompleted`, `interactionId`, `ownership` and `verificationId`, so parsing an app frame strips ones an app tries to forge. */
 const appErrorDetailsField = toolErrorDetailsSchema
-  .omit({ hubCode: true, mayHaveCompleted: true, interactionId: true, ownership: true })
+  .omit({
+    hubCode: true,
+    mayHaveCompleted: true,
+    interactionId: true,
+    ownership: true,
+    verificationId: true,
+  })
   .optional()
   .catch(undefined)
 

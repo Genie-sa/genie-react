@@ -11,6 +11,7 @@ import { reactCollector } from '../collectors/react'
 import '../collectors/react/hook'
 import { queryCollector, routerCollector } from '../collectors/tanstack'
 import { isQueryClient, isRouter } from '../collectors/tanstack/guards'
+import type { AppStateLike } from '../collectors/visibility'
 import { isProductionBuild } from '../production-build'
 
 export interface StartGenieOptions {
@@ -22,6 +23,8 @@ export interface StartGenieOptions {
   queryClient?: unknown
   /** Pass your TanStack Router to enable the router_* tools — on any later call/render too; it registers onto the running client. */
   router?: unknown
+  /** Pass React Native's `AppState` so verification can tell when the app was in the background; read at the first start only. */
+  appState?: unknown
 }
 
 let client: GenieClient | null = null
@@ -73,6 +76,7 @@ export function startGenie(options: StartGenieOptions): GenieClient {
     return client
   }
   collectorOptions.plugins = options.plugins
+  if (isAppState(options.appState)) collectorOptions.appState = options.appState
   const collectors: GenieCollector[] = [
     sessionCollector(),
     reactCollector(),
@@ -85,13 +89,22 @@ export function startGenie(options: StartGenieOptions): GenieClient {
   return client
 }
 
+function isAppState(value: unknown): value is AppStateLike {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'addEventListener' in value &&
+    typeof value.addEventListener === 'function'
+  )
+}
+
 export type GenieProps = StartGenieOptions
 
 /** Component form of startGenie for wiring near the root. Renders nothing; a queryClient/router that appears on a later render still gets its tools. */
 export function Genie(props: GenieProps): null {
-  const { url, appName, plugins, queryClient, router } = props
+  const { url, appName, plugins, queryClient, router, appState } = props
   useEffect(() => {
-    startGenie({ url, appName, plugins, queryClient, router })
-  }, [url, appName, plugins, queryClient, router])
+    startGenie({ url, appName, plugins, queryClient, router, appState })
+  }, [url, appName, plugins, queryClient, router, appState])
   return null
 }

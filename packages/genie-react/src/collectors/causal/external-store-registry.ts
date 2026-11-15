@@ -99,6 +99,7 @@ let registeredQueryObservers = new WeakSet<object>()
 let instrumentedQueryObservers = new WeakMap<object, () => void>()
 let observedQueryTracking = new WeakMap<object, { fields: Set<string>; exact: boolean }>()
 const queryNotifications: QueryNotificationEvent[] = []
+let evictedQueryNotifications = 0
 const routerNotifications: RouterNotificationEvent[] = []
 const NOTIFICATION_LIMIT = 1_000
 const FIELD_LIMIT = 50
@@ -195,7 +196,10 @@ export function recordQueryNotification(
   }
   latestQueryNotifications.set(observer, { event, resultReference: after })
   queryNotifications.push(event)
-  if (queryNotifications.length > NOTIFICATION_LIMIT) queryNotifications.shift()
+  if (queryNotifications.length > NOTIFICATION_LIMIT) {
+    queryNotifications.shift()
+    evictedQueryNotifications += 1
+  }
   publishEffectConsequence('query-notification', event.notificationId)
   return safeStructuredClone(event)
 }
@@ -232,6 +236,7 @@ function linkRenderEvent(
 export function listQueryNotifications(options: { observerId?: string; limit: number }): {
   events: QueryNotificationEvent[]
   omittedByLimit: number
+  evictedEvents: number
 } {
   const matching = queryNotifications.filter(
     (event) => options.observerId === undefined || event.observerId === options.observerId,
@@ -242,6 +247,7 @@ export function listQueryNotifications(options: { observerId?: string; limit: nu
       .reverse()
       .map((event) => safeStructuredClone(event)),
     omittedByLimit: Math.max(0, matching.length - options.limit),
+    evictedEvents: evictedQueryNotifications,
   }
 }
 
@@ -544,5 +550,6 @@ export function resetExternalStoreRegistryForTests(): void {
   latestRouterNotifications = new WeakMap()
   externalStoreIds = new WeakMap()
   queryNotifications.length = 0
+  evictedQueryNotifications = 0
   routerNotifications.length = 0
 }

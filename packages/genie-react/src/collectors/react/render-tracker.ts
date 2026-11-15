@@ -31,7 +31,13 @@ import {
   removeEffectRecord,
   scheduledEffectCount,
 } from './effect-tracker'
-import { clearErrorState, recordErrorState } from './error-tracker'
+import {
+  clearErrorState,
+  hasCapturedError,
+  noteUnscannedCommit,
+  recordBoundaryCatch,
+  recordErrorState,
+} from './error-tracker'
 import { findAllCommittedRootFibers, nameOf, noteCommit, noteCommittedRoot } from './fiber'
 import {
   beginInstanceObservation,
@@ -180,6 +186,8 @@ let commitObservedSinceInstall = false
 let skippedCommitFibers = 0
 let droppedPendingUnmountFibers = 0
 let analysisFailedFibers = 0
+/** Commits React made after profiling paused; they are outside the measured window, not failed analysis. */
+let pausedCommits = 0
 let truncatedInputFibers = 0
 let propsNotEnumeratedFibers = 0
 let budgetExhaustedCommits = 0
@@ -297,6 +305,7 @@ export function startRenderTracking(): boolean {
         noteCommittedRoot(root)
         if (!isSafeRenderer(rendererId)) {
           markMeasurementCollectionGap()
+          noteUnscannedCommit()
           if (getActiveObservation()) analysisFailedFibers += 1
           return
         }
@@ -316,9 +325,8 @@ export function startRenderTracking(): boolean {
         recordResultingEffectCommit(getDocumentCommitId())
         if (paused) {
           discardPendingUnmounts(rendererId)
-          const failuresBeforeRecovery = analysisFailedFibers
+          pausedCommits += 1
           advanceExcludedCommitBaseline(root)
-          if (analysisFailedFibers === failuresBeforeRecovery) analysisFailedFibers += 1
           return
         }
         if (uncertainTraversalRoots.has(root)) {
@@ -353,6 +361,7 @@ export function startRenderTracking(): boolean {
         const targetedCandidates: { fiber: Fiber; phase: RenderPhase }[] = []
         try {
           traverseRenderedFibers(root, (fiber, reportedPhase) => {
+            recordBoundaryCatch(fiber)
             // Bippy reports a Suspense re-reveal as a mount; a fiber with an alternate has committed before.
             const phase = reportedPhase === 'mount' && fiber.alternate ? 'update' : reportedPhase
             const targeted = isObservationTarget(fiber)
@@ -397,6 +406,7 @@ export function startRenderTracking(): boolean {
             candidates.push({ fiber, phase })
           })
         } catch {
+          noteUnscannedCommit()
           budget.currentCommitEvidence.hostMutationCaptureComplete = false
           budget.failed += 1
           analysisFailedFibers += 1
@@ -421,12 +431,15 @@ export function startRenderTracking(): boolean {
   return installed
 }
 
-/** Advance Bippy's per-root previous-Fiber baseline without retaining excluded commit evidence. */
+/** Advance Bippy's per-root previous-Fiber baseline without retaining excluded commit evidence; catches are still recorded, since a boundary's error state is screen state. */
 function advanceExcludedCommitBaseline(root: FiberRoot): void {
   try {
-    traverseRenderedFibers(root, () => {})
+    traverseRenderedFibers(root, (fiber) => {
+      if (hasCapturedError(fiber)) recordBoundaryCatch(fiber)
+    })
     uncertainTraversalRoots.delete(root)
   } catch {
+    noteUnscannedCommit()
     uncertainTraversalRoots.set(root, getActiveObservation()?.id ?? null)
     analysisFailedFibers += 1
   }
@@ -475,6 +488,7 @@ export const getSkippedCommitFiberCount = (): number => skippedCommitFibers
 export const getDroppedPendingUnmountFiberCount = (): number => droppedPendingUnmountFibers
 export const getPendingUnmountFiberCount = (): number => pendingUnmounts.length
 export const getAnalysisFailedFiberCount = (): number => analysisFailedFibers
+export const getPausedCommitCount = (): number => pausedCommits
 export const getTruncatedInputFiberCount = (): number => truncatedInputFibers
 export const getPropsNotEnumeratedFiberCount = (): number => propsNotEnumeratedFibers
 export const getBudgetExhaustedCommitCount = (): number => budgetExhaustedCommits
@@ -492,6 +506,7 @@ export function getRenderTrackingCoverage(
       skippedCommitFibers,
       droppedUnmountFibers: getDroppedUnmountEvidenceCount(),
       analysisFailedFibers,
+      pausedCommits,
       truncatedInputFibers,
       propsNotEnumeratedFibers,
       budgetExhaustedCommits,
@@ -534,6 +549,7 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   skippedCommitFibers = 0
   droppedPendingUnmountFibers = 0
   analysisFailedFibers = 0
+  pausedCommits = 0
   truncatedInputFibers = 0
   propsNotEnumeratedFibers = 0
   budgetExhaustedCommits = 0
@@ -750,6 +766,7 @@ interface RenderMeasurement {
   skippedCommitFibers: number
   droppedUnmountFibers: number
   analysisFailedFibers: number
+  pausedCommits: number
   truncatedInputFibers: number
   propsNotEnumeratedFibers: number
   budgetExhaustedCommits: number
@@ -835,6 +852,7 @@ export async function getRendersMeasurement(
   const skippedAtStart = skippedCommitFibers
   const droppedUnmountsAtStart = getDroppedUnmountEvidenceCount()
   const failedAtStart = analysisFailedFibers
+  const pausedAtStart = pausedCommits
   const truncatedAtStart = truncatedInputFibers
   const propsNotEnumeratedAtStart = propsNotEnumeratedFibers
   const budgetCommitsAtStart = budgetExhaustedCommits
@@ -872,6 +890,7 @@ export async function getRendersMeasurement(
     skippedCommitFibers: skippedAtStart,
     droppedUnmountFibers: droppedUnmountsAtStart,
     analysisFailedFibers: failedAtStart,
+    pausedCommits: pausedAtStart,
     truncatedInputFibers: truncatedAtStart,
     propsNotEnumeratedFibers: propsNotEnumeratedAtStart,
     budgetExhaustedCommits: budgetCommitsAtStart,
@@ -940,6 +959,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
   skippedCommitFibers: number
   droppedUnmountFibers: number
   analysisFailedFibers: number
+  pausedCommits: number
   truncatedInputFibers: number
   propsNotEnumeratedFibers: number
   budgetExhaustedCommits: number
@@ -960,6 +980,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
   const skippedAtStart = skippedCommitFibers
   const droppedUnmountsAtStart = getDroppedUnmountEvidenceCount()
   const failedAtStart = analysisFailedFibers
+  const pausedAtStart = pausedCommits
   const truncatedAtStart = truncatedInputFibers
   const propsNotEnumeratedAtStart = propsNotEnumeratedFibers
   const budgetCommitsAtStart = budgetExhaustedCommits
@@ -979,6 +1000,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
     skippedCommitFibers: skippedAtStart,
     droppedUnmountFibers: droppedUnmountsAtStart,
     analysisFailedFibers: failedAtStart,
+    pausedCommits: pausedAtStart,
     truncatedInputFibers: truncatedAtStart,
     propsNotEnumeratedFibers: propsNotEnumeratedAtStart,
     budgetExhaustedCommits: budgetCommitsAtStart,
