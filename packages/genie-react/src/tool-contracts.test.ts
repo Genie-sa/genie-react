@@ -1,5 +1,6 @@
 import { QueryClient } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRouter } from '@tanstack/react-router'
+import { createStore } from 'redux'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { sessionCollector } from './client'
@@ -14,7 +15,11 @@ function advertisedContracts() {
   const collectors = [
     sessionCollector(),
     reactCollector(),
-    ...defaultAppCollectors({ router, queryClient: new QueryClient() }),
+    ...defaultAppCollectors({
+      router,
+      queryClient: new QueryClient(),
+      reduxStore: createStore((state: number = 0) => state),
+    }),
   ]
   return [
     ...metaTools,

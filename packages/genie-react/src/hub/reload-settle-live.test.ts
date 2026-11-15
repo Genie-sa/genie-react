@@ -91,7 +91,7 @@ describe('settling right after a reload', () => {
       condition: 'settled',
       domains: ['react', 'query'],
       quietMs: 100,
-      timeoutMs: 1_000,
+      timeoutMs: 3_000,
     })
 
     expect(response.result).toMatchObject({

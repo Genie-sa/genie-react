@@ -9,6 +9,7 @@ import {
 import { type DefaultCollectorOptions, defaultAppCollectors } from '../collectors/defaults'
 import { reactCollector } from '../collectors/react'
 import '../collectors/react/hook'
+import { type ReduxStoreLike, reduxCollector } from '../collectors/redux/index'
 import { queryCollector, routerCollector } from '../collectors/tanstack'
 import { isQueryClient, isRouter } from '../collectors/tanstack/guards'
 import type { AppStateLike } from '../collectors/visibility'
@@ -23,6 +24,8 @@ export interface StartGenieOptions {
   queryClient?: unknown
   /** Pass your TanStack Router to enable the router_* tools — on any later call/render too; it registers onto the running client. */
   router?: unknown
+  /** Pass your Redux or Redux Toolkit store to enable the redux_* tools; call startGenie before your components render so they dispatch through Genie. */
+  reduxStore?: unknown
   /** Pass React Native's `AppState` so verification can tell when the app was in the background; read at the first start only. */
   appState?: unknown
 }
@@ -31,10 +34,11 @@ let client: GenieClient | null = null
 let startedUrl: string | null = null
 let routerWired = false
 let queryWired = false
+let reduxWired = false
 const collectorOptions: DefaultCollectorOptions = {}
 
-// Typed `unknown` so the public surface never references @tanstack types; duck-checked here instead, with a loud skip on mismatch.
-function tanstackCollectors(options: StartGenieOptions): GenieCollector[] {
+// Typed `unknown` so the public surface never references @tanstack or Redux types; duck-checked here instead, with a loud skip on mismatch.
+function integrationCollectors(options: StartGenieOptions): GenieCollector[] {
   const collectors: GenieCollector[] = []
   if (options.router !== undefined && !routerWired) {
     if (isRouter(options.router)) {
@@ -58,10 +62,30 @@ function tanstackCollectors(options: StartGenieOptions): GenieCollector[] {
       )
     }
   }
+  if (options.reduxStore !== undefined && !reduxWired) {
+    if (isReduxStore(options.reduxStore)) {
+      collectors.push(reduxCollector(options.reduxStore))
+      reduxWired = true
+    } else {
+      console.warn(
+        '[genie] `reduxStore` does not look like a Redux store (no dispatch/getState/subscribe) — redux tools skipped.',
+      )
+    }
+  }
   return collectors
 }
 
-/** Start Genie in a React Native / Expo app. Call once, as early as possible; later calls register newly provided TanStack instances onto the running client. */
+function isReduxStore(value: unknown): value is ReduxStoreLike {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    ['dispatch', 'getState', 'subscribe'].every(
+      (key) => typeof (value as Record<string, unknown>)[key] === 'function',
+    )
+  )
+}
+
+/** Start Genie in a React Native / Expo app. Call once, as early as possible; later calls register newly provided TanStack instances and Redux stores onto the running client. */
 export function startGenie(options: StartGenieOptions): GenieClient {
   // A release bundle that skipped the documented __DEV__ guard still never opens a hub connection.
   if (isProductionBuild()) {
@@ -72,7 +96,7 @@ export function startGenie(options: StartGenieOptions): GenieClient {
     if (options.url !== startedUrl) {
       console.warn(`[genie] already connected to ${startedUrl} — new url ${options.url} ignored.`)
     }
-    for (const collector of tanstackCollectors(options)) client.registerCollector(collector)
+    for (const collector of integrationCollectors(options)) client.registerCollector(collector)
     return client
   }
   collectorOptions.plugins = options.plugins
@@ -81,7 +105,7 @@ export function startGenie(options: StartGenieOptions): GenieClient {
     sessionCollector(),
     reactCollector(),
     ...defaultAppCollectors(collectorOptions),
-    ...tanstackCollectors(options),
+    ...integrationCollectors(options),
   ]
   client = createGenieClient({ url: options.url, appName: options.appName, collectors })
   startedUrl = options.url
@@ -102,9 +126,9 @@ export type GenieProps = StartGenieOptions
 
 /** Component form of startGenie for wiring near the root. Renders nothing; a queryClient/router that appears on a later render still gets its tools. */
 export function Genie(props: GenieProps): null {
-  const { url, appName, plugins, queryClient, router, appState } = props
+  const { url, appName, plugins, queryClient, router, reduxStore, appState } = props
   useEffect(() => {
-    startGenie({ url, appName, plugins, queryClient, router, appState })
-  }, [url, appName, plugins, queryClient, router, appState])
+    startGenie({ url, appName, plugins, queryClient, router, reduxStore, appState })
+  }, [url, appName, plugins, queryClient, router, reduxStore, appState])
   return null
 }

@@ -36,6 +36,7 @@ export interface CompactRenderCause<
   reason?: string
   changedResultFields?: string[]
   origin?: string
+  redux?: { evidence: 'exact' | 'inferred'; actions: string[] }
 }
 
 /** The memo-relevant counters that are non-zero, plus `keep` even at zero. */
@@ -87,6 +88,26 @@ export function compactRenderCause<Kind extends string, Evidence extends string>
         }
       : {}),
     ...(typeof origin === 'string' && origin !== name ? { origin } : {}),
+    ...compactRedux(cause.kind === 'external-store' ? fields.redux : undefined),
+  }
+}
+
+const MAX_COMPACT_REDUX_ACTIONS = 5
+
+function compactRedux(redux: unknown): Pick<CompactRenderCause, 'redux'> {
+  if (typeof redux !== 'object' || redux === null) return {}
+  const evidence = Reflect.get(redux, 'evidence')
+  const actions = Reflect.get(redux, 'actions')
+  if ((evidence !== 'exact' && evidence !== 'inferred') || !Array.isArray(actions)) return {}
+  return {
+    redux: {
+      evidence,
+      actions: actions.slice(-MAX_COMPACT_REDUX_ACTIONS).map((action) => {
+        const type =
+          typeof action === 'object' && action !== null ? Reflect.get(action, 'type') : null
+        return typeof type === 'string' ? type : 'unrecorded change'
+      }),
+    },
   }
 }
 

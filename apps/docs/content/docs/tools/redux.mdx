@@ -1,0 +1,125 @@
+---
+title: Redux
+description: Read the actions a Redux store recorded, catch in-place mutation, and read its state.
+icon: History
+---
+
+The JSON examples below show selected fields from the full response.
+
+These tools exist when the app registers the [Redux collector](/docs/setup/redux). To find the
+action behind a render, read the `external-store` cause from `react_render_causes`: its `redux`
+field names the actions and grades the link.
+
+## `redux_actions`
+
+Lists recorded dispatches, oldest first, with the slices each one changed and an in-place mutation
+check.
+
+**Input:** `storeId` is needed only when the app collects several stores. `type` keeps one exact
+action type and `typePrefix` keeps types starting with it. `slice` keeps records that changed that
+top-level slice or mutated something under it. `kinds` keeps record kinds (`action`, `thunk`,
+`unrecorded-change`, `mutation-outside-dispatch`). `mutationsOnly` defaults to false. Omit
+`afterSequence` to read the latest `limit` records (1 to 200, default 50); pass a previous
+`nextAfterSequence` to read forward. `view` defaults to `summary`; `full` adds each action's bounded
+`payload`, the render events that named it as exact, and Genie's own time.
+
+```bash
+npx @genie-react/cli call redux_actions '{"typePrefix":"reports/","view":"full"}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "store": { "storeId": "redux-store:1", "name": "app" },
+  "records": [
+    {
+      "sequence": 147,
+      "actionId": "redux-store:1/action:147",
+      "kind": "action",
+      "type": "reports/NOTE_ADDED",
+      "parentActionId": null,
+      "durationMs": 0.4,
+      "outcome": "returned",
+      "rootStateChanged": false,
+      "changedSlices": [],
+      "unrecordedNestedDispatches": 0,
+      "mutation": {
+        "status": "detected",
+        "notScannedReason": null,
+        "findings": [{ "path": ["reports", "notes"], "change": "length-changed" }],
+        "findingsOmitted": false,
+        "objectsCompared": 212,
+        "scanTruncated": true
+      },
+      "payload": {
+        "type": "reports/NOTE_ADDED",
+        "note": { "id": "note-1", "text": "Spike caused by the billing migration" }
+      },
+      "renderEventIds": []
+    }
+  ],
+  "matched": 1,
+  "omittedBefore": 0,
+  "more": false,
+  "nextAfterSequence": 147,
+  "latestSequence": 147,
+  "coverage": {
+    "historyLimit": 500,
+    "evictedRecords": 0,
+    "unrecordedChanges": 0,
+    "mutationDetection": true
+  }
+}
+```
+
+**Agent use:** Proves which actions ran, what they carried, and what the reducers made of them.
+`rootStateChanged: false` means no Redux subscriber re-rendered. `mutation.status: "detected"` means
+existing state objects changed in place during that dispatch, the mark of a reducer that mutates and
+returns the same state; fix the reducer at the reported path. A thunk's actions name it as
+`parentActionId`, so an out-of-order `RECEIVED` can be traced to the thunk that started it.
+
+`none-detected` covers only the objects the bounded scan compared; `scanTruncated: true` says some
+were not. An `unrecorded-change` is a state change no recorded dispatch explains, such as middleware
+dispatching on its own; `coverage.unrecordedChanges` counts them.
+
+## `redux_state`
+
+Reads the current state, or one path in it, depth-bounded like `query_get`.
+
+**Input:** `storeId` is needed only when the app collects several stores. `path` is an optional
+array of keys and indexes, such as `["reports","notes"]`; omit it for the root. `depth` is from 1 to
+6 and defaults to 3. `where` selects entries of the container at `path` whose `field` (a key or a
+path array) `equals` a string, number, boolean or null, instead of returning the container.
+
+```bash
+npx @genie-react/cli call redux_state '{"path":["reports","notes"],"where":{"field":"id","equals":"note-1"}}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "store": { "storeId": "redux-store:1", "name": "app" },
+  "path": ["reports", "notes"],
+  "found": true,
+  "selection": {
+    "matchCount": 1,
+    "scanned": 1,
+    "scanTruncated": false,
+    "containerFound": true,
+    "matches": [
+      {
+        "path": ["reports", "notes", 0],
+        "value": { "id": "note-1", "text": "Spike caused by the billing migration" }
+      }
+    ]
+  },
+  "topLevelKeys": ["session", "ui", "projects", "issues", "reports"],
+  "asOfSequence": 147
+}
+```
+
+**Agent use:** Confirms what the store holds after an action, such as a note that reached the state
+while the screen did not change. `asOfSequence` is the latest `redux_actions` record when the state
+was read. A wrong path returns `found: false` with `topLevelKeys` to correct it.

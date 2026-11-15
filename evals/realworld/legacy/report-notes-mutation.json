@@ -37,7 +37,7 @@
     "script": "probes/report-notes-mutation.mjs"
   },
   "genieEvidence": {
-    "observability": "app-tools-only",
-    "notes": "Genie's React tools can only show the absence of a render: ReportNotesList has no update after the click. The decisive evidence is from app tools: app_redux_actions reports NOTE_ADDED with changedSlices [], and app_redux_state shows the note in the store."
+    "observability": "full",
+    "notes": "Genie's Redux collector proves it. redux_actions reports NOTE_ADDED with rootStateChanged false, changedSlices [] and mutation.status 'detected' at ['reports','notes'] (length-changed): the reducer changed the existing array in place and returned the same state, so no subscriber was notified. redux_state shows the note in the store and ReportNotesList has no render. After the fix the action has no mutation, changes the reports slice, and the connect() wrapper's external-store cause names reports/NOTE_ADDED. That link is inferred: the wrapper sits under ReportsPage's connect(), which can relay a change from its own layout effect, so Genie cannot prove by ordering that no earlier action is the cause."
   }
 }

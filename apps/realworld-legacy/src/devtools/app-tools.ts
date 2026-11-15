@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { request } from '../api/http'
 import { store } from '../store'
 import { signIn, signOut } from '../store/session'
-import { reduxTools } from './redux-tools'
 
 const DEMO_EMAIL = 'dana@acme.test'
 const DEMO_PASSWORD = 'password'
@@ -106,6 +105,5 @@ export function registerAppTools(): () => void {
       handler: (body) =>
         request('/api/__control/notify', { method: 'POST', body: JSON.stringify(body) }),
     }),
-    ...reduxTools(store),
   )
 }

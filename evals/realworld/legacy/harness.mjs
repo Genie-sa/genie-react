@@ -268,10 +268,20 @@ function createSession({ page, name, baseUrl, hubRoot }) {
       return events
     },
     async reduxState(path) {
-      return call('app_redux_state', { path, maxItems: 50, depth: 6 })
+      return call('redux_state', { path, depth: 6 })
     },
-    async reduxActions(options = {}) {
-      return call('app_redux_actions', { limit: 300, ...options })
+    async reduxLatestSequence() {
+      return (await call('redux_actions', { limit: 1 })).latestSequence
+    },
+    /** Every retained redux_actions record after `afterSequence`, read page by page. */
+    async reduxActions({ afterSequence = 0, ...filters } = {}) {
+      const records = []
+      for (let cursor = afterSequence; ; ) {
+        const page = await call('redux_actions', { ...filters, afterSequence: cursor, limit: 200 })
+        records.push(...page.records)
+        if (!page.more) return { records, coverage: page.coverage }
+        cursor = page.nextAfterSequence
+      }
     },
   }
 }
