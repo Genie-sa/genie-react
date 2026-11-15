@@ -8,7 +8,6 @@ import {
   type CaptureArtifact,
   type CaptureDomain,
   type captureReadSummarySchema,
-  dehydrate,
   devtoolsCaptureCompareContract,
   devtoolsCaptureCreateContract,
   devtoolsCaptureListContract,
@@ -419,32 +418,21 @@ export class CaptureManager<TSession extends CaptureSession> {
       throw new CaptureInterruptedError(response)
     }
     const durationMs = Date.now() - startedAt
+    // Results arrive already bounded and encoded by the app; encoding them again would rewrite Genie's own placeholders. MAX_CAPTURE_BYTES bounds the artifact.
     return response.ok
       ? {
           status: 'ok',
           capturedAt: new Date().toISOString(),
           durationMs,
-          result: dehydrate(response.result, {
-            depth: 12,
-            maxEntries: 1_000,
-            maxStringLength: 10_000,
-          }),
-          args: dehydrate(args, {
-            depth: 8,
-            maxEntries: 200,
-            maxStringLength: 2_000,
-          }),
+          result: structuredClone(response.result),
+          args: structuredClone(args),
         }
       : {
           status: 'error',
           capturedAt: new Date().toISOString(),
           durationMs,
           error: response.error ?? `Tool ${JSON.stringify(recipe.name)} failed.`,
-          args: dehydrate(args, {
-            depth: 8,
-            maxEntries: 200,
-            maxStringLength: 2_000,
-          }),
+          args: structuredClone(args),
         }
   }
 

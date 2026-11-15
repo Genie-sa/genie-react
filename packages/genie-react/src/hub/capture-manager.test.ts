@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   type CaptureArtifact,
   captureArtifactSchema,
+  dehydrate,
   devtoolsCaptureCreateContract,
+  isDehydratedNode,
   type ToolDescriptor,
 } from '../protocol'
 import { CaptureManager, type CaptureSession, verifyCaptureIntegrity } from './capture-manager'
@@ -179,6 +181,28 @@ describe('capture manager artifacts', () => {
       limit: 50,
       appOnly: true,
     })
+  })
+
+  it('stores a tool result exactly as the app sent it, placeholders and long strings included', async () => {
+    let nested: Record<string, unknown> = { leaf: { beyond: 'the app depth limit' } }
+    for (let level = 0; level < 12; level += 1) nested = { level, child: nested }
+    const appValue = dehydrate({ props: nested, map: new Map([['k', 1]]) }, { depth: 14 })
+    const renders = {
+      ...comparableRenders,
+      components: [{ name: 'Deep', props: appValue, note: 'x'.repeat(12_000) }],
+    }
+
+    const created = await createCapture(manager(renders), 'faithful')
+    const stored = created.sections.react?.tools.react_get_renders?.result as typeof renders
+
+    const { argsEcho: _, ...sent } = stored as typeof renders & { argsEcho?: unknown }
+    expect(sent).toEqual(renders)
+    let cursor: unknown = (stored.components[0]?.props as { props: unknown }).props
+    while (typeof cursor === 'object' && cursor !== null && 'child' in cursor) {
+      cursor = (cursor as { child: unknown }).child
+    }
+    expect(isDehydratedNode((cursor as { leaf: unknown }).leaf)).toBe(true)
+    expect((cursor as { leaf: { path: unknown } }).leaf.path).toBeInstanceOf(Array)
   })
 
   it('retains invocation args, content integrity, and a bounded summary-first read', async () => {

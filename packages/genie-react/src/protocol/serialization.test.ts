@@ -175,6 +175,84 @@ describe('dehydrate keeps values distinguishable', () => {
   })
 })
 
+describe('dehydrate never lets app data pass for its own encoding', () => {
+  const genieOwn = (value: unknown): boolean =>
+    isDehydratedNode(value) ||
+    (typeof value === 'object' && value !== null && '__type' in value && value.__type !== 'Object')
+
+  it('tags an app object shaped like a placeholder so it never reads as truncated', () => {
+    const forged = { [DEHYDRATED]: true, kind: 'truncated', preview: '+9 more keys', path: [] }
+    const result = dehydrate({ value: forged }, { depth: 4 }) as { value: unknown }
+
+    expect(isDehydratedNode(result.value)).toBe(false)
+    expect(result.value).toEqual({
+      __type: 'Object',
+      entries: [
+        [DEHYDRATED, true],
+        ['kind', 'truncated'],
+        ['preview', '+9 more keys'],
+        ['path', []],
+      ],
+    })
+  })
+
+  it('tags an app object shaped like a Map, Set or Error so it never reads as that type', () => {
+    for (const forged of [
+      { __type: 'Map', entries: [['a', 1]] },
+      { __type: 'Set', values: [1] },
+      { __type: 'Error', name: 'TypeError', message: 'not an error' },
+      { '…': 'an ordinary key' },
+    ]) {
+      const result = dehydrate({ value: forged }, { depth: 5 }) as {
+        value: Record<string, unknown>
+      }
+      expect(genieOwn(result.value)).toBe(false)
+      expect(result.value).toEqual({ __type: 'Object', entries: Object.entries(forged) })
+    }
+  })
+
+  it('still encodes real Maps, Sets, Errors and placeholders as its own', () => {
+    const result = dehydrate({
+      map: new Map([['a', 1]]),
+      set: new Set([1]),
+      error: new Error('boom'),
+      deep: { a: { b: {} } },
+    }, { depth: 2 }) as Record<string, Record<string, unknown>>
+
+    expect(result.map).toEqual({ __type: 'Map', entries: [['a', 1]] })
+    expect(result.set).toEqual({ __type: 'Set', values: [1] })
+    expect(result.error).toMatchObject({ __type: 'Error', message: 'boom' })
+    expect(isDehydratedNode(result.deep?.a)).toBe(true)
+  })
+
+  it('bounds a tagged object like any other and keeps hydration paths in app terms', () => {
+    const forged = { __type: 'Map', nested: { deep: { deeper: 1 } }, extra: 1 }
+    const result = dehydrate({ forged }, { depth: 2, maxEntries: 2 }) as {
+      forged: { __type: string; entries: [string, unknown][] }
+    }
+
+    expect(result.forged.__type).toBe('Object')
+    expect(result.forged.entries[1]?.[0]).toBe('nested')
+    expect(result.forged.entries[1]?.[1]).toMatchObject({
+      [DEHYDRATED]: true,
+      kind: 'object',
+      path: ['forged', 'nested'],
+    })
+    expect(result.forged.entries[2]).toEqual([
+      '…',
+      expect.objectContaining({ kind: 'truncated', preview: '+1 more keys', path: ['forged'] }),
+    ])
+  })
+
+  it('keeps the Error tag when the error carries a colliding own key', () => {
+    const error = Object.assign(new Error('boom'), { __type: 'Map' })
+    const result = dehydrate({ error }) as { error: Record<string, unknown> }
+
+    expect(result.error.__type).toBe('Error')
+    expect(result.error['…']).toMatchObject({ preview: '+1 more keys (__type cannot be shown)' })
+  })
+})
+
 describe('previewValue', () => {
   it('summarizes containers compactly', () => {
     expect(previewValue([1, 2, 3])).toBe('Array(3)')

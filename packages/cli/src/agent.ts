@@ -73,6 +73,7 @@ import {
   type ToolDescriptor,
   toolDetail,
 } from './tool-output'
+import { jsonText } from './text-output'
 import { renderToolText } from './tool-text-output'
 
 export {
@@ -335,7 +336,7 @@ function overflowRecovery(
 /** `--fields` output: the top-level object projected when any requested key exists on it; otherwise one JSONL row per record in the FIRST array-of-records field (key order, empty → zero rows). Deterministic — the projected source never depends on which array happens to have rows. */
 export function projectFields(result: unknown, fields: string[]): string {
   return projectRows(result, fields)
-    .map((row) => JSON.stringify(row))
+    .map((row) => jsonText(row))
     .join('\n')
 }
 
@@ -926,7 +927,7 @@ export async function runBatch(
     else if (opts.maxBytes !== undefined) {
       out(
         renderOutputLines(
-          results.map((result) => JSON.stringify(result)).join('\n'),
+          results.map((result) => jsonText(result)).join('\n'),
           opts.maxBytes,
         ),
       )
