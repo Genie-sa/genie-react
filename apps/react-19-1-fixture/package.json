@@ -1,0 +1,16 @@
+{
+  "name": "@genie-react/react-19-1-fixture",
+  "private": true,
+  "type": "module",
+  "description": "React 19.1 for tests that need a real React 19.1 renderer beside the workspace's current React.",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "dependencies": {
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  }
+}

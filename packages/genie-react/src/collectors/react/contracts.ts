@@ -28,6 +28,7 @@ export {
   reactRenderCausesContract,
   renderCauseSchema,
 } from './render-contract'
+export { reactSuspenseContract } from './suspense-contract'
 
 /** A fiber's stable id (bippy `getFiberId`), branded against the collector's other numbers; erases to a plain number at runtime, so it serializes unchanged. */
 const nodeIdSchema = z.number().int().brand<'ReactNodeId'>()
