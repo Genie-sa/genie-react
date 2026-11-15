@@ -19,11 +19,17 @@ export function bridgeUrlFor(address: string, port: number): string {
   return `ws://${isIPv6(host) ? `[${host}]` : host}:${port}${GENIE_WS_PATH}`
 }
 
-/** Publishes the hub for the genie CLI: endpoint in `.genie/bridge.json`, token in the private token store; returns the discovery path, or null when another live process already publishes this root and keeps it. */
+/** One hub's publication of a root. A process can host several hubs in turn (Vite restarts its server in place), so the files carry the instance and removal checks it, not only the pid. */
+export interface DiscoveryPublication {
+  file: string
+  instance: string
+}
+
+/** Publishes the hub for the genie CLI: endpoint in `.genie/bridge.json`, token in the private token store; returns the publication, or null when another live process already publishes this root and keeps it. */
 export async function writeDiscoveryFile(
   rootDir: string,
   info: HubDiscovery,
-): Promise<string | null> {
+): Promise<DiscoveryPublication | null> {
   const { token, ...endpoint } = info
   const file = join(rootDir, GENIE_DISCOVERY_FILE)
   const directory = dirname(file)
@@ -34,18 +40,19 @@ export async function writeDiscoveryFile(
   return withPublishLock(directory, async () => {
     // A second dev server or hub for the same root must not take over: its exit would delete the files and strand the first, still-running bridge.
     if (await publishedByAnotherLiveBridge(file)) return null
+    const instance = randomUUID()
     // Token first, so a CLI that already sees the new endpoint can authenticate to it.
-    const tokenFile = await writeAgentToken(rootDir, token)
+    const tokenFile = await writeAgentToken(rootDir, token, instance)
     // Write-then-rename so a concurrent CLI read never sees a torn file.
     const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
     // The token path is recorded because a CLI running with a different TMPDIR (agent sandboxes) would otherwise look in the wrong per-user directory.
     await writeFile(
       temporary,
-      `${JSON.stringify({ ...endpoint, pid: process.pid, tokenFile }, null, 2)}\n`,
+      `${JSON.stringify({ ...endpoint, pid: process.pid, instance, tokenFile }, null, 2)}\n`,
       { mode: 0o600, flag: 'wx' },
     )
     await rename(temporary, file)
-    return file
+    return { file, instance }
   })
 }
 
@@ -110,36 +117,47 @@ async function ensureSelfIgnored(directory: string): Promise<void> {
   }
 }
 
-/** Removes only the files this process published, so a hub that exits after another took over the root leaves the newer hub discoverable. */
-export async function removeDiscoveryFile(rootDir: string): Promise<void> {
+/** Removes only files this publisher wrote, under the publish lock so the check and the delete cannot straddle a new publication; with `instance` they must carry that publication, so a closing server leaves the files its in-process successor wrote, and without it any publication by this process matches. */
+export async function removeDiscoveryFile(rootDir: string, instance?: string): Promise<void> {
   const discoveryFile = join(rootDir, GENIE_DISCOVERY_FILE)
   const tokenFile = await agentTokenFile(rootDir).catch(() => null)
-  await Promise.all([
-    removeIfOwned(discoveryFile),
-    tokenFile === null ? undefined : removeIfOwned(tokenFile),
-  ])
+  const remove = () =>
+    Promise.all([
+      removeIfOwned(discoveryFile, instance),
+      tokenFile === null ? undefined : removeIfOwned(tokenFile, instance),
+    ])
+  const directory = dirname(discoveryFile)
+  if ((await stat(directory).catch(() => null))?.isDirectory())
+    await withPublishLock(directory, remove)
+  else await remove()
 }
 
-async function removeIfOwned(file: string): Promise<void> {
-  if ((await discoveryOwnerPid(file)) === process.pid) await rm(file, { force: true })
+async function removeIfOwned(file: string, instance: string | undefined): Promise<void> {
+  const text = await readFile(file, 'utf8').catch(() => null)
+  if (text !== null && ownedBy(text, instance)) await rm(file, { force: true })
 }
 
-/** {@link removeDiscoveryFile} for exit and signal handlers, where no promise settles before the process ends. */
-export function removeDiscoveryFileSync(rootDir: string): void {
-  removeIfOwnedSync(join(rootDir, GENIE_DISCOVERY_FILE))
+/** {@link removeDiscoveryFile} for exit and signal handlers, where no promise settles before the process ends; the process is ending, so no publication of its own can race it. */
+export function removeDiscoveryFileSync(rootDir: string, instance?: string): void {
+  removeIfOwnedSync(join(rootDir, GENIE_DISCOVERY_FILE), instance)
   try {
-    removeIfOwnedSync(agentTokenFileSync(rootDir))
+    removeIfOwnedSync(agentTokenFileSync(rootDir), instance)
   } catch {
     // the root vanished, so there is no key to locate a token by; ignore
   }
 }
 
-function removeIfOwnedSync(file: string): void {
+function removeIfOwnedSync(file: string, instance: string | undefined): void {
   try {
-    if (ownerPidOf(readFileSync(file, 'utf8')) === process.pid) rmSync(file, { force: true })
+    if (ownedBy(readFileSync(file, 'utf8'), instance)) rmSync(file, { force: true })
   } catch {
     // already gone or unreadable: nothing of ours to remove
   }
+}
+
+function ownedBy(text: string, instance: string | undefined): boolean {
+  const record = publisherOf(text)
+  return record.pid === process.pid && (instance === undefined || record.instance === instance)
 }
 
 // A live pid alone can be a recycled one after a crash, so the owner must also still accept connections on its published endpoint.
@@ -178,16 +196,26 @@ function acceptsConnections(host: string, port: number): Promise<boolean> {
 /** The `pid` recorded in a discovery or token file; null when the file is missing, unreadable or carries none. */
 async function discoveryOwnerPid(file: string): Promise<number | null> {
   try {
-    return ownerPidOf(await readFile(file, 'utf8'))
+    return publisherOf(await readFile(file, 'utf8')).pid
   } catch {
     return null
   }
 }
 
-function ownerPidOf(text: string): number | null {
-  const parsed: unknown = JSON.parse(text)
-  const pid = typeof parsed === 'object' && parsed !== null && 'pid' in parsed ? parsed.pid : null
-  return typeof pid === 'number' ? pid : null
+function publisherOf(text: string): { pid: number | null; instance: string | null } {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return { pid: null, instance: null }
+  }
+  if (typeof parsed !== 'object' || parsed === null) return { pid: null, instance: null }
+  const pid = 'pid' in parsed ? parsed.pid : null
+  const instance = 'instance' in parsed ? parsed.instance : null
+  return {
+    pid: typeof pid === 'number' ? pid : null,
+    instance: typeof instance === 'string' ? instance : null,
+  }
 }
 
 /** ESRCH means the process is gone; EPERM means alive but owned by another user. */

@@ -139,6 +139,8 @@ interface VerificationManagerOptions<TSession extends VerificationSession> {
     quietMs: number,
     timeoutMs: number,
   ) => Promise<InteractionSettleResult>
+  /** Whether an earlier document of the session's tab advertised a settle domain this one has not registered yet; such a domain is waited on, not dropped. */
+  advertisedBefore?: (session: TSession, domain: VerifySettleDomain) => boolean
   ledger?: VerificationLedger
   wait?: (ms: number) => Promise<void>
 }
@@ -345,7 +347,9 @@ export class VerificationManager<TSession extends VerificationSession> {
       startDocumentCommitId: clear.documentCommitId,
       resolutions,
       begin: { ...snapshot, clear },
-      domains: input.settle.domains ?? advertisedDomains(session),
+      domains:
+        input.settle.domains ??
+        advertisedDomains(session, (domain) => this.options.advertisedBefore?.(session, domain)),
       tailMs,
       fingerprint: fingerprintOf(input, resolutions, session),
       retained,
@@ -1144,11 +1148,16 @@ function distinctTargets(claims: readonly VerifyClaim[]): VerifyTarget[] {
   return [...seen.values()]
 }
 
-function advertisedDomains(session: VerificationSession): VerifySettleDomain[] {
+function advertisedDomains(
+  session: VerificationSession,
+  advertisedBefore: (domain: VerifySettleDomain) => boolean | undefined,
+): VerifySettleDomain[] {
+  const expected = (domain: 'query' | 'router', tool: string) =>
+    hasTool(session, tool) || advertisedBefore(domain) === true
   return [
     'react',
-    ...(hasTool(session, 'query_is_fetching') ? (['query'] as const) : []),
-    ...(hasTool(session, 'router_get_state') ? (['router'] as const) : []),
+    ...(expected('query', 'query_is_fetching') ? (['query'] as const) : []),
+    ...(expected('router', 'router_get_state') ? (['router'] as const) : []),
   ]
 }
 

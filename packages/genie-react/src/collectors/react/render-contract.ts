@@ -922,7 +922,7 @@ const renderReportBaseSchema = z.object({
     .string()
     .nullable()
     .describe(
-      'Cursor for remaining frozen rows, or null when exhausted or includeCursor:false. Unknown ownership is reported separately.',
+      'Cursor for remaining frozen rows, or null when exhausted, includeCursor:false, or pagination.cursorOmitted is set. Unknown ownership is reported separately.',
     ),
   pagination: z.object({
     snapshotId: z.string().nullable(),
@@ -933,6 +933,12 @@ const renderReportBaseSchema = z.object({
       .nullable()
       .describe(
         'Cursor expiry as Unix time in milliseconds. Null for one-shot reads. At most three snapshots of up to 5000 name/update-filtered candidates are retained.',
+      ),
+    cursorOmitted: z
+      .enum(['candidate-limit'])
+      .optional()
+      .describe(
+        'Set when includeCursor was true but no cursor was retained: more than 5000 components match the name/update filters. The report is one-shot instead; the summary covers every match and omittedByLimit counts the rows past limit. Narrow component, nameFilter, excludeNames or minUpdates to page through them.',
       ),
   }),
   ...renderMeasurementEnvironmentSchema.shape,

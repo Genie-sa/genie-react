@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { GenieClient, type SocketLike } from '../client'
 import { reactCollector } from '../collectors/react'
+import { PENDING_WORK_FIBERS_PER_CALL } from '../collectors/react/pending-work'
 import { newId, reactQuiesceContract } from '../protocol'
 import {
   createTestBridge,
@@ -215,5 +216,86 @@ describe('react_quiesce against a real React tree', () => {
     expect(response.result.domains.react.lastObserved.pendingWork).toMatchObject({
       scheduledRoots: 0,
     })
+  })
+
+  describe('on a tree larger than one pending-work scan slice', () => {
+    /** Rows that come before the boundary in walk order, so the first slice ends long before it. */
+    function Rows(): ReactNode {
+      return Array.from({ length: PENDING_WORK_FIBERS_PER_CALL + 10_000 }, (_, index) =>
+        createElement('i', { key: index }),
+      )
+    }
+
+    it('does not report idle while the only fallback sits past the first slice', async () => {
+      const never = new Promise<string>(() => {})
+      function Reader(): ReactNode {
+        return createElement('p', null, use(never))
+      }
+      await mounted(
+        createElement(
+          'main',
+          null,
+          createElement(Rows),
+          createElement(
+            Suspense,
+            { fallback: createElement('p', null, 'loading') },
+            createElement(Reader),
+          ),
+        ),
+        'loading',
+      )
+      const result = await quiesce({ idleMs: 200, timeoutMs: 3_000 })
+      expect(result).toMatchObject({
+        ok: false,
+        outcome: 'timed-out',
+        pendingWork: { suspendedBoundaries: 1, scanTruncated: false },
+      })
+      expect(result.reason).toContain('1 Suspense boundary shows a fallback')
+    }, 20_000)
+
+    it('keeps devtools_wait settled pending while the only fallback sits past the first slice', async () => {
+      const never = new Promise<string>(() => {})
+      function Reader(): ReactNode {
+        return createElement('p', null, use(never))
+      }
+      await mounted(
+        createElement(
+          'main',
+          null,
+          createElement(Rows),
+          createElement(
+            Suspense,
+            { fallback: createElement('p', null, 'loading') },
+            createElement(Reader),
+          ),
+        ),
+        'loading',
+      )
+      const response = await invoke('devtools_wait', {
+        condition: 'settled',
+        domains: ['react'],
+        quietMs: 200,
+        timeoutMs: 3_000,
+      })
+      expect(response.result).toMatchObject({
+        ok: false,
+        reason: 'timeout',
+        domains: { react: { status: 'pending' } },
+      })
+      expect(response.result.domains.react.lastObserved.pendingWork).toMatchObject({
+        suspendedBoundaries: 1,
+        scanTruncated: false,
+      })
+    }, 20_000)
+
+    it('reaches idle once the slices have covered a tree with no pending work', async () => {
+      await mounted(createElement('main', null, createElement(Rows), 'rows'), 'rows')
+      const result = await quiesce({ idleMs: 200, timeoutMs: 5_000 })
+      expect(result).toMatchObject({
+        outcome: 'idle',
+        pendingWork: { suspendedBoundaries: 0, scanTruncated: false },
+      })
+      expect(result.pendingWork?.scannedFibers).toBeGreaterThan(PENDING_WORK_FIBERS_PER_CALL)
+    }, 20_000)
   })
 })

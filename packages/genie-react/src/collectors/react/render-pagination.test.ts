@@ -226,19 +226,25 @@ describe('render cursor lifecycle and bounded retention', () => {
     },
   )
 
-  it('allows 5000 candidates and rejects overflow before inspecting sources', async () => {
+  it('allows 5000 candidates and answers an overflow with one bounded page instead of an error', async () => {
     vi.useFakeTimers()
     clearRenders()
     for (let index = 0; index < 5000; index += 1) recordRender(row(`Row${index}`), 'update')
     const atLimit = await getRendersMeasurement({ sort: 'renders', limit: 200, appOnly: false })
     expect(atLimit.pagination.totalComponents).toBe(5000)
     expect(atLimit.omittedByLimit).toBe(4800)
+    expect(atLimit.pagination.cursorOmitted).toBeUndefined()
     recordRender(row('Overflow'), 'update')
-    getSource.mockClear()
-    await expect(
-      getRendersMeasurement({ sort: 'renders', limit: 200, appOnly: false }),
-    ).rejects.toThrow('Narrow component, nameFilter, excludeNames, or minUpdates')
-    expect(getSource).not.toHaveBeenCalled()
+    const overflow = await getRendersMeasurement({ sort: 'renders', limit: 200, appOnly: false })
+    expect(overflow.components).toHaveLength(200)
+    expect(overflow.summary.trackedComponents).toBe(5001)
+    expect(overflow.omittedByLimit).toBe(4801)
+    expect(overflow.nextCursor).toBeNull()
+    expect(overflow.pagination).toMatchObject({
+      snapshotId: null,
+      totalComponents: 5001,
+      cursorOmitted: 'candidate-limit',
+    })
     const oneShot = await getRendersMeasurement({
       sort: 'renders',
       limit: 1,

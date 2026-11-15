@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   createBrowserHistory,
   createHashHistory,
@@ -33,6 +37,7 @@ interface RouterState {
   isLoading: boolean
   settled: boolean
   pendingWork: string[]
+  pendingMatchCount: number
   locationSync: string
 }
 
@@ -163,13 +168,29 @@ async function mounted(history?: RouterHistory) {
 const rendered = () => view?.container.textContent
 
 describe('router_get_state settlement', () => {
+  it('runs against the router release the demo and realistic apps install', () => {
+    const testFile = fileURLToPath(import.meta.url)
+    const tested = createRequire(testFile).resolve('@tanstack/react-router/package.json')
+    const manifest = (path: string) => JSON.parse(readFileSync(path, 'utf8'))
+    const realistic = manifest(
+      join(dirname(testFile), '../../../../../apps/realworld-dashboard/package.json'),
+    )
+
+    expect(manifest(tested).version).toBe(realistic.dependencies['@tanstack/react-router'])
+  })
+
   it('stays unsettled while a loader runs and settles once the route renders', async () => {
     const { router, collector, slow } = await mounted()
     const navigation = router.navigate({ to: '/slow' })
     await flush()
 
     const during = await call<RouterState>(collector, 'router_get_state', {})
-    expect(during).toMatchObject({ pathname: '/slow', resolvedPathname: '/', settled: false })
+    expect(during).toMatchObject({
+      pathname: '/slow',
+      resolvedPathname: '/',
+      settled: false,
+      pendingMatchCount: 2,
+    })
     expect(during.pendingWork).toEqual(expect.arrayContaining(['loading', 'pending-matches']))
 
     slow.resolve()
@@ -178,6 +199,7 @@ describe('router_get_state settlement', () => {
       resolvedPathname: '/slow',
       settled: true,
       pendingWork: [],
+      pendingMatchCount: 0,
     })
     expect(rendered()).toBe('slow')
   })

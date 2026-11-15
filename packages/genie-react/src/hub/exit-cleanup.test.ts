@@ -84,4 +84,17 @@ describe('removeDiscoveryOnExit', () => {
     expect(process.listenerCount('SIGINT')).toBe(0)
     expect((await published()).discovery).not.toBeNull()
   })
+
+  it("removes only its own publication on exit, leaving an in-process successor's files", async () => {
+    const closing = await writeDiscoveryFile(root, { ...info, token: 'closing' })
+    await writeDiscoveryFile(root, { ...info, token: 'successor' })
+    removeDiscoveryOnExit(root, closing?.instance)
+    const onExit = process.listeners('exit').at(-1)
+    if (!onExit) throw new Error('no exit listener registered')
+
+    onExit(0)
+
+    expect((await published()).token).toBe('successor')
+    expect((await published()).discovery).not.toBeNull()
+  })
 })

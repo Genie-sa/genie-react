@@ -7,7 +7,7 @@ export const reactPendingWorkContract = defineAgentToolContract({
   name: 'react_pending_work',
   title: 'Pending React work',
   description:
-    'Report React work that has not committed yet: roots with scheduled or suspended updates (a pending transition, a queued update), Suspense boundaries showing a fallback while they wait on data, and server-rendered boundaries not hydrated yet. Boundaries are the ones react_suspense reports in the fallback or dehydrated state; those inside hidden Activity or Offscreen subtrees are not on screen and are skipped. react_quiesce and devtools_wait read it before reporting React idle. Boundaries held open by react_toggle_suspense_fallback are excluded. Timers and promises that have not reached React are invisible here.',
+    'Report React work that has not committed yet: roots with scheduled or suspended updates (a pending transition, a queued update), Suspense boundaries showing a fallback while they wait on data, and server-rendered boundaries not hydrated yet. Boundaries are the ones react_suspense reports in the fallback or dehydrated state; those inside hidden Activity or Offscreen subtrees are not on screen and are skipped. react_quiesce, devtools_wait and verify read it before reporting React idle, and never report idle while scanTruncated is true. Boundaries held open by react_toggle_suspense_fallback are excluded. Timers and promises that have not reached React are invisible here.',
   group: 'react.render',
   input: z.object({}).strict(),
   output: z.object({
@@ -50,7 +50,15 @@ export const reactPendingWorkContract = defineAgentToolContract({
     scanTruncated: z
       .boolean()
       .describe(
-        'The fiber scan stopped at its limit, so suspendedBoundaries and dehydratedBoundaries are lower bounds.',
+        'The fiber scan has not covered the whole committed tree yet, so suspendedBoundaries and dehydratedBoundaries are lower bounds and a fallback past the scanned part is not ruled out. Each call scans a bounded slice and resumes where the previous call stopped until a commit changes the tree; call again to cover the rest.',
+      ),
+    scannedFibers: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        'Fibers of the current committed tree covered so far, across calls since the last commit.',
       ),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },

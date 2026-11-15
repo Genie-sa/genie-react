@@ -57,6 +57,7 @@ import {
   tabKeyOf,
   tabLabel,
 } from './session-routing'
+import { SettleDomainMemory } from './settle-domain-memory'
 import {
   rejectUpgrade,
   UpgradePolicy,
@@ -361,6 +362,7 @@ export class GenieBridge {
     string,
     { tools: ReadonlySet<string>; until: number }
   >()
+  private readonly settleDomains = new SettleDomainMemory(MAX_SESSION_SUCCESSORS)
 
   constructor(options: GenieBridgeOptions = {}) {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
@@ -407,6 +409,8 @@ export class GenieBridge {
       request: (session, tool, args) => this.appRequestForSession(tool, args, session),
       settle: (session, domains, quietMs, timeoutMs) =>
         this.settleInteraction(session, domains, quietMs, timeoutMs),
+      advertisedBefore: (session, domain) =>
+        this.settleDomains.advertisedBefore(tabKeyOf(session), domain),
     })
     const interval = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
     this.heartbeat = setInterval(() => this.sweepDeadConnections(), interval)
@@ -463,6 +467,7 @@ export class GenieBridge {
     this.pending.clear()
     this.sessionSuccessors.clear()
     this.latestDocuments.clear()
+    this.settleDomains.clear()
     for (const timer of this.logicalCollisionTimers.values()) clearTimeout(timer)
     this.logicalCollisionTimers.clear()
     this.generationRaces.clear()
@@ -984,6 +989,7 @@ export class GenieBridge {
       runtimeVersion: message.runtimeVersion,
     }
     this.apps.set(message.sessionId, registered)
+    this.settleDomains.note(tabKeyOf(registered), catalogOf(registered))
     for (const peer of olderPeers) {
       if (!racingPeers.includes(peer)) this.supersede(peer, registered)
     }
@@ -1773,10 +1779,6 @@ export class GenieBridge {
     session: AppSession | null,
     pollState: WaitPollState,
   ): Promise<WaitDomainCheck> {
-    const unsupported = (tool: string): WaitDomainCheck => ({
-      status: 'unsupported',
-      reason: `Domain ${domain} requires unavailable tool ${tool}.`,
-    })
     if (domain === 'network') {
       return {
         status: 'unsupported',
@@ -1784,6 +1786,14 @@ export class GenieBridge {
       }
     }
     if (!session) return { status: 'pending', reason: 'No app document is connected.' }
+    const unsupported = (tool: string): WaitDomainCheck =>
+      this.settleDomains.advertisedBefore(tabKeyOf(session), domain)
+        ? {
+            status: 'pending',
+            reason: `Domain ${domain} was advertised by this tab before and its ${tool} tool has not registered in this document yet, so the domain is not observed.`,
+            lastObserved: null,
+          }
+        : { status: 'unsupported', reason: `Domain ${domain} requires unavailable tool ${tool}.` }
     if (domain === 'react') {
       if (!toolDescriptor(session, 'react_get_renders')) {
         return unsupported('react_get_renders')
@@ -2419,7 +2429,12 @@ function pendingWorkReason(work: PendingReactWork): string | null {
       `${work.dehydratedBoundaries} server-rendered Suspense boundar${work.dehydratedBoundaries === 1 ? 'y has' : 'ies have'} not hydrated${named('dehydrated')}`,
     )
   }
-  return parts.length === 0 ? null : `React work is still pending: ${parts.join('; ')}.`
+  const pending = parts.length === 0 ? null : `React work is still pending: ${parts.join('; ')}.`
+  if (!work.scanTruncated) return pending
+  const covered =
+    work.scannedFibers === undefined ? 'part of the tree' : `${work.scannedFibers} fibers so far`
+  const partial = `The pending-work scan has covered ${covered}, so ${pending ? 'these counts are lower bounds' : 'a Suspense fallback in the rest of the tree is not ruled out'}; it resumes on the next poll while no commit lands.`
+  return pending ? `${pending} ${partial}` : partial
 }
 
 function recordOf(value: unknown): Record<string, unknown> | null {

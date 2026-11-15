@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { GenieClient, type SocketLike } from '../client'
 import { reactCollector } from '../collectors/react'
+import { PENDING_WORK_FIBERS_PER_CALL } from '../collectors/react/pending-work'
 import { newId, type VerifyClaimInput } from '../protocol'
 import {
   createTestBridge,
@@ -175,6 +176,46 @@ describe('verify through the hub against a real React tree', () => {
       'React work is still pending: 1 Suspense boundary shows a fallback',
     )
   })
+
+  it('refuses instead of passing when the fallback that kept the app busy sits past the first pending-work scan slice', async () => {
+    const never = new Promise<string>(() => {})
+    function Details(): ReactNode {
+      return createElement('p', null, use(never))
+    }
+    const Rows = memo(function Rows(): ReactNode {
+      return Array.from({ length: PENDING_WORK_FIBERS_PER_CALL + 10_000 }, (_, index) =>
+        createElement('i', { key: index }),
+      )
+    })
+    function Gallery(): ReactNode {
+      const [open, setOpen] = useState(false)
+      return createElement(
+        'main',
+        null,
+        createElement('button', { type: 'button', onClick: () => setOpen(true) }, 'open'),
+        createElement(Rows),
+        createElement(
+          Suspense,
+          { fallback: createElement('p', null, 'loading') },
+          open ? createElement(Details) : null,
+        ),
+      )
+    }
+    await mounted(createElement(Gallery), 'open')
+    const { verificationId } = await begin(
+      [{ kind: 'renders', target: { component: 'Gallery' }, max: 5 }],
+      { quietMs: 200, timeoutMs: 3_000 },
+    )
+    press('open')
+    await expect.poll(() => container.textContent, { timeout: 3_000 }).toContain('loading')
+    const ended = await invoke('devtools_verify_end', { verificationId })
+
+    expect(ended.result.verdict).toBe('refused')
+    expect(ended.result.claims[0].refusal).toMatchObject({ reason: 'not_quiescent' })
+    expect(ended.result.claims[0].refusal.message).toContain(
+      'React work is still pending: 1 Suspense boundary shows a fallback',
+    )
+  }, 30_000)
 
   it('shows the freeze-first interaction order would have missed that render', async () => {
     await mounted(createElement(DebouncedSearch), 'idle')

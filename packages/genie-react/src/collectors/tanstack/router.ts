@@ -78,16 +78,26 @@ const routerGetStateContract = defineAgentToolContract({
     searchStr: z.string().optional(),
     hash: z.string().optional(),
     status: z.string(),
-    statusCode: z.number().optional(),
+    statusCode: z
+      .number()
+      .optional()
+      .describe('Absent on router-core 1.171.3x and later, which no longer report a status code.'),
     isLoading: z.boolean(),
     isTransitioning: z
       .boolean()
       .describe(
         'True while a navigation has started and not finished committing: status pending, or a location that differs from resolvedPathname. Router releases that still carry their own isTransitioning flag also count it.',
       ),
-    loadedAt: z.number().optional(),
+    loadedAt: z
+      .number()
+      .optional()
+      .describe('Absent on router-core 1.171.3x and later, which no longer record it.'),
     matchCount: z.number(),
-    pendingMatchCount: z.number(),
+    pendingMatchCount: z
+      .number()
+      .describe(
+        'Matches a navigation has resolved but not committed yet. Releases before router-core 1.171.3x keep them on state or in a store; later ones keep them on the in-flight load, which owns them only while status is pending.',
+      ),
     ...settlementFields,
     browserLocation: z
       .object({
@@ -330,7 +340,7 @@ export function routerCollector(router: AnyRouter): GenieCollector {
       defineCollectorTool({
         contract: routerGetStateContract,
         handler: () => {
-          const { location, status, statusCode, isLoading, loadedAt, matches } = router.state
+          const { location, status, isLoading, matches } = router.state
           const browserLocation = readBrowserLocation()
           const locationSync: LocationSync =
             browserLocation === null
@@ -346,10 +356,10 @@ export function routerCollector(router: AnyRouter): GenieCollector {
             searchStr: location.searchStr,
             hash: location.hash,
             status,
-            statusCode,
+            statusCode: legacyStateNumber(router, 'statusCode'),
             isLoading,
             isTransitioning: isTransitioning(router),
-            loadedAt,
+            loadedAt: legacyStateNumber(router, 'loadedAt'),
             matchCount: matches.length,
             ...settlement(router),
             browserLocation,
@@ -573,12 +583,23 @@ type HistoryOutcome = z.infer<typeof routerHistoryContract.output>['outcome']
 const NAVIGATION_START_EVENTS = ['onBeforeNavigate', 'onBeforeLoad'] as const
 const SETTLE_POLL_MS = 16
 
-/** Current Router keeps pending matches in a store; releases before it keep them on state. */
+/** Router state fields that router-core 1.171.3x dropped: `statusCode` and `loadedAt`. */
+function legacyStateNumber(router: AnyRouter, key: 'statusCode' | 'loadedAt'): number | undefined {
+  const value = ownDataValue(router.state, key)
+  return typeof value === 'number' ? value : undefined
+}
+
+/** Matches a navigation resolved but has not committed: on state up to 1.1xx, in a `pendingMatches` store in router-core 1.171.1x, and from router-core 1.171.3x only on the in-flight load (`_tx`, fourth slot), which stays assigned after it commits and so counts only while status is pending. */
 function pendingMatchesOf(router: AnyRouter): readonly unknown[] {
-  const stored: unknown = router.stores?.pendingMatches?.get?.()
+  const stores = router.stores as { pendingMatches?: { get?: () => unknown } } | undefined
+  const stored = stores?.pendingMatches?.get?.()
   if (Array.isArray(stored)) return stored
-  const legacy: unknown = (router.state as { pendingMatches?: unknown }).pendingMatches
-  return Array.isArray(legacy) ? legacy : []
+  const legacy = ownDataValue(router.state, 'pendingMatches')
+  if (Array.isArray(legacy)) return legacy
+  if (router.state.status !== 'pending') return []
+  const transaction = ownDataValue(router, '_tx')
+  const inFlight: unknown = Array.isArray(transaction) ? transaction[3] : undefined
+  return Array.isArray(inFlight) ? inFlight : []
 }
 
 /** TanStack Router dropped `state.isTransitioning` after its early 1.x releases, so the same judgement is read from what every release reports. */
@@ -639,17 +660,26 @@ function ownDataValue(value: unknown, key: string): unknown {
 }
 
 function navigationResult(router: AnyRouter) {
-  const { location, statusCode } = router.state
+  const { location } = router.state
   const { settled, pendingWork } = settlement(router)
-  return { pathname: location.pathname, href: location.href, statusCode, settled, pendingWork }
+  return {
+    pathname: location.pathname,
+    href: location.href,
+    statusCode: legacyStateNumber(router, 'statusCode'),
+    settled,
+    pendingWork,
+  }
 }
 
 function landedOutcome(
   router: AnyRouter,
   requestedHref: string,
 ): Exclude<NavigationOutcome, 'not-started' | 'pending'> {
-  const { matches, statusCode, location } = router.state
-  if (statusCode === 404 || matches.some((match) => match.status === 'notFound')) {
+  const { matches, location } = router.state
+  if (
+    legacyStateNumber(router, 'statusCode') === 404 ||
+    matches.some((match) => match.status === 'notFound')
+  ) {
     return 'not-found'
   }
   if (matches.some((match) => match.status === 'error')) return 'error'

@@ -6,7 +6,7 @@ import {
   GENIE_DISCOVERY_FILE,
   GENIE_INFO_PATH,
 } from '../protocol'
-import { bridgeUrlFor, isPidAlive, writeDiscoveryFile } from './discovery'
+import { bridgeUrlFor, isPidAlive, removeDiscoveryFile, writeDiscoveryFile } from './discovery'
 import { removeDiscoveryOnExit } from './exit-cleanup'
 import { createStandaloneBridge, type StandaloneBridgeHandle } from './standalone'
 
@@ -70,15 +70,17 @@ export async function startGenieHub(options: StartHubOptions = {}): Promise<Star
     try {
       const bound = await handle.listen(port, HUB_HOST)
       const published = urls(bound.host, bound.port)
-      await writeDiscoveryFile(rootDir, {
+      const publication = await writeDiscoveryFile(rootDir, {
         url: published.url,
         port: bound.port,
         token: handle.bridge.agentToken,
       })
-      const stopExitCleanup = removeDiscoveryOnExit(rootDir)
+      const instance = publication?.instance
+      const stopExitCleanup = removeDiscoveryOnExit(rootDir, instance)
       const close = async (): Promise<void> => {
         stopExitCleanup()
         await handle.close()
+        if (instance !== undefined) await removeDiscoveryFile(rootDir, instance)
       }
       return { status: 'started', handle: { ...handle, close }, port: bound.port, ...published }
     } catch (error) {
