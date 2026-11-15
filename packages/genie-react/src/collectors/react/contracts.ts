@@ -44,7 +44,15 @@ const treeNodeSchema = z.object({
   parentId: z.number().nullable(),
   name: z.string(),
   key: z.string().nullable(),
-  kind: z.enum(['component', 'host']),
+  kind: z
+    .enum(['component', 'host', 'suspense'])
+    .describe(
+      'suspense is a Suspense boundary, listed under the id react_suspense and react_error_state report as boundaryId.',
+    ),
+  errorBoundary: z
+    .literal(true)
+    .optional()
+    .describe('A class component that catches render errors, reported by react_error_state.'),
   source: sourceSchema.optional(),
   isLibrary: z.boolean().optional(),
   ownership: z.enum(['app', 'library', 'unknown']).optional(),
@@ -63,7 +71,7 @@ export const reactGetTreeContract = defineAgentToolContract({
   name: 'react_get_tree',
   title: 'React component tree',
   description:
-    'Get the live React component tree as a flat node list (id, parentId, name, key, kind). Reconstruct the hierarchy from parentId; pass node ids to react_inspect_component. For a dense tree, pass a returned node id as rootId to read that component and its descendants without dumping unrelated branches. Framework wrappers can be deep, so raise `depth` if your own components do not appear and `truncatedBy` is "depth". `otherRoots` lists separate React roots (widgets bundling their own React, createRoot islands); pass one\'s rootId to read it.',
+    'Get the live React component tree as a flat node list (id, parentId, name, key, kind). Suspense boundaries are nodes of kind suspense and error boundaries carry errorBoundary:true, under the ids react_suspense and react_error_state report. Reconstruct the hierarchy from parentId; pass node ids to react_inspect_component. For a dense tree, pass a returned node id as rootId to read that component and its descendants without dumping unrelated branches. Framework wrappers can be deep, so raise `depth` if your own components do not appear and `truncatedBy` is "depth". `otherRoots` lists separate React roots (widgets bundling their own React, createRoot islands); pass one\'s rootId to read it.',
   group: 'react.tree',
   input: z.object({
     rootId: nodeIdSchema

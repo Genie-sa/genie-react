@@ -234,6 +234,13 @@ function errorFields(error: Error): Record<string, unknown> {
   }
 }
 
+/** An app object's walked entries as output: plain, or tagged `{ __type: 'Object', entries }` when one of its keys would read as Genie's encoding. */
+export function encodeAppObject(entries: Array<[string, unknown]>): Record<string, unknown> {
+  return entries.some(([key]) => ENCODING_KEYS.has(key))
+    ? { __type: 'Object', entries }
+    : Object.fromEntries(entries)
+}
+
 const getterPlaceholder = (path: ReadonlyArray<string | number>): DehydratedNode =>
   dehydratedNode('getter-error', '[getter not invoked]', path)
 

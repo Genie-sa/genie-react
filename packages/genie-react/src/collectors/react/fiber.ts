@@ -43,6 +43,7 @@ import {
   sourceProvenanceForSource,
 } from './source'
 import { isGeneratedClass, parseStyleSources, type StyleSourceRef } from './style-provenance'
+import { isClassComponentFiber, isSuspenseFiber } from './work-tags'
 
 type HookEntry = z.infer<typeof hookEntrySchema>
 
@@ -67,7 +68,8 @@ export interface TreeNode {
   parentId: NodeId | null
   name: string
   key: string | null
-  kind: 'component' | 'host'
+  kind: 'component' | 'host' | 'suspense'
+  errorBoundary?: true
   source?: ResolvedSource | null
   isLibrary?: boolean
   ownership?: FiberClassification['ownership']
@@ -446,8 +448,40 @@ function fiberKind(fiber: Fiber): string {
     case tags.MemoComponent:
     case tags.SimpleMemoComponent:
       return 'memo'
+    case tags.SuspenseComponent:
+      return 'suspense'
     default:
       return isHostFiber(fiber) ? 'host' : 'other'
+  }
+}
+
+/** Components and Suspense boundaries: the fibers the tree lists and search finds, so every boundaryId react_suspense and react_error_state report is a node. */
+function isTreeEntryFiber(fiber: Fiber): boolean {
+  return isCompositeFiber(fiber) || isSuspenseFiber(fiber)
+}
+
+/** A class component React treats as an error boundary: it defines getDerivedStateFromError or componentDidCatch. */
+export function isErrorBoundaryFiber(fiber: Fiber): boolean {
+  if (!isClassComponentFiber(fiber)) return false
+  const type = fiber.type as { getDerivedStateFromError?: unknown; prototype?: unknown } | null
+  const prototype = type?.prototype as { componentDidCatch?: unknown } | undefined
+  return (
+    typeof type?.getDerivedStateFromError === 'function' ||
+    typeof prototype?.componentDidCatch === 'function'
+  )
+}
+
+function treeNodeFor(fiber: Fiber, id: NodeId, parentId: NodeId | null): TreeNode {
+  const composite = isCompositeFiber(fiber)
+  const wrapperAncestry = composite ? wrapperAncestryOf(fiber) : []
+  return {
+    id,
+    parentId,
+    name: nameOf(fiber),
+    key: fiber.key,
+    kind: composite ? 'component' : isSuspenseFiber(fiber) ? 'suspense' : 'host',
+    ...(isErrorBoundaryFiber(fiber) ? { errorBoundary: true as const } : {}),
+    ...(wrapperAncestry.length > 0 ? { wrapperAncestry } : {}),
   }
 }
 
@@ -528,7 +562,7 @@ export async function buildTree(
     let counted = 0
     let child: Fiber | null = fiber.child
     while (child) {
-      if (isCompositeFiber(child) || (options.includeHost && isHostFiber(child))) {
+      if (isTreeEntryFiber(child) || (options.includeHost && isHostFiber(child))) {
         total += 1
         counted += 1
       }
@@ -548,27 +582,14 @@ export async function buildTree(
   const visit = (fiber: Fiber, parentId: NodeId | null, depth: number): void => {
     let child: Fiber | null = fiber.child
     while (child) {
-      const composite = isCompositeFiber(child)
-      const keep = composite || (options.includeHost && isHostFiber(child))
+      const keep = isTreeEntryFiber(child) || (options.includeHost && isHostFiber(child))
       if (keep) {
         total += 1
         if (entries.length >= candidateLimit) {
           omittedByMaxNodes += 1 + countOnly(child)
         } else {
           const id = registerFiber(child)
-          entries.push({
-            node: {
-              id,
-              parentId,
-              name: nameOf(child),
-              key: child.key,
-              kind: composite ? 'component' : 'host',
-              ...(composite && wrapperAncestryOf(child).length > 0
-                ? { wrapperAncestry: wrapperAncestryOf(child) }
-                : {}),
-            },
-            fiber: child,
-          })
+          entries.push({ node: treeNodeFor(child, id, parentId), fiber: child })
           if (depth > 0) visit(child, id, depth - 1)
           else clipAtDepth(entries[entries.length - 1]?.node, child)
         }
@@ -581,21 +602,8 @@ export async function buildTree(
 
   if (options.includeRoot) {
     const id = registerFiber(root)
-    const composite = isCompositeFiber(root)
     total += 1
-    entries.push({
-      node: {
-        id,
-        parentId: null,
-        name: nameOf(root),
-        key: root.key,
-        kind: composite ? 'component' : 'host',
-        ...(composite && wrapperAncestryOf(root).length > 0
-          ? { wrapperAncestry: wrapperAncestryOf(root) }
-          : {}),
-      },
-      fiber: root,
-    })
+    entries.push({ node: treeNodeFor(root, id, null), fiber: root })
     if (options.depth > 0) visit(root, id, options.depth - 1)
     else clipAtDepth(entries[0]?.node, root)
   } else {
@@ -804,7 +812,7 @@ export function findByName(root: Fiber, query: string, exact: boolean, limit: nu
     let child: Fiber | null = fiber.child
     while (child) {
       if (matches.length >= limit) return
-      if (isCompositeFiber(child)) {
+      if (isTreeEntryFiber(child)) {
         const name = nameOf(child)
         const hit = exact ? name === query : name.toLowerCase().includes(needle)
         if (hit)

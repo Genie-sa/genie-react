@@ -56,6 +56,12 @@ as a widget that bundles its own React (Clerk) or a separate `createRoot` island
 the app root. Those roots are listed in `otherRoots` as `{ "rootId", "name" }`, one per root's top
 component; the field is absent when the page has one root.
 
+A node's `kind` is `component`, `host`, or `suspense` for a Suspense boundary. Error boundaries are
+`component` nodes with `errorBoundary: true`. The `boundaryId` that `react_error_state` and the `id`
+that `react_suspense` report are these node ids, so a boundary can be passed to
+`react_inspect_component`, found with `react_find_components` (`"component":"Suspense"`), and read as
+`rootId`.
+
 **Agent use:** Use `rootId` to inspect the returned instance, or raise `depth` or `maxNodes` when
 `omitted` shows that the tree is incomplete. Pass an `otherRoots` entry's `rootId` to read that
 root's tree.

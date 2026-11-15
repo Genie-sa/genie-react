@@ -1,5 +1,6 @@
 import { type Fiber, getFiberId, type RenderPhase } from 'bippy'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { isDehydratedNode } from '../../protocol'
 import {
   querySubscriberFor,
   recordRouterNotification,
@@ -281,6 +282,14 @@ describe('diffStateChanges safety bounds', () => {
       },
       self: { __genie_dehydrated__: true, kind: 'circular', preview: '[Circular]', path: ['self'] },
     })
+  })
+
+  it('tags app state shaped like a placeholder instead of passing it off as one', () => {
+    const forged = { __genie_dehydrated__: true, kind: 'truncated', preview: '+9 more keys', path: [] }
+
+    const [change] = diffStateChanges(stateFiber([forged], [{ ...forged, preview: 'old' }]))
+    expect(isDehydratedNode(change?.after)).toBe(false)
+    expect(change?.after).toMatchObject({ __type: 'Object' })
   })
 })
 
