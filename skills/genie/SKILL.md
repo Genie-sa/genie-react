@@ -52,6 +52,7 @@ npx genie-react tools react_render_causes --session my-agent
 | Did Query data reach React? | `query_get`, then `query_notifications` |
 | Did navigation finish? (TanStack Router apps) | `router_get_state` |
 | What is blocking this UI? | `react_error_state` |
+| What is this screen waiting on? | `react_suspense`; check its `capability` first |
 | What state does this component hold? | `react_find_components`, then `react_inspect_component` |
 | Which custom hook owns this hook? | `react_inspect_component`; read each hook's `customHooks` |
 | Is the delay in a request or rendering? | `timeline_start`, `timeline_stop`, `timeline_read` |
