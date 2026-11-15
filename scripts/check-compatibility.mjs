@@ -7,7 +7,11 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PACKAGE_ROOT = join(ROOT, 'packages/genie-react')
-const TYPESCRIPT_VERSION = '6.0.3'
+// Each compiler installs under its own alias so one consumer is checked by every TypeScript major users run.
+const TYPESCRIPT_COMPILERS = {
+  'typescript-6': '6.0.3',
+  'typescript-7': '7.0.2',
+}
 const REACT_TYPE_PROFILES = {
   minimum: {
     '@types/react': '18.3.31',
@@ -285,7 +289,9 @@ process.stdout.write(
   const dependencies = [
     tarball,
     ...Object.entries(versions).map(([name, version]) => `${name}@${version}`),
-    `typescript@${TYPESCRIPT_VERSION}`,
+    ...Object.entries(TYPESCRIPT_COMPILERS).map(
+      ([alias, version]) => `${alias}@npm:typescript@${version}`,
+    ),
     ...Object.entries(REACT_TYPE_PROFILES[profile]).map(([name, version]) => `${name}@${version}`),
   ]
   execFileSync(
@@ -315,10 +321,10 @@ function assertInstalledVersions(directory, expected) {
 function verifyConsumer(directory) {
   execFileSync(process.execPath, ['verify-imports.mjs'], { cwd: directory, stdio: 'inherit' })
   execFileSync(process.execPath, ['verify-vite-zod.mjs'], { cwd: directory, stdio: 'inherit' })
-  execFileSync(process.execPath, [join(directory, 'node_modules/typescript/bin/tsc'), '--noEmit'], {
-    cwd: directory,
-    stdio: 'inherit',
-  })
+  for (const alias of Object.keys(TYPESCRIPT_COMPILERS)) {
+    const tsc = join(directory, 'node_modules', alias, 'bin/tsc')
+    execFileSync(process.execPath, [tsc, '--noEmit'], { cwd: directory, stdio: 'inherit' })
+  }
   execFileSync(process.execPath, [join(directory, 'node_modules/vite/bin/vite.js'), 'build'], {
     cwd: directory,
     stdio: 'inherit',
@@ -339,12 +345,15 @@ try {
     writeConsumer(directory, profile, versions, tarball)
     assertInstalledVersions(directory, {
       ...versions,
-      typescript: TYPESCRIPT_VERSION,
+      ...TYPESCRIPT_COMPILERS,
       ...REACT_TYPE_PROFILES[profile],
     })
     verifyConsumer(directory)
     process.stdout.write(
-      `Compatibility ${profile} passed on Node ${process.version}: ${Object.entries(versions)
+      `Compatibility ${profile} passed on Node ${process.version}: ${Object.entries({
+        ...versions,
+        ...TYPESCRIPT_COMPILERS,
+      })
         .map(([name, version]) => `${name}@${version}`)
         .join(', ')}\n`,
     )
