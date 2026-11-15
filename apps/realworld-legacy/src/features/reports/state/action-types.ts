@@ -1,0 +1,6 @@
+export const REPORTS_PROJECT_SELECTED = 'reports/PROJECT_SELECTED'
+export const REPORTS_REQUESTED = 'reports/REQUESTED'
+export const REPORTS_RECEIVED = 'reports/RECEIVED'
+export const REPORTS_FAILED = 'reports/FAILED'
+export const REPORT_NOTE_ADDED = 'reports/NOTE_ADDED'
+export const REPORT_NOTE_REMOVED = 'reports/NOTE_REMOVED'
