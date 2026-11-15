@@ -877,6 +877,14 @@ export const renderCoverageSchema = z.object({
     .describe(
       'Commits React made after react_profile_stop paused recording. They fall outside the measured window, so counts read now are a lower bound for the time since; react_profile_stop reports coverage as of the pause.',
     ),
+  unobservedCommits: z
+    .number()
+    .int()
+    .nonnegative()
+    .default(0)
+    .describe(
+      'Commits React made while no render window, profile, measurement or timeline was open. Genie does not analyse those commits, so their renders and effects are missing from this result; open a window and repeat the interaction to capture them, or load the page with _genie_observe in its URL to capture the load.',
+    ),
   truncatedInputFibers: z.number().int().nonnegative(),
   propsNotEnumeratedFibers: z
     .number()
@@ -906,6 +914,7 @@ export const renderCoverageSchema = z.object({
           'budget-exhausted',
           'unmounts-dropped',
           'commits-after-profile-stop',
+          'commits-not-observed',
           'renderer-not-analyzed',
           'traversal-failed',
           'analysis-failed',
@@ -1083,7 +1092,11 @@ const renderReportBaseSchema = z.object({
       ),
   }),
   ...renderMeasurementEnvironmentSchema.shape,
-  tracking: z.boolean(),
+  tracking: z
+    .boolean()
+    .describe(
+      'Whether Genie analyses commits now: true only while a render window, profile, measurement or timeline is open and react_profile_stop has not paused it.',
+    ),
   renderCollection: z
     .string()
     .describe(
@@ -1228,7 +1241,11 @@ export const renderCauseEventSummarySchema = z.object({
 
 const renderCauseReportBaseSchema = z.object({
   componentMatch: componentMatchSchema.optional(),
-  tracking: z.boolean(),
+  tracking: z
+    .boolean()
+    .describe(
+      'Whether Genie analyses commits now: true only while a render window, profile, measurement or timeline is open and react_profile_stop has not paused it.',
+    ),
   commits: z.number().int().nonnegative(),
   documentCommitId: z.number().int().nonnegative(),
   observation: observationSchema.nullable(),
@@ -1344,6 +1361,14 @@ const cohortReportSchema = z.object({
     droppedUnmountFibers: z.number().int().nonnegative(),
     analysisFailedFibers: z.number().int().nonnegative(),
     pausedCommits: z.number().int().nonnegative(),
+    unobservedCommits: z
+      .number()
+      .int()
+      .nonnegative()
+      .default(0)
+      .describe(
+        'Commits made while no window was open. An instance may have updated in one unseen, so none is reported mounted-idle.',
+      ),
     truncatedInputFibers: z.number().int().nonnegative(),
     propsNotEnumeratedFibers: z.number().int().nonnegative(),
     budgetExhaustedCommits: z.number().int().nonnegative(),

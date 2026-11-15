@@ -11,7 +11,7 @@ import { type RenderResult, render } from '@testing-library/react'
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { CollectorContext, GenieCollector } from '../../client'
-import { getDocumentCommitId, noteDocumentCommit } from '../react/observation'
+import { getDocumentCommitId, isCommitAnalysisHeld, noteDocumentCommit } from '../react/observation'
 import { type TimelineReadReport, type TimelineReport, timelineCollector } from './index'
 
 const context: CollectorContext = {
@@ -64,6 +64,31 @@ it('records actual React commits without changing render outcomes and detaches o
     report.events,
   )
 })
+
+it.each([
+  { stoppedBy: 'timeline_stop', maxEvents: undefined },
+  { stoppedBy: 'its event limit', maxEvents: 1 },
+])(
+  'keeps React commit analysis running while it records and releases it when stopped by $stoppedBy',
+  async ({ stoppedBy, maxEvents }) => {
+    const collector = timelineCollector()
+    cleanup = collector.start?.(context) || undefined
+    expect(isCommitAnalysisHeld()).toBe(false)
+    const recording = call<TimelineReport>(collector, 'timeline_start', {
+      name: 'hold',
+      ...(maxEvents === undefined ? {} : { maxEvents }),
+    })
+    expect(isCommitAnalysisHeld()).toBe(true)
+
+    if (stoppedBy === 'timeline_stop') call(collector, 'timeline_stop', { id: recording.id })
+    else await act(async () => root.rerender(createElement('span', null, 'fills the recording')))
+
+    expect(call<TimelineReport>(collector, 'timeline_read', { id: recording.id }).state).toBe(
+      'stopped',
+    )
+    expect(isCommitAnalysisHeld()).toBe(false)
+  },
+)
 
 it('joins React commits to the document commit sequence', async () => {
   const collector = timelineCollector()

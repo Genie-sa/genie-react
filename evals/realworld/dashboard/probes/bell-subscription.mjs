@@ -3,7 +3,7 @@ import { effectRuns } from './helpers.mjs'
 /** @param {import('../../lib/probe-context.mjs').ProbeContext} ctx */
 export default async function probe(ctx) {
   await ctx.signIn()
-  await ctx.open('/')
+  await ctx.open('/?_genie_observe')
   await ctx.settle()
   const timeline = await ctx.genie.call('react_effect_timeline', {
     component: 'NotificationBell',

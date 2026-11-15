@@ -57,12 +57,15 @@ import {
   invalidateLiveInstancesForRefresh,
   noteInstanceRender,
   noteUnanalyzedInstanceRender,
+  noteUnobservedMounts,
   prepareInstanceRender,
+  releaseInstance,
 } from './instance-identity'
 import { getMeasurementEnvironment } from './measurement-environment'
 import {
   beginMeasurementCommit,
   clearMeasurementSpans,
+  hasOpenMeasurementSpan,
   markMeasurementCollectionGap,
   markMeasurementIncomplete,
   noteMeasurementUnmount,
@@ -72,6 +75,8 @@ import {
   beginObservation,
   getActiveObservation,
   getDocumentCommitId,
+  hasActiveObservation,
+  isCommitAnalysisHeld,
   nextCausalEventId,
   noteAnalysisInvalidation,
   noteDocumentCommit,
@@ -207,6 +212,8 @@ let droppedPendingUnmountFibers = 0
 let analysisFailedFibers = 0
 /** Commits React made after profiling paused; they are outside the measured window, not failed analysis. */
 let pausedCommits = 0
+/** Commits React made while no window, span or recording observed it; they were never analysed. */
+let unobservedCommits = 0
 const analysisFailures = new Map<AnalysisFailureReason, number>()
 const truncatedInputComponents = new Set<string>()
 const propsNotEnumeratedComponents = new Set<string>()
@@ -282,6 +289,8 @@ const DEFAULT_OBSERVATION_CONFIGURATION: RenderObservationConfiguration = {
 }
 
 let observationConfiguration = safeStructuredClone(DEFAULT_OBSERVATION_CONFIGURATION)
+/** True until a commit is analyzed, and again after any commit is not. */
+let analysisCold = true
 let observationRootIds = new Set<number>()
 /** Bippy releases ids as React reports each unmount parent-first, so descendants read their deleted ancestors' root membership here, through either buffer a stale `return` may point at. */
 let unmountedRootMembership = new WeakMap<Fiber, boolean>()
@@ -295,6 +304,8 @@ const BUDGET_ADVICE_MARGIN = 1.25
 const MOUNTED_TREE_VISIT_LIMIT = 100_000
 // Hysteresis: one cheap commit after a burst must not shrink the budget the next burst needs.
 const ADAPTIVE_DECAY_COMMITS = 30
+// Measured in Chromium at a 2x CPU throttle: the first analyzed commit after unanalyzed ones took four times a warm commit, because V8 had not compiled the analysis code or had flushed it.
+const COLD_COMMIT_TIME_FACTOR = 4
 
 const DID_CAPTURE = 0b1000_0000
 const RECENT_CAUSE_EVENT_LIMIT = 1_000
@@ -358,12 +369,14 @@ export function startRenderTracking(): boolean {
         }
         noteDocumentCommit()
         commitObservedSinceInstall = true
-        beginMeasurementCommit(getDocumentCommitId(), !paused && !uncertainTraversalRoots.has(root))
+        const analyzed = isTracking()
+        beginMeasurementCommit(
+          getDocumentCommitId(),
+          analyzed && !uncertainTraversalRoots.has(root),
+        )
         recordResultingEffectCommit(getDocumentCommitId())
-        if (paused) {
-          discardPendingUnmounts(rendererId)
-          pausedCommits += 1
-          if (!hasSettledBaseline(root) || mayHaveCaught(root)) advanceExcludedCommitBaseline(root)
+        if (!analyzed) {
+          recordUnanalyzedCommit(rendererId, root)
           return
         }
         if (uncertainTraversalRoots.has(root)) {
@@ -380,7 +393,8 @@ export function startRenderTracking(): boolean {
           return
         }
         commits += 1
-        const effective = effectiveObservationBudget()
+        const effective = commitTimeAllowance(effectiveObservationBudget())
+        analysisCold = false
         const budget = createCommitAnalysisBudget(
           effective.fiberLimit,
           {
@@ -457,6 +471,29 @@ export function startRenderTracking(): boolean {
   return installed
 }
 
+/** Whether commits get the per-component analysis: only an open render window, an open measurement span or a recording such as a timeline asks for it, and react_profile_stop freezes it even then. */
+export function isTracking(): boolean {
+  return (
+    installed &&
+    !paused &&
+    (hasActiveObservation() || hasOpenMeasurementSpan() || isCommitAnalysisHeld())
+  )
+}
+
+/** A commit nothing observes keeps what a reader arriving later still needs: boundary catches, Bippy's traversal baseline, and mount generations. */
+function recordUnanalyzedCommit(rendererId: number, root: FiberRoot): void {
+  analysisCold = true
+  if (paused) {
+    pausedCommits += 1
+    discardPendingUnmounts(rendererId)
+  } else {
+    unobservedCommits += 1
+    discardPendingUnmounts(rendererId, forgetUnobservedUnmount)
+  }
+  if (!hasSettledBaseline(root) || mayHaveCaught(root)) advanceExcludedCommitBaseline(root)
+  noteUnobservedMounts(root.current)
+}
+
 /** Bippy keeps one previous Fiber per root and reads it only while the root's current Fiber has no alternate, which React sets at the root's first commit; after one clean traversal, an excluded commit can skip the walk without changing what a later traversal reports. */
 function hasSettledBaseline(root: FiberRoot): boolean {
   return traversedRoots.has(root) && !uncertainTraversalRoots.has(root)
@@ -497,6 +534,7 @@ function advanceExcludedCommitBaseline(root: FiberRoot): void {
 
 /** Module/HMR teardown only. Profiling stop must keep the lightweight commit heartbeat installed. */
 export function disposeRenderTracking(): void {
+  analysisCold = true
   clearMeasurementSpans()
   renderPages = new Map()
   noteAnalysisInvalidation()
@@ -520,10 +558,9 @@ export function stopRenderTracking(): void {
   paused = true
 }
 
-export const isTracking = (): boolean => installed && !paused
-
 const recordingClassUpdates = (): boolean => isTracking() && getActiveObservation() !== null
 export const isRenderTrackingInstalled = (): boolean => installed
+export const isRecordingPaused = (): boolean => paused
 export const getCommitCount = (): number => commits
 
 /** Distinguishes "nothing re-rendered" from "the hook could not observe renders" — a zero report is only evidence when collection is available. */
@@ -544,6 +581,7 @@ export const getDroppedPendingUnmountFiberCount = (): number => droppedPendingUn
 export const getPendingUnmountFiberCount = (): number => pendingUnmounts.length
 export const getAnalysisFailedFiberCount = (): number => analysisFailedFibers
 export const getPausedCommitCount = (): number => pausedCommits
+export const getUnobservedCommitCount = (): number => unobservedCommits
 
 function noteAnalysisFailure(reason: AnalysisFailureReason): void {
   analysisFailedFibers += 1
@@ -580,6 +618,7 @@ export function getRenderTrackingCoverage(
       droppedUnmountFibers: getDroppedUnmountEvidenceCount(),
       analysisFailedFibers,
       pausedCommits,
+      unobservedCommits,
       truncatedInputFibers,
       propsNotEnumeratedFibers,
       budgetExhaustedCommits,
@@ -627,6 +666,7 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   droppedPendingUnmountFibers = 0
   analysisFailedFibers = 0
   pausedCommits = 0
+  unobservedCommits = 0
   analysisFailures.clear()
   truncatedInputComponents.clear()
   propsNotEnumeratedComponents.clear()
@@ -728,6 +768,21 @@ function effectiveObservationBudget(): RenderObservationConfiguration['budget'] 
   return observationConfiguration.budget.adaptive
     ? scaledBudget(adaptiveBudgetScale, adaptiveCostScale)
     : scaledBudget(1)
+}
+
+/** A cold commit gets more time so a window's first interaction keeps its input evidence; the operation limit still bounds its work. */
+function commitTimeAllowance(
+  budget: RenderObservationConfiguration['budget'],
+): RenderObservationConfiguration['budget'] {
+  if (!analysisCold) return budget
+  return {
+    ...budget,
+    timeLimitMs: Math.min(MAXIMUM_BUDGET.timeLimitMs, budget.timeLimitMs * COLD_COMMIT_TIME_FACTOR),
+    targetTimeReserveMs: Math.min(
+      MAXIMUM_BUDGET.targetTimeReserveMs,
+      budget.targetTimeReserveMs * COLD_COMMIT_TIME_FACTOR,
+    ),
+  }
 }
 
 const currentBudgetScale = (): number =>
@@ -880,6 +935,7 @@ interface RenderMeasurement {
   droppedUnmountFibers: number
   analysisFailedFibers: number
   pausedCommits: number
+  unobservedCommits: number
   truncatedInputFibers: number
   propsNotEnumeratedFibers: number
   budgetExhaustedCommits: number
@@ -965,6 +1021,7 @@ export async function getRendersMeasurement(
   const droppedUnmountsAtStart = getDroppedUnmountEvidenceCount()
   const failedAtStart = analysisFailedFibers
   const pausedAtStart = pausedCommits
+  const unobservedAtStart = unobservedCommits
   const truncatedAtStart = truncatedInputFibers
   const propsNotEnumeratedAtStart = propsNotEnumeratedFibers
   const budgetCommitsAtStart = budgetExhaustedCommits
@@ -1004,6 +1061,7 @@ export async function getRendersMeasurement(
     droppedUnmountFibers: droppedUnmountsAtStart,
     analysisFailedFibers: failedAtStart,
     pausedCommits: pausedAtStart,
+    unobservedCommits: unobservedAtStart,
     truncatedInputFibers: truncatedAtStart,
     propsNotEnumeratedFibers: propsNotEnumeratedAtStart,
     budgetExhaustedCommits: budgetCommitsAtStart,
@@ -1079,6 +1137,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
   droppedUnmountFibers: number
   analysisFailedFibers: number
   pausedCommits: number
+  unobservedCommits: number
   truncatedInputFibers: number
   propsNotEnumeratedFibers: number
   budgetExhaustedCommits: number
@@ -1101,6 +1160,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
   const droppedUnmountsAtStart = getDroppedUnmountEvidenceCount()
   const failedAtStart = analysisFailedFibers
   const pausedAtStart = pausedCommits
+  const unobservedAtStart = unobservedCommits
   const truncatedAtStart = truncatedInputFibers
   const propsNotEnumeratedAtStart = propsNotEnumeratedFibers
   const budgetCommitsAtStart = budgetExhaustedCommits
@@ -1122,6 +1182,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
     droppedUnmountFibers: droppedUnmountsAtStart,
     analysisFailedFibers: failedAtStart,
     pausedCommits: pausedAtStart,
+    unobservedCommits: unobservedAtStart,
     truncatedInputFibers: truncatedAtStart,
     propsNotEnumeratedFibers: propsNotEnumeratedAtStart,
     budgetExhaustedCommits: budgetCommitsAtStart,
@@ -1849,10 +1910,20 @@ function restoreFiberId({ fiber, fiberId }: PendingUnmount): Fiber {
   return fiber
 }
 
-function discardPendingUnmounts(rendererId: number): void {
+/** An unmount outside every window has no window to lose it, so it releases its record without counting excluded lifecycle evidence. */
+function forgetUnobservedUnmount({ fiber, fiberId }: PendingUnmount): void {
+  releaseInstance(fiber, fiberId)
+  removeEffectRecord(fiber, fiberId)
+  records.delete(fiberId)
+}
+
+function discardPendingUnmounts(
+  rendererId: number,
+  forget: (pending: PendingUnmount) => void = forgetUnmountWithoutTombstone,
+): void {
   const retained: PendingUnmount[] = []
   for (const pending of pendingUnmounts) {
-    if (pending.rendererId === rendererId) forgetUnmountWithoutTombstone(pending)
+    if (pending.rendererId === rendererId) forget(pending)
     else retained.push(pending)
   }
   replacePendingUnmounts(retained)

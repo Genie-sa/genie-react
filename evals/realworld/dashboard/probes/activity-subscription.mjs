@@ -7,6 +7,7 @@ export default async function probe(ctx) {
   const rows = ctx.page.locator('[role=row][data-order-id]')
   await rows.nth(1).waitFor()
   await ctx.settle()
+  await ctx.genie.call('react_clear_renders', {})
   for (const index of [0, 1]) {
     await rows.nth(index).locator('a').click()
     await ctx.page.getByRole('tab', { name: 'Activity' }).click()

@@ -36,14 +36,15 @@ const GUARD_OPTIONS = {
   'tool-repeats': '3',
   'commit-samples': '15',
   'interaction-samples': '0',
-  modes: 'absent,idle,paused',
+  modes: 'absent,idle,paused,window',
   skip: 'memory',
 }
 
-/** Ceilings are ratios measured within one run, so a slower runner moves both sides; each sits well above the value measured locally (see docs/runtime-overhead.md). Unmounts get their own ceiling because Bippy's per-fiber unmount dispatch costs several times React's own deletion work. */
+/** Ceilings are ratios measured within one run, so a slower runner moves both sides; each sits well above the value measured locally (see docs/runtime-overhead.md). Unmounts get their own ceiling because Bippy's per-fiber unmount dispatch costs several times React's own deletion work. Idle and paused skip the per-component analysis, so they share the tight ceilings; the analysis runs only in a window. A refresh re-renders every row, so it is the steadiest sign of analysis running and gets the tightest one. */
 const GUARD_CEILINGS = {
-  idleCommitRatio: { default: 5, unmount: 9 },
-  pausedCommitRatio: { default: 2, unmount: 8 },
+  idleCommitRatio: { default: 2, refresh: 1.5, unmount: 8 },
+  pausedCommitRatio: { default: 2, refresh: 1.5, unmount: 8 },
+  windowCommitRatio: { default: 5, unmount: 9 },
   perFiberOverheadGrowth: 2,
   toolGrowthExponent: 1.4,
   boundedToolToTickCommit: 8,
@@ -377,6 +378,7 @@ function guardChecks(report) {
       for (const [mode, ceilings] of [
         ['idle', GUARD_CEILINGS.idleCommitRatio],
         ['paused', GUARD_CEILINGS.pausedCommitRatio],
+        ['window', GUARD_CEILINGS.windowCommitRatio],
       ]) {
         const measured = commitMedian(largest, label(mode), kind)
         if (measured === undefined) continue
@@ -392,12 +394,12 @@ function guardChecks(report) {
     for (const kind of GROWTH_KINDS) {
       const perFiber = (size) =>
         Math.max(
-          commitMedian(size, label('idle'), kind) - commitMedian(size, 'absent', kind),
+          commitMedian(size, label('window'), kind) - commitMedian(size, 'absent', kind),
           NOISE_FLOOR_MS,
         ) / size.fibers.composites
-      if (commitMedian(largest, label('idle'), kind) === undefined) continue
+      if (commitMedian(largest, label('window'), kind) === undefined) continue
       check(
-        `${label('idle')} per-component ${kind} overhead growth ${smallest.rows}→${largest.rows}`,
+        `${label('window')} per-component ${kind} overhead growth ${smallest.rows}→${largest.rows}`,
         perFiber(largest) / perFiber(smallest),
         GUARD_CEILINGS.perFiberOverheadGrowth,
         '1 means overhead grows linearly with the tree; 4 would be quadratic here',

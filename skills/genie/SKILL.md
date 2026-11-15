@@ -43,7 +43,7 @@ Start with the tool for the question:
 | Is the delay a request or rendering? | `timeline_start`, `timeline_stop`, `timeline_read` |
 | Which Redux action caused this render? | `react_render_causes` with `"view":"full"` (the `external-store` cause's `redux`), then `redux_actions` |
 
-`npx genie-react tools <name> --session my-agent` prints a tool's live inputs, defaults and examples. Component IDs last until the page reloads. Capture one interaction in a fresh window, so the evidence belongs to that action alone:
+`npx genie-react tools <name> --session my-agent` prints a tool's live inputs, defaults and examples. Component IDs last until the page reloads. Genie records renders and effects only inside a window, so open one before the action; to observe a page load, add `&_genie_observe` to the URL you open. Capture one interaction in a fresh window, so the evidence belongs to that action alone:
 
 ```bash
 npx genie-react call react_clear_renders '{"component":"CheckoutRow"}' --session my-agent

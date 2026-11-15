@@ -10,6 +10,7 @@ const counters = {
   droppedUnmountFibers: 0,
   analysisFailedFibers: 0,
   pausedCommits: 0,
+  unobservedCommits: 0,
   truncatedInputFibers: 0,
   propsNotEnumeratedFibers: 0,
   budgetExhaustedCommits: 0,
@@ -50,6 +51,27 @@ describe('render evidence semantics', () => {
     expect(renderSummarySemantics(coverage, 0)).toBe('unknown')
     expect(renderEvidenceComparability(coverage, 'current').notComparableReasons).toEqual([
       'commits-after-profile-stop',
+    ])
+  })
+
+  it('turns commits no window observed into an unknown result that says how to capture them', () => {
+    const coverage = buildRenderTrackingCoverage({ ...counters, unobservedCommits: 3 }, 'causal')
+
+    expect(coverage).toMatchObject({
+      complete: false,
+      inputAttributionComplete: false,
+      semantics: 'lower-bound',
+    })
+    expect(renderSummarySemantics(coverage, 0)).toBe('unknown')
+    expect(coverage.incompleteBecause).toEqual([
+      expect.objectContaining({
+        reason: 'commits-not-observed',
+        detail: expect.stringContaining('3 commits'),
+        next: expect.stringContaining('react_clear_renders'),
+      }),
+    ])
+    expect(renderEvidenceComparability(coverage, 'current').notComparableReasons).toEqual([
+      'commits-not-observed',
     ])
   })
 

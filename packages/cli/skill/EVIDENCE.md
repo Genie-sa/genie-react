@@ -4,6 +4,7 @@
 
 ## Grades and coverage
 
+- Genie records renders and effects only while a window, profile, `react_measure` span or timeline is open. `commits-not-observed` in coverage means commits happened with none open: open a window and repeat the action; it does not mean nothing rendered. Error boundary catches, Suspense and hydration state, and the tree are kept without a window.
 - `exact` proves only the link it describes. `lower-bound` counts can omit work, so an empty result or a smaller count proves nothing until coverage is complete. `coverage.incompleteBecause` names each gap and its `next` step.
 - React quiet covers React commits only. When Query or Router work belongs in the capture, also wait with `devtools_wait`, condition `settled`, listing the domains the app advertises.
 
