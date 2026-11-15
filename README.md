@@ -110,7 +110,6 @@ Results print as compact text that keeps every field. Add `--json` when a script
 - [Trace requests, Query updates, renders and navigation together](https://genie-react.com/docs/workflows/interaction-timeline)
 - [Compare repeated runs before and after a change](https://genie-react.com/docs/workflows/performance-proof)
 - [Add app tools for login, fixtures and hard-to-reach states](https://genie-react.com/docs/tools/app-tools)
-- [What Genie costs your app at runtime](docs/runtime-overhead.md)
 
 Found a bug in Genie? `genie-react feedback` drafts a GitHub issue and shows it to you first; it sends nothing until you add `--submit`.
 
