@@ -12,6 +12,7 @@
     "@genie-react/next-demo",
     "@genie-react/router-demo",
     "@genie-react/vite-demo",
-    "@genie-react/plain-demo"
+    "@genie-react/plain-demo",
+    "@genie-react/realworld-storefront"
   ]
 }
