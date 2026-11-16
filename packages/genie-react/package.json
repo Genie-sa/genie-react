@@ -1,6 +1,6 @@
 {
   "name": "genie-react",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "description": "Live React and TanStack DevTools for AI coding agents. Find performance problems, test app states, and verify fixes end to end.",
   "license": "MIT",
