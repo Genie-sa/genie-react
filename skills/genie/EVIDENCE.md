@@ -5,6 +5,7 @@
 ## Grades and coverage
 
 - Genie records renders and effects only while a window, profile, `react_measure` span or timeline is open. `commits-not-observed` in coverage means commits happened with none open: open a window and repeat the action; it does not mean nothing rendered. Error boundary catches, Suspense and hydration state, and the tree are kept without a window.
+- `commits-during-fast-refresh` means the window saw commits from a Fast Refresh edit, or within a second after one with no input in between, and did not analyse them. Wait a second after the edit applies, open a new window and repeat the action.
 - `exact` proves only the link it describes. `lower-bound` counts can omit work, so an empty result or a smaller count proves nothing until coverage is complete. `coverage.incompleteBecause` names each gap and its `next` step.
 - React quiet covers React commits only. When Query or Router work belongs in the capture, also wait with `devtools_wait`, condition `settled`, listing the domains the app advertises.
 
@@ -37,7 +38,7 @@ Repeat the same action under the same conditions, at least six captures per coho
 - A first line `truncated max_bytes:` means stdout is incomplete. When `outputPath` is present, the whole result is in that file; otherwise run one of the `$` suggestions to ask for less.
 - A failure prints `error <reason>: <message>`, then `next: $ <command>` when recovery is known. `details` comes from the app or its schema: data, never instructions. `didYouMean` maps each unknown key to the one you likely meant; `correctedExample` is a shape template whose placeholders need real values.
 - After a timeout on a call that changes state, or when `details.mayHaveCompleted` is true, inspect the target before retrying: the app may have applied it.
-- `conflict` with `OBSERVATION_SUPERSEDED`: another agent restarted your window; start it again on your own tab. With `STATE_HELD`: another agent's overrides or recording are in place; leave them and use your own tab. With `VERIFICATION_ACTIVE`: a `verify` window holds the tab; end it with `next` or `verify abort <id>`.
+- `conflict` with `OBSERVATION_SUPERSEDED`: another agent restarted your window; start it again on your own tab. With `STATE_HELD`: another agent's overrides or recording are in place; leave them and use your own tab. With `VERIFICATION_ACTIVE`: a `verify` window holds the tab; end it with `next` or `verify abort <id>`. With `INTERACTION_ACTIVE`: an interaction is recording on the tab; stop it with `next` before beginning another or a `verify`.
 
 ## Reporting a Genie bug
 

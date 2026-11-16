@@ -176,6 +176,7 @@ export function windowEvidence(
       droppedUnmountFibers: 0,
       analysisFailedFibers: 0,
       pausedCommits: 0,
+      refreshCommitsExcluded: 0,
       budgetExhaustedCommits: 0,
       targeted: { complete: true, skippedFibers: 0 },
       truncatedEffectLists: 0,

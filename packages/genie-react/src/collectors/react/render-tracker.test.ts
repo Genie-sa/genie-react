@@ -1,6 +1,7 @@
 import { type Fiber, getFiberId, type RenderPhase } from 'bippy'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { isDehydratedNode } from '../../protocol'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 import {
   querySubscriberFor,
   recordRouterNotification,
@@ -102,6 +103,7 @@ function renderUnderRenderedParent(fiber: Fiber): void {
 }
 
 beforeEach(() => {
+  freezeAnalysisClock()
   resetObservationStateForTests()
   clearRenders()
 })

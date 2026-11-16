@@ -88,6 +88,7 @@ export interface RenderCohort {
     analysisFailedFibers: number
     pausedCommits: number
     unobservedCommits: number
+    refreshCommitsExcluded: number
     truncatedInputFibers: number
     propsNotEnumeratedFibers: number
     budgetExhaustedCommits: number
@@ -104,6 +105,8 @@ export interface RenderCoverageGaps {
   pausedCommits?: number
   /** Commits no window observed: an instance may have updated unseen, so idle cannot be proven. */
   unobservedCommits?: number
+  /** Fast Refresh commits the window did not analyse: an instance may have updated unseen, so idle cannot be proven. */
+  refreshCommitsExcluded?: number
   truncatedInputFibers: number
   propsNotEnumeratedFibers?: number
   budgetExhaustedCommits?: number
@@ -242,6 +245,7 @@ export async function getRenderCohort(
     generationHistoryEvictions: identityCoverage.generationHistoryEvictions,
     pausedCommits: coverageGaps.pausedCommits ?? 0,
     unobservedCommits: coverageGaps.unobservedCommits ?? 0,
+    refreshCommitsExcluded: coverageGaps.refreshCommitsExcluded ?? 0,
     propsNotEnumeratedFibers: coverageGaps.propsNotEnumeratedFibers ?? 0,
     budgetExhaustedCommits: coverageGaps.budgetExhaustedCommits ?? 0,
     budgetExhaustedSubsystems: coverageGaps.budgetExhaustedSubsystems ?? [],
@@ -261,6 +265,7 @@ export async function getRenderCohort(
     effectiveCoverageGaps.analysisFailedFibers === 0 &&
     effectiveCoverageGaps.pausedCommits === 0 &&
     effectiveCoverageGaps.unobservedCommits === 0 &&
+    effectiveCoverageGaps.refreshCommitsExcluded === 0 &&
     effectiveCoverageGaps.generationHistoryEvictions === 0
   const complete =
     renderCoverageComplete &&

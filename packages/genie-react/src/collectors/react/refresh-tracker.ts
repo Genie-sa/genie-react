@@ -22,7 +22,13 @@ const FIBER_LIMIT_PER_KIND = 100
 const COMPONENT_LIMIT_PER_KIND = 100
 const SOURCE_CLASSIFY_LIMIT = 120
 const SOURCE_CLASSIFY_BUDGET_MS = 500
-const REFRESH_QUIESCENCE_MS = 1_000
+/** Route frameworks can finish cold SSR or module invalidation hundreds of milliseconds after the refresh; the tail is timed from the refresh, so app commits cannot extend it. */
+const REFRESH_TAIL_MS = 1_000
+/** A bundler update whose completion event never arrives stops hiding commits after this. */
+const BUNDLER_UPDATE_LIMIT_MS = 10_000
+/** A refresh never starts with user input, so commits after one are the app's. */
+const APP_INPUT_EVENTS = ['pointerdown', 'keydown', 'input', 'wheel'] as const
+const APP_INPUT_LISTENER_OPTIONS: AddEventListenerOptions = { capture: true, passive: true }
 
 /** Bippy releases a fiber's id when it unmounts, so the id is captured while the fiber is still mounted. */
 interface RefreshFiber {
@@ -90,7 +96,8 @@ let droppedEvents = 0
 let refreshDepth = 0
 let bundlerUpdateActive = false
 let refreshTailActive = false
-let refreshTailGeneration = 0
+let refreshTailTimer: ReturnType<typeof setTimeout> | undefined
+let bundlerUpdateTimer: ReturnType<typeof setTimeout> | undefined
 let excludedCommitsInCurrentRefresh = 0
 let instrumentation: Unsubscribe | null = null
 let instrumentedHook: ReturnType<typeof getRDTHook> | null = null
@@ -126,15 +133,41 @@ function instrumentRefresh(): Unsubscribe {
   }
 }
 
-/** Close after a bounded quiet window: route frameworks can finish cold SSR/module invalidation hundreds of milliseconds after Vite applies client modules. */
-function scheduleRefreshTailEnd(): void {
-  const generation = ++refreshTailGeneration
-  setTimeout(() => {
-    if (generation !== refreshTailGeneration) return
-    refreshTailActive = false
-    excludedCommitsInCurrentRefresh = 0
-    latestRefreshEvent = null
-  }, REFRESH_QUIESCENCE_MS)
+function startRefreshTail(): void {
+  refreshTailActive = true
+  clearTimeout(refreshTailTimer)
+  refreshTailTimer = setTimeout(endRefreshTail, REFRESH_TAIL_MS)
+}
+
+function endRefreshTail(): void {
+  clearTimeout(refreshTailTimer)
+  refreshTailTimer = undefined
+  refreshTailActive = false
+  excludedCommitsInCurrentRefresh = 0
+  latestRefreshEvent = null
+}
+
+function endRefreshTailOnAppInput(): void {
+  if (refreshTailActive && refreshDepth === 0 && !bundlerUpdateActive) endRefreshTail()
+}
+
+function listenForAppInput(): (() => void) | null {
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return null
+  const target = window
+  for (const type of APP_INPUT_EVENTS) {
+    target.addEventListener(type, endRefreshTailOnAppInput, APP_INPUT_LISTENER_OPTIONS)
+  }
+  return () => {
+    for (const type of APP_INPUT_EVENTS) {
+      target.removeEventListener(type, endRefreshTailOnAppInput, APP_INPUT_LISTENER_OPTIONS)
+    }
+  }
+}
+
+function endBundlerUpdate(): void {
+  clearTimeout(bundlerUpdateTimer)
+  bundlerUpdateTimer = undefined
+  bundlerUpdateActive = false
 }
 
 function componentNames(types: unknown[]): string[] {
@@ -167,8 +200,7 @@ function recordRefresh(update: ReactRefreshUpdate): void {
   }
   events.push(event)
   latestRefreshEvent = event
-  refreshTailActive = true
-  if (!bundlerUpdateActive) scheduleRefreshTailEnd()
+  if (!bundlerUpdateActive) startRefreshTail()
   if (events.length > EVENT_LIMIT) {
     events.shift()
     droppedEvents += 1
@@ -214,11 +246,8 @@ function resetRefreshTrackingState(): void {
   instrumentation = null
   instrumentedHook = null
   refreshDepth = 0
-  bundlerUpdateActive = false
-  refreshTailActive = false
-  refreshTailGeneration += 1
-  excludedCommitsInCurrentRefresh = 0
-  latestRefreshEvent = null
+  endBundlerUpdate()
+  endRefreshTail()
 }
 
 /** Install refresh observation once per active DevTools hook. Bippy's listener is installed first, then wrapped so commit suppression spans its synchronous refresh. */
@@ -234,22 +263,24 @@ export function startRefreshTracking(): boolean {
   if (instrumentation) disposeRefreshTracking()
   let refresh: Unsubscribe | null = null
   let rendererInject: Unsubscribe | null = null
+  let appInput: (() => void) | null = null
+  const release = (): void => {
+    appInput?.()
+    rendererInject?.()
+    refresh?.()
+    resetRefreshTrackingState()
+  }
   try {
     refreshTrackingActive = true
     refresh = instrumentRefresh()
     for (const renderer of currentHook.renderers.values()) wrapRenderer(renderer)
     rendererInject = onRendererInject(wrapRenderer)
-    instrumentation = toUnsubscribe(() => {
-      rendererInject?.()
-      refresh?.()
-      resetRefreshTrackingState()
-    })
+    appInput = listenForAppInput()
+    instrumentation = toUnsubscribe(release)
     instrumentedHook = currentHook
     return true
   } catch {
-    rendererInject?.()
-    refresh?.()
-    resetRefreshTrackingState()
+    release()
     return false
   }
 }
@@ -269,22 +300,23 @@ export function noteExcludedRefreshCommit(): void {
   if (refreshDepth === 0 && latestRefreshEvent) {
     latestRefreshEvent.profileCommitsExcluded += 1
   }
-  if (refreshTailActive && !bundlerUpdateActive) scheduleRefreshTailEnd()
 }
 
 /** Bundler lifecycle bracket for commits that happen before renderer.scheduleRefresh (Vite/TanStack module invalidation). */
 export function beginBundlerUpdate(): void {
   if (bundlerUpdateActive) return
+  endRefreshTail()
   bundlerUpdateActive = true
-  refreshTailActive = true
-  refreshTailGeneration += 1
-  excludedCommitsInCurrentRefresh = 0
-  latestRefreshEvent = null
+  bundlerUpdateTimer = setTimeout(() => {
+    endBundlerUpdate()
+    endRefreshTail()
+  }, BUNDLER_UPDATE_LIMIT_MS)
 }
 
 export function completeBundlerUpdate(): void {
-  bundlerUpdateActive = false
-  if (refreshTailActive) scheduleRefreshTailEnd()
+  if (!bundlerUpdateActive) return
+  endBundlerUpdate()
+  startRefreshTail()
 }
 
 export function clearRefreshEvents(): void {

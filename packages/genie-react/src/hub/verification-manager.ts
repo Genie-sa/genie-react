@@ -131,7 +131,7 @@ interface VerificationManagerOptions<TSession extends VerificationSession> {
   sessionUnavailable: (target?: string) => SessionUnavailable
   isCurrentSession: (session: TSession) => boolean
   hasLogicalCollision: (session: TSession) => boolean
-  isInteractionRecording: (sessionId: string) => boolean
+  blockingInteraction: (sessionId: string) => { interactionId?: string } | undefined
   request: ObservationRequest<TSession>
   settle: (
     session: TSession,
@@ -244,13 +244,14 @@ export class VerificationManager<TSession extends VerificationSession> {
       (verification) => verification.session.sessionId === session.sessionId,
     )
     if (holder || this.starting.has(session.sessionId)) return lockedFailure(holder?.verificationId)
-    if (this.options.isInteractionRecording(session.sessionId)) {
+    const interaction = this.options.blockingInteraction(session.sessionId)
+    if (interaction) {
       return {
         ok: false,
         error:
           'An interaction is recording on this document; a verification would reset its window. Stop it with devtools_interaction_stop first.',
-        errorCode: 'invalid-args',
-        errorDetails: { hubCode: 'INTERACTION_ACTIVE' satisfies HubErrorCode },
+        errorCode: 'conflict',
+        errorDetails: { hubCode: 'INTERACTION_ACTIVE' satisfies HubErrorCode, ...interaction },
         session,
       }
     }

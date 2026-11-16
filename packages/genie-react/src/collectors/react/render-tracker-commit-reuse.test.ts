@@ -1,5 +1,6 @@
 import { type Fiber, type FiberRoot, type InstrumentationOptions, setFiberId } from 'bippy'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 
 const harness = vi.hoisted(() => ({
   options: null as InstrumentationOptions | null,
@@ -91,6 +92,7 @@ const commit = (root: FiberRoot): void => {
 }
 
 beforeEach(() => {
+  freezeAnalysisClock()
   disposeRenderTracking()
   clearRenders()
   harness.options = null

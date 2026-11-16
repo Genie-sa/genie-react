@@ -5,6 +5,7 @@ import { act, type RenderResult, render } from '@testing-library/react'
 import { createElement, type ReactNode, startTransition, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CollectorContext } from '../../client'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 import { resetExternalStoreRegistryForTests } from '../causal/external-store-registry'
 import {
   clearRenders,
@@ -51,6 +52,7 @@ let collector: ReturnType<typeof queryCollector>
 beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   resetExternalStoreRegistryForTests()
+  freezeAnalysisClock()
   expect(startRenderTracking()).toBe(true)
   queryClient = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },

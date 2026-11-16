@@ -885,6 +885,14 @@ export const renderCoverageSchema = z.object({
     .describe(
       'Commits React made while no render window, profile, measurement or timeline was open. Genie does not analyse those commits, so their renders and effects are missing from this result; open a window and repeat the interaction to capture them, or load the page with _genie_observe in its URL to capture the load.',
     ),
+  refreshCommitsExcluded: z
+    .number()
+    .int()
+    .nonnegative()
+    .default(0)
+    .describe(
+      'Commits this window saw from a Fast Refresh edit, or less than a second after one with no user input in between. Genie cannot tell those apart from the edit, so it does not analyse them and their renders and effects are missing; open a new window after the edit applies and repeat the step.',
+    ),
   truncatedInputFibers: z.number().int().nonnegative(),
   propsNotEnumeratedFibers: z
     .number()
@@ -915,6 +923,7 @@ export const renderCoverageSchema = z.object({
           'unmounts-dropped',
           'commits-after-profile-stop',
           'commits-not-observed',
+          'commits-during-fast-refresh',
           'renderer-not-analyzed',
           'traversal-failed',
           'analysis-failed',
@@ -1368,6 +1377,14 @@ const cohortReportSchema = z.object({
       .default(0)
       .describe(
         'Commits made while no window was open. An instance may have updated in one unseen, so none is reported mounted-idle.',
+      ),
+    refreshCommitsExcluded: z
+      .number()
+      .int()
+      .nonnegative()
+      .default(0)
+      .describe(
+        'Fast Refresh commits the window did not analyse. An instance may have updated in one unseen, so none is reported mounted-idle.',
       ),
     truncatedInputFibers: z.number().int().nonnegative(),
     propsNotEnumeratedFibers: z.number().int().nonnegative(),

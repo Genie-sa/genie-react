@@ -214,6 +214,8 @@ let analysisFailedFibers = 0
 let pausedCommits = 0
 /** Commits React made while no window, span or recording observed it; they were never analysed. */
 let unobservedCommits = 0
+/** Commits an observing window saw from a Fast Refresh, or close enough after one that they cannot be told apart; none of them were analysed. */
+let refreshCommitsExcluded = 0
 const analysisFailures = new Map<AnalysisFailureReason, number>()
 const truncatedInputComponents = new Set<string>()
 const propsNotEnumeratedComponents = new Set<string>()
@@ -361,6 +363,7 @@ export function startRenderTracking(): boolean {
         // A refresh commit is still a commit: it takes an ID so timelines and settle checks see it, though nothing joins its analysis.
         noteDocumentCommit()
         if (isRefreshCommit()) {
+          if (isTracking()) refreshCommitsExcluded += 1
           clearMeasurementSpans()
           advanceExcludedCommitBaseline(root)
           noteAnalysisInvalidation()
@@ -583,6 +586,7 @@ export const getPendingUnmountFiberCount = (): number => pendingUnmounts.length
 export const getAnalysisFailedFiberCount = (): number => analysisFailedFibers
 export const getPausedCommitCount = (): number => pausedCommits
 export const getUnobservedCommitCount = (): number => unobservedCommits
+export const getRefreshCommitsExcludedCount = (): number => refreshCommitsExcluded
 
 function noteAnalysisFailure(reason: AnalysisFailureReason): void {
   analysisFailedFibers += 1
@@ -620,6 +624,7 @@ export function getRenderTrackingCoverage(
       analysisFailedFibers,
       pausedCommits,
       unobservedCommits,
+      refreshCommitsExcluded,
       truncatedInputFibers,
       propsNotEnumeratedFibers,
       budgetExhaustedCommits,
@@ -668,6 +673,7 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   analysisFailedFibers = 0
   pausedCommits = 0
   unobservedCommits = 0
+  refreshCommitsExcluded = 0
   analysisFailures.clear()
   truncatedInputComponents.clear()
   propsNotEnumeratedComponents.clear()
@@ -949,6 +955,7 @@ interface RenderMeasurement {
   analysisFailedFibers: number
   pausedCommits: number
   unobservedCommits: number
+  refreshCommitsExcluded: number
   truncatedInputFibers: number
   propsNotEnumeratedFibers: number
   budgetExhaustedCommits: number
@@ -1035,6 +1042,7 @@ export async function getRendersMeasurement(
   const failedAtStart = analysisFailedFibers
   const pausedAtStart = pausedCommits
   const unobservedAtStart = unobservedCommits
+  const refreshExcludedAtStart = refreshCommitsExcluded
   const truncatedAtStart = truncatedInputFibers
   const propsNotEnumeratedAtStart = propsNotEnumeratedFibers
   const budgetCommitsAtStart = budgetExhaustedCommits
@@ -1075,6 +1083,7 @@ export async function getRendersMeasurement(
     analysisFailedFibers: failedAtStart,
     pausedCommits: pausedAtStart,
     unobservedCommits: unobservedAtStart,
+    refreshCommitsExcluded: refreshExcludedAtStart,
     truncatedInputFibers: truncatedAtStart,
     propsNotEnumeratedFibers: propsNotEnumeratedAtStart,
     budgetExhaustedCommits: budgetCommitsAtStart,
@@ -1151,6 +1160,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
   analysisFailedFibers: number
   pausedCommits: number
   unobservedCommits: number
+  refreshCommitsExcluded: number
   truncatedInputFibers: number
   propsNotEnumeratedFibers: number
   budgetExhaustedCommits: number
@@ -1174,6 +1184,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
   const failedAtStart = analysisFailedFibers
   const pausedAtStart = pausedCommits
   const unobservedAtStart = unobservedCommits
+  const refreshExcludedAtStart = refreshCommitsExcluded
   const truncatedAtStart = truncatedInputFibers
   const propsNotEnumeratedAtStart = propsNotEnumeratedFibers
   const budgetCommitsAtStart = budgetExhaustedCommits
@@ -1196,6 +1207,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
     analysisFailedFibers: failedAtStart,
     pausedCommits: pausedAtStart,
     unobservedCommits: unobservedAtStart,
+    refreshCommitsExcluded: refreshExcludedAtStart,
     truncatedInputFibers: truncatedAtStart,
     propsNotEnumeratedFibers: propsNotEnumeratedAtStart,
     budgetExhaustedCommits: budgetCommitsAtStart,

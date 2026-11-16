@@ -8,6 +8,7 @@ import { GenieClient, type SocketLike } from '../client'
 import { reactCollector } from '../collectors/react'
 import { PENDING_WORK_FIBERS_PER_CALL } from '../collectors/react/pending-work'
 import { newId, type VerifyClaimInput } from '../protocol'
+import { freezeAnalysisClock } from '../test-support/analysis-clock'
 import {
   createTestBridge,
   type Frame,
@@ -45,6 +46,7 @@ function startClient(): GenieClient {
 
 beforeEach(async () => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false
+  freezeAnalysisClock()
   handle = createTestBridge({ clientBundlePath: 'unused-in-these-tests.js' })
   url = (await handle.listen()).url
   container = document.createElement('div')
@@ -267,6 +269,25 @@ describe('verify through the hub against a real React tree', () => {
     const ended = await invoke('devtools_verify_end', { verificationId })
     expect(ended.result.verdict).toBe('refused')
     expect((await invoke('react_clear_renders', {})).ok).toBe(true)
+  })
+
+  it('refuses a verification while an interaction records on the tab as a conflict naming it', async () => {
+    await mounted(createElement(DebouncedSearch), 'idle')
+    const began = await invoke('devtools_interaction_begin', { name: 'recording' })
+    const { interactionId } = began.result as { interactionId: string }
+
+    const refused = await invoke('devtools_verify_begin', {
+      name: 'blocked',
+      claims: [badgeMax0],
+      settle: { quietMs: 400, timeoutMs: 5_000 },
+    })
+
+    expect(refused).toMatchObject({
+      ok: false,
+      errorCode: 'conflict',
+      errorDetails: { hubCode: 'INTERACTION_ACTIVE', interactionId },
+    })
+    expect((await invoke('devtools_interaction_stop', { interactionId })).ok).toBe(true)
   })
 
   it('tells another agent its window was replaced when a verification starts on the tab', async () => {

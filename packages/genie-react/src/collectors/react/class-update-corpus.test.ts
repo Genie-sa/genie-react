@@ -11,7 +11,8 @@ import {
   useEffect,
   useState,
 } from 'react'
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 import { act, click, mount, startCollector, unmountAll } from '../../test-support/react-app'
 import { resetObservationStateForTests } from './observation'
 import { disposeRenderTracking } from './render-tracker'
@@ -62,9 +63,8 @@ async function rendersOf(component: string): Promise<CauseEvent[]> {
 const updatesOf = (events: CauseEvent[]): ClassUpdate[] =>
   events.flatMap((event) => event.causes.flatMap((cause) => cause.classUpdates ?? []))
 
-// A frozen clock keeps the analysis time limit from skipping a render on a loaded machine, so every join is observed.
 beforeEach(async () => {
-  vi.spyOn(performance, 'now').mockReturnValue(0)
+  freezeAnalysisClock()
   await genie.call('react_clear_renders')
 })
 

@@ -16,6 +16,7 @@ import {
   useSyncExternalStore,
 } from 'react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 import { act, byText, click, mount, startCollector, unmountAll } from '../../test-support/react-app'
 
 vi.mock('bippy/source', () => ({
@@ -132,7 +133,10 @@ function Rerender({ render }: { render: (tick: number) => ReactNode }): ReactNod
   )
 }
 
-beforeEach(observe)
+beforeEach(async () => {
+  freezeAnalysisClock()
+  await observe()
+})
 afterEach(unmountAll)
 afterAll(() => genie.stop())
 

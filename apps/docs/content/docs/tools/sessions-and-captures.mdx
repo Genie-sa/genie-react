@@ -443,7 +443,7 @@ Use the React evidence only when its coverage is complete and `budgetExhaustedCo
 
 **Limits:** The interaction ID is bridge-owned and is not a capture ID, observation ID, session
 alias, or marker. Only one interaction can record per physical document, with at most 20 active
-across the bridge. Starting another is rejected before a clear is sent, including while the first begin is awaiting the app. A failed begin releases its reservation so it can be retried. A recording cannot cross a
+across the bridge. Starting another, or a verification, is rejected before a clear is sent, including while the first begin is awaiting the app, with `errorCode: "conflict"` (CLI `reason: "conflict"`) and `hubCode: "INTERACTION_ACTIVE"`; `errorDetails.interactionId` names the recording once it has one, and the CLI's `next` stops it. A failed begin releases its reservation so it can be retried. A recording cannot cross a
 reload or disconnect, so always stop it promptly; disconnected recordings are pruned.
 
 An interaction labels a time window; background commits within that window remain included.

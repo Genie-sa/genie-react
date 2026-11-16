@@ -5,6 +5,7 @@ import { act, createElement as h, type ReactNode, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { MAXIMUM_RENDER_OBSERVATION_BUDGET } from '../../protocol/react-observation-schema'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 import { reactCollectorHarness } from '../../test-support/react-collector'
 import {
   cohortProblems,
@@ -31,6 +32,7 @@ const client = new QueryClient()
 
 beforeAll(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  freezeAnalysisClock()
   start()
 })
 afterAll(stop)

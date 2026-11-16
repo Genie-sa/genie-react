@@ -236,7 +236,7 @@ const HUB_GUIDANCE: Record<HubErrorCode, { message: string; next?: NextCommand }
   },
   INTERACTION_ACTIVE: {
     message:
-      'The session already has an interaction starting or recording. Stop it with devtools_interaction_stop before beginning another.',
+      'An interaction is starting or recording on this tab. Stop it with devtools_interaction_stop before beginning another interaction or a verification.',
   },
   INTERACTION_LIMIT: {
     message:
@@ -520,21 +520,8 @@ function invalidArgsFailure(
           ? undefined
           : 'Inspect the tool schema with next and correct the arguments.',
   ]
-  const blockingInteractionId =
-    hubCode === 'INTERACTION_ACTIVE' && INTERACTION_ID.test(details.interactionId ?? '')
-      ? details.interactionId
-      : undefined
-  const blockingVerificationId =
-    hubCode === 'VERIFICATION_ACTIVE' ? blockingVerification(details) : undefined
-  const hubNext = blockingInteractionId
-    ? nextCommand(
-        'call',
-        'devtools_interaction_stop',
-        JSON.stringify({ interactionId: blockingInteractionId }),
-      )
-    : blockingVerificationId
-      ? nextCommand('verify', 'end', blockingVerificationId)
-      : hubCode && HUB_GUIDANCE[hubCode].next
+  const lock = documentLock(hubCode, details)
+  const hubNext = lock ? lock.release : hubCode && HUB_GUIDANCE[hubCode].next
   return {
     reason: 'invalid_args',
     message: sentences.filter((sentence) => sentence !== undefined).join(' '),
@@ -549,8 +536,8 @@ function invalidArgsFailure(
       validKeys,
       didYouMean,
       hubCode,
-      interactionId: blockingInteractionId,
-      verificationId: blockingVerificationId,
+      interactionId: lock?.interactionId,
+      verificationId: lock?.verificationId,
     }),
   }
 }
@@ -785,23 +772,57 @@ async function routingFailure(
   }
 }
 
-/** The hub-minted ID of the verification whose document lock refused the call. */
-function blockingVerification(details: ToolErrorDetails): string | undefined {
-  return VERIFICATION_ID.test(details.verificationId ?? '') ? details.verificationId : undefined
+interface DocumentLock {
+  hubCode: 'VERIFICATION_ACTIVE' | 'INTERACTION_ACTIVE'
+  verificationId?: string
+  interactionId?: string
+  /** Ends the recording that holds the document; absent while it is still starting and has no ID. */
+  release?: NextCommand
+}
+
+/** The verification or interaction whose document lock refused the call, named only by a hub-minted ID. */
+function documentLock(hubCode: unknown, details: ToolErrorDetails): DocumentLock | undefined {
+  if (hubCode === 'VERIFICATION_ACTIVE') {
+    const verificationId = VERIFICATION_ID.test(details.verificationId ?? '')
+      ? details.verificationId
+      : undefined
+    return {
+      hubCode,
+      verificationId,
+      release:
+        verificationId === undefined ? undefined : nextCommand('verify', 'end', verificationId),
+    }
+  }
+  if (hubCode === 'INTERACTION_ACTIVE') {
+    const interactionId = INTERACTION_ID.test(details.interactionId ?? '')
+      ? details.interactionId
+      : undefined
+    return {
+      hubCode,
+      interactionId,
+      release:
+        interactionId === undefined
+          ? undefined
+          : nextCommand('call', 'devtools_interaction_stop', JSON.stringify({ interactionId })),
+    }
+  }
+  return undefined
 }
 
 /** Only the hub sends `conflict`, and an app cannot, so its hub code is trusted for every tool. */
 function conflictFailure(details: ToolErrorDetails, context: FailureContext): Failure {
-  if (details.hubCode === 'VERIFICATION_ACTIVE') {
-    const verificationId = blockingVerification(details)
+  const lock = documentLock(details.hubCode, details)
+  if (lock) {
     return {
       reason: 'conflict',
-      message: HUB_GUIDANCE.VERIFICATION_ACTIVE.message,
+      message: HUB_GUIDANCE[lock.hubCode].message,
       userActionRequired: true,
-      ...(verificationId === undefined
-        ? {}
-        : { next: withSession(nextCommand('verify', 'end', verificationId), context.session) }),
-      details: present({ hubCode: 'VERIFICATION_ACTIVE', verificationId }),
+      ...(lock.release ? { next: withSession(lock.release, context.session) } : {}),
+      details: present({
+        hubCode: lock.hubCode,
+        verificationId: lock.verificationId,
+        interactionId: lock.interactionId,
+      }),
     }
   }
   const hubCode =

@@ -58,7 +58,7 @@ export function verifyHarness(collectors: GenieCollector[], options: VerifyHarne
     sessionUnavailable: () => ({ errorCode: 'not-connected', error: 'The document is gone.' }),
     isCurrentSession: () => current,
     hasLogicalCollision: () => false,
-    isInteractionRecording: () => false,
+    blockingInteraction: () => undefined,
     request,
     settle: async () => {
       const outcome = await options.duringSettle?.()

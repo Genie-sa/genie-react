@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 
 vi.mock('bippy/source', () => ({
   getSource: async () => null,
@@ -13,6 +14,7 @@ let unmount: () => void = () => {}
 
 beforeAll(async () => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  freezeAnalysisClock()
   window.history.replaceState(null, '', '/issues/CORE-12?_genie=agent&_genie_observe')
   await import('./hook')
   const { createElement, StrictMode, useEffect } = await import('react')

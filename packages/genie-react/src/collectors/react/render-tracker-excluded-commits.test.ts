@@ -1,5 +1,6 @@
 import type { Fiber, FiberRoot, InstrumentationOptions } from 'bippy'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 
 const harness = vi.hoisted(() => ({
   options: null as InstrumentationOptions | null,
@@ -83,6 +84,7 @@ function rootWithComponent(name: string): FiberRoot {
 }
 
 beforeEach(() => {
+  freezeAnalysisClock()
   disposeRenderTracking()
   clearRenders()
   harness.options = null
@@ -107,6 +109,39 @@ describe('excluded commit traversal baselines', () => {
 
     expect(getDocumentCommitId()).toBe(before + 2)
     expect(await getRenders({ sort: 'renders', limit: 10 })).toEqual([])
+  })
+
+  it('reports Fast Refresh commits a window missed as incomplete coverage with a next step', () => {
+    const root = rootWithComponent('RefreshedCounter')
+    harness.refresh = true
+    harness.options?.onCommitFiberRoot?.(1, root)
+
+    const coverage = getRenderTrackingCoverage('measurement')
+    expect(coverage).toMatchObject({
+      complete: false,
+      semantics: 'lower-bound',
+      refreshCommitsExcluded: 1,
+    })
+    expect(coverage.incompleteBecause).toContainEqual(
+      expect.objectContaining({
+        reason: 'commits-during-fast-refresh',
+        next: expect.stringContaining('react_clear_renders'),
+      }),
+    )
+
+    clearRenders()
+    expect(getRenderTrackingCoverage('measurement')).toMatchObject({
+      complete: true,
+      refreshCommitsExcluded: 0,
+    })
+  })
+
+  it('does not count a Fast Refresh commit while profiling is paused', () => {
+    stopRenderTracking()
+    harness.refresh = true
+    harness.options?.onCommitFiberRoot?.(1, rootWithComponent('PausedRefresh'))
+
+    expect(getRenderTrackingCoverage('measurement').refreshCommitsExcluded).toBe(0)
   })
 
   it('advances a paused commit without publishing it, then records only the next commit', async () => {

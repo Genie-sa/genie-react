@@ -454,14 +454,14 @@ describe('mount generations across the ways a position is counted', () => {
         'mount',
         1,
         1,
-        countWithBudget ? createCommitWorkBudget() : undefined,
+        countWithBudget ? createCommitWorkBudget({ now: () => 0 }) : undefined,
       )
       discardExcludedInstanceUnmount(a, first.fiberId)
 
       const replacement = remountRowA(rows, a)
       const second = countWithBudget
         ? instanceForMountedFiber(replacement)
-        : noteInstanceRender(replacement, 'mount', 2, 2, createCommitWorkBudget())
+        : noteInstanceRender(replacement, 'mount', 2, 2, createCommitWorkBudget({ now: () => 0 }))
 
       expect(second.logicalPath).toBe(first.logicalPath)
       expect(second.mountGeneration).toBe(2)

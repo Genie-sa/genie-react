@@ -67,7 +67,7 @@ describe('InteractionManager', () => {
     expect(clears).toBe(1)
     expect(await second).toMatchObject({
       ok: false,
-      errorCode: 'invalid-args',
+      errorCode: 'conflict',
       errorDetails: { hubCode: 'INTERACTION_ACTIVE' },
     })
     resolveClear({ ok: false, error: 'clear failed' })

@@ -1,5 +1,6 @@
 import { type Fiber, getFiberId } from 'bippy'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 import { type CommitWorkBudget, createCommitWorkBudget } from './commit-budget'
 import {
   clearInstanceIdentityForTests,
@@ -189,9 +190,9 @@ describe('commit-scoped lineage reuse', () => {
     attach(root, [list])
     attach(list, [first, second])
     attach(second, [leaf])
-    const before = instanceForMountedFiber(asFiber(leaf), createCommitWorkBudget())
+    const before = instanceForMountedFiber(asFiber(leaf), createCommitWorkBudget({ now: () => 0 }))
     attach(list, [second, first])
-    const after = instanceForMountedFiber(asFiber(leaf), createCommitWorkBudget())
+    const after = instanceForMountedFiber(asFiber(leaf), createCommitWorkBudget({ now: () => 0 }))
 
     expect(before.logicalPath).toContain('<li>[index=1]')
     expect(after.logicalPath).toContain('<li>[index=0]')
@@ -199,6 +200,8 @@ describe('commit-scoped lineage reuse', () => {
 })
 
 describe('mounts counted while nothing observes', () => {
+  beforeEach(freezeAnalysisClock)
+
   const PLACEMENT = 0b10
 
   /** A committed root over `branches`, each mounted in this commit. */

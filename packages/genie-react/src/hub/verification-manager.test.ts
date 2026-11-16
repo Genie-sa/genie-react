@@ -9,7 +9,7 @@ import {
   useEffect,
   useState,
 } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { reactCollector } from '../collectors/react'
 import {
   devtoolsVerifyReadContract,
@@ -18,6 +18,7 @@ import {
   verificationSchema,
 } from '../protocol'
 import { MAXIMUM_RENDER_OBSERVATION_BUDGET } from '../protocol/react-observation-schema'
+import { freezeAnalysisClock } from '../test-support/analysis-clock'
 import { loadReact18 } from '../test-support/react-18'
 import { act, byText, click, mount, unmountAll } from '../test-support/react-app'
 import { type VerifyHarnessOptions, verifyHarness } from '../test-support/verify-harness'
@@ -67,6 +68,8 @@ function start(options?: VerifyHarnessOptions) {
 }
 
 const productionRoots: { unmount: () => void; container: HTMLElement }[] = []
+
+beforeEach(freezeAnalysisClock)
 
 afterEach(async () => {
   harness?.stop()

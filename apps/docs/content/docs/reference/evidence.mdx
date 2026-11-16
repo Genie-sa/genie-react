@@ -25,6 +25,7 @@ Render and effect reads carry a `coverage` object:
 | `inputAttributionComplete` | Every captured render has complete input evidence. Only then can you rule out a cause. |
 | `semantics` | `exact` counts, or `lower-bound` when some work went unseen. |
 | `unobservedCommits` | Commits with no window open. They come with `commits-not-observed`. |
+| `refreshCommitsExcluded` | Commits from a Fast Refresh edit, or less than a second after one with no input in between, which Genie does not analyse. They come with `commits-during-fast-refresh`. |
 | `pausedCommits` | Commits after `react_profile_stop`. |
 | `incompleteBecause` | One entry per gap, with a `next` step. |
 

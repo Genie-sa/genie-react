@@ -1131,6 +1131,13 @@ A component counts as preserved only when its instance survived the refresh. An 
 component's state compatible still remounts it when an ancestor remounted, so it is listed under
 `remounted`.
 
+Genie does not analyse the commits a refresh makes. Commits up to a second after the refresh, or
+after the bundler finishes applying the update, count as the refresh's too, because route frameworks
+can finish their own refresh work that late; the first pointer, key, input or wheel event ends that
+second early, since commits after user input are the app's. `profileCommitsExcluded` counts them,
+and a render or effect read whose window saw one reports it as `coverage.refreshCommitsExcluded`
+with the reason `commits-during-fast-refresh`.
+
 **Agent use:** Rerun the measured interaction when a refresh overlaps it, and investigate component
 identity when the edit remounted state that should have been preserved.
 

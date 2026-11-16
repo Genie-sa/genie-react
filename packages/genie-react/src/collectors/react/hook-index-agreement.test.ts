@@ -23,12 +23,14 @@ import {
   useTransition,
 } from 'react'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 import { reactCollectorHarness } from '../../test-support/react-collector'
 
 const { call, start, stop } = reactCollectorHarness()
 
 beforeAll(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  freezeAnalysisClock()
   start()
 })
 afterAll(stop)

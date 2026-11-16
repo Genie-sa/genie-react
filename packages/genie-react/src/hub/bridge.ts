@@ -405,7 +405,7 @@ export class GenieBridge {
       sessionUnavailable: (target) => this.sessionUnavailable(target),
       isCurrentSession: (session) => this.isCurrent(session),
       hasLogicalCollision: (session) => this.logicalPeers(session).length > 0,
-      isInteractionRecording: (sessionId) => this.interactions.isRecording(sessionId),
+      blockingInteraction: (sessionId) => this.interactions.blockingInteraction(sessionId),
       request: (session, tool, args) => this.appRequestForSession(tool, args, session),
       settle: (session, domains, quietMs, timeoutMs) =>
         this.settleInteraction(session, domains, quietMs, timeoutMs),
