@@ -9,7 +9,8 @@ const MAX_SUGGESTED_BYTES = 50_000_000
 const MIN_SUGGESTED_BRANCH_BYTES = 1_024
 const MAX_SUGGESTED_PATH_LENGTH = 200
 const PRIVATE_FILE_MODE = 0o600
-const SPILL_NAME = /^[a-zA-Z0-9_.-]{1,80}-\d{13}-\d+\.(?:json|txt)$/
+/** Older CLIs wrote `<label>-<ms>-<pid>`; both forms are pruned. */
+const SPILL_NAME = /^[a-zA-Z0-9_.-]{1,80}-\d{13}-\d+(?:-\d+)?\.(?:json|txt)$/
 
 export interface CallInvocation {
   /** CLI words before the tool arguments, e.g. `['call', 'react_get_renders']`. */
@@ -130,6 +131,9 @@ export function spillDirectory(): string {
   return join(genieUserDirectory(), 'out')
 }
 
+/** Distinguishes spills one process writes in the same millisecond, such as a batch with several oversized results. */
+let spillSequence = 0
+
 function spillOutput(
   label: string,
   serialized: string,
@@ -137,7 +141,11 @@ function spillOutput(
 ): string | undefined {
   const directory = spillDirectory()
   const safeLabel = label.replace(/[^a-zA-Z0-9_.-]+/g, '-').slice(0, 80)
-  const path = join(directory, `${safeLabel}-${Date.now()}-${process.pid}.${extension}`)
+  spillSequence += 1
+  const path = join(
+    directory,
+    `${safeLabel}-${Date.now()}-${process.pid}-${spillSequence}.${extension}`,
+  )
   try {
     ensurePrivateDirectory(dirname(directory))
     ensurePrivateDirectory(directory)
