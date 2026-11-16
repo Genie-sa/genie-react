@@ -132,6 +132,7 @@ describe('overflow spill', () => {
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.unstubAllEnvs()
     rmSync(runtime, { recursive: true, force: true })
     rmSync(project, { recursive: true, force: true })
@@ -188,6 +189,18 @@ describe('overflow spill', () => {
     expect(outputPath?.endsWith('.txt')).toBe(true)
     expect(readFileSync(outputPath ?? '', 'utf8')).toBe('components: []\n')
     expect(readdirSync(directory).filter((name) => name.startsWith('stale-'))).toHaveLength(18)
+  })
+
+  it('keeps every result spilled in the same millisecond', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000)
+
+    const first = spill()
+    const second = spill()
+
+    expect(first).toBeDefined()
+    expect(second).toBeDefined()
+    expect(second).not.toBe(first)
+    expect(readdirSync(spillDirectory())).toHaveLength(2)
   })
 
   it('prunes only old regular spill files and leaves other files and symlinks alone', () => {
