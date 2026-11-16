@@ -106,6 +106,7 @@ describe('GenieBridge robustness', () => {
     })
     const second = await inbox.wait(isResult('second'))
 
+    expect(second.errorCode).toBe('conflict')
     expect(second.errorDetails).toEqual({
       hubCode: 'INTERACTION_ACTIVE',
       interactionId: first.result.interactionId,

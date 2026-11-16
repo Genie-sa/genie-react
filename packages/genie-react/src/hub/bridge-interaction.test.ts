@@ -146,7 +146,7 @@ describe('GenieBridge interaction capture', () => {
       args: { name: 'unsafe overlap' },
     })
     const overlapping = await inbox.wait(isResult(overlappingId))
-    expect(overlapping).toMatchObject({ ok: false, errorCode: 'invalid-args' })
+    expect(overlapping).toMatchObject({ ok: false, errorCode: 'conflict' })
     expect(overlapping.error).toContain('is already recording interaction')
 
     const stopId = newId()

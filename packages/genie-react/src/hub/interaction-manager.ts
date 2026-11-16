@@ -150,7 +150,7 @@ export class InteractionManager<TSession extends InteractionSession> {
       return {
         ok: false,
         error: `Session ${JSON.stringify(session.sessionId)} is already recording interaction ${JSON.stringify(recordingId)}. Stop it with devtools_interaction_stop {"interactionId":${JSON.stringify(recordingId)}} before beginning another.`,
-        errorCode: 'invalid-args',
+        errorCode: 'conflict',
         errorDetails: {
           hubCode: 'INTERACTION_ACTIVE' satisfies HubErrorCode,
           interactionId: recordingId,
@@ -161,7 +161,7 @@ export class InteractionManager<TSession extends InteractionSession> {
       return {
         ok: false,
         error: `Session ${JSON.stringify(session.sessionId)} is already starting an interaction. Wait for that devtools_interaction_begin call to return, then stop it before beginning another.`,
-        errorCode: 'invalid-args',
+        errorCode: 'conflict',
         errorDetails: { hubCode: 'INTERACTION_ACTIVE' satisfies HubErrorCode },
       }
     }
@@ -446,13 +446,12 @@ export class InteractionManager<TSession extends InteractionSession> {
     return captureToolEvidence(this.options.request, session, tool, args)
   }
 
-  /** Whether an interaction is recording on this physical document; a verification must not reset its window. */
-  isRecording(sessionId: string): boolean {
-    return (
-      [...this.active.values()].some(
-        (interaction) => interaction.session.sessionId === sessionId,
-      ) || this.starting.has(sessionId)
-    )
+  /** The interaction starting or recording on this physical document, which a verification must not reset; a starting one has no ID yet. */
+  blockingInteraction(sessionId: string): { interactionId?: string } | undefined {
+    for (const [interactionId, interaction] of this.active) {
+      if (interaction.session.sessionId === sessionId) return { interactionId }
+    }
+    return this.starting.has(sessionId) ? {} : undefined
   }
 
   private noSession(sessionTarget?: string): InteractionInvocation {

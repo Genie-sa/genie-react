@@ -770,7 +770,37 @@ describe('agent failure output', () => {
     })
   })
 
-  it('names the blocking interaction and how to stop it', async () => {
+  it('maps a call the interaction lock refused to a conflict that stops the interaction', async () => {
+    const interactionId = 'int_78fe499b-e33a-46a6-a954-106068cafcb0'
+    const failure = await describeFailure(
+      new BridgeCallError('raw', {
+        errorCode: 'conflict',
+        details: { hubCode: 'INTERACTION_ACTIVE', interactionId },
+      }),
+      { tool: 'devtools_verify_begin', session: 'tab-a' },
+    )
+
+    expect(failure).toMatchObject({
+      reason: 'conflict',
+      errorCode: 'conflict',
+      userActionRequired: true,
+      details: { hubCode: 'INTERACTION_ACTIVE', interactionId },
+    })
+    expect(failure.message).toContain('An interaction is starting or recording on this tab')
+    expect(failure.message).not.toContain('raw')
+    expect(failure.next?.argv).toEqual([
+      'pnpm',
+      'exec',
+      'genie-react',
+      'call',
+      'devtools_interaction_stop',
+      JSON.stringify({ interactionId }),
+      '--session',
+      'tab-a',
+    ])
+  })
+
+  it('still reads the interaction lock from a hub that sent it as invalid-args', async () => {
     const interactionId = 'int_78fe499b-e33a-46a6-a954-106068cafcb0'
     const failure = await describeFailure(
       new BridgeCallError('raw', {

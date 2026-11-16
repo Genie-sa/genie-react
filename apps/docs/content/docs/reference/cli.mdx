@@ -92,7 +92,7 @@ details:
 | `tool_unavailable` | Mount the UI that registers the tool. |
 | `tool_error` | The tool failed in the app; read `details.app`. |
 | `unknown_session` | Pick a listed tab, or run `next` to wait for one. |
-| `conflict` | Another agent or a reload reset your window, or a `verify` window holds the tab (`VERIFICATION_ACTIVE`; `next` ends it). See [several agents](/docs/getting-started/agent#several-agents-at-once). |
+| `conflict` | Another agent or a reload reset your window, or a `verify` window or an interaction holds the tab (`VERIFICATION_ACTIVE`, `INTERACTION_ACTIVE`; `next` ends or stops it). See [several agents](/docs/getting-started/agent#several-agents-at-once). |
 | `bridge_rejected` | The hub refused the token. Run from the app folder with matching package versions. |
 | `not_connected`, `busy`, `timeout` | Follow `message` and `next`. |
 | `operational_failure` | Genie failed. Run the `feedback` command it carries. |

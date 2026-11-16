@@ -269,6 +269,25 @@ describe('verify through the hub against a real React tree', () => {
     expect((await invoke('react_clear_renders', {})).ok).toBe(true)
   })
 
+  it('refuses a verification while an interaction records on the tab as a conflict naming it', async () => {
+    await mounted(createElement(DebouncedSearch), 'idle')
+    const began = await invoke('devtools_interaction_begin', { name: 'recording' })
+    const { interactionId } = began.result as { interactionId: string }
+
+    const refused = await invoke('devtools_verify_begin', {
+      name: 'blocked',
+      claims: [badgeMax0],
+      settle: { quietMs: 400, timeoutMs: 5_000 },
+    })
+
+    expect(refused).toMatchObject({
+      ok: false,
+      errorCode: 'conflict',
+      errorDetails: { hubCode: 'INTERACTION_ACTIVE', interactionId },
+    })
+    expect((await invoke('devtools_interaction_stop', { interactionId })).ok).toBe(true)
+  })
+
   it('tells another agent its window was replaced when a verification starts on the tab', async () => {
     await mounted(createElement(DebouncedSearch), 'idle')
     const tab = (await invoke('devtools_status', {})).result.sessions[0].sessionId as string
