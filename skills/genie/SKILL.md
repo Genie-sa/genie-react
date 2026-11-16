@@ -2,7 +2,7 @@
 name: genie
 description: Verify a React fix and explain what a running React or React Native app did, alongside agent-browser or agent-device. Use to prove a fix worked, find why a component rendered or re-rendered, debug an effect that loops, check Query, Router, Suspense, hydration or error-boundary state, compare performance before and after a change, or call the app's own app_* tools for login, fixtures and fault injection.
 metadata:
-  version: "1.0.0"
+  version: "1.0.1"
   package: "@genie-react/cli"
 ---
 

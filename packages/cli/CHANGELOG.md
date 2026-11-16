@@ -1,5 +1,18 @@
 # @genie-react/cli
 
+## 1.0.1
+
+### Patch Changes
+
+- e387019: A `devtools_interaction_begin` or `verify begin` refused because an interaction is already starting or recording on the tab now fails with reason `conflict` and `hubCode: "INTERACTION_ACTIVE"` instead of `invalid_args`, because the arguments were fine, matching the `VERIFICATION_ACTIVE` lock. `details.interactionId` names the recording, now also when a `verify begin` is refused, and `next` stops it. The exit code is 1 (`failure`) instead of 2 (`usage`). The CLI still reads the old `invalid_args` form from a hub on an earlier 1.0 patch.
+- e387019: App commits after a Fast Refresh no longer go unanalysed for as long as they keep coming. Genie treats commits up to a second after a refresh as part of it, and each such commit used to restart that second, so interacting quickly after an edit could hide every commit from analysis. The second now counts from the refresh itself, or from the moment the bundler finishes applying the update, and the first pointer, key, input or wheel event ends it early. A bundler update whose completion event never arrives stops hiding commits after 10 seconds.
+
+  Commits a window still does not analyse because of a refresh now make render and effect coverage incomplete: `coverage.refreshCommitsExcluded` counts them, `incompleteBecause` lists `commits-during-fast-refresh` with a next step, `react_component_cohort` no longer reports instances `mounted-idle` across them, and `verify` refuses a render count with `coverage_incomplete`.
+
+- Updated dependencies [e387019]
+- Updated dependencies [e387019]
+  - genie-react@1.0.1
+
 ## 1.0.0
 
 ### Major Changes
