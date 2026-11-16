@@ -2,6 +2,7 @@
 import './hook'
 import { createElement, memo, type ReactNode, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 import { act, mount, startCollector, unmountAll } from '../../test-support/react-app'
 import { clearRenders, disposeRenderTracking, startRenderTracking } from './render-tracker'
 
@@ -35,6 +36,7 @@ interface Cohort {
 }
 
 beforeEach(() => {
+  freezeAnalysisClock()
   expect(startRenderTracking()).toBe(true)
 })
 

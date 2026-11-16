@@ -13,6 +13,7 @@ import {
   useState,
 } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 import { findFiberById, findRootFiber, owningComponentFor, registerFiber } from './fiber'
 import { wasInstanceObserved } from './instance-identity'
 import { getRenderCohort } from './render-cohort'
@@ -37,6 +38,7 @@ let view: RenderResult | null = null
 
 beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  freezeAnalysisClock()
   expect(startRenderTracking()).toBe(true)
 })
 

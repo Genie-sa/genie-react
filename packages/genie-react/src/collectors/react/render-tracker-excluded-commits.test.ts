@@ -1,5 +1,6 @@
 import type { Fiber, FiberRoot, InstrumentationOptions } from 'bippy'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 
 const harness = vi.hoisted(() => ({
   options: null as InstrumentationOptions | null,
@@ -83,6 +84,7 @@ function rootWithComponent(name: string): FiberRoot {
 }
 
 beforeEach(() => {
+  freezeAnalysisClock()
   disposeRenderTracking()
   clearRenders()
   harness.options = null

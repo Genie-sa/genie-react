@@ -14,6 +14,7 @@ import {
   useSyncExternalStore,
 } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 import { act, mount, startCollector, unmountAll } from '../../test-support/react-app'
 import type { RenderCause, RenderCauseEvent } from './render-causes'
 import {
@@ -98,6 +99,7 @@ const ofKind = <Kind extends RenderCause['kind']>(causes: RenderCause[], kind: K
   causes.filter((cause): cause is Extract<RenderCause, { kind: Kind }> => cause.kind === kind)
 
 beforeEach(() => {
+  freezeAnalysisClock()
   expect(startRenderTracking()).toBe(true)
 })
 

@@ -6,6 +6,7 @@ import { act, createElement as h, memo, type ReactNode, useCallback, useState } 
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { CaptureArtifact, CaptureComparison, ToolDescriptor } from '../protocol'
+import { freezeAnalysisClock } from '../test-support/analysis-clock'
 import { reactCollectorHarness } from '../test-support/react-collector'
 import { CaptureManager, type CaptureSession } from './capture-manager'
 
@@ -136,6 +137,7 @@ const metric = (comparison: CaptureComparison, name: string) =>
 
 beforeAll(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  freezeAnalysisClock()
   start()
   const container = document.createElement('div')
   document.body.append(container)

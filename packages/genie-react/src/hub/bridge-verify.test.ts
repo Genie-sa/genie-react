@@ -8,6 +8,7 @@ import { GenieClient, type SocketLike } from '../client'
 import { reactCollector } from '../collectors/react'
 import { PENDING_WORK_FIBERS_PER_CALL } from '../collectors/react/pending-work'
 import { newId, type VerifyClaimInput } from '../protocol'
+import { freezeAnalysisClock } from '../test-support/analysis-clock'
 import {
   createTestBridge,
   type Frame,
@@ -45,6 +46,7 @@ function startClient(): GenieClient {
 
 beforeEach(async () => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false
+  freezeAnalysisClock()
   handle = createTestBridge({ clientBundlePath: 'unused-in-these-tests.js' })
   url = (await handle.listen()).url
   container = document.createElement('div')

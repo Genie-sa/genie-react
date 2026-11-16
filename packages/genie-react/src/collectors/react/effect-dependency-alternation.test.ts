@@ -4,7 +4,8 @@
 
 import './hook'
 import { createElement, type ReactNode, useEffect, useState } from 'react'
-import { afterAll, afterEach, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 import { byText, click, mount, startCollector, unmountAll } from '../../test-support/react-app'
 
 vi.mock('bippy/source', () => ({
@@ -16,6 +17,7 @@ vi.mock('bippy/source', () => ({
 }))
 
 const genie = startCollector()
+beforeEach(freezeAnalysisClock)
 afterEach(unmountAll)
 afterAll(() => genie.stop())
 

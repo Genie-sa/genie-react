@@ -5,6 +5,7 @@ import { type Fiber, getFiberFromHostInstance, isCompositeFiber } from 'bippy'
 import { Component, createElement, type ReactNode, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CollectorContext } from '../../client'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 import { reactCollector } from './collector'
 import { getErrorState } from './error-tracker'
 import { findRootFiber, registerFiber } from './fiber'
@@ -51,6 +52,7 @@ const openWindow = () => clearRenders({ budget: { timeLimitMs: 500, adaptive: fa
 
 beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  freezeAnalysisClock()
   loadWithoutWindow()
 })
 

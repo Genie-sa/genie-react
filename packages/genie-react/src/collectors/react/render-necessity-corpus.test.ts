@@ -12,6 +12,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 import { act, type MountedApp, mount, unmountAll } from '../../test-support/react-app'
 import type { RenderCauseEvent } from './render-causes'
 import {
@@ -64,6 +65,7 @@ async function interact(app: MountedApp, action: () => void, ...extra: Node[]) {
 }
 
 beforeEach(() => {
+  freezeAnalysisClock()
   expect(startRenderTracking()).toBe(true)
 })
 

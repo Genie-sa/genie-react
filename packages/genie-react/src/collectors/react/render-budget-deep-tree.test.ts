@@ -4,6 +4,7 @@ import { act, render } from '@testing-library/react'
 import { createElement, type ReactNode, useState } from 'react'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CollectorContext } from '../../client'
+import { freezeAnalysisClock } from '../../test-support/analysis-clock'
 import { reactCollector } from './collector'
 
 vi.mock('bippy/source', () => ({
@@ -89,10 +90,7 @@ afterAll(() => {
   stop?.()
 })
 
-// A frozen clock keeps the time limit out of these cases, so only the fiber and operation limits decide coverage.
-beforeEach(() => {
-  vi.spyOn(performance, 'now').mockReturnValue(0)
-})
+beforeEach(freezeAnalysisClock)
 
 let nextRow = 0
 async function selectNextRowAndReadCoverage(): Promise<Coverage> {
