@@ -629,6 +629,30 @@ describe('react_suspense on React 19', () => {
     })
   })
 
+  it('keeps /src on a Vite frame under a short directory such as src/lib', async () => {
+    const orders = deferred<string>()
+    const debugStack = new Error('react-stack-top-frame')
+    debugStack.stack =
+      'Error: react-stack-top-frame\n    at loadOrders (http://localhost:5173/src/lib/orders.ts?t=1795061730389:4:10)'
+    Object.assign(orders.promise, {
+      _debugInfo: [{ awaited: { name: 'loadOrders', start: 5, end: 9, debugStack } }],
+    })
+    mount(
+      createElement(
+        Suspense,
+        { name: 'Orders', fallback: 'o' },
+        createElement(Reader, { source: orders.promise }),
+      ),
+    )
+    await settle()
+
+    const [blocker] = boundaryNamed(await read(), 'Orders').blockers
+    expect(blocker).toMatchObject({
+      location: '/src/lib/orders.ts:4',
+      ioStack: [{ file: '/src/lib/orders.ts', line: 4 }],
+    })
+  })
+
   it('marks a fallback held by react_toggle_suspense_fallback as forced, not waiting on I/O', async () => {
     mount(
       createElement(

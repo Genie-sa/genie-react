@@ -1,5 +1,5 @@
 import { type Fiber, getFiberId, isCompositeFiber } from 'bippy'
-import { normalizeFileName, parseStack, symbolicateStack } from 'bippy/source'
+import { parseStack, symbolicateStack } from 'bippy/source'
 import { roundMilliseconds } from '../../protocol'
 import { renderStartedQueriesUnder } from '../causal/render-started-queries'
 import { genieFetch } from '../genie-fetch'
@@ -14,6 +14,7 @@ import {
   frameMappingOf,
   isHiddenByAppOnly,
   isLibraryFile,
+  normalizeModuleFileName,
   ownershipCoverage,
   packageNameFromFile,
 } from './source'
@@ -307,7 +308,7 @@ function toFrame(
   column: unknown,
   mapped = false,
 ): SuspenseStackFrame {
-  const file = typeof fileName === 'string' && fileName ? normalizeFileName(fileName) : null
+  const file = typeof fileName === 'string' && fileName ? normalizeModuleFileName(fileName) : null
   return {
     functionName: typeof functionName === 'string' && functionName ? functionName : null,
     file,
