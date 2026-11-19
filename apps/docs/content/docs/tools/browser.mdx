@@ -152,11 +152,13 @@ npx @genie-react/cli call browser_visibility '{}' --session logical-review --jso
   "source": "document",
   "state": "visible",
   "hiddenTransitions": 1,
-  "hiddenMs": 4120
+  "hiddenMs": 4120,
+  "url": "http://localhost:5173/orders/o-1042"
 }
 ```
 
 **Agent use:** Compare `hiddenTransitions` between two reads to tell whether the app was hidden in
 between; `verify` refuses a window with a hidden interval. `source` is `document` in a browser,
 `app-state` on React Native when `startGenie` received `AppState`, and `unavailable` when there is no
-visibility signal.
+visibility signal. `url` is the page URL at the read, current after an in-app navigation; it is
+absent on React Native. `verify` reads it at begin and at end to report and fingerprint the page.

@@ -17,7 +17,7 @@ const CAUSE_NAME_FIELDS: Record<string, string> = {
   router: 'routerId',
   parent: 'parentName',
 }
-const MAX_CHANGED_RESULT_FIELDS = 10
+const MAX_CHANGED_FIELDS = 10
 
 export interface RenderCauseFields<Kind extends string = string, Evidence extends string = string> {
   kind: Kind
@@ -35,6 +35,7 @@ export interface CompactRenderCause<
   referenceOnly?: true
   reason?: string
   changedResultFields?: string[]
+  changedFields?: string[]
   origin?: string
   redux?: { evidence: 'exact' | 'inferred'; actions: string[] }
 }
@@ -52,7 +53,7 @@ export function memoCounters(
   )
 }
 
-/** A render cause reduced to its kind, evidence, the input's name (plus the read index that tells repeated context reads apart), how it was matched and the component whose update started a parent cascade; values and diffs are dropped. */
+/** A render cause reduced to its kind, evidence, the input's name (plus the read index that tells repeated context reads apart), the query or store fields that changed, how it was matched and the component whose update started a parent cascade; values and diffs are dropped. */
 export function compactRenderCause<Kind extends string, Evidence extends string>(
   cause: RenderCauseFields<Kind, Evidence>,
 ): CompactRenderCause<Kind, Evidence> {
@@ -80,16 +81,19 @@ export function compactRenderCause<Kind extends string, Evidence extends string>
       ? { referenceOnly: true as const }
       : {}),
     ...(typeof reason === 'string' ? { reason } : {}),
-    ...(Array.isArray(changed)
-      ? {
-          changedResultFields: changed
-            .filter((field): field is string => typeof field === 'string')
-            .slice(0, MAX_CHANGED_RESULT_FIELDS),
-        }
+    ...(Array.isArray(changed) ? { changedResultFields: fieldNames(changed) } : {}),
+    ...(cause.kind === 'external-store' && Array.isArray(fields.changedFields)
+      ? { changedFields: fieldNames(fields.changedFields) }
       : {}),
     ...(typeof origin === 'string' && origin !== name ? { origin } : {}),
     ...compactRedux(cause.kind === 'external-store' ? fields.redux : undefined),
   }
+}
+
+function fieldNames(fields: unknown[]): string[] {
+  return fields
+    .filter((field): field is string => typeof field === 'string')
+    .slice(0, MAX_CHANGED_FIELDS)
 }
 
 const MAX_COMPACT_REDUX_ACTIONS = 5

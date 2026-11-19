@@ -25,8 +25,12 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
 
-/** A hub stand-in that greets with `greeting`, records every upgrade and invoke, and answers `devtools_wait` with `waitOk`. */
-async function scriptedHub(greeting: Greeting, waitOk = true): Promise<ScriptedHub> {
+/** A hub stand-in that greets with `greeting`, records every upgrade and invoke, answers `devtools_wait` with `waitOk`, and any tool in `answers` with its entry. */
+async function scriptedHub(
+  greeting: Greeting,
+  waitOk = true,
+  answers: Record<string, unknown> = {},
+): Promise<ScriptedHub> {
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1' })
   await new Promise<void>((resolve) => server.once('listening', resolve))
   const hub: Omit<ScriptedHub, 'url'> = { upgrades: [], invoked: [] }
@@ -51,11 +55,13 @@ async function scriptedHub(greeting: Greeting, waitOk = true): Promise<ScriptedH
       }
       hub.invoked.push({ tool: message.tool, sessionId: message.sessionId, args: message.args })
       const result =
-        message.tool === 'devtools_wait'
-          ? { ok: waitOk, condition: 'ready', waitedMs: 1, validConditions: ['ready'] }
-          : message.tool === 'devtools_status'
-            ? { ...status, toolCount: 0 }
-            : { value: 'answered' }
+        message.tool in answers
+          ? answers[message.tool]
+          : message.tool === 'devtools_wait'
+            ? { ok: waitOk, condition: 'ready', waitedMs: 1, validConditions: ['ready'] }
+            : message.tool === 'devtools_status'
+              ? { ...status, toolCount: 0 }
+              : { value: 'answered' }
       socket.send(encodeMessage({ kind: 'bridge/result', id: message.id, ok: true, result }))
     })
   })
@@ -75,6 +81,41 @@ function captureStdout(): () => string {
   const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
   return () => write.mock.calls.map(([chunk]) => String(chunk)).join('')
 }
+
+describe('call --fail-on-result-error', () => {
+  const compare = (overall: string) => ({
+    overall,
+    violations:
+      overall === 'fail'
+        ? [{ metric: 'react.selfTimeMs', reasons: ['candidate median 46.2 exceeds maxValue 8'] }]
+        : [],
+  })
+  const args = '{"baselineCaptureIds":["cap_a"],"candidateCaptureIds":["cap_b"]}'
+
+  it.each([
+    ['fail', true, 1],
+    ['fail', false, 0],
+    ['pass', true, 0],
+    ['inconclusive', true, 0],
+  ])(
+    'exits on a compare reporting overall %s with the flag %s as %i',
+    async (overall, failOnResultError, expected) => {
+      const hub = await scriptedHub({ connected: true, ready: true }, true, {
+        devtools_capture_compare: compare(overall),
+      })
+      const stdout = captureStdout()
+
+      const code = await runCall('devtools_capture_compare', args, {
+        ...options(hub),
+        json: true,
+        failOnResultError,
+      })
+
+      expect(code).toBe(expected)
+      expect(JSON.parse(stdout())).toMatchObject({ overall })
+    },
+  )
+})
 
 describe('one-shot commands and the hub greeting', () => {
   it('calls a tool without a readiness round trip when the greeting reports a ready tab', async () => {

@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { reactCollector } from '../collectors/react'
 import { reactComponentCohortContract } from '../collectors/react/render-contract'
+import { visibilityCollector } from '../collectors/visibility'
 import {
   devtoolsVerifyReadContract,
   type VerifyClaimInput,
@@ -35,6 +36,7 @@ vi.mock('bippy/source', () => ({
 
 interface Verification {
   verificationId: string
+  session: { url?: string }
   verdict: string
   exitCode: number
   state: string
@@ -718,6 +720,32 @@ describe('verify on a real React tree', () => {
         reasons: [],
       }),
     ])
+  })
+})
+
+describe('verify after an in-app navigation', () => {
+  afterEach(() => window.history.replaceState(null, '', '/'))
+
+  it('reports and fingerprints the page the browser shows, not the URL the app connected on', async () => {
+    const app = await mount(createElement(SearchScreen, { fixed: false }))
+    harness = verifyHarness([reactCollector(), visibilityCollector()])
+    const claims = [badgeClaims[1] as VerifyClaimInput]
+    window.history.pushState(null, '', '/orders/o-1?tab=overview')
+    const onOrder = await begin(claims)
+    const orderUrl = window.location.href
+    window.history.pushState(null, '', '/')
+    await typeTwice(app.container)
+    const ended = await end(onOrder.verificationId)
+    const onDashboard = await begin(claims)
+    await typeTwice(app.container)
+    const rerun = await end(onDashboard.verificationId)
+
+    expect(harness.session.app.url).toBe('http://localhost/search')
+    expect(onOrder.session.url).toBe(orderUrl)
+    expect(ended.session.url).toBe(window.location.href)
+    expect(onDashboard.session.url).toBe(window.location.href)
+    expect(rerun.ledger.fingerprint).not.toBe(ended.ledger.fingerprint)
+    expect(rerun.ledger.attempt).toBe(1)
   })
 })
 

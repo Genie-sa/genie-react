@@ -276,8 +276,9 @@ and are never removed by this check.
 Both match the `documentCommitId` shown on every event.
 `component` is an optional exact display name; `exact` defaults to `true`, and `false` matches every name containing it, ignoring case. `componentMatch` reports which names matched. `limit` is an integer from 1 to 500 and defaults to 100.
 `appOnly` defaults to `true`. `view` is `summary` (default) or `full`; the summary names each cause,
-while `full` adds input values, `deepDiff`, Query notification details, `assessment`, `instance`,
-and source attribution.
+and an `external-store` cause lists the first 10 selected-snapshot `changedFields`, while `full` adds
+input values, `deepDiff`, Query notification details, `assessment`, `instance`, and source
+attribution.
 
 ```bash
 npx @genie-react/cli call react_render_causes \

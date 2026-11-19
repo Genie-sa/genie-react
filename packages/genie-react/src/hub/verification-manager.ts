@@ -162,6 +162,8 @@ interface ActiveVerification<TSession extends VerificationSession> {
   startDocumentCommitId: number
   resolutions: Map<string, TargetResolution>
   begin: BeginSnapshot
+  /** The page at begin, which can differ from the URL the app connected on after in-app navigation. */
+  url: string | undefined
   domains: VerifySettleDomain[]
   tailMs: number
   fingerprint: string
@@ -306,12 +308,14 @@ export class VerificationManager<TSession extends VerificationSession> {
       render,
       [...resolutions.values()].map((resolution) => (resolution.listed ? resolution.begin : null)),
     )
+    const url = pageUrl(snapshot, session)
     const refusals = beginRefusals(input, missing, snapshot, resolutions)
     if (refusals.some((refusal) => refusal !== null)) {
       return this.refuseAtBegin({
         verificationId,
         input,
         session,
+        url,
         startedAt,
         refusals,
         snapshot,
@@ -353,11 +357,12 @@ export class VerificationManager<TSession extends VerificationSession> {
       startDocumentCommitId: clear.documentCommitId,
       resolutions,
       begin: { ...snapshot, clear },
+      url,
       domains:
         input.settle.domains ??
         advertisedDomains(session, (domain) => this.options.advertisedBefore?.(session, domain)),
       tailMs,
-      fingerprint: claimFingerprint({ claims: input.claims, url: session.app.url }),
+      fingerprint: claimFingerprint({ claims: input.claims, url }),
       retained,
       expiry: setTimeout(() => this.expire(verificationId, 'window_lost'), input.maxDurationMs),
     }
@@ -371,7 +376,7 @@ export class VerificationManager<TSession extends VerificationSession> {
         verificationId,
         state: 'recording',
         name: input.name,
-        session: sessionView(session),
+        session: sessionView(session, url),
         window: {
           observationId: active.observationId,
           startDocumentCommitId: active.startDocumentCommitId,
@@ -438,11 +443,12 @@ export class VerificationManager<TSession extends VerificationSession> {
     verificationId: string
     input: BeginInput
     session: TSession
+    url: string | undefined
     startedAt: string
     refusals: (VerifyRefusal | null)[]
     snapshot: Snapshot
   }): VerificationInvocation {
-    const { verificationId, input, session, refusals } = context
+    const { verificationId, input, session, url, refusals } = context
     const first = refusals.findIndex((refusal) => refusal !== null)
     const claims: VerifyClaimResult[] = input.claims.map((claim, position) => {
       const refusal =
@@ -464,11 +470,12 @@ export class VerificationManager<TSession extends VerificationSession> {
         refusal,
       }
     })
-    const fingerprint = claimFingerprint({ claims: input.claims, url: session.app.url })
+    const fingerprint = claimFingerprint({ claims: input.claims, url })
     return this.store({
       verificationId,
       input,
       session,
+      url,
       startedAt: context.startedAt,
       verdict: 'refused',
       claims,
@@ -619,6 +626,7 @@ export class VerificationManager<TSession extends VerificationSession> {
       preFreeze,
       [...targets.values()].map((target) => target.end),
     )
+    const url = pageUrl(endSnapshot, session)
     const current = this.options.isCurrentSession(session)
     const settleOutcome = {
       outcome: settle.ok
@@ -672,13 +680,14 @@ export class VerificationManager<TSession extends VerificationSession> {
       targets,
       boundaries,
     }
-    const decision = decide(input.claims, evidence, guards, session.app.url)
+    const decision = decide(input.claims, evidence, guards, url)
     const commits =
       frozenDocumentCommitId === null ? null : frozenDocumentCommitId - active.startDocumentCommitId
     return this.store({
       verificationId: active.verificationId,
       input,
       session,
+      url,
       startedAt: active.startedAt,
       verdict: decision.verdict,
       claims: decision.claims,
@@ -718,7 +727,7 @@ export class VerificationManager<TSession extends VerificationSession> {
         },
         refusals: decision.windowRefusals.map((guard) => ({
           guard: guard.guard,
-          refusal: guardRefusal(guard, session.app.url),
+          refusal: guardRefusal(guard, url),
         })),
       },
       fingerprint: active.fingerprint,
@@ -777,6 +786,7 @@ export class VerificationManager<TSession extends VerificationSession> {
       verificationId: active.verificationId,
       input: active.input,
       session: active.session,
+      url: active.url,
       startedAt: active.startedAt,
       verdict: 'refused',
       claims: active.input.claims.map((claim, position) => ({
@@ -827,6 +837,7 @@ export class VerificationManager<TSession extends VerificationSession> {
     verificationId: string
     input: BeginInput
     session: TSession
+    url: string | undefined
     startedAt: string
     verdict: Verdict
     claims: VerifyClaimResult[]
@@ -881,7 +892,7 @@ export class VerificationManager<TSession extends VerificationSession> {
       name: context.input.name,
       state: 'completed',
       stage: context.stage,
-      session: sessionView(context.session),
+      session: sessionView(context.session, context.url),
       ...(context.window ? { window: context.window } : {}),
       claims: context.claims,
       caveats,
@@ -920,7 +931,7 @@ export class VerificationManager<TSession extends VerificationSession> {
           verificationId: active.verificationId,
           state: 'recording',
           name: active.input.name,
-          session: sessionView(active.session),
+          session: sessionView(active.session, active.url),
           startedAt: active.startedAt,
           expiresAt: active.expiresAt,
           request: requestView(active.input),
@@ -991,7 +1002,7 @@ export class VerificationManager<TSession extends VerificationSession> {
       verificationId,
       state: 'aborted',
       name: active.input.name,
-      session: sessionView(active.session),
+      session: sessionView(active.session, active.url),
       startedAt: active.startedAt,
       endedAt: new Date().toISOString(),
       request: requestView(active.input),
@@ -1203,7 +1214,12 @@ function guardCaveats(guards: readonly VerifyGuard[]): string[] {
   })
 }
 
-function sessionView(session: VerificationSession) {
+/** Read at begin and end because the app reports its URL only when it connects, so an in-app navigation leaves the session's URL behind. */
+function pageUrl(snapshot: Snapshot, session: VerificationSession): string | undefined {
+  return snapshot.visibility?.url ?? session.app.url
+}
+
+function sessionView(session: VerificationSession, url: string | undefined) {
   return {
     sessionId: session.sessionId,
     ...(session.logicalSessionId === undefined
@@ -1213,7 +1229,7 @@ function sessionView(session: VerificationSession) {
       ? {}
       : { documentGeneration: session.documentGeneration }),
     ...(session.sessionName === undefined ? {} : { sessionName: session.sessionName }),
-    ...(session.app.url === undefined ? {} : { url: session.app.url }),
+    ...(url === undefined ? {} : { url }),
   }
 }
 

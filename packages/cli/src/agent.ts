@@ -743,11 +743,7 @@ export async function runCall(
       }),
     )
     out(rendered)
-    return opts.failOnResultError &&
-      (tool === devtoolsWaitContract.name || tool === reactQuiesceContract.name) &&
-      waitResultFailed(result)
-      ? 1
-      : 0
+    return opts.failOnResultError && resultReportsFailure(tool, result) ? 1 : 0
   } catch (error) {
     await emitCaughtFailure(
       opts,
@@ -776,8 +772,14 @@ async function elementArgs(connection: Connection, tool: string, args: unknown):
   )
 }
 
-function waitResultFailed(result: unknown): boolean {
-  return isRecord(result) && result.ok === false
+/** A wait or quiesce that did not reach its condition, or a capture comparison whose budgets failed. */
+function resultReportsFailure(tool: string, result: unknown): boolean {
+  if (!isRecord(result)) return false
+  if (tool === devtoolsCaptureCompareContract.name) return result.overall === 'fail'
+  return (
+    (tool === devtoolsWaitContract.name || tool === reactQuiesceContract.name) &&
+    result.ok === false
+  )
 }
 
 export function operationIdOf(result: unknown): string | undefined {

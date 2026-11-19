@@ -621,6 +621,13 @@ const compactCauseSchema = z.object({
     .array(z.string())
     .optional()
     .describe('Query result fields the delivered notification changed, e.g. data or fetchStatus.'),
+  changedFields: z
+    .array(z.string())
+    .max(10)
+    .optional()
+    .describe(
+      'For an external store, the first 10 shallow selected-snapshot fields that changed; "$value" means a scalar changed. view:"full" has the values and the deep diff.',
+    ),
   origin: z
     .string()
     .optional()

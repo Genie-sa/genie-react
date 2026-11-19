@@ -52,6 +52,18 @@ describe('browser_visibility', () => {
     expect(after).toMatchObject({ state: 'visible', hiddenTransitions: 1, hiddenMs: 400 })
   })
 
+  it('reports the page URL at each read, so an in-app navigation shows', () => {
+    const visibility = started()
+    window.history.pushState(null, '', '/orders/o-1')
+    const onOrder = visibility.read()
+    window.history.replaceState(null, '', '/')
+    const onDashboard = visibility.read()
+    visibility.stop()
+
+    expect(onOrder).toMatchObject({ url: 'http://localhost:3000/orders/o-1' })
+    expect(onDashboard).toMatchObject({ url: 'http://localhost:3000/' })
+  })
+
   it('reports a document that is hidden right now', () => {
     const visibility = started()
     setDocumentVisibility('hidden')

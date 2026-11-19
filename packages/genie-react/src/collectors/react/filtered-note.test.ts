@@ -252,7 +252,7 @@ describe('getRendersReport filteredNote count', () => {
     expect(unfiltered.components).toMatchObject([
       {
         name: 'OpaqueMetroOwner',
-        source: { file: 'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle' },
+        source: { file: '/examples/expo-demo/index.ts.bundle' },
         sourceOwnership: 'unknown',
         isLibrary: false,
       },
@@ -542,7 +542,7 @@ describe('getEffectAuditReport filteredNote count', () => {
 
     expect(unfiltered.components[0]).toMatchObject({
       name: 'OpaqueMetroEffectOwner',
-      source: { file: 'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle' },
+      source: { file: '/examples/expo-demo/index.ts.bundle' },
       componentProvenance: {
         ownership: 'unknown',
         evidence: 'unknown',
@@ -568,7 +568,7 @@ describe('getEffectAuditReport filteredNote count', () => {
     const appOnly = await getEffectAuditReport({ limit: 50, appOnly: true })
 
     expect(unfiltered.components[0]?.effects[0]).toMatchObject({
-      source: { file: 'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle' },
+      source: { file: '/examples/expo-demo/index.ts.bundle' },
       isLibrary: false,
       provenance: {
         ownership: 'unknown',
@@ -711,7 +711,7 @@ describe('buildProvenanceReport ownership', () => {
       {
         name: 'OpaqueMetroProvenance',
         ownership: 'unknown',
-        source: { file: 'http://127.0.0.1:8081/examples/expo-demo/index.ts.bundle' },
+        source: { file: '/examples/expo-demo/index.ts.bundle' },
       },
     ])
     expect(unfiltered.summary).toMatchObject({
