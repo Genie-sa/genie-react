@@ -489,3 +489,518 @@ $ git checkout -- src/features/orders/order-row.tsx src/features/orders/orders-t
 ## t3/articles-verify-proof
 # exit code: 0
 ```
+
+## Re-run on Genie 1.1.0
+
+- Date: 2026-11-19 (runs between 08:55 and 08:57 UTC)
+- Commit: `ce408cb205c0e798cb04c35512772b7454283141` (`git rev-parse HEAD`, first command below)
+- App: `apps/realworld-dashboard` (Meridian Ops), dev server started from the app folder with
+  `DASHBOARD_PORT=5232 pnpm exec vite --port 5232 --strictPort`
+- URL: `http://127.0.0.1:5232/orders` (redirects to `/orders?sort=placedAt&dir=desc`)
+- Genie: CLI, hub and runtime 1.1.0 from this checkout (`pnpm install && pnpm build`), React 19.3.1
+  development build in StrictMode, headless Chromium through agent-browser 0.39.1
+- Session: `upd-b`
+
+Every command below ran from `apps/realworld-dashboard`, in this order. Output is untrimmed. Steps
+that are not shell commands are noted here: waits of 1 to 3 seconds after each `open` and after
+the source edit, and the temporary source edit itself, which was applied with a script and is
+shown by the `git diff` run that follows it. The edit is the reference fix from
+`evals/realworld/dashboard/order-hold-rerenders-all-rows.json`. It was reverted with
+`git checkout` (first command of the re-run in the evidence for
+`the-fix-that-passed-and-changed-nothing`, which ran right after these commands on the same tab)
+and never committed.
+
+The first `verify begin` below uses the claim `render OrderRow only props.order` from the 1.0.2
+run. It was ended without an interaction, and the run started again with
+`render OrderRow only props.order,mount`, the form the 1.1.0 skill and the Verify a fix guide use.
+That first window is kept here because it is part of the session's history. Its `min 1` claim
+failed with 0 renders, as a window with no interaction should.
+
+What differs from the 1.0.2 run:
+
+- `verify begin` prints each undecided claim as `recording`, not `null`, with no `{}` after it.
+- Suggested `next` and `evidence` commands start with `npx`, the runner used, not `pnpm exec`.
+- Settle also waits on the `network` domain, so the verdict line ends with
+  `(react, query, router, network)`.
+- After the code edit and the reload, the passing run is `attempt 2` with the failing run in its
+  history, under the same ledger fingerprint `cf_75576ea0e0d8`.
+- Fail: 24 renders, all 24 violating, exit 1, as in 1.0.2. Pass: 2 renders, both
+  `props.order`, exit 0, as in 1.0.2.
+
+```console
+$ git rev-parse HEAD
+ce408cb205c0e798cb04c35512772b7454283141
+# exit code: 0
+```
+
+```console
+$ node_modules/.bin/genie-react --version
+1.1.0
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b open 'http://127.0.0.1:5232/login'
+[agent-browser] launched browser
+✓ Meridian Ops
+  http://127.0.0.1:5232/login
+# exit code: 0
+```
+
+```console
+$ npx genie-react status --session upd-b --wait 15000
+selectedBridgeUrl: ws://127.0.0.1:5232/__genie/ws
+sessionSelector:
+  requested: upd-b
+  source: flag
+  resolvedSessionId: bd1c12b4-9dc5-417e-af64-a443e2527bba
+  implicit: false
+  agentBrowser: {session:upd-b,via:selector,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9}
+connected: true
+ready: true
+sessionId: bd1c12b4-9dc5-417e-af64-a443e2527bba
+app: {name:"Meridian Ops",url:http://127.0.0.1:5232/login,reactVersion:19.3.1,reactMounted:true}
+domains: [session,react,app,memory,perf,plugin,timeline,network,router,query]
+toolCount: 101
+sessions[1] (sessionId {fields}):
+  bd1c12b4-9dc5-417e-af64-a443e2527bba {logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:2,logicalSessionCollision:false,collisionWithSessionIds:[],app:{name:"Meridian Ops",url:http://127.0.0.1:5232/login,reactVersion:19.3.1,reactMounted:true},domains:[session,react,app,memory,perf,plugin,timeline,network,router,query],toolCount:101,connectedAt:1795078543066,ready:true,readyAt:1795078543066,current:true,origin:http://127.0.0.1:5232,runtimeVersion:1.1.0}
+warnings: []
+hub: {version:1.1.0,protocol:1}
+# exit code: 0
+```
+
+```console
+$ npx genie-react call app_reset_backend '{}' --session upd-b
+seed: 20260302
+faults: []
+latency: []
+latencyScale: 1
+requestCount: 0
+counts: {orders:6000,customers:1200,products:2400}
+# exit code: 0
+```
+
+```console
+$ npx genie-react call app_login_as '{"role":"manager"}' --session upd-b
+changed: true
+role: manager
+userId: u-manager
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b open 'http://127.0.0.1:5232/orders'
+✓ Meridian Ops
+  http://127.0.0.1:5232/orders?sort=placedAt&dir=desc
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b get text '[data-order-id="o-105999"]'
+SO-105999
+Delta Health 5
+Processing
+standard
+EMEA
+40
+Mar 2, 2026
+$8,624.19
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify begin --session upd-b --name 'put one order on hold' --claim 'render OrderRow only props.order' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+recording vfy_205b3518-b318-45ac-adf6-f16999957be9 "put one order on hold"
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 recording render OrderRow only props.order
+  2 recording render OrderRow min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:9,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_205b3518-b318-45ac-adf6-f16999957be9 --session upd-b
+session: {sessionId:21f42563-1025-4b55-a3f1-a11b6735a7df,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:3}
+schemaVersion: "1.0"
+targets: [{target:{component:OrderRow},status:resolved,instances:12,source:/src/features/orders/orders-table.tsx}]
+startedAt: 2026-11-19T08:55:55.482Z
+expiresAt: 2026-11-19T09:00:55.513Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify end vfy_205b3518-b318-45ac-adf6-f16999957be9 --session upd-b
+fail vfy_205b3518-b318-45ac-adf6-f16999957be9 "put one order on hold"  12 commits, quiet after 735 ms (react, query, router, network)
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 pass render OrderRow only props.order  {renders:0,events:0,violatingEvents:0,causes:[]}
+      claim: {kind:render-causes,target:{component:OrderRow},allow:[{kind:props,name:order}]}
+      deciding: []
+  2 fail render OrderRow min 1  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:12,activeInstances:12}
+      claim: {kind:renders,target:{component:OrderRow},min:1,counting:renders,allowRemount:false}
+      deciding: []
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:9}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:9,settledDocumentCommitId:20,frozenDocumentCommitId:21,commits:12,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:735,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_205b3518-b318-45ac-adf6-f16999957be9 --claim 2 --session upd-b
+session: {sessionId:21f42563-1025-4b55-a3f1-a11b6735a7df,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:3}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_fb4a813530c4,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_render_causes,react_error_state]}
+startedAt: 2026-11-19T08:55:55.482Z
+endedAt: 2026-11-19T08:56:07.811Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 1
+```
+
+```console
+$ npx genie-react verify begin --session upd-b --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+recording vfy_6079298e-51e7-4e78-ab1b-d81729b841bc "put one order on hold"
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 recording render OrderRow only props.order,mount
+  2 recording render OrderRow min 1
+  3 recording boundaries clean
+window: {observationId:observation:2,startDocumentCommitId:22,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_6079298e-51e7-4e78-ab1b-d81729b841bc --session upd-b
+session: {sessionId:21f42563-1025-4b55-a3f1-a11b6735a7df,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:3}
+schemaVersion: "1.0"
+targets: [{target:{component:OrderRow},status:resolved,instances:12,source:/src/features/orders/orders-table.tsx}]
+startedAt: 2026-11-19T08:56:09.079Z
+expiresAt: 2026-11-19T09:01:09.083Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b click 'button[aria-label="Actions for SO-105999"]'
+✓ Done
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b find role menuitem click --name 'Put on hold'
+✓ Done
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b wait 1500
+✓ Done
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify end vfy_6079298e-51e7-4e78-ab1b-d81729b841bc --session upd-b
+fail vfy_6079298e-51e7-4e78-ab1b-d81729b841bc "put one order on hold"  15 commits, quiet after 2042 ms (react, query, router, network)
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 fail render OrderRow only props.order,mount  {renders:24,events:24,violatingEvents:24,causes:[props.onStatusChange,props.order]}
+      claim: {kind:render-causes,target:{component:OrderRow},allow:[{kind:props,name:order},{kind:mount}]}
+      deciding: [{kind:render-event,renderEventId:render:34:226,documentCommitId:34,mountId:mount:12,causes:[{cause:props.onStatusChange,evidence:exact}]},{kind:render-event,renderEventId:render:34:225,documentCommitId:34,mountId:mount:11,causes:[{cause:props.onStatusChange,evidence:exact}]},{kind:render-event,renderEventId:render:34:224,documentCommitId:34,mountId:mount:10,causes:[{cause:props.onStatusChange,evidence:exact}]}]
+  2 pass render OrderRow min 1  {renders:24,mounts:0,updates:24,remounts:0,semantics:exact,instances:12,activeInstances:12}
+      claim: {kind:renders,target:{component:OrderRow},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,key:o-106000,renders:2,mounts:0,updates:2,mountGeneration:1,latestDocumentCommitId:34,source:/src/features/orders/orders-table.tsx:121:17},{kind:instance,mountId:mount:2,key:o-105999,renders:2,mounts:0,updates:2,mountGeneration:1,latestDocumentCommitId:34,source:/src/features/orders/orders-table.tsx:121:17},{kind:instance,mountId:mount:3,key:o-105998,renders:2,mounts:0,updates:2,mountGeneration:1,latestDocumentCommitId:34,source:/src/features/orders/orders-table.tsx:121:17}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:22}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:2,startDocumentCommitId:22,settledDocumentCommitId:36,frozenDocumentCommitId:37,commits:15,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:2042,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_6079298e-51e7-4e78-ab1b-d81729b841bc --claim 1 --session upd-b
+session: {sessionId:21f42563-1025-4b55-a3f1-a11b6735a7df,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:3}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_75576ea0e0d8,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_render_causes,react_error_state]}
+startedAt: 2026-11-19T08:56:09.079Z
+endedAt: 2026-11-19T08:56:18.297Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 1
+```
+
+```console
+$ agent-browser --session upd-b get text '[data-order-id="o-105999"]'
+SO-105999
+Delta Health 5
+On hold
+standard
+EMEA
+40
+Mar 2, 2026
+$8,624.19
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify show vfy_6079298e-51e7-4e78-ab1b-d81729b841bc --claim 1 --session upd-b
+verificationId: vfy_6079298e-51e7-4e78-ab1b-d81729b841bc
+verdict: fail
+claim:
+  index: 1
+  text: "render OrderRow only props.order,mount"
+  claim:
+    kind: render-causes
+    target: {component:OrderRow}
+    allow: [{kind:props,name:order},{kind:mount}]
+  verdict: fail
+  observed: {renders:24,events:24,violatingEvents:24,causes:[props.onStatusChange,props.order]}
+  deciding[3]:
+    each: {kind:render-event,documentCommitId:34,causes:[{cause:props.onStatusChange,evidence:exact}]}
+    - {renderEventId:render:34:226,mountId:mount:12}
+    - {renderEventId:render:34:225,mountId:mount:11}
+    - {renderEventId:render:34:224,mountId:mount:10}
+  caveats: []
+evidence:
+  records[12]:
+    each: {mountGeneration:1,mountGenerationEvidence:exact,renders:2,mounts:0,updates:2,unmounted:false,latestDocumentCommitId:34,sourceFile:/src/features/orders/orders-table.tsx,sourceLocation:/src/features/orders/orders-table.tsx:121:17}
+    - {mountId:mount:1,key:o-106000,logicalPath:"QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > <div>[index=1] > <main>[index=1] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > OrdersPage[index=0] > <div>[index=0] > OrdersTable[index=3] > <div>[index=0] > <div>[index=1] > <div>[index=0] > OrderRow[key=\"o-106000\"]"}
+    - {mountId:mount:2,key:o-105999,logicalPath:"QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > <div>[index=1] > <main>[index=1] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > OrdersPage[index=0] > <div>[index=0] > OrdersTable[index=3] > <div>[index=0] > <div>[index=1] > <div>[index=0] > OrderRow[key=\"o-105999\"]"}
+    - {mountId:mount:3,key:o-105998,logicalPath:"QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > <div>[index=1] > <main>[index=1] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > OrdersPage[index=0] > <div>[index=0] > OrdersTable[index=3] > <div>[index=0] > <div>[index=1] > <div>[index=0] > OrderRow[key=\"o-105998\"]"}
+    - {mountId:mount:4,key:o-105997,logicalPath:"QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > <div>[index=1] > <main>[index=1] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > OrdersPage[index=0] > <div>[index=0] > OrdersTable[index=3] > <div>[index=0] > <div>[index=1] > <div>[index=0] > OrderRow[key=\"o-105997\"]"}
+    - {mountId:mount:5,key:o-105996,logicalPath:"QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > <div>[index=1] > <main>[index=1] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > OrdersPage[index=0] > <div>[index=0] > OrdersTable[index=3] > <div>[index=0] > <div>[index=1] > <div>[index=0] > OrderRow[key=\"o-105996\"]"}
+    - {mountId:mount:6,key:o-105995,logicalPath:"QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > <div>[index=1] > <main>[index=1] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > OrdersPage[index=0] > <div>[index=0] > OrdersTable[index=3] > <div>[index=0] > <div>[index=1] > <div>[index=0] > OrderRow[key=\"o-105995\"]"}
+    - {mountId:mount:7,key:o-105994,logicalPath:"QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > <div>[index=1] > <main>[index=1] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > OrdersPage[index=0] > <div>[index=0] > OrdersTable[index=3] > <div>[index=0] > <div>[index=1] > <div>[index=0] > OrderRow[key=\"o-105994\"]"}
+    - {mountId:mount:8,key:o-105993,logicalPath:"QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > <div>[index=1] > <main>[index=1] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > OrdersPage[index=0] > <div>[index=0] > OrdersTable[index=3] > <div>[index=0] > <div>[index=1] > <div>[index=0] > OrderRow[key=\"o-105993\"]"}
+    - {mountId:mount:9,key:o-105992,logicalPath:"QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > <div>[index=1] > <main>[index=1] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > OrdersPage[index=0] > <div>[index=0] > OrdersTable[index=3] > <div>[index=0] > <div>[index=1] > <div>[index=0] > OrderRow[key=\"o-105992\"]"}
+    - {mountId:mount:10,key:o-105991,logicalPath:"QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > <div>[index=1] > <main>[index=1] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > OrdersPage[index=0] > <div>[index=0] > OrdersTable[index=3] > <div>[index=0] > <div>[index=1] > <div>[index=0] > OrderRow[key=\"o-105991\"]"}
+    - {mountId:mount:11,key:o-105990,logicalPath:"QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > <div>[index=1] > <main>[index=1] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > OrdersPage[index=0] > <div>[index=0] > OrdersTable[index=3] > <div>[index=0] > <div>[index=1] > <div>[index=0] > OrderRow[key=\"o-105990\"]"}
+    - {mountId:mount:12,key:o-105989,logicalPath:"QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > <div>[index=1] > <main>[index=1] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > OrdersPage[index=0] > <div>[index=0] > OrdersTable[index=3] > <div>[index=0] > <div>[index=1] > <div>[index=0] > OrderRow[key=\"o-105989\"]"}
+  events[24]:
+    each: {inputCoverageComplete:true}
+    - {renderEventId:render:34:226,documentCommitId:34,mountId:mount:12,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:34:225,documentCommitId:34,mountId:mount:11,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:34:224,documentCommitId:34,mountId:mount:10,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:34:223,documentCommitId:34,mountId:mount:9,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:34:222,documentCommitId:34,mountId:mount:8,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:34:221,documentCommitId:34,mountId:mount:7,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:34:220,documentCommitId:34,mountId:mount:6,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:34:219,documentCommitId:34,mountId:mount:5,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:34:218,documentCommitId:34,mountId:mount:4,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:34:217,documentCommitId:34,mountId:mount:3,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:34:216,documentCommitId:34,mountId:mount:2,causes:[{kind:props,evidence:exact,name:order,reason:null},{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:34:215,documentCommitId:34,mountId:mount:1,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:31:78,documentCommitId:31,mountId:mount:12,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:31:77,documentCommitId:31,mountId:mount:11,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:31:76,documentCommitId:31,mountId:mount:10,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:31:75,documentCommitId:31,mountId:mount:9,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:31:74,documentCommitId:31,mountId:mount:8,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:31:73,documentCommitId:31,mountId:mount:7,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:31:72,documentCommitId:31,mountId:mount:6,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:31:71,documentCommitId:31,mountId:mount:5,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:31:70,documentCommitId:31,mountId:mount:4,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:31:69,documentCommitId:31,mountId:mount:3,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:31:68,documentCommitId:31,mountId:mount:2,causes:[{kind:props,evidence:exact,name:order,reason:null},{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:31:67,documentCommitId:31,mountId:mount:1,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+  effects: null
+  beginInstances[12]:
+    each: {renderingState:mounted-rendering,sourceFile:/src/features/orders/orders-table.tsx,sourceLocation:/src/features/orders/orders-table.tsx:121:17}
+    - {mountId:mount:1,key:o-106000}
+    - {mountId:mount:2,key:o-105999}
+    - {mountId:mount:3,key:o-105998}
+    - {mountId:mount:4,key:o-105997}
+    - {mountId:mount:5,key:o-105996}
+    - {mountId:mount:6,key:o-105995}
+    - {mountId:mount:7,key:o-105994}
+    - {mountId:mount:8,key:o-105993}
+    - {mountId:mount:9,key:o-105992}
+    - {mountId:mount:10,key:o-105991}
+    - {mountId:mount:11,key:o-105990}
+    - {mountId:mount:12,key:o-105989}
+  endInstances[12]:
+    each: {renderingState:mounted-rendering,sourceFile:/src/features/orders/orders-table.tsx,sourceLocation:/src/features/orders/orders-table.tsx:121:17}
+    - {mountId:mount:1,key:o-106000}
+    - {mountId:mount:2,key:o-105999}
+    - {mountId:mount:3,key:o-105998}
+    - {mountId:mount:4,key:o-105997}
+    - {mountId:mount:5,key:o-105996}
+    - {mountId:mount:6,key:o-105995}
+    - {mountId:mount:7,key:o-105994}
+    - {mountId:mount:8,key:o-105993}
+    - {mountId:mount:9,key:o-105992}
+    - {mountId:mount:10,key:o-105991}
+    - {mountId:mount:11,key:o-105990}
+    - {mountId:mount:12,key:o-105989}
+evidenceRetained: true
+# exit code: 0
+```
+
+```console
+$ git diff -- src/features/orders
+diff --git a/apps/realworld-dashboard/src/features/orders/order-row.tsx b/apps/realworld-dashboard/src/features/orders/order-row.tsx
+index d8f7df3..4113273 100644
+--- a/apps/realworld-dashboard/src/features/orders/order-row.tsx
++++ b/apps/realworld-dashboard/src/features/orders/order-row.tsx
+@@ -17,7 +17,7 @@ export interface OrderRowProps {
+   start: number
+   canEdit: boolean
+   onToggleSelect: (id: string) => void
+-  onStatusChange: (id: string, status: OrderStatus) => void
++  onStatusChange: (order: OrderSummary, status: OrderStatus) => void
+ }
+ 
+ export const OrderRow = memo(function OrderRow({
+@@ -37,20 +37,20 @@ export const OrderRow = memo(function OrderRow({
+       id: 'hold',
+       label: 'Put on hold',
+       disabled: !canEdit || closed || order.status === 'on_hold',
+-      onSelect: () => onStatusChange(order.id, 'on_hold'),
++      onSelect: () => onStatusChange(order, 'on_hold'),
+     },
+     {
+       id: 'ship',
+       label: 'Mark shipped',
+       disabled: !canEdit || closed || order.status === 'shipped',
+-      onSelect: () => onStatusChange(order.id, 'shipped'),
++      onSelect: () => onStatusChange(order, 'shipped'),
+     },
+     {
+       id: 'cancel',
+       label: 'Cancel order',
+       tone: 'danger',
+       disabled: !canEdit || closed,
+-      onSelect: () => onStatusChange(order.id, 'cancelled'),
++      onSelect: () => onStatusChange(order, 'cancelled'),
+     },
+   ]
+ 
+diff --git a/apps/realworld-dashboard/src/features/orders/orders-table.tsx b/apps/realworld-dashboard/src/features/orders/orders-table.tsx
+index 90c16f4..288cd5b 100644
+--- a/apps/realworld-dashboard/src/features/orders/orders-table.tsx
++++ b/apps/realworld-dashboard/src/features/orders/orders-table.tsx
+@@ -40,11 +40,9 @@ export function OrdersTable({
+     [hiddenColumns],
+   )
+   const onStatusChange = useCallback(
+-    (id: string, status: OrderSummary['status']) => {
+-      const order = rows.find((row) => row.id === id)
+-      if (order) changeStatus({ id, number: order.number, status })
+-    },
+-    [rows, changeStatus],
++    (order: OrderSummary, status: OrderSummary['status']) =>
++      changeStatus({ id: order.id, number: order.number, status }),
++    [changeStatus],
+   )
+ 
+   const virtualizer = useVirtualizer({
+# exit code: 0
+```
+
+```console
+$ npx tsc --noEmit -p . && echo typecheck ok
+typecheck ok
+# exit code: 0
+```
+
+```console
+$ npx genie-react call app_reset_backend '{}' --session upd-b
+seed: 20260302
+faults: []
+latency: []
+latencyScale: 1
+requestCount: 0
+counts: {orders:6000,customers:1200,products:2400}
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b open 'http://127.0.0.1:5232/orders'
+✓ Meridian Ops
+  http://127.0.0.1:5232/orders?sort=placedAt&dir=desc
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b get text '[data-order-id="o-105999"]'
+SO-105999
+Delta Health 5
+Processing
+standard
+EMEA
+40
+Mar 2, 2026
+$8,624.19
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify begin --session upd-b --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+recording vfy_963e66b2-808f-4181-9a6b-33829f737e69 "put one order on hold"
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 recording render OrderRow only props.order,mount
+  2 recording render OrderRow min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:9,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_963e66b2-808f-4181-9a6b-33829f737e69 --session upd-b
+session: {sessionId:f2dfbcad-44f0-43a4-a31e-d0f627a5789c,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:5}
+schemaVersion: "1.0"
+targets: [{target:{component:OrderRow},status:resolved,instances:12,source:/src/features/orders/orders-table.tsx}]
+startedAt: 2026-11-19T08:56:51.014Z
+expiresAt: 2026-11-19T09:01:51.027Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b click 'button[aria-label="Actions for SO-105999"]'
+✓ Done
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b find role menuitem click --name 'Put on hold'
+✓ Done
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b wait 1500
+✓ Done
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify end vfy_963e66b2-808f-4181-9a6b-33829f737e69 --session upd-b
+pass vfy_963e66b2-808f-4181-9a6b-33829f737e69 "put one order on hold"  14 commits, quiet after 1055 ms (react, query, router, network)
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 pass render OrderRow only props.order,mount  {renders:2,events:2,violatingEvents:0,causes:[props.order]}
+      claim: {kind:render-causes,target:{component:OrderRow},allow:[{kind:props,name:order},{kind:mount}]}
+      deciding: [{kind:render-event,renderEventId:render:20:77,documentCommitId:20,mountId:mount:2,causes:[{cause:props.order,evidence:exact}]},{kind:render-event,renderEventId:render:17:28,documentCommitId:17,mountId:mount:2,causes:[{cause:props.order,evidence:exact}]}]
+  2 pass render OrderRow min 1  {renders:2,mounts:0,updates:2,remounts:0,semantics:exact,instances:12,activeInstances:12}
+      claim: {kind:renders,target:{component:OrderRow},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:2,key:o-105999,renders:2,mounts:0,updates:2,mountGeneration:1,latestDocumentCommitId:20,source:/src/features/orders/orders-table.tsx:119:17}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:9}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:9,settledDocumentCommitId:22,frozenDocumentCommitId:23,commits:14,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:1055,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 2 for these claims on this tab; previous fail vfy_6079298e-51e7-4e78-ab1b-d81729b841bc; document reloaded since
+evidence: $ npx genie-react verify show vfy_963e66b2-808f-4181-9a6b-33829f737e69 --session upd-b
+session: {sessionId:f2dfbcad-44f0-43a4-a31e-d0f627a5789c,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:5}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_75576ea0e0d8,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_6079298e-51e7-4e78-ab1b-d81729b841bc,verdict:fail,reasons:[],endedAt:2026-11-19T08:56:18.297Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_render_causes,react_error_state]}
+startedAt: 2026-11-19T08:56:51.014Z
+endedAt: 2026-11-19T08:56:59.168Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b get text '[data-order-id="o-105999"]'
+SO-105999
+Delta Health 5
+On hold
+standard
+EMEA
+40
+Mar 2, 2026
+$8,624.19
+# exit code: 0
+```
