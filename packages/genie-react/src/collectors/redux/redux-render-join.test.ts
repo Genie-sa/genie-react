@@ -379,6 +379,50 @@ describe('a render names the Redux action that changed its snapshot', () => {
     })
   })
 
+  it("keeps every scoped column's store cause an unscoped window finds", async () => {
+    const columns = ['backlog', 'todo', 'doing', 'review', 'done', 'archived']
+    const store = makeStore()
+    reduxCollector(store)
+    for (let index = 0; index < 200; index += 1) {
+      store.dispatch({ type: 'notes/added', id: `seed-${index}` })
+    }
+    function Column({ status }: { status: string }): ReactNode {
+      const cards = useSelector(
+        (state: State) => state.notes.map((note) => ({ ...note, status })),
+        { stabilityCheck: 'never' },
+      )
+      return createElement('ol', null, cards.length)
+    }
+    await mount(
+      createElement(
+        Provider,
+        { store } as never,
+        columns.map((status) => createElement(Column, { key: status, status })),
+      ),
+    )
+    const storeCauseKinds = async (): Promise<string[]> => {
+      const { events } = await getRenderCauseEventsReport({ component: 'Column', limit: 50 })
+      return events.map((event) => event.causes.map((cause) => cause.kind).join(','))
+    }
+
+    observe()
+    await act(() => {
+      store.dispatch({ type: 'notes/added', id: 'unscoped' })
+    })
+    const unscoped = await storeCauseKinds()
+
+    clearRenders({
+      components: ['Column'],
+      budget: { timeLimitMs: 500, targetTimeReserveMs: 500, adaptive: false },
+    })
+    await act(() => {
+      store.dispatch({ type: 'notes/added', id: 'scoped' })
+    })
+
+    expect(unscoped).toEqual(columns.map(() => 'external-store'))
+    expect(await storeCauseKinds()).toEqual(unscoped)
+  })
+
   it('summarizes the action types on the compact cause', async () => {
     const store = makeStore()
     reduxCollector(store)

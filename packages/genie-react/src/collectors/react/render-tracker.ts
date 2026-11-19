@@ -1387,7 +1387,8 @@ export function recordCommitFiber(
       effectPreparation,
       work,
       budget.currentCommitEvidence,
-      targeted ? budget.targetAttributionWork : budget.attributionWork,
+      budget.attributionWork,
+      targeted ? budget.targetAttributionWork : undefined,
     )
     if (consumeCommitWork(work, targeted ? 'target-error-state' : 'error-state')) {
       recordErrorState(fiber)
@@ -1407,13 +1408,22 @@ export function recordRender(
   commitWork?: CommitWorkBudget,
   commitEvidence?: CurrentCommitEvidence,
   attributionWork?: CommitWorkBudget,
+  attributionReserve?: CommitWorkBudget,
 ): void {
   if (!isCompositeFiber(fiber)) return
   const id = getFiberId(fiber)
   const previous = records.get(id)
   const checkpoint = previous ? { ...previous, causeCounts: { ...previous.causeCounts } } : null
   try {
-    recordRenderAtomic(fiber, phase, effectPreparation, commitWork, commitEvidence, attributionWork)
+    recordRenderAtomic(
+      fiber,
+      phase,
+      effectPreparation,
+      commitWork,
+      commitEvidence,
+      attributionWork,
+      attributionReserve,
+    )
     const recorded = records.get(id)
     if (recorded && recorded !== previous) recordMeasurementRender(recorded, previous)
   } catch (error) {
@@ -1430,6 +1440,7 @@ function recordRenderAtomic(
   commitWork?: CommitWorkBudget,
   commitEvidence?: CurrentCommitEvidence,
   attributionWork?: CommitWorkBudget,
+  attributionReserve?: CommitWorkBudget,
 ): void {
   if (!isCompositeFiber(fiber)) return
 
@@ -1506,7 +1517,7 @@ function recordRenderAtomic(
   }
 
   const renderEventId = nextCausalEventId('render')
-  const evidenceBudget = createRenderEvidenceBudget(attributionWork, commitWork)
+  const evidenceBudget = createRenderEvidenceBudget(attributionWork, commitWork, attributionReserve)
   const pendingQuerySubscribers: PendingQuerySubscriberRegistration[] = []
   const propChanges = diffProps(fiber, evidenceBudget)
   const stateChanges = diffStateChanges(fiber, evidenceBudget)

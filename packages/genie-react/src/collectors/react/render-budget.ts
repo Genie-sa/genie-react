@@ -22,6 +22,8 @@ export interface RenderEvidenceBudget {
   remainingOperations: number
   /** Per-commit attribution pool, separate from the measurement budget so exhausting it only truncates input evidence. */
   attributionWork: CommitWorkBudget | undefined
+  /** An observation target's own pool, spent before the shared one so a scoped window never attributes less than an unscoped one. */
+  attributionReserve: CommitWorkBudget | undefined
   deepDiff: DeepDiffBudget
   /** Measurement budget, used only for instance identity lookups. */
   commitWork: CommitWorkBudget | undefined
@@ -37,6 +39,7 @@ export interface RenderInputCoverage {
 export function createRenderEvidenceBudget(
   attributionWork?: CommitWorkBudget,
   commitWork?: CommitWorkBudget,
+  attributionReserve?: CommitWorkBudget,
 ): RenderEvidenceBudget {
   const budget: RenderEvidenceBudget = {
     remainingInputs: INPUT_EVIDENCE_LIMIT,
@@ -45,6 +48,7 @@ export function createRenderEvidenceBudget(
     propsNotEnumerated: false,
     remainingOperations: FIBER_ATTRIBUTION_OPERATION_LIMIT,
     attributionWork,
+    attributionReserve,
     deepDiff: createDeepDiffBudget(DEEP_DIFF_VISIT_LIMIT, DEEP_DIFF_CHANGE_LIMIT, () =>
       consumeAttribution(budget, 'deep-diff'),
     ),
@@ -54,9 +58,12 @@ export function createRenderEvidenceBudget(
 }
 
 function consumeAttribution(budget: RenderEvidenceBudget, subsystem: string): boolean {
-  if (budget.remainingOperations <= 0 || !consumeCommitWork(budget.attributionWork, subsystem)) {
-    return false
-  }
+  if (budget.remainingOperations <= 0) return false
+  const pooled =
+    (budget.attributionReserve !== undefined &&
+      consumeCommitWork(budget.attributionReserve, subsystem)) ||
+    consumeCommitWork(budget.attributionWork, subsystem)
+  if (!pooled) return false
   budget.remainingOperations -= 1
   return true
 }
