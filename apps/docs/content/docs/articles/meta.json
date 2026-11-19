@@ -1,0 +1,8 @@
+{
+  "title": "Articles",
+  "icon": "Newspaper",
+  "pages": [
+    "playwright-mcp-cant-see-why-react-rerendered",
+    "network-or-react-what-made-the-click-slow"
+  ]
+}

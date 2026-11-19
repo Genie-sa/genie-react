@@ -1,0 +1,191 @@
+---
+title: Is it the network or React? Find what made one click slow
+description: "A Genie timeline split one click into a 63 ms request and an 8.4 ms render of a 100-row table that had not changed. Read both lanes, fix the render, and prove it."
+---
+
+Record the click with Genie's timeline and read two lanes. The request lane times each `fetch`, and the React lane times each commit's render. On a test app's issues page, clicking **Mark all read** spent 62.5 to 63.1 ms on one POST and 8.3 to 8.5 ms re-rendering an issue table whose rows had not changed.
+
+The network was most of the wait. The render did nothing useful, and the same bug cost 8 to 14 ms on every keystroke in an unrelated text field. Every number below comes from runs against `apps/realworld-legacy` in this repo. The [raw evidence](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/network-or-react-what-made-the-click-slow.md) has every command and its full output.
+
+## The symptom
+
+Acme Tracker is a React 18 app with Redux, reselect and `connect()` class components. Its mock API holds 3,240 issues and adds 60 ms to every response. The issues page shows 100 rows at a time.
+
+Open the notifications menu on that page and click **Mark all read**. The click sends `POST /api/notifications/read`, and the button's label goes from "Notifications, 4 unread" to "Notifications, 0 unread". A delay this short is hard to judge by eye, and it does not tell you where the time went.
+
+## Record one click
+
+`timeline_start` opens a recording. Drive the click with your browser driver, wait for React to go idle, then stop and read:
+
+```bash
+id=$(npx genie-react call timeline_start '{"name":"mark all read"}' --session art-m3 --json | jq -r .id)
+agent-browser --session art-m3 find text 'Mark all read' click
+npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --session art-m3
+npx genie-react call timeline_stop "{\"id\":\"$id\"}" --session art-m3
+npx genie-react call timeline_read "{\"id\":\"$id\"}" --session art-m3 --fields domain,type,atMs,details
+```
+
+This is run 1 of five. I removed fields from the request event where you see `…`:
+
+```text
+[3]:
+  - {domain:react,type:commit,atMs:94.5,details:{rendererId:1,renderDurationMs:8.4,renderDurationUnavailable:null,documentCommitId:20}}
+  - {domain:request,type:completed,atMs:95.8,details:{url:http://127.0.0.1:5223/api/notifications/read,…,startMs:15.5,endMs:78.6,durationMs:63.1,…,responseStatus:200,…,method:POST,outcome:response,bodyReadMs:78.9,…}}
+  - {domain:react,type:commit,atMs:944.9,details:{rendererId:1,renderDurationMs:0.1,renderDurationUnavailable:null,documentCommitId:21}}
+```
+
+## Read the two lanes
+
+`atMs` is when Genie observed an event, so the request appears after the commit that followed its response. Read the request's own clock instead. It started at 15.5 ms, the response ended at 78.6 ms, and the app finished reading the body at 78.9 ms. That is 63.1 ms of network, and the mock server's 60 ms delay accounts for most of it.
+
+The React lane holds one commit for the click, with `renderDurationMs: 8.4`. The commit at 944.9 ms lands about 850 ms after the click's work had finished and took 0.1 ms.
+
+All five runs agree:
+
+| Run | Request `durationMs` | Click commit `renderDurationMs` |
+| --- | --- | --- |
+| 1 | 63.1 | 8.4 |
+| 2 | 62.7 | 8.3 |
+| 3 | 62.5 | 8.4 |
+| 4 | 63.0 | 8.5 |
+| 5 | 62.8 | 8.3 |
+
+So the answer to the title is "mostly the network". But marking notifications read should not touch the issue table at all, and 8.4 ms is a lot of rendering for a badge.
+
+## Find what rendered
+
+Open a render window, click again, and ask why the table rendered. This output is trimmed to the event and its causes, with the file path shortened:
+
+```bash
+npx genie-react call react_clear_renders '{}' --session art-m3
+agent-browser --session art-m3 find text 'Mark all read' click
+npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --session art-m3
+npx genie-react call react_render_causes '{"component":"IssueTable","limit":2}' --session art-m3
+```
+
+```text
+  IssueTable #2961866490032 {…,necessity:unnecessary,necessityReason:inputs-unchanged,inputEvidence:changed,wrappedBy:{…,componentName:"Connect(IssueTable)",…,causes:[{kind:external-store,evidence:inferred,name:selector,redux:{evidence:exact,actions:[notifications/markAllRead/fulfilled]}}],…},source:{location:…/src/features/issues/issue-table.tsx:43:7,…}}
+    ← parent inferred "Connect(IssueTable)"
+    ← props exact rows {referenceOnly:true}
+```
+
+Read it from the bottom. `IssueTable` got a new `rows` prop that was equal in content to the old one (`referenceOnly:true`), so the render was `unnecessary`. Its `connect()` wrapper re-ran its selector after the Redux action `notifications/markAllRead/fulfilled`. A notifications action produced a new array of issues.
+
+`react_component_cohort` with a raised render budget counts the rows that rendered:
+
+```text
+status: updated
+matched: 100
+mountedUpdated: 100
+mountedIdle: 0
+mountedUnknown: 0
+```
+
+All 100 rows rendered too. Each `IssueRow` receives a new inline `onToggle` arrow whenever the table renders, so its `PureComponent` check always fails. That is a separate bug, covered in [Playwright MCP sees the screen](/docs/articles/playwright-mcp-cant-see-why-react-rerendered).
+
+## The cause
+
+`selectVisibleIssues` in `src/store/issue-selectors.ts` is a reselect selector. Its input selector builds a new object on every call:
+
+```ts
+const selectIssueQuery = (state: RootState) => ({
+  filters: state.issues.filters,
+  sort: state.issues.sort,
+})
+```
+
+reselect compares inputs by reference, so this input never matches its last value. While the table is on screen, every Redux action that changes the state makes the selector filter and sort all 3,240 issues again and return a new array. `selectIssuePage` slices that new array, and `IssueTable` receives `rows` with the same issues in a new array.
+
+## The fix
+
+Select the two fields separately so reselect can compare each one by reference:
+
+```diff
+-const selectIssueQuery = (state: RootState) => ({
+-  filters: state.issues.filters,
+-  sort: state.issues.sort,
+-})
++const selectIssueFilters = (state: RootState) => state.issues.filters
++const selectIssueSort = (state: RootState) => state.issues.sort
+
+ export const selectVisibleIssues = createSelector(
+-  [selectAllIssues, selectIssueQuery],
+-  (issues, { filters, sort }) => {
++  [selectAllIssues, selectIssueFilters, selectIssueSort],
++  (issues, filters, sort) => {
+```
+
+## The proof
+
+Write the expectation down before the click. The table must not render, and the notifications menu must. Then let Genie decide:
+
+```bash
+npx genie-react verify begin --session art-m3 --name 'mark all read' \
+  --claim 'render IssueTable max 0' --claim 'render NotificationsMenu min 1' --claim 'boundaries clean'
+agent-browser --session art-m3 find text 'Mark all read' click
+npx genie-react verify end <id> --session art-m3; echo "exit code: $?"
+```
+
+Before the fix, trimmed to the verdict and claim lines:
+
+```text
+fail vfy_6ee95163-4ef6-4209-8d7e-4778d87bfbaa "mark all read"  3 commits, quiet after 1279 ms (react)
+  1 fail render IssueTable max 0  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  2 pass render NotificationsMenu min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+exit code: 1
+```
+
+After the fix:
+
+```text
+pass vfy_7a226505-7bd9-4aca-b753-ef58cadf7e56 "mark all read"  3 commits, quiet after 940 ms (react)
+  1 pass render IssueTable max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  2 pass render NotificationsMenu min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+exit code: 0
+```
+
+The row cohort went from 100 updated to 0 updated and 100 idle. Five more timelines with the fix show which lane moved:
+
+| Run | Request `durationMs` | Click commit `renderDurationMs` |
+| --- | --- | --- |
+| 1 | 64.8 | 1.4 |
+| 2 | 63.9 | 1.4 |
+| 3 | 65.4 | 2.1 |
+| 4 | 63.0 | 1.0 |
+| 5 | 63.1 | 1.7 |
+
+React's share fell from 8.3 to 8.5 ms to 1.0 to 2.1 ms. The request stayed at about 63 ms. The remaining wait is the request, and no React change will remove it.
+
+## Same bug, no network
+
+The fix matters more where no request hides it. The answer key for this bug describes it as lag while typing a saved-view name. Each keystroke dispatches an action. With a render window open on the shipped code, typing `Sprint triage`, 13 characters, rendered the table 13 times, every time `unnecessary`:
+
+```text
+[1]:
+  - {name:IssueTable,renders:13,necessity:unnecessary,necessityReason:inputs-unchanged}
+```
+
+Then I typed the same text inside a timeline, three times on each side of the fix:
+
+```bash
+agent-browser --session art-m3 type 'input[aria-label="View name"]' 'Sprint triage'
+```
+
+| | Requests | Render per keystroke | First to last keystroke commit |
+| --- | --- | --- | --- |
+| Before | 0 | 8.0 to 13.9 ms | 199.8, 213.3, 221.5 ms |
+| After | 0 | 0.4 ms or less | 20.9, 10.9, 23.0 ms |
+
+The request lane was empty in all six runs, so typing lag here is all React. The last column is the time from the first to the last of the 13 keystroke commits, one value per run.
+
+## When the timeline does not fit
+
+- Events line up by time only. The timeline shows that a commit came after a response, not that one caused the other. Use `react_render_causes` for the cause, as above.
+- `renderDurationMs` is React's root render time. It leaves out reducers, selectors that run in store subscriptions, effects and browser paint. In run 1 before the fix, 15.6 ms passed between the body read and Genie observing the commit, and only 8.4 ms of that was render. For time spent in plain JavaScript, record a CPU profile.
+- The request lane sees the app's `fetch` and `XMLHttpRequest` calls. Worker requests, images and scripts are not in it.
+- This app has no TanStack Query or TanStack Router, so the query and navigation lanes reported `unavailable`. In an app that has them, those lanes show cache updates and route changes in the same recording.
+- These are development-build timings. They show where the time goes, not what production users feel. To claim a speedup, take six captures per side and compare them with `devtools_capture_compare`, as [Optimize a slow interaction](/docs/guides/optimize#prove-it-over-repeated-runs) shows.
+
+The [timeline tools reference](/docs/tools/timeline) lists every field, and [Verify a fix](/docs/guides/verify-a-fix) covers the claim forms.
