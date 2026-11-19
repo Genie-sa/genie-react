@@ -11,6 +11,8 @@
     "effect-fetches-on-every-keystroke",
     "network-or-react-what-made-the-click-slow",
     "clicked-7-days-got-90-days",
+    "mutation-succeeded-list-did-not-update",
+    "test-every-loading-empty-and-error-state",
     "error-boundary-renders-nothing",
     "blank-screen-while-lazy-route-loads",
     "best-tools-for-ai-agents-debugging-react-2026",
