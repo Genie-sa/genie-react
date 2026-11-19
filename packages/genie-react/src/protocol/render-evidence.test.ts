@@ -31,4 +31,22 @@ describe('compactRenderCause', () => {
       } as { kind: string; evidence: string }),
     ).toEqual({ kind: 'props', evidence: 'exact', name: 'onSelect', referenceOnly: true })
   })
+
+  it('names the store fields that changed, so the default view says what moved', () => {
+    expect(
+      compactRenderCause({
+        kind: 'external-store',
+        evidence: 'inferred',
+        storeLabel: 'anonymous-external-store',
+        before: { selectedOrderIds: {}, density: 'comfortable' },
+        after: { selectedOrderIds: { 'o-1': true }, density: 'comfortable' },
+        changedFields: ['selectedOrderIds'],
+      } as { kind: string; evidence: string }),
+    ).toEqual({
+      kind: 'external-store',
+      evidence: 'inferred',
+      name: 'anonymous-external-store',
+      changedFields: ['selectedOrderIds'],
+    })
+  })
 })
