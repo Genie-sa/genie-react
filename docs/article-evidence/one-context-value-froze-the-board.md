@@ -889,3 +889,807 @@ $ jq '{claim: .claim | del(.deciding), ev: (.evidence | del(.beginInstances,.end
 ```
 
 The text-mode `verify show` in the log above reports `largestPaths` with `/evidence/beginInstances` at 200 items and `/evidence/records` at 37 items.
+
+## Re-run on Genie 1.1.0
+
+- Date: 2026-11-19
+- Commit: ce408cb205c0e798cb04c35512772b7454283141 (`git rev-parse HEAD`, tag `genie-react@1.1.0`)
+- Genie: `genie-react` and `@genie-react/cli` 1.1.0 built from this checkout (`pnpm install && pnpm build`, exit 0). `node_modules/.bin/genie-react --version` in apps/realworld-legacy printed `1.1.0`, and `status` reported `hub: {version:1.1.0,protocol:1}` and `runtimeVersion:1.1.0`.
+- App: apps/realworld-legacy (Acme Tracker), dev server http://127.0.0.1:5233, standalone Genie hub ws://127.0.0.1:15233/__genie/ws
+- Driver: agent-browser 0.39.1, session `upd-c`
+- App fixes: `node /tmp/upd-c/apply-fix.mjs <id>` applies the exact `referenceFix` edits from evals/realworld/legacy/<id>.json. Each fix was measured and then reverted with `git checkout -- src`. No app change is committed.
+- Redaction: the home directory is replaced by `~`. Nothing else is edited.
+
+Servers, run from apps/realworld-legacy:
+
+```bash
+GENIE_HUB_PORT=15233 node_modules/.bin/genie-react hub --port 15233
+PORT=5233 GENIE_HUB_PORT=15233 pnpm exec webpack serve --mode development --port 5233
+```
+
+Each command below is printed as `$ <command>` (shell-quoted with printf %q) and run from apps/realworld-legacy, followed by its full stdout and stderr and `[exit <code>]`. Lines starting with `#` are notes written during the run. Some commands were filtered on screen during the run, but the log holds their full output.
+
+What 1.1.0 changed for this article:
+
+- `verify` now resolves all 840 `FeatureGate` instances (`instances:840,activeInstances:840`). Genie 1.0.2 resolved 200.
+- With the target reserve from the symptom budget (`targetOperationReserve:100000`, `targetTimeReserveMs:100`), the failing claim counts all 840 renders, graded `exact`. With the article's earlier budget, which left the reserve at its 4,000-operation default, the same claim counted 37 renders, graded `lower-bound`, as on 1.0.2. The article now uses the budget with the reserve.
+- The fixed run passes at 0 renders over 840 instances, graded `exact`.
+- The symptom counts are unchanged (1,292 updates, 840 `FeatureGate`, 420 `PriorityPicker`, 5 `BoardColumn`). After the fix, the first run read 33 updates, as in the article, and 43 renders, because an app commit in that window mounted 10 components. A repeat read 32 updates and 32 renders.
+- The `Connect(AppShell)` cause in `react_get_renders` now lists `changedFields:[sidebarCollapsed]`. On the first toggle after a reload its Redux link is `evidence:inferred`. A second toggle on the same page printed `evidence:exact`, as the 1.0.2 run did.
+
+### Commands and output, in order
+
+```text
+$ git rev-parse HEAD
+ce408cb205c0e798cb04c35512772b7454283141
+[exit 0]
+
+$ npx genie-react --version
+1.1.0
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/login
+[agent-browser] launched browser
+✓ Acme Tracker
+  http://127.0.0.1:5233/login
+[exit 0]
+
+$ npx genie-react status --session upd-c --wait 15000
+selectedBridgeUrl: ws://127.0.0.1:15233/__genie/ws
+sessionSelector:
+  requested: upd-c
+  source: flag
+  resolvedSessionId: da9a11f5-d222-4458-9786-b560a84421aa
+  implicit: false
+  agentBrowser: {session:upd-c,via:selector,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d}
+connected: true
+ready: true
+sessionId: da9a11f5-d222-4458-9786-b560a84421aa
+app: {name:"Acme Tracker",url:http://127.0.0.1:5233/login,reactVersion:18.3.1,reactMounted:true}
+domains: [session,react,memory,perf,timeline,redux,app]
+toolCount: 61
+sessions[1] (sessionId {fields}):
+  da9a11f5-d222-4458-9786-b560a84421aa {logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:1,logicalSessionCollision:false,collisionWithSessionIds:[],app:{name:"Acme Tracker",url:http://127.0.0.1:5233/login,reactVersion:18.3.1,reactMounted:true},domains:[session,react,memory,perf,timeline,redux,app],toolCount:61,connectedAt:1795078650380,ready:true,readyAt:1795078650380,current:true,origin:http://127.0.0.1:5233,originUnverified:true,runtimeVersion:1.1.0}
+warnings: []
+hub: {version:1.1.0,protocol:1}
+[exit 0]
+
+$ npx genie-react call app_sign_in \{\} --session upd-c
+user: {id:u-1,name:"Dana Whitfield",email:dana@acme.test,title:Designer,team:Infra}
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/board
+✓ Acme Tracker
+  http://127.0.0.1:5233/board
+[exit 0]
+
+$ npx genie-react status --session upd-c --wait 15000 --select /app
+status: ok
+selection: {expression:/app,matchedPathCount:1,matchedPaths:[/app],omittedPathCount:48}
+result: {name:"Acme Tracker",url:http://127.0.0.1:5233/board,reactVersion:18.3.1,reactMounted:true}
+[exit 0]
+
+$ agent-browser --session upd-c wait .board-column
+✓ Done
+[exit 0]
+
+# before fix: one toggle, totals read right after quiesce
+
+$ npx genie-react call react_clear_renders \{\"budget\":\{\"adaptive\":false,\"fiberLimit\":20000,\"operationLimit\":2000000,\"timeLimitMs\":500,\"targetOperationReserve\":100000,\"targetTimeReserveMs\":100\}\} --session upd-c --select /ok
+status: ok
+selection: {expression:/ok,matchedPathCount:1,matchedPaths:[/ok],omittedPathCount:15}
+result: true
+[exit 0]
+
+$ agent-browser --session upd-c click button\[aria-label=\"Toggle\ sidebar\"\]
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce \{\"idleMs\":500,\"timeoutMs\":10000\} --fail-on-result-error --session upd-c --select /outcome
+status: ok
+selection: {expression:/outcome,matchedPathCount:1,matchedPaths:[/outcome],omittedPathCount:16}
+result: idle
+[exit 0]
+
+$ npx genie-react call react_get_renders \{\"appOnly\":false,\"limit\":1\} --session upd-c --select /summary
+status: ok
+selection: {expression:/summary,matchedPathCount:1,matchedPaths:[/summary],omittedPathCount:76}
+result:
+  commits: 3
+  trackedComponents: 1288
+  totalRenders: 1292
+  totalUpdates: 1292
+  referenceOnlyPropComponents: 0
+  noObservedInputChangeComponents: 13
+  topReferenceOnlyProps: []
+  semantics: exact
+  coverageDomain: render-measurement
+[exit 0]
+
+$ npx genie-react call react_get_renders \{\"component\":\"FeatureGate\",\"appOnly\":false,\"limit\":1\} --session upd-c --select /summary/totalUpdates
+status: ok
+selection:
+  expression: /summary/totalUpdates
+  matchedPathCount: 1
+  matchedPaths: [/summary/totalUpdates]
+  omittedPathCount: 90
+result: 840
+[exit 0]
+
+$ npx genie-react call react_get_renders \{\"component\":\"PriorityPicker\",\"appOnly\":false,\"limit\":1\} --session upd-c --select /summary/totalUpdates
+status: ok
+selection:
+  expression: /summary/totalUpdates
+  matchedPathCount: 1
+  matchedPaths: [/summary/totalUpdates]
+  omittedPathCount: 90
+result: 420
+[exit 0]
+
+$ npx genie-react call react_get_renders \{\"component\":\"BoardColumn\",\"appOnly\":false,\"limit\":1\} --session upd-c --select /summary/totalUpdates
+status: ok
+selection:
+  expression: /summary/totalUpdates
+  matchedPathCount: 1
+  matchedPaths: [/summary/totalUpdates]
+  omittedPathCount: 93
+result: 5
+[exit 0]
+
+$ npx genie-react call react_render_causes \{\"component\":\"FeatureGate\",\"limit\":1\} --session upd-c
+componentMatch:
+  component: FeatureGate
+  exact: true
+  status: matched
+  matchedNames: [FeatureGate]
+  matchedNameCount: 1
+  similarNames: []
+tracking: true
+commits: 4
+documentCommitId: 30
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:26}
+attribution:
+  status: current
+  startedAtDocumentCommitId: 30
+  completedAtDocumentCommitId: 30
+  startedAtAnalysisGeneration: 31
+  completedAtAnalysisGeneration: 31
+view: summary
+events[1] (componentName #componentId {fields}, then ← kind evidence name {fields} per cause):
+  FeatureGate #9355814510355 {renderEventId:render:27:1292,documentCommitId:27,mountId:mount:1292,necessity:unnecessary,necessityReason:output-unchanged,inputEvidence:incomplete,inputCoverage:{complete:false,scanTruncated:true},source:{location:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:12:7,role:element-callsite,ownership:unknown}}
+    ← context exact "Context(FeatureFlagsProvider)" {contextIndex:0}
+omittedByLimit: 659
+sourceClassification:
+  complete: false
+  affects: result
+  totalCandidates: 660
+  evaluated: 660
+  app: 0
+  library: 0
+  unknown: 660
+  unknownComponents: [FeatureGate]
+  unknownComponentsOmitted: 0
+renderEventRetention: {evictedEvents:293,earliestDocumentCommitId:27,latestDocumentCommitId:30}
+coverage:
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 1265
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  incompleteBecause[2]:
+    - {reason:inputs-truncated,fibers:1265,components:[PriorityPicker,FeatureGate,BoardColumn],detail:"An input held values Genie compares only in part, such as functions, class instances or objects past the inspected depth; read deepDiff.truncated on these components."}
+    - {reason:source-classification-incomplete,fibers:660,detail:"660 of 660 candidates have unresolved ownership. appOnly keeps them, but any of them may be library code it would hide, so rows and counts can change once ownership resolves.",next:"Pass appOnly:false for counts that do not depend on ownership, or read again shortly: ownership keeps resolving in the background, though a component React rendered without an owner stack stays unknown."}
+  complete: false
+  inputAttributionComplete: false
+  semantics: unknown
+  coverageDomain: render-causality
+  droppedRenderEvents: 293
+filteredNote: "1 components shown; 1 shown with ownership \"unknown\" because their source is unresolved"
+[exit 0]
+
+# verify before the fix
+
+$ npx genie-react verify begin --session upd-c --name toggle\ the\ sidebar --claim render\ FeatureGate\ max\ 0 --claim render\ SideNav\ min\ 1 --claim boundaries\ clean --budget \{\"adaptive\":false,\"fiberLimit\":20000,\"operationLimit\":2000000,\"timeLimitMs\":500\}
+recording vfy_24924d07-894a-427a-b154-7fc61a4cd636 "toggle the sidebar"
+  url "http://127.0.0.1:5233/board"
+  1 recording render FeatureGate max 0
+  2 recording render SideNav min 1
+  3 recording boundaries clean
+window: {observationId:observation:2,startDocumentCommitId:41,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_24924d07-894a-427a-b154-7fc61a4cd636 --session upd-c
+session: {sessionId:053b3133-7763-42bc-9b60-120e81127c92,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:2}
+schemaVersion: "1.0"
+targets: [{target:{component:FeatureGate},status:resolved,instances:840,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx},{target:{component:SideNav},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx}]
+startedAt: 2026-11-19T08:57:51.794Z
+expiresAt: 2026-11-19T09:02:51.873Z
+request: {budget:{fiberLimit:20000,operationLimit:2000000,timeLimitMs:500,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:false},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c click button\[aria-label=\"Toggle\ sidebar\"\]
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_24924d07-894a-427a-b154-7fc61a4cd636 --session upd-c
+fail vfy_24924d07-894a-427a-b154-7fc61a4cd636 "toggle the sidebar"  4 commits, quiet after 969 ms (react)
+  url "http://127.0.0.1:5233/board"
+  1 fail render FeatureGate max 0  {renders:37,mounts:0,updates:37,remounts:0,semantics:lower-bound,instances:840,activeInstances:840}
+      claim: {kind:renders,target:{component:FeatureGate},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:34,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:42,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:7:7},{kind:instance,mountId:mount:35,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:42,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:12:7},{kind:instance,mountId:mount:37,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:42,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:7:7}]
+  2 pass render SideNav min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:lower-bound,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:SideNav},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:23,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:42,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx:26:9}]
+      caveats: [count-is-a-lower-bound]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:41}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:2,startDocumentCommitId:41,settledDocumentCommitId:44,frozenDocumentCommitId:45,commits:4,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:969,domains:{react:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:unknown,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_24924d07-894a-427a-b154-7fc61a4cd636 --claim 1 --session upd-c
+session: {sessionId:053b3133-7763-42bc-9b60-120e81127c92,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:2}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_2ce5349487da,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:false,tools:[]}
+startedAt: 2026-11-19T08:57:51.794Z
+endedAt: 2026-11-19T08:57:53.708Z
+request: {budget:{fiberLimit:20000,operationLimit:2000000,timeLimitMs:500,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:false},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+$ npx genie-react verify show vfy_24924d07-894a-427a-b154-7fc61a4cd636 --claim 1 --session upd-c
+verificationId: vfy_24924d07-894a-427a-b154-7fc61a4cd636
+verdict: fail
+claim:
+  index: 1
+  text: "render FeatureGate max 0"
+  claim: {kind:renders,target:{component:FeatureGate},max:0,counting:renders,allowRemount:false}
+  verdict: fail
+  observed:
+    renders: 37
+    mounts: 0
+    updates: 37
+    remounts: 0
+    semantics: lower-bound
+    instances: 840
+    activeInstances: 840
+  deciding[3]:
+    each: {kind:instance,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:42}
+    - {mountId:mount:34,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:7:7}
+    - {mountId:mount:35,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:12:7}
+    - {mountId:mount:37,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:7:7}
+  caveats: []
+evidence: null
+evidenceRetained: false
+[exit 0]
+
+# verify before the fix, with the target reserve from the symptom budget
+
+$ npx genie-react verify begin --session upd-c --name toggle\ the\ sidebar --claim render\ FeatureGate\ max\ 0 --claim render\ SideNav\ min\ 1 --claim boundaries\ clean --budget \{\"adaptive\":false,\"fiberLimit\":20000,\"operationLimit\":2000000,\"timeLimitMs\":500,\"targetOperationReserve\":100000,\"targetTimeReserveMs\":100\}
+recording vfy_7341a0a0-30eb-4821-9349-8bd6a37abd6e "toggle the sidebar"
+  url "http://127.0.0.1:5233/board"
+  1 recording render FeatureGate max 0
+  2 recording render SideNav min 1
+  3 recording boundaries clean
+window: {observationId:observation:3,startDocumentCommitId:62,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_7341a0a0-30eb-4821-9349-8bd6a37abd6e --session upd-c
+session: {sessionId:053b3133-7763-42bc-9b60-120e81127c92,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:2}
+schemaVersion: "1.0"
+targets: [{target:{component:FeatureGate},status:resolved,instances:840,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx,unresolvedSources:563},{target:{component:SideNav},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx}]
+startedAt: 2026-11-19T08:58:09.239Z
+expiresAt: 2026-11-19T09:03:09.289Z
+request: {budget:{fiberLimit:20000,operationLimit:2000000,timeLimitMs:500,targetOperationReserve:100000,targetTimeReserveMs:100,adaptive:false},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c click button\[aria-label=\"Toggle\ sidebar\"\]
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_7341a0a0-30eb-4821-9349-8bd6a37abd6e --session upd-c
+fail vfy_7341a0a0-30eb-4821-9349-8bd6a37abd6e "toggle the sidebar"  4 commits, quiet after 657 ms (react)
+  url "http://127.0.0.1:5233/board"
+  1 fail render FeatureGate max 0  {renders:840,mounts:0,updates:840,remounts:0,semantics:exact,instances:840,activeInstances:840}
+      claim: {kind:renders,target:{component:FeatureGate},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:34,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:63,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:7:7},{kind:instance,mountId:mount:35,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:63,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:12:7},{kind:instance,mountId:mount:37,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:63,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:7:7}]
+  2 pass render SideNav min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:SideNav},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:23,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:63,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx:26:9}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:62}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:3,startDocumentCommitId:62,settledDocumentCommitId:65,frozenDocumentCommitId:66,commits:4,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:657,domains:{react:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:unknown,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 2 for these claims on this tab; previous fail vfy_24924d07-894a-427a-b154-7fc61a4cd636; no code change observed
+evidence: $ npx genie-react verify show vfy_7341a0a0-30eb-4821-9349-8bd6a37abd6e --claim 1 --session upd-c
+session: {sessionId:053b3133-7763-42bc-9b60-120e81127c92,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:2}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_2ce5349487da,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_24924d07-894a-427a-b154-7fc61a4cd636,verdict:fail,reasons:[],endedAt:2026-11-19T08:57:53.708Z}],codeChangedSincePrevious:none-observed,failsOnSameCode:1}
+evidence: {retained:false,tools:[]}
+startedAt: 2026-11-19T08:58:09.239Z
+endedAt: 2026-11-19T08:58:10.981Z
+request: {budget:{fiberLimit:20000,operationLimit:2000000,timeLimitMs:500,targetOperationReserve:100000,targetTimeReserveMs:100,adaptive:false},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+# reference fix applied to src/contexts/feature-flags.tsx from evals/realworld/legacy/feature-flags-provider-value.json
+
+$ node /tmp/upd-c/apply-fix.mjs feature-flags-provider-value
+applied 2 edits
+[exit 0]
+
+$ git diff -- src
+diff --git a/apps/realworld-legacy/src/contexts/feature-flags.tsx b/apps/realworld-legacy/src/contexts/feature-flags.tsx
+index 34b793b..28cd180 100644
+--- a/apps/realworld-legacy/src/contexts/feature-flags.tsx
++++ b/apps/realworld-legacy/src/contexts/feature-flags.tsx
+@@ -1,19 +1,19 @@
+-import { createContext, type ReactNode, useContext } from 'react'
++import { createContext, type ReactNode, useContext, useMemo } from 'react'
+ 
+ export interface FeatureFlagsValue {
+   flags: Record<string, boolean>
+   isEnabled: (name: string) => boolean
+ }
+ 
+ const FeatureFlagsContext = createContext<FeatureFlagsValue>({ flags: {}, isEnabled: () => false })
+ 
+ interface FeatureFlagsProviderProps {
+   flags: Record<string, boolean>
+   children: ReactNode
+ }
+ 
+ export function FeatureFlagsProvider({ flags, children }: FeatureFlagsProviderProps) {
+-  const value = { flags, isEnabled: (name: string) => flags[name] === true }
++  const value = useMemo(() => ({ flags, isEnabled: (name: string) => flags[name] === true }), [flags])
+   return <FeatureFlagsContext.Provider value={value}>{children}</FeatureFlagsContext.Provider>
+ }
+ 
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/board
+✓ Acme Tracker
+  http://127.0.0.1:5233/board
+[exit 0]
+
+$ npx genie-react status --session upd-c --wait 15000 --select /app
+status: ok
+selection: {expression:/app,matchedPathCount:1,matchedPaths:[/app],omittedPathCount:48}
+result: {name:"Acme Tracker",url:http://127.0.0.1:5233/board,reactVersion:18.3.1,reactMounted:true}
+[exit 0]
+
+$ agent-browser --session upd-c wait .board-column
+✓ Done
+[exit 0]
+
+$ npx genie-react verify begin --session upd-c --name toggle\ the\ sidebar --claim render\ FeatureGate\ max\ 0 --claim render\ SideNav\ min\ 1 --claim boundaries\ clean --budget \{\"adaptive\":false,\"fiberLimit\":20000,\"operationLimit\":2000000,\"timeLimitMs\":500,\"targetOperationReserve\":100000,\"targetTimeReserveMs\":100\}
+recording vfy_5ee04ad1-30e5-461e-b1a4-236c461c67cf "toggle the sidebar"
+  url "http://127.0.0.1:5233/board"
+  1 recording render FeatureGate max 0
+  2 recording render SideNav min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:17,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_5ee04ad1-30e5-461e-b1a4-236c461c67cf --session upd-c
+session: {sessionId:a95cced8-0205-4990-abe1-973d79ca660c,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:4}
+schemaVersion: "1.0"
+targets: [{target:{component:FeatureGate},status:resolved,instances:840,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx,unresolvedSources:720},{target:{component:SideNav},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx}]
+startedAt: 2026-11-19T08:58:24.590Z
+expiresAt: 2026-11-19T09:03:24.652Z
+request: {budget:{fiberLimit:20000,operationLimit:2000000,timeLimitMs:500,targetOperationReserve:100000,targetTimeReserveMs:100,adaptive:false},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c click button\[aria-label=\"Toggle\ sidebar\"\]
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_5ee04ad1-30e5-461e-b1a4-236c461c67cf --session upd-c
+pass vfy_5ee04ad1-30e5-461e-b1a4-236c461c67cf "toggle the sidebar"  4 commits, quiet after 786 ms (react)
+  url "http://127.0.0.1:5233/board"
+  1 pass render FeatureGate max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:840,activeInstances:840}
+      claim: {kind:renders,target:{component:FeatureGate},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:coverage,complete:true,targetedComplete:true,semantics:exact},{kind:instance,mountId:mount:1,renderingState:mounted-rendering,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:7:7},{kind:instance,mountId:mount:2,renderingState:mounted-rendering,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:12:7}]
+  2 pass render SideNav min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:SideNav},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:841,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:18,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx:26:9}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:17}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:17,settledDocumentCommitId:20,frozenDocumentCommitId:21,commits:4,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:786,domains:{react:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:unknown,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 3 for these claims on this tab; previous fail vfy_7341a0a0-30eb-4821-9349-8bd6a37abd6e; document reloaded since
+evidence: $ npx genie-react verify show vfy_5ee04ad1-30e5-461e-b1a4-236c461c67cf --session upd-c
+session: {sessionId:a95cced8-0205-4990-abe1-973d79ca660c,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:4}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_2ce5349487da,scope:logical-session,storage:memory,attempt:3,history:[{verificationId:vfy_24924d07-894a-427a-b154-7fc61a4cd636,verdict:fail,reasons:[],endedAt:2026-11-19T08:57:53.708Z},{verificationId:vfy_7341a0a0-30eb-4821-9349-8bd6a37abd6e,verdict:fail,reasons:[],endedAt:2026-11-19T08:58:10.981Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:false,tools:[]}
+startedAt: 2026-11-19T08:58:24.590Z
+endedAt: 2026-11-19T08:58:26.291Z
+request: {budget:{fiberLimit:20000,operationLimit:2000000,timeLimitMs:500,targetOperationReserve:100000,targetTimeReserveMs:100,adaptive:false},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+# after fix: one toggle, totals read right after quiesce
+
+$ npx genie-react call react_clear_renders \{\"budget\":\{\"adaptive\":false,\"fiberLimit\":20000,\"operationLimit\":2000000,\"timeLimitMs\":500,\"targetOperationReserve\":100000,\"targetTimeReserveMs\":100\}\} --session upd-c --select /ok
+status: ok
+selection: {expression:/ok,matchedPathCount:1,matchedPaths:[/ok],omittedPathCount:15}
+result: true
+[exit 0]
+
+$ agent-browser --session upd-c click button\[aria-label=\"Toggle\ sidebar\"\]
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce \{\"idleMs\":500,\"timeoutMs\":10000\} --fail-on-result-error --session upd-c --select /outcome
+status: ok
+selection: {expression:/outcome,matchedPathCount:1,matchedPaths:[/outcome],omittedPathCount:16}
+result: idle
+[exit 0]
+
+$ npx genie-react call react_get_renders \{\"appOnly\":false,\"limit\":1\} --session upd-c --select /summary
+status: ok
+selection: {expression:/summary,matchedPathCount:1,matchedPaths:[/summary],omittedPathCount:74}
+result:
+  commits: 4
+  trackedComponents: 38
+  totalRenders: 43
+  totalUpdates: 33
+  referenceOnlyPropComponents: 0
+  noObservedInputChangeComponents: 13
+  topReferenceOnlyProps: []
+  semantics: exact
+  coverageDomain: render-measurement
+[exit 0]
+
+$ npx genie-react call react_get_renders \{\"component\":\"FeatureGate\",\"appOnly\":false,\"limit\":1\} --session upd-c --select /summary/totalUpdates
+status: ok
+selection:
+  expression: /summary/totalUpdates
+  matchedPathCount: 1
+  matchedPaths: [/summary/totalUpdates]
+  omittedPathCount: 68
+result: 0
+[exit 0]
+
+$ npx genie-react call react_get_renders \{\"component\":\"PriorityPicker\",\"appOnly\":false,\"limit\":1\} --session upd-c --select /summary/totalUpdates
+status: ok
+selection:
+  expression: /summary/totalUpdates
+  matchedPathCount: 1
+  matchedPaths: [/summary/totalUpdates]
+  omittedPathCount: 68
+result: 0
+[exit 0]
+
+$ npx genie-react call react_get_renders \{\"component\":\"BoardColumn\",\"appOnly\":false,\"limit\":1\} --session upd-c --select /summary/totalUpdates
+status: ok
+selection:
+  expression: /summary/totalUpdates
+  matchedPathCount: 1
+  matchedPaths: [/summary/totalUpdates]
+  omittedPathCount: 91
+result: 5
+[exit 0]
+
+# fix reverted with git checkout
+
+$ git checkout -- src
+[exit 0]
+
+$ git status --short -- src
+## ali/articles-update-c
+[exit 0]
+
+# after fix again: which components mounted during the toggle
+
+$ node /tmp/upd-c/apply-fix.mjs feature-flags-provider-value
+applied 2 edits
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/board
+✓ Acme Tracker
+  http://127.0.0.1:5233/board
+[exit 0]
+
+$ npx genie-react status --session upd-c --wait 15000 --select /app
+status: ok
+selection: {expression:/app,matchedPathCount:1,matchedPaths:[/app],omittedPathCount:48}
+result: {name:"Acme Tracker",url:http://127.0.0.1:5233/board,reactVersion:18.3.1,reactMounted:true}
+[exit 0]
+
+$ agent-browser --session upd-c wait .board-column
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_clear_renders \{\"budget\":\{\"adaptive\":false,\"fiberLimit\":20000,\"operationLimit\":2000000,\"timeLimitMs\":500,\"targetOperationReserve\":100000,\"targetTimeReserveMs\":100\}\} --session upd-c --select /ok
+status: ok
+selection: {expression:/ok,matchedPathCount:1,matchedPaths:[/ok],omittedPathCount:15}
+result: true
+[exit 0]
+
+$ agent-browser --session upd-c click button\[aria-label=\"Toggle\ sidebar\"\]
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce \{\"idleMs\":500,\"timeoutMs\":10000\} --fail-on-result-error --session upd-c --select /outcome
+status: ok
+selection: {expression:/outcome,matchedPathCount:1,matchedPaths:[/outcome],omittedPathCount:16}
+result: idle
+[exit 0]
+
+$ npx genie-react call react_get_renders \{\"appOnly\":false,\"limit\":1\} --session upd-c --select /summary
+status: ok
+selection: {expression:/summary,matchedPathCount:1,matchedPaths:[/summary],omittedPathCount:75}
+result:
+  commits: 3
+  trackedComponents: 28
+  totalRenders: 32
+  totalUpdates: 32
+  referenceOnlyPropComponents: 0
+  noObservedInputChangeComponents: 13
+  topReferenceOnlyProps: []
+  semantics: exact
+  coverageDomain: render-measurement
+[exit 0]
+
+$ npx genie-react call react_get_renders \{\"appOnly\":false,\"limit\":60\} --session upd-c --fields name,renders,mounts,updates
+error invalid_input: Tool call failed. Unknown --fields value mounts. details.fields.available lists the fields the result has. Correct --fields and retry.
+next: $ npx genie-react tools react_get_renders --session upd-c
+userActionRequired: true
+errorCode: invalid-input
+details:
+  fields:
+    unknown: [mounts]
+    available: [causeCounts,causes,cumulativeTotalTime,id,inputCoverage,inputEvidence,key,latestDocumentCommitId,mountId,name,necessity,necessityReason,noObservedInputChange,renders,selfTime,source,totalTime,updates,wrappedBy,wrappers,wraps]
+exit: {code:1,class:failure}
+[exit 1]
+
+$ git checkout -- src
+[exit 0]
+
+$ git status --short -- src
+## ali/articles-update-c
+[exit 0]
+
+# before fix: evidence reads on a fresh toggle
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/board
+✓ Acme Tracker
+  http://127.0.0.1:5233/board
+[exit 0]
+
+$ npx genie-react status --session upd-c --wait 15000 --select /app
+status: ok
+selection: {expression:/app,matchedPathCount:1,matchedPaths:[/app],omittedPathCount:48}
+result: {name:"Acme Tracker",url:http://127.0.0.1:5233/board,reactVersion:18.3.1,reactMounted:true}
+[exit 0]
+
+$ agent-browser --session upd-c wait .board-column
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_clear_renders \{\"budget\":\{\"adaptive\":false,\"fiberLimit\":20000,\"operationLimit\":2000000,\"timeLimitMs\":500,\"targetOperationReserve\":100000,\"targetTimeReserveMs\":100\}\} --session upd-c --select /ok
+status: ok
+selection: {expression:/ok,matchedPathCount:1,matchedPaths:[/ok],omittedPathCount:15}
+result: true
+[exit 0]
+
+$ agent-browser --session upd-c click button\[aria-label=\"Toggle\ sidebar\"\]
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce \{\"idleMs\":500,\"timeoutMs\":10000\} --fail-on-result-error --session upd-c --select /outcome
+status: ok
+selection: {expression:/outcome,matchedPathCount:1,matchedPaths:[/outcome],omittedPathCount:16}
+result: idle
+[exit 0]
+
+$ npx genie-react call react_get_renders \{\"limit\":12\} --session upd-c
+tracking: true
+renderCollection: available
+bundle: development
+timingsBundleDependent: true
+countsScope: observed-run
+commits: 3
+documentCommitId: 20
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:17}
+attribution:
+  status: current
+  startedAtDocumentCommitId: 20
+  completedAtDocumentCommitId: 20
+  startedAtAnalysisGeneration: 21
+  completedAtAnalysisGeneration: 21
+view: summary
+summary:
+  commits: 3
+  trackedComponents: 1277
+  totalRenders: 1281
+  totalUpdates: 1281
+  referenceOnlyPropComponents: 0
+  noObservedInputChangeComponents: 7
+  topReferenceOnlyProps: []
+  semantics: unknown
+  coverageDomain: render-measurement
+components[12] (name #id {fields}, then ← kind evidence name {fields} per cause):
+  each: {source:{ownership:app}}
+  LastSyncedLabel #12257501118934 {mountId:mount:17,renders:2,updates:2,noObservedInputChange:1,selfTime:0.1,totalTime:0.1,latestDocumentCommitId:20,causeCounts:{state:1,parent:1},necessity:necessary,necessityReason:dom-changed,inputEvidence:changed,source:{location:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/top-bar.tsx:27:9,role:element-callsite}}
+    ← state exact "state[0]"
+  AccountMenu #12257501118946 {mountId:mount:20,renders:2,updates:2,noObservedInputChange:2,selfTime:0,totalTime:0,latestDocumentCommitId:19,causeCounts:{external-store:2},necessity:unnecessary,necessityReason:inputs-unchanged,inputEvidence:none-observed,source:{location:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/top-bar.tsx:32:9,role:element-callsite}}
+    ← external-store inferred anonymous-external-store {changedFields:[],redux:{evidence:inferred,actions:[]}}
+  Dropdown #12257501118947 {mountId:mount:21,renders:2,updates:2,selfTime:0,totalTime:0,latestDocumentCommitId:19,causeCounts:{children:2,parent:2},necessity:unknown,necessityReason:effects-scheduled,inputEvidence:changed,source:{location:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/account-menu.tsx:15:5,role:element-callsite}}
+    ← parent inferred AccountMenu
+    ← children exact
+  Avatar #12257501118950 {mountId:mount:22,renders:2,updates:2,noObservedInputChange:2,selfTime:0,totalTime:0,latestDocumentCommitId:19,causeCounts:{parent:2},necessity:unnecessary,necessityReason:inputs-unchanged,inputEvidence:none-observed,source:{location:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/account-menu.tsx:25:13,role:element-callsite}}
+    ← parent inferred Dropdown {origin:AccountMenu}
+  AppShell #12257501118921 {mountId:mount:12,renders:1,updates:1,selfTime:0.1,totalTime:6.4,latestDocumentCommitId:18,causeCounts:{props:1,parent:1},necessity:necessary,necessityReason:dom-changed,inputEvidence:changed,wrappedBy:{componentId:12257501118919,componentName:"Connect(AppShell)",renderEventId:render:18:3,causes:[{kind:external-store,evidence:inferred,name:selector,changedFields:[sidebarCollapsed],redux:{evidence:inferred,actions:[ui/sidebarToggled]}}],necessity:necessary,necessityReason:dom-changed},source:{location:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx:23:5,role:component-body}}
+    ← parent inferred "Connect(AppShell)"
+    ← props exact sidebarCollapsed
+  FeatureFlagsProvider #12257501118922 {mountId:mount:13,renders:1,updates:1,selfTime:0,totalTime:6.3,latestDocumentCommitId:18,causeCounts:{children:1,parent:1},necessity:necessary,necessityReason:dom-changed,inputEvidence:changed,source:{location:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx:23:5,role:element-callsite}}
+    ← parent inferred AppShell {origin:"Connect(AppShell)"}
+    ← children exact
+  TopBar #12257501118925 {mountId:mount:14,renders:1,updates:1,noObservedInputChange:1,selfTime:0.1,totalTime:0.2,latestDocumentCommitId:18,causeCounts:{parent:1},necessity:unnecessary,necessityReason:inputs-unchanged,inputEvidence:none-observed,source:{location:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx:25:9,role:element-callsite}}
+    ← parent inferred FeatureFlagsProvider {origin:"Connect(AppShell)"}
+  GlobalSearch #12257501118930 {mountId:mount:16,renders:1,updates:1,noObservedInputChange:1,selfTime:0,totalTime:0.1,latestDocumentCommitId:18,causeCounts:{parent:1},necessity:unnecessary,necessityReason:inputs-unchanged,inputEvidence:none-observed,source:{location:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/top-bar.tsx:25:7,role:element-callsite}}
+    ← parent inferred TopBar {origin:"Connect(AppShell)"}
+  Button #12257501118939 {mountId:mount:18,renders:1,updates:1,selfTime:0,totalTime:0,latestDocumentCommitId:18,causeCounts:{props:1,parent:1},necessity:unknown,necessityReason:callbacks-changed,inputEvidence:changed,source:{location:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/top-bar.tsx:28:9,role:element-callsite}}
+    ← parent inferred TopBar {origin:"Connect(AppShell)"}
+    ← props exact onClick
+  NotificationsMenu #12257501118941 {mountId:mount:19,renders:1,updates:1,noObservedInputChange:1,selfTime:0,totalTime:0,latestDocumentCommitId:18,causeCounts:{parent:1},necessity:unnecessary,necessityReason:inputs-unchanged,inputEvidence:none-observed,source:{location:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/top-bar.tsx:31:9,role:element-callsite}}
+    ← parent inferred TopBar {origin:"Connect(AppShell)"}
+  SideNav #12257501118952 {mountId:mount:23,renders:1,updates:1,selfTime:0,totalTime:0.1,latestDocumentCommitId:18,causeCounts:{props:1,parent:1},necessity:necessary,necessityReason:dom-changed,inputEvidence:changed,source:{location:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx:26:9,role:element-callsite}}
+    ← parent inferred FeatureFlagsProvider {origin:"Connect(AppShell)"}
+    ← props exact collapsed
+  PriorityPicker #12257501118984 {mountId:mount:33,renders:1,updates:1,selfTime:0,totalTime:0,latestDocumentCommitId:18,causeCounts:{context:1},necessity:unknown,necessityReason:callbacks-changed,inputEvidence:incomplete,inputCoverage:{complete:false,scanTruncated:true},source:{location:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-card.tsx:20:9,role:element-callsite}}
+    ← context exact "Context(FeatureFlagsProvider)" {contextIndex:1}
+sourceClassification:
+  complete: false
+  affects: result
+  totalCandidates: 1288
+  evaluated: 1288
+  app: 437
+  library: 11
+  unknown: 840
+  unknownComponents: ["FeatureGate (~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx)"]
+  unknownComponentsOmitted: 0
+omittedByLimit: 1265
+nextCursor: 95f60ff8-340d-49f1-a342-320934938b06:12
+pagination:
+  snapshotId: 95f60ff8-340d-49f1-a342-320934938b06
+  offset: 0
+  totalComponents: 1277
+  expiresAt: 1795079622520
+comparable: false
+notComparableReasons: [render-input-scan-truncated,app-source-classification-incomplete]
+coverage:
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 1265
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  incompleteBecause[2]:
+    - {reason:inputs-truncated,fibers:1265,components:[PriorityPicker,FeatureGate,BoardColumn],detail:"An input held values Genie compares only in part, such as functions, class instances or objects past the inspected depth; read deepDiff.truncated on these components."}
+    - {reason:source-classification-incomplete,fibers:840,detail:"840 of 1288 candidates have unresolved ownership. appOnly keeps them, but any of them may be library code it would hide, so rows and counts can change once ownership resolves.",next:"Pass appOnly:false for counts that do not depend on ownership, or read again shortly: ownership keeps resolving in the background, though a component React rendered without an owner stack stays unknown."}
+  complete: false
+  inputAttributionComplete: false
+  semantics: unknown
+  coverageDomain: render-causality
+filteredNote: "12 components shown; 11 library components hidden — set appOnly:false to include them"
+[exit 0]
+
+$ npx genie-react call react_render_causes \{\"component\":\"FeatureGate\",\"limit\":1,\"view\":\"full\"\} --session upd-c --select /events
+status: ok
+selection: {expression:/events,matchedPathCount:1,matchedPaths:[/events],omittedPathCount:58}
+result[1]:
+  - {renderEventId:render:18:1292,observationId:observation:1,commitId:1,documentCommitId:18,componentId:12257501126419,componentName:FeatureGate,instance:{fiberId:12257501126419,mountId:mount:1292,key:null,siblingIndex:1,parent:{fiberId:12257501126415,name:CardMeta,key:null},keyedParent:{fiberId:12257501126404,name:BoardCard,key:iss-417},logicalPath:"AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > BoardPage[index=0] > <div>[index=0] > <div>[index=1] > BoardColumn[key=\"done\"] > <section>[index=0] > <ol>[index=1] > BoardCard[key=\"iss-417\"] > <li>[index=0] > CardMeta[index=2] > <div>[index=0] > FeatureGate[index=1]",logicalIdentityEvidence:positional,mountGeneration:1,mountGenerationEvidence:exact,hostSelector:null},causes:[{kind:context,evidence:exact,contextIndex:0,contextId:context:1,name:"Context(FeatureFlagsProvider)",provider:{componentId:12257501118922,componentName:FeatureFlagsProvider},before:{flags:{card-estimates:true,card-labels:true,inline-priority:true,reports-workload:true,issue-presence:true},isEnabled:{__genie_dehydrated__:true,kind:function,preview:"ƒ isEnabled()",path:[isEnabled]}},after:{flags:{card-estimates:true,card-labels:true,inline-priority:true,reports-workload:true,issue-presence:true},isEnabled:{__genie_dehydrated__:true,kind:function,preview:"ƒ isEnabled()",path:[isEnabled]}},deepDiff:{changes:[{kind:identity-changed-uninspected,path:/isEnabled}],visited:3,truncated:true}}],necessity:unnecessary,necessityReason:output-unchanged,assessment:{inputEvidence:incomplete,observedInputKinds:[context],behaviorEvidence:{subtreeHostMutations:{status:none-observed,count:0,pendingSubtrees:0,omittedByLimit:0,callbackOnlyUpdates:0,writes:[],callbacks:[]},scheduledEffects:{status:none-observed,count:0},subtreeScheduledEffects:{status:none-observed,count:0},unobservedDomains:[focus,url,network,transition,freshness,effect-execution]},optimizationSafety:not-proven-safe,requiredValidation:[dom,aria,focus,url,network,transition]},inputCoverage:{complete:false,omittedInputs:0,scanTruncated:true,propsNotEnumerated:false},source:{file:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx,line:12,column:7,functionName:null,sourceMapConfidence:served,role:element-callsite},sourceAttribution:{role:usage-or-definition-fallback,evidence:inferred},sourceOwnership:unknown,isLibrary:false}
+[exit 0]
+
+# repeat: second toggle on the same page, AppShell row only
+
+$ npx genie-react call react_clear_renders \{\"budget\":\{\"adaptive\":false,\"fiberLimit\":20000,\"operationLimit\":2000000,\"timeLimitMs\":500,\"targetOperationReserve\":100000,\"targetTimeReserveMs\":100\}\} --session upd-c --select /ok
+status: ok
+selection: {expression:/ok,matchedPathCount:1,matchedPaths:[/ok],omittedPathCount:15}
+result: true
+[exit 0]
+
+$ agent-browser --session upd-c click button\[aria-label=\"Toggle\ sidebar\"\]
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce \{\"idleMs\":500,\"timeoutMs\":10000\} --fail-on-result-error --session upd-c --select /outcome
+status: ok
+selection: {expression:/outcome,matchedPathCount:1,matchedPaths:[/outcome],omittedPathCount:16}
+result: idle
+[exit 0]
+
+$ npx genie-react call react_get_renders \{\"component\":\"AppShell\",\"limit\":1\} --session upd-c
+componentMatch:
+  component: AppShell
+  exact: true
+  status: matched
+  matchedNames: [AppShell]
+  matchedNameCount: 1
+  similarNames: []
+tracking: true
+renderCollection: available
+bundle: development
+timingsBundleDependent: true
+countsScope: observed-run
+commits: 4
+documentCommitId: 35
+observation: {id:observation:2,epoch:2,startedAfterDocumentCommitId:31}
+attribution:
+  status: current
+  startedAtDocumentCommitId: 35
+  completedAtDocumentCommitId: 35
+  startedAtAnalysisGeneration: 37
+  completedAtAnalysisGeneration: 37
+view: summary
+summary:
+  commits: 4
+  trackedComponents: 1
+  totalRenders: 1
+  totalUpdates: 1
+  referenceOnlyPropComponents: 0
+  noObservedInputChangeComponents: 0
+  topReferenceOnlyProps: []
+  semantics: exact
+  coverageDomain: render-measurement
+components[1] (name #id {fields}, then ← kind evidence name {fields} per cause):
+  AppShell #12257501118921 {mountId:mount:12,renders:1,updates:1,selfTime:0.1,totalTime:7.4,latestDocumentCommitId:32,causeCounts:{props:1,parent:1},necessity:necessary,necessityReason:dom-changed,inputEvidence:changed,wrappedBy:{componentId:12257501118919,componentName:"Connect(AppShell)",renderEventId:render:32:1327,causes:[{kind:external-store,evidence:inferred,name:selector,changedFields:[sidebarCollapsed],redux:{evidence:exact,actions:[ui/sidebarToggled]}}],necessity:necessary,necessityReason:dom-changed},source:{location:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx:23:5,role:component-body,ownership:app}}
+    ← parent inferred "Connect(AppShell)"
+    ← props exact sidebarCollapsed
+sourceClassification:
+  complete: true
+  affects: result
+  totalCandidates: 1
+  evaluated: 1
+  app: 1
+  library: 0
+  unknown: 0
+  unknownComponents: []
+  unknownComponentsOmitted: 0
+omittedByLimit: 0
+nextCursor: null
+pagination:
+  snapshotId: 8d2a7f2a-ec6f-4518-89da-2171248a81bd
+  offset: 0
+  totalComponents: 1
+  expiresAt: 1795079634568
+comparable: false
+notComparableReasons: [render-input-scan-truncated]
+coverage:
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 1265
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  incompleteBecause[1]:
+    - {reason:inputs-truncated,fibers:1265,components:[PriorityPicker,FeatureGate,BoardColumn],detail:"An input held values Genie compares only in part, such as functions, class instances or objects past the inspected depth; read deepDiff.truncated on these components."}
+  complete: false
+  inputAttributionComplete: false
+  semantics: lower-bound
+  coverageDomain: render-causality
+[exit 0]
+```
