@@ -12,6 +12,7 @@ import {
   type HubErrorCode,
   newId,
   type RefusalReason,
+  type ToolDescriptor,
   toolValidationFailure,
   VERDICT_EXIT_CODES,
   VERIFY_SCHEMA_VERSION,
@@ -25,7 +26,7 @@ import {
   verifyTargetKey,
   verifyTools,
 } from '../protocol'
-import { withFullView } from './full-view'
+import { advertisedMaximum, withFullView } from './full-view'
 import type { InteractionSession, InteractionSettleResult } from './interaction-manager'
 import {
   captureToolEvidence,
@@ -80,7 +81,9 @@ const MAX_RETAINED_EVIDENCE_BYTES = 2_000_000
 const RENDER_PAGE_LIMIT = 200
 const MAX_RENDER_PAGES = 25
 const EVENT_READ_LIMIT = 500
-const COHORT_LIMIT = 200
+const COHORT_LIMIT = 2_000
+/** The cohort limit of apps from before it rose to COHORT_LIMIT. */
+const LEGACY_COHORT_LIMIT = 200
 const RENDER_PROBE_ARGS = { sort: 'renders', limit: 1, appOnly: false, includeCursor: false }
 
 /** Calls that would reset, pause or skew a recording window; refused on a document with an active verification. */
@@ -290,7 +293,10 @@ export class VerificationManager<TSession extends VerificationSession> {
         verifyTargetKey(target),
         resolveTarget(
           target,
-          readCohort(await capture('react_component_cohort', cohortArgs(target)), target.component),
+          readCohort(
+            await capture('react_component_cohort', cohortArgs(session.tools, target)),
+            target.component,
+          ),
         ),
       )
     }
@@ -541,7 +547,7 @@ export class VerificationManager<TSession extends VerificationSession> {
       )
       const renders = await this.readRenderPages(session, capture, target.component)
       const end = readCohort(
-        await capture('react_component_cohort', cohortArgs(target)),
+        await capture('react_component_cohort', cohortArgs(session.tools, target)),
         target.component,
       )
       const events = kinds.has('render-causes')
@@ -1165,12 +1171,15 @@ function settledCommit(settle: InteractionSettleResult): number | null {
   return typeof commit === 'number' && Number.isInteger(commit) ? commit : null
 }
 
-function cohortArgs(target: VerifyTarget) {
+function cohortArgs(tools: readonly ToolDescriptor[], target: VerifyTarget) {
   return {
     component: target.component,
     exact: true,
     appOnly: false,
-    limit: COHORT_LIMIT,
+    limit: Math.min(
+      COHORT_LIMIT,
+      advertisedMaximum(tools, 'react_component_cohort', 'limit') ?? LEGACY_COHORT_LIMIT,
+    ),
     view: 'full',
   }
 }
@@ -1231,6 +1240,9 @@ function targetView(resolution: TargetResolution | undefined) {
     ...(resolution.sourceFile === null ? {} : { source: resolution.sourceFile }),
     ...(resolution.unresolvedSources > 0
       ? { unresolvedSources: resolution.unresolvedSources }
+      : {}),
+    ...(resolution.begin.omittedByLimit > 0
+      ? { omittedInstances: resolution.begin.omittedByLimit }
       : {}),
   }
 }

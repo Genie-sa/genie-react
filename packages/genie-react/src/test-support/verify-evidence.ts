@@ -124,10 +124,10 @@ export function effects(
   }
 }
 
-function cohortRead(instances: CohortRecord[]): CohortRead {
+function cohortRead(instances: CohortRecord[], omittedByLimit = 0): CohortRead {
   return {
     instances,
-    omittedByLimit: 0,
+    omittedByLimit,
     observationId: OBSERVATION,
     rendererBundle: instances.length > 0 ? 'development' : null,
   }
@@ -142,6 +142,8 @@ export interface TargetSpec {
   effects?: EffectsRead | null
   status?: 'resolved' | 'pending' | 'ambiguous'
   omittedByLimit?: number
+  /** Instances of the name each cohort read left out past its limit. */
+  cohortOmittedByLimit?: number
   attributionStale?: boolean
 }
 
@@ -155,7 +157,7 @@ export function targetEvidence(spec: TargetSpec = {}): TargetEvidence {
       sourceFile: begin[0]?.sourceFile ?? null,
       candidates: [],
       unresolvedSources: 0,
-      begin: cohortRead(begin),
+      begin: cohortRead(begin, spec.cohortOmittedByLimit),
       listed: true,
     },
     renders: {
@@ -166,7 +168,7 @@ export function targetEvidence(spec: TargetSpec = {}): TargetEvidence {
     },
     events: spec.events === undefined ? events([]) : spec.events,
     effects: spec.effects === undefined ? effects([]) : spec.effects,
-    end: cohortRead(spec.end ?? begin),
+    end: cohortRead(spec.end ?? begin, spec.cohortOmittedByLimit),
   }
 }
 

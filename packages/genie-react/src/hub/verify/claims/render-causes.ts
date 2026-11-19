@@ -4,6 +4,7 @@ import type {
   RenderEventRecord,
   TargetEvidence,
   VerificationEvidence,
+  WrapperRender,
 } from '../evidence'
 import { type ClaimOutcome, refuse, refused } from '../outcome'
 import { matchTarget } from '../target'
@@ -35,13 +36,49 @@ function causeLabel(cause: RenderCause): string {
   return formatVerifyCauseLabel(cause.kind, cause.name)
 }
 
-function eventItem(event: RenderEventRecord): Record<string, unknown> {
+function isRenderOf(cause: RenderCause, wrapper: WrapperRender): boolean {
+  return cause.kind === 'parent' && cause.parentId === wrapper.componentId
+}
+
+/** A component that cannot bail out on props, such as a class inside connect(), renders whenever its wrapper does; the inferred parent cause is then settled by the wrapper's own causes, when each is exact and allowed. */
+function explainingWrapper(
+  event: RenderEventRecord,
+  allow: readonly VerifyCause[],
+): WrapperRender | null {
+  const wrapper = event.wrappedBy
+  if (!wrapper || wrapper.causes.length === 0) return null
+  if (!event.causes.some((cause) => isRenderOf(cause, wrapper))) return null
+  return wrapper.causes.every((cause) => isExactCause(cause) && causeAllowed(cause, allow))
+    ? wrapper
+    : null
+}
+
+function hasUnsettledCause(event: RenderEventRecord, allow: readonly VerifyCause[]): boolean {
+  const wrapper = explainingWrapper(event, allow)
+  return event.causes.some(
+    (cause) => !isExactCause(cause) && !(wrapper && isRenderOf(cause, wrapper)),
+  )
+}
+
+function eventItem(
+  event: RenderEventRecord,
+  allow: readonly VerifyCause[],
+): Record<string, unknown> {
+  const wrapper = explainingWrapper(event, allow)
   return {
     kind: 'render-event',
     renderEventId: event.renderEventId,
     documentCommitId: event.documentCommitId,
     mountId: event.mountId,
     causes: event.causes.map((cause) => ({ cause: causeLabel(cause), evidence: cause.evidence })),
+    ...(wrapper
+      ? {
+          wrappedBy: {
+            component: wrapper.componentName,
+            causes: wrapper.causes.map(causeLabel),
+          },
+        }
+      : {}),
   }
 }
 
@@ -72,7 +109,7 @@ export function evaluateRenderCauses(
     return {
       verdict: 'fail',
       observed,
-      deciding: violating.slice(0, MAX_DECIDING).map(eventItem),
+      deciding: violating.slice(0, MAX_DECIDING).map((event) => eventItem(event, claim.allow)),
       caveats: [],
     }
   }
@@ -127,10 +164,10 @@ export function evaluateRenderCauses(
         { renderEventIds: unattributed.slice(0, MAX_DECIDING).map((event) => event.renderEventId) },
       ),
       observed,
-      unattributed.slice(0, MAX_DECIDING).map(eventItem),
+      unattributed.slice(0, MAX_DECIDING).map((event) => eventItem(event, claim.allow)),
     )
   }
-  const inferred = events.filter((event) => event.causes.some((cause) => !isExactCause(cause)))
+  const inferred = events.filter((event) => hasUnsettledCause(event, claim.allow))
   if (inferred.length > 0) {
     return refused(
       refuse(
@@ -140,13 +177,13 @@ export function evaluateRenderCauses(
         { action: 'change-claim' },
       ),
       observed,
-      inferred.slice(0, MAX_DECIDING).map(eventItem),
+      inferred.slice(0, MAX_DECIDING).map((event) => eventItem(event, claim.allow)),
     )
   }
   return {
     verdict: 'pass',
     observed,
-    deciding: events.slice(0, MAX_DECIDING).map(eventItem),
+    deciding: events.slice(0, MAX_DECIDING).map((event) => eventItem(event, claim.allow)),
     caveats: [],
   }
 }

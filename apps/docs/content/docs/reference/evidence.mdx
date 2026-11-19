@@ -59,8 +59,8 @@ rendered it) or `hook-callsite`, the most precise place to edit.
 | `no_activity` | No React commit in the window. The action went to another tab or changed nothing. |
 | `not_quiescent` | Work was still arriving after the app settled. |
 | `coverage_incomplete`, `budget_exhausted` | The analysis skipped part of the target. Rerun with the budget it prints. When the interaction itself unmounts more components than Genie keeps (`droppedUnmountFibers`), a rerun loses them again: start from a page that mounts fewer components, or claim a lower bound. |
-| `evidence_truncated`, `evidence_unavailable` | Events were evicted or a read failed. |
-| `evidence_inferred` | The deciding cause is only `inferred`. |
+| `evidence_truncated`, `evidence_unavailable` | Events were evicted or a read failed. `evidence_truncated` also covers a component with more than 2,000 mounted instances, more than `verify` lists, so it cannot check the rest. Start from a page that mounts fewer of them. |
+| `evidence_inferred` | The deciding cause is only `inferred`. A `parent` cause is settled when the parent is the component's own wrapper, such as `Connect(Name)`, and the wrapper rendered only for exact causes the claim allows. |
 | `target_not_found`, `target_ambiguous`, `target_inactive` | The component name matched nothing, several things, or a hidden or frozen instance. |
 | `session_changed`, `window_interrupted`, `window_lost` | The tab reloaded or the window was reset. |
 | `code_changed` | Fast Refresh ran during the window. |

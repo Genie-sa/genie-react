@@ -102,7 +102,17 @@ const causeSchema = z.object({
   reason: z.string().optional(),
   queryHash: z.string().optional(),
   notificationId: z.string().nullable().optional(),
+  parentId: z.number().optional(),
 })
+
+const wrapperRenderSchema = z
+  .object({
+    componentId: z.number(),
+    componentName: z.string(),
+    causes: z.array(causeSchema),
+  })
+  .optional()
+  .catch(undefined)
 
 const renderEventSchema = z.object({
   renderEventId: z.string(),
@@ -112,6 +122,7 @@ const renderEventSchema = z.object({
   instance: instanceSchema,
   causes: z.array(causeSchema),
   inputCoverage: z.object({ complete: z.boolean() }),
+  wrappedBy: wrapperRenderSchema,
 })
 
 const renderCausesSchema = z.object({
@@ -392,6 +403,15 @@ export interface RenderCause {
   evidence: 'exact' | 'inferred' | 'unknown'
   name: string | null
   reason: string | null
+  /** For a parent cause, the component ID of the ancestor that rendered. */
+  parentId?: number
+}
+
+/** The higher-order or memo wrapper that rendered the component in the same commit, with the wrapper's own causes. */
+export interface WrapperRender {
+  componentId: number
+  componentName: string
+  causes: RenderCause[]
 }
 
 export interface RenderEventRecord {
@@ -400,6 +420,7 @@ export interface RenderEventRecord {
   mountId: string
   causes: RenderCause[]
   inputCoverageComplete: boolean
+  wrappedBy?: WrapperRender
 }
 
 export interface RenderEventsRead {
@@ -410,6 +431,16 @@ export interface RenderEventsRead {
   attributionStale: boolean
   foreignObservationEvents: number
   observationId: string | null
+}
+
+function renderCause(cause: z.infer<typeof causeSchema>): RenderCause {
+  return {
+    kind: cause.kind,
+    evidence: cause.evidence,
+    name: (cause.kind === 'query' ? (cause.queryHash ?? cause.name) : cause.name) ?? null,
+    reason: cause.reason ?? null,
+    ...(cause.parentId === undefined ? {} : { parentId: cause.parentId }),
+  }
 }
 
 export function readRenderEvents(
@@ -432,13 +463,17 @@ export function readRenderEvents(
         renderEventId: event.renderEventId,
         documentCommitId: event.documentCommitId,
         mountId: event.instance.mountId,
-        causes: event.causes.map((cause) => ({
-          kind: cause.kind,
-          evidence: cause.evidence,
-          name: (cause.kind === 'query' ? cause.queryHash : cause.name) ?? null,
-          reason: cause.reason ?? null,
-        })),
+        causes: event.causes.map(renderCause),
         inputCoverageComplete: event.inputCoverage.complete,
+        ...(event.wrappedBy
+          ? {
+              wrappedBy: {
+                componentId: event.wrappedBy.componentId,
+                componentName: event.wrappedBy.componentName,
+                causes: event.wrappedBy.causes.map(renderCause),
+              },
+            }
+          : {}),
       })),
     omittedByLimit: report.omittedByLimit,
     droppedRenderEvents: Math.max(

@@ -20,6 +20,8 @@ export interface MatchedTarget {
   unresolved: number
   beginInstances: CohortRecord[]
   endInstances: CohortRecord[]
+  /** Instances of the name a cohort read left out past its limit, so their source, key and state are unknown. */
+  omittedInstances: number
   active: boolean
 }
 
@@ -49,6 +51,10 @@ export function matchTarget(evidence: TargetEvidence): MatchedTarget {
     unresolved,
     beginInstances,
     endInstances,
+    omittedInstances: Math.max(
+      evidence.resolution.begin.omittedByLimit,
+      evidence.end?.omittedByLimit ?? 0,
+    ),
     active:
       beginInstances.some(rendering) ||
       endInstances.some(rendering) ||
@@ -124,6 +130,18 @@ export function targetRefusal(
     )
   }
   return null
+}
+
+/** Refuses when a cohort read did not list every mounted instance of the name, since the unlisted ones could change the target's identity, presence or remounts. */
+export function cohortRefusal(evidence: TargetEvidence, matched: MatchedTarget): Refusal | null {
+  if (matched.omittedInstances === 0) return null
+  const { component } = evidence.resolution.target
+  return refuse(
+    'evidence_truncated',
+    `${matched.omittedInstances} mounted ${component} instance${matched.omittedInstances === 1 ? ' was' : 's were'} past the cohort limit, so Genie could not check ${matched.omittedInstances === 1 ? 'its' : 'their'} source, key and state. Start from a page that mounts fewer of them, such as a shorter list.`,
+    { omittedInstances: matched.omittedInstances },
+    { action: 'change-claim' },
+  )
 }
 
 export function describeTarget(target: VerifyTarget): string {
