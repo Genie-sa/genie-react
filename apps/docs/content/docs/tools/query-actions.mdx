@@ -231,7 +231,13 @@ Holds an existing query in a synthetic pending or error state.
 
 **Input:** `queryHash` and `queryKey` are optional, but at least one is required; if both are sent,
 `queryHash` wins. `state` is required and is `pending` or `error`. `errorMessage` is a nonempty
-string, defaults to `Simulated query error`, and is ignored for `pending`.
+string, defaults to `Simulated query error`, and is ignored for `pending`. `keepData` is a boolean,
+defaults to `false`, and is ignored for `pending`.
+
+`pending` and the default `error` look like a query that never loaded: no data and `dataUpdatedAt: 0`,
+so a header that reads `dataUpdatedAt` shows nothing, as on a real first load. `error` with
+`"keepData":true` looks like a failed background refresh instead: the cached data and
+`dataUpdatedAt` stay, and TanStack reports `isRefetchError: true`.
 
 ```bash
 npx @genie-react/cli call query_simulate_state \
@@ -250,7 +256,8 @@ npx @genie-react/cli call query_simulate_state \
 ```
 
 **Agent use:** Holds one exact query in a chosen error or pending state so the agent can inspect the
-corresponding live UI.
+corresponding live UI. Check both error cases: a failed first load, and a failed refresh with
+`keepData`.
 
 **Safety:** Only existing queries can be simulated. A real fetch is cancelled first. While `pending`
 is simulated, TanStack treats the query as fetching and skips new fetches, including an app

@@ -64,6 +64,8 @@ The table is gone and a spinner with the label "Loading page" replaces it. The h
 
 `SyncStatus` prints "Not synced yet" only when `updatedAt === 0`, so a query that never loaded
 would not show "Updated 12 seconds ago". Judge the spinner from this state, and ignore the sync label.
+Releases after 1.0.2 set `dataUpdatedAt` to 0 for a simulated `pending` or `error`, so the header
+reads "Not synced yet" as on a real first load.
 
 ## Error
 
@@ -290,7 +292,9 @@ each query it put back.
 ## When forcing states misleads you
 
 - A simulated query has no data, like a first load. Pages that also read `dataUpdatedAt` or cached
-  data can show pairs your users never see, as the Customers header did twice.
+  data can show pairs your users never see, as the Customers header did twice. After 1.0.2,
+  `dataUpdatedAt` is 0 during a simulation, and `"keepData":true` with `"state":"error"` simulates a
+  failed refresh that keeps the cached data.
 - Forcing tells you what a state looks like, not whether users reach it. Confirm a suspected bug
   with a real fault or delay through the app's own tools, as above.
 - A hook override lasts until the component's own next `setState`. Component IDs change after a
