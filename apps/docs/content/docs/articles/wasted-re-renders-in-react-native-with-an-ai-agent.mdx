@@ -1,0 +1,256 @@
+---
+title: "Find wasted re-renders in React Native with an AI agent: one tap rendered 29 components"
+description: An agent drove an Expo app on the iOS Simulator with agent-device, used Genie to find why one tap rendered 29 components, and proved a fix that cut it to 4.
+---
+
+Let the agent tap the app with agent-device, and read what React rendered with Genie's
+`react_get_renders` and `react_render_causes`. In the Expo demo in this repo, one tap on
+**Increment** rendered 29 components, and Genie traced the extra ones to a state hook in the root
+`App` component.
+
+The agent then moved that state down, and `npx genie-react verify` passed with exit code 0. The tap
+now renders 4 components. Every command and output below comes from one run on November 19, 2026,
+on an iPhone 17e simulator with iOS 27.2, Expo Go 57.0.9 and React Native 0.86. Outputs are trimmed
+to selected fields. The full log is in the
+[evidence file](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/wasted-re-renders-in-react-native-with-an-ai-agent.md).
+
+## Connect the agent to the app
+
+A React Native app has no dev server that hosts Genie, so you run the hub yourself. This run used
+port 4395 for the hub and 8235 for Metro, to stay clear of other apps on the same machine. From
+`examples/expo-demo`:
+
+```bash
+npx genie-react hub --port 4395
+EXPO_PUBLIC_GENIE_URL=ws://127.0.0.1:4395/__genie/ws npx expo start --port 8235
+agent-device open 'Expo Go' exp://127.0.0.1:8235 --platform ios --device 'iPhone 17e' --session art-m5
+```
+
+The first two commands keep running, so start each in its own terminal. iOS asked "Open in Expo
+Go?" before the app loaded. `agent-device alert accept` timed out while the app loaded behind the
+prompt. A second prompt and Expo Go's first-launch developer menu stayed on screen, and
+`agent-device alert dismiss` and a press on **Close** cleared them. Then check that Genie sees the
+app:
+
+```bash
+npx genie-react status --wait 15000
+```
+
+```text
+connected: true
+ready: true
+sessionId: 94482af4-65c0-42ad-9e19-4f942916db2d
+app: {name:"Expo demo",reactVersion:19.2.3,reactMounted:true}
+```
+
+A native app has no session name. Pass the `sessionId` from `status` to every Genie command. The
+agent-device session keeps its own name, `art-m5`.
+
+## One tap renders 29 components
+
+The demo's **Increment** button raises a counter, and three memoized rows show the count. Open a
+window, tap once, wait for React to go idle, and list the renders:
+
+```bash
+npx genie-react call react_clear_renders '{}' --session 94482af4-65c0-42ad-9e19-4f942916db2d
+agent-device press 'id="increment-button"' --settle --session art-m5
+npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session 94482af4-65c0-42ad-9e19-4f942916db2d
+npx genie-react call react_get_renders '{"limit":60}' --session 94482af4-65c0-42ad-9e19-4f942916db2d --select /coverage
+```
+
+That first read is not usable. Trimmed:
+
+```text
+  skippedCommitFibers: 141
+  budgetExhaustedCommits: 1
+  budgetAdvice:
+    exhaustedLimits: [timeLimitMs]
+    suggestedBudget: {fiberLimit:250,operationLimit:155000,timeLimitMs:62,targetOperationReserve:4000,targetTimeReserveMs:4}
+  complete: false
+  semantics: unknown
+```
+
+Genie ran out of its analysis time in the simulator and skipped 141 fibers. The render list showed
+only 4 components. With `complete: false`, that small number proves nothing. Start a new window with
+the budget Genie suggested and tap again:
+
+```bash
+npx genie-react call react_clear_renders '{"budget":{"fiberLimit":250,"operationLimit":155000,"timeLimitMs":62,"targetOperationReserve":4000,"targetTimeReserveMs":4}}' --session 94482af4-65c0-42ad-9e19-4f942916db2d
+agent-device press 'id="increment-button"' --settle --session art-m5
+npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session 94482af4-65c0-42ad-9e19-4f942916db2d
+npx genie-react call react_get_renders '{"limit":80}' --session 94482af4-65c0-42ad-9e19-4f942916db2d --fields name,renders,necessity,necessityReason
+```
+
+Trimmed to 12 of 29 rows:
+
+```text
+[29]:
+  each: {renders:1}
+  - {name:App,necessity:unknown,necessityReason:effects-scheduled}
+  - {name:Genie,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:VisibilityTestbed,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:VisibilityProbe,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:FreezeScreenTestbed,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:FrozenScreenProbe,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:MemoNameRow,necessity:unnecessary,necessityReason:output-unchanged}
+  - {name:ToolTestbed,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:PropFixture,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:HookFixture,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:ContextFixture,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:QueryFixture,necessity:unnecessary,necessityReason:inputs-unchanged}
+```
+
+The same read reported `budgetExhaustedCommits: 0` and `inputAttributionComplete: true`. One tap
+rendered 29 components. Only the counter and the three rows show the count. `ToolTestbed` alone
+brought 19 fixture components with it, and none of them read the counter.
+
+## The causes point at App
+
+```bash
+npx genie-react call react_render_causes '{"component":"App","limit":1}' --session 94482af4-65c0-42ad-9e19-4f942916db2d
+npx genie-react call react_render_causes '{"component":"ToolTestbed","limit":1}' --session 94482af4-65c0-42ad-9e19-4f942916db2d
+npx genie-react call react_render_causes '{"component":"VisibilityTestbed","limit":1}' --session 94482af4-65c0-42ad-9e19-4f942916db2d
+```
+
+Trimmed to the event and cause lines, with the absolute checkout path shortened to `<checkout>`:
+
+```text
+  App #11709758570505 {…,necessity:unknown,necessityReason:effects-scheduled,inputEvidence:changed,source:{location:<checkout>/examples/expo-demo/App.tsx:20:5,…}}
+    ← state exact "state[0]"
+  ToolTestbed #11709758570671 {…,necessity:unnecessary,necessityReason:inputs-unchanged,inputEvidence:none-observed,source:{location:<checkout>/examples/expo-demo/App.tsx:77:9,…}}
+    ← parent inferred ScrollView {origin:App}
+  VisibilityTestbed #11709758570514 {…,necessity:unnecessary,necessityReason:inputs-unchanged,inputEvidence:none-observed,source:{location:<checkout>/examples/expo-demo/App.tsx:34:9,…}}
+    ← parent inferred ScrollView {origin:App}
+```
+
+`App` rendered because its first `useState` changed. That is the counter. The testbeds had no
+input change. They rendered because their parent did, and `origin:App` names the component whose own
+update started it. [React normally re-renders a component whenever its parent re-renders](https://react.dev/reference/react/memo).
+Here is `App`, trimmed, with comments in place of the removed JSX:
+
+```tsx title="examples/expo-demo/App.tsx"
+export default function App() {
+  const [count, setCount] = useState(0)
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      {/* Genie */}
+      <ScrollView>
+        <VisibilityTestbed />
+        <FreezeScreenTestbed />
+        {/* counter card, then MemoNameRow, NamedMemoRow and ExplicitMemoRow with value={count} */}
+        <ToolTestbed />
+      </ScrollView>
+    </QueryClientProvider>
+  )
+}
+```
+
+The demo is a test fixture for Genie, not a tuned app. In your own app, state held high in the tree
+has the same effect.
+
+## The fix moves the state down
+
+Move `count` into a component that holds only the counter card and the three rows. The demo was
+changed for the "after" run and then reverted. The diff, with comments in place of the moved JSX:
+
+```diff
+ export default function App() {
+-  const [count, setCount] = useState(0)
+-
+   return (
+@@
+         <VisibilityTestbed />
+         <FreezeScreenTestbed />
+-        <View style={styles.card}>
+-          {/* counter card */}
+-        </View>
+-        <MemoNameRow value={count} />
+-        <NamedMemoRow value={count} />
+-        <ExplicitMemoRow value={count} />
++        <CounterSection />
+         <ToolTestbed />
+@@
++function CounterSection() {
++  const [count, setCount] = useState(0)
++
++  return (
++    <>
++    <View style={styles.card}>
++      {/* counter card, unchanged */}
++    </View>
++    <MemoNameRow value={count} />
++    <NamedMemoRow value={count} />
++    <ExplicitMemoRow value={count} />
++    </>
++  )
++}
+```
+
+The fragment keeps the rows as direct children of the `ScrollView`, so the layout does not change.
+
+## Verify proves the fix
+
+The claims say the testbeds must not render, and `MemoNameRow` must render, so a tap that missed the
+app fails. `--budget` carries the budget from above:
+
+```bash
+npx genie-react verify begin --session 94482af4-65c0-42ad-9e19-4f942916db2d --name 'press Increment' --domains react --budget '{"fiberLimit":250,"operationLimit":155000,"timeLimitMs":62}' --claim 'render ToolTestbed max 0' --claim 'render VisibilityTestbed max 0' --claim 'render FreezeScreenTestbed max 0' --claim 'render MemoNameRow min 1'
+agent-device press 'id="increment-button"' --settle --session art-m5
+npx genie-react verify end vfy_e1ae9d36-c634-4b87-a7e4-b9da7400b87f --session 94482af4-65c0-42ad-9e19-4f942916db2d
+```
+
+Before the fix, trimmed to the verdict and claim lines. The command exited with code 1:
+
+```text
+fail vfy_e1ae9d36-c634-4b87-a7e4-b9da7400b87f "press Increment"  3 commits, quiet after 926 ms (react)
+  1 fail render ToolTestbed max 0  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  2 fail render VisibilityTestbed max 0  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  3 fail render FreezeScreenTestbed max 0  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  4 pass render MemoNameRow min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+```
+
+After the fix, trimmed the same way plus the attempt line. The command exited with code 0:
+
+```text
+pass vfy_14c55cd3-c540-49b7-aea8-1ed38391bf4d "press Increment"  3 commits, quiet after 801 ms (react)
+  1 pass render ToolTestbed max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  2 pass render VisibilityTestbed max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  3 pass render FreezeScreenTestbed max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  4 pass render MemoNameRow min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+attempt 3 for these claims on this tab; previous fail vfy_e1ae9d36-c634-4b87-a7e4-b9da7400b87f; code changed since (Fast Refresh)
+```
+
+agent-device confirmed the screen. After the tap, its diff showed the counter change from `"0"` to
+`"1"` and the rows change to `Memo row: 1`. A fresh capture of the same tap listed 4 renders:
+`CounterSection`, `MemoNameRow`, `InnerNamedRow` and `CustomMemoRow`. Coverage was
+`complete: true` with `semantics: exact`.
+
+`--domains react` is there because the demo's TanStack Router never settles. The first "before" run
+used every domain and waited the full 10 seconds with `The router has not settled on /`.
+`router_get_state` reported `status: pending` with `pendingWork: [navigation-pending]`. The demo
+never renders that router, and limiting the wait to React made the runs settle in under a second.
+
+## When this approach does not fit
+
+Do not read `necessity` alone. In this run, Genie marked the three memo rows `unnecessary` with
+`output-unchanged`, yet their text changed on screen. Their cause line was
+`props exact value` with `before:1,after:2`. Trust the cause and the screen over the label, and
+confirm with agent-device.
+
+Check the budget before you count. On this simulator the default budget ran out on the first tap.
+When `coverage.budgetAdvice` appears, clear again with its budget and repeat the action.
+
+Every `verify` result here carried this line in its `environment`:
+
+```text
+renderCollection:"degraded (hook installed after React initialised — commits before that point were not observed)"
+```
+
+It means Genie missed commits from before its hook loaded, such as app startup. The windows here
+opened later, and every claim reported `semantics:exact`. Do not use this setup to measure startup.
+
+Genie measures development builds, so render counts here say nothing about release-build speed. For
+timing work, see [Optimize a slow interaction](/docs/guides/optimize). For claim syntax, see
+[Verify a fix](/docs/guides/verify-a-fix). For setup on Android or a physical device, see
+[Install](/docs/getting-started/install).
