@@ -259,20 +259,23 @@ function reasonLines(reason: Record<string, unknown>, indent: string): string[] 
   ]
 }
 
-function claimLines(claims: unknown): string[] {
+/** One line per claim; a claim the window has not decided yet shows the document state in place of its verdict. */
+function claimLines(claims: unknown, state: unknown): string[] {
   if (!Array.isArray(claims)) return []
   return claims.flatMap((entry) => {
     if (!isRecord(entry)) return [`  - ${flowText(entry)}`]
     const claim = new FieldReader(entry)
     const index = scalarText(claim.take('index'))
-    const verdict = scalarText(claim.take('verdict'))
+    const verdict = claim.take('verdict')
     const text = proseText(String(claim.take('text') ?? ''))
     const observed = claim.take('observed')
     const reason = [claim.take('refusal'), claim.take('inconclusive')].find(isRecord)
     const detail = reason
-      ? `${scalarText(reason.reason)}: ${proseText(String(reason.message ?? ''))}`
-      : flowText(observed ?? {})
-    const lines = [`  ${index} ${verdict} ${text}  ${detail}`]
+      ? `  ${scalarText(reason.reason)}: ${proseText(String(reason.message ?? ''))}`
+      : observed === undefined
+        ? ''
+        : `  ${flowText(observed)}`
+    const lines = [`  ${index} ${scalarText(verdict ?? state)} ${text}${detail}`]
     if (reason) {
       if (observed !== undefined) lines.push(`      observed: ${flowText(observed)}`)
       lines.push(...reasonLines(reason, '      '))
@@ -337,7 +340,7 @@ export function renderVerificationText(value: unknown): string {
   if (isRecord(session) && typeof session.url === 'string')
     lines.push(`  url ${quoteString(session.url)}`)
   const claims = document.take('claims')
-  lines.push(...claimLines(claims))
+  lines.push(...claimLines(claims, document.record.state))
   lines.push(...windowLines(document.take('window')))
   const caveats = document.take('caveats')
   if (Array.isArray(caveats)) {

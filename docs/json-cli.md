@@ -65,7 +65,7 @@ Results with a known structure use a layout that reads better and costs fewer to
 | `tools <group>` | one `name title params {fields}` line per tool |
 | `tools <tool>`, `tools --all` | a `name title` line, one `name?: type keyword:value — description` line per argument (`?` marks an optional argument), and one `field?: type` line per output outline field |
 | `doctor` | one `ok\|FAIL critical\|optional label — detail {fields}` line per check |
-| `verify` | a `verdict id "name"  commits, settle` line, one `index verdict claim  {observed}` or `index verdict claim  reason: message` line per claim with its evidence indented below, one `window reason: message` line per window refusal, one `! caveat: text` line per caveat, and an `attempt` line for the rerun history |
+| `verify` | a `verdict id "name"  commits, settle` line, one `index verdict claim  {observed}` or `index verdict claim  reason: message` line per claim with its evidence indented below (after `begin`, an undecided claim prints `index recording claim`), one `window reason: message` line per window refusal, one `! caveat: text` line per caveat, and an `attempt` line for the rerun history |
 
 ### Lines only the CLI writes
 
