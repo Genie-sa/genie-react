@@ -155,6 +155,10 @@ npx @genie-react/cli call query_get \
 
 **Agent use:** Selects the observer for `query_notifications` and decides whether current cache
 data, fetch activity, observer policy, and component subscriber evidence explain the visible UI.
+`fetchCount` counts every settled fetch since the query entered the cache. `recentFetches` counts
+only those Genie saw in the last 10 seconds, so a query fetched once and read 11 seconds later shows
+`fetchCount: 1` and `recentFetches: 0`. Several recent fetches with no action in between point to a
+refetch loop.
 
 Data is depth-bounded after `path` is applied, and an array shows its first 100 items. To read one
 entity from a longer list, select it by a field:
