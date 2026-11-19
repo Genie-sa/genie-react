@@ -1,6 +1,6 @@
 # Evidence: We planted 15 bugs in a legacy React and Redux app. Here's what an agent could prove
 
-- Article: apps/docs/content/docs/articles/we-planted-13-bugs-in-a-legacy-react-app.mdx
+- Article: apps/docs/content/docs/articles/we-planted-15-bugs-in-a-legacy-react-app.mdx
 - Date: 2026-11-19
 - Commit: 6867352ba46ec3998fe8cda0ba915536fddfa666 (`git rev-parse HEAD`); app fixes were applied from the answer key in evals/realworld/legacy, measured, and reverted with `git checkout -- src`. No app fix is committed.
 - App: apps/realworld-legacy (Acme Tracker), dev server http://127.0.0.1:5211, standalone Genie hub ws://127.0.0.1:15212/__genie/ws
