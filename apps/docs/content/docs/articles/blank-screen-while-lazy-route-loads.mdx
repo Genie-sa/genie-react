@@ -1,0 +1,178 @@
+---
+title: The whole app blanks while one lazy route loads. Here's the boundary that did it
+description: "One Suspense boundary with fallback={null} above the layout hides the top bar and sidebar while a lazy route loads. Genie's react_suspense names it."
+---
+
+The app goes blank because its only Suspense boundary wraps every route, layout included, and its fallback is `null`. While the lazy route's chunk downloads, React hides everything under that boundary and shows the fallback, which is nothing. A second boundary around `<Outlet />` inside the layout keeps the top bar and sidebar on screen and limits the wait to the page area.
+
+This walkthrough runs against Acme Tracker in `apps/realworld-legacy`, a React 18.3 app built with webpack 5 and React Router 6. The bug is seeded and has an answer key in [`lazy-route-blank-shell.json`](https://github.com/Genie-sa/genie-react/blob/main/evals/realworld/legacy/lazy-route-blank-shell.json). Every command and output below comes from one session on 2026-11-19. Absolute paths are shortened to `<checkout>`. The full, untrimmed output is in the [evidence file](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/blank-screen-while-lazy-route-loads.md).
+
+## The symptom: the top bar disappears with the page
+
+The bug report says: "Clicking Settings or Reports in the sidebar blanks the whole screen, top bar included, until the page appears." On a local dev server the chunk loads too fast to see that. The app registers an `app_backend_faults` tool that can delay any request, including JavaScript chunks. Start on Settings, delay the Reports chunk by 2.5 seconds, and click **Reports**:
+
+```bash
+agent-browser --session art-l4 open http://127.0.0.1:5214/settings
+npx genie-react call app_backend_faults '{"rules":[{"path":"/static/js/reports","latencyMs":2500}]}' --session art-l4
+agent-browser --session art-l4 click 'a.side-nav__link[href="/reports"]'
+agent-browser --session art-l4 is visible .top-bar
+```
+
+```text
+false
+```
+
+A screenshot at that moment is an empty grey page. The DOM is still there. In an earlier run from the board, `agent-browser get count '#root *'` returned 5,827 elements while the screen was blank. React hid the old tree. It did not remove it.
+
+## The evidence: one boundary, in fallback, at app.tsx:19
+
+Ask Genie which Suspense boundaries exist and which ones are waiting:
+
+```bash
+npx genie-react call react_suspense '{"waitingOnly":true}' --session art-l4
+```
+
+Output, trimmed to the capability, counts and the boundary:
+
+```text
+capability:
+  reactVersion: 18.3.1
+  bundle: development
+  asyncDebugInfo: unavailable
+  reason: react-before-19
+counts: {boundaries:1,fallback:1,transitionPending:0,dehydrated:0,content:0}
+boundaries[1]:
+  - {id:14243722166284,name:Suspense,parentBoundaryId:null,state:fallback,stateEvidence:exact,forced:false,blockerStatus:unavailable,source:{file:<checkout>/apps/realworld-legacy/src/app.tsx,line:19,column:5,sourceMapConfidence:served,role:element-callsite}}
+```
+
+Three facts settle it. The app has exactly one Suspense boundary (`boundaries:1`). It is showing its fallback, and Genie read that state directly from React (`stateEvidence:exact`). It has no parent boundary, and its source is `src/app.tsx` line 19.
+
+The `capability` block is the limit. React 18 does not record what a boundary waits on, so `blockerStatus` is `unavailable`. Genie cannot tell you it is the `ReportsPage` chunk. You know that from the click and the delayed request.
+
+## The cause: the boundary sits above the layout
+
+Here is `src/app.tsx`, trimmed to the boundary and the routes it wraps:
+
+```tsx
+export function App() {
+  return (
+    <Suspense fallback={null}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          element={
+            <RequireAuth>
+              <AppShell />
+            </RequireAuth>
+          }
+        >
+          {/* board, issues, ... */}
+          <Route path="reports" element={<ReportsPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+        </Route>
+      </Routes>
+    </Suspense>
+  )
+}
+```
+
+`ReportsPage` and `SettingsPage` come from `React.lazy`. When one of them renders before its chunk has loaded, it suspends. React looks up the tree for the nearest Suspense boundary. `AppShell` has none, so the nearest is the one in `App`, above `AppShell`. React hides that boundary's whole subtree, which includes `TopBar` and `SideNav`, and renders `fallback={null}` in its place.
+
+## The fix: a boundary inside the shell
+
+Put a boundary around `<Outlet />` in `src/layout/app-shell.tsx`, with a fallback the user can see. This is the answer key's reference fix:
+
+```diff
+@@ -1,7 +1,9 @@
+ import classNames from 'classnames'
++import { Suspense } from 'react'
+ import { connect } from 'react-redux'
+ import { Outlet } from 'react-router-dom'
+ import { useGetConfigQuery } from '../api/service'
++import { Spinner } from '../components/spinner'
+ import { FeatureFlagsProvider } from '../contexts/feature-flags'
+ import { CreateIssueModal } from '../features/create-issue/create-issue-modal'
+ import type { RootState } from '../store'
+@@ -25,7 +27,9 @@ function AppShell({ sidebarCollapsed, createIssueOpen }: AppShellProps) {
+         <TopBar />
+         <SideNav collapsed={sidebarCollapsed} />
+         <main className="shell__content">
+-          <Outlet />
++          <Suspense fallback={<Spinner label="Loading page" />}>
++            <Outlet />
++          </Suspense>
+         </main>
+         {config && <NotificationsPoller intervalMs={config.notificationPollMs} />}
+         {createIssueOpen && <CreateIssueModal />}
+```
+
+The root boundary in `App` stays. It still covers the login route, which renders outside the shell.
+
+## The proof: the shell stays, and verify passes
+
+Repeat the same steps on the fixed code. Reload Settings, delay the Reports chunk, click **Reports**, and read the screen and the boundaries while the chunk loads:
+
+```bash
+agent-browser --session art-l4 is visible .top-bar
+agent-browser --session art-l4 get text .shell__content
+npx genie-react call react_suspense '{}' --session art-l4
+```
+
+```text
+true
+Loading page…
+```
+
+`react_suspense` output, trimmed to the counts and the two boundaries:
+
+```text
+counts: {boundaries:2,fallback:1,transitionPending:0,dehydrated:0,content:1}
+boundaries[2]:
+  - {id:1059346972783,name:Suspense,parentBoundaryId:1059346972684,state:fallback,stateEvidence:exact,source:{file:<checkout>/apps/realworld-legacy/src/layout/app-shell.tsx,line:30,column:11}}
+  - {id:1059346972684,name:Suspense,parentBoundaryId:null,state:content,stateEvidence:exact,source:{file:<checkout>/apps/realworld-legacy/src/app.tsx,line:19,column:5}}
+```
+
+The new boundary at `app-shell.tsx:30` is the one waiting. The root boundary at `app.tsx:19` now shows its content.
+
+To get a verdict with an exit code, wrap the click in a `verify` window. Each claim states something the fix must make true:
+
+```bash
+npx genie-react verify begin --session art-l4 --name 'open reports' \
+  --claim 'render ReportsPage min 1' --claim 'render Spinner min 1' \
+  --claim 'render TopBar max 0' --claim 'boundaries clean'
+agent-browser --session art-l4 click 'a.side-nav__link[href="/reports"]'
+agent-browser --session art-l4 wait .reports-page
+npx genie-react verify end vfy_d4004d49-1f62-482b-af1a-6a2a2ff9a0d7 --session art-l4
+```
+
+`render ReportsPage min 1` is the positive control: it proves the click reached the app. `render Spinner min 1` says a loading indicator rendered. The Reports page itself uses no `Spinner`, so only the new fallback can satisfy it.
+
+Before the fix, trimmed to the verdict and claim lines (exit code 4):
+
+```text
+refused vfy_d4004d49-1f62-482b-af1a-6a2a2ff9a0d7 "open reports"  20 commits, quiet after 1131 ms (react)
+  1 pass render ReportsPage min 1  {renders:1,mounts:1,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  2 refused render Spinner min 1  target_not_found: No Spinner instance was mounted at begin or rendered in the window; a target Genie cannot see is not a target that did nothing.
+  3 pass render TopBar max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  4 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+```
+
+After the fix (exit code 0):
+
+```text
+pass vfy_beb1a1c7-b80e-4be4-bb71-14770a0fc7ac "open reports"  19 commits, quiet after 660 ms (react)
+  1 pass render ReportsPage min 1  {renders:1,mounts:1,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  2 pass render Spinner min 1  {renders:1,mounts:1,updates:0,remounts:1,semantics:exact,instances:1,activeInstances:0}
+  3 pass render TopBar max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  4 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+```
+
+The "before" verdict is `refused`, not `fail`. With `fallback={null}`, no `Spinner` ever mounted, and Genie will not count a component it never saw as one that rendered zero times. In the untrimmed after-fix output, the deciding `Spinner` instance has source `app-shell.tsx:30:31`, the `fallback` prop of the new boundary.
+
+## What verify cannot see here
+
+Look at claim 3. `render TopBar max 0` passed before the fix too, while the top bar was hidden. Hiding a subtree behind a Suspense fallback is not a render, so render claims cannot express "the shell stayed visible". `verify` has no Suspense or visibility claim, and it warns about this on every run: `Genie does not check the screen; confirm it with the UI driver`. For this bug the proof is `react_suspense` plus `agent-browser is visible .top-bar`. The verify run adds the exit code and the positive controls.
+
+Where you start matters. A first attempt began on the board. Navigating away unmounts the whole board, and verify refused `render TopBar max 0` with `coverage_incomplete` and `droppedUnmountFibers 3057`. Running the suggested `verify begin` again gave the same refusal with the same count. Starting from Settings, a small page, gave complete coverage.
+
+On React 18, `react_suspense` tells you where the waiting boundary is and that it is in fallback, but not what it waits for. React 19 development builds record that, and Genie reports it as blockers. [Verify a fix](/docs/guides/verify-a-fix) lists every claim form. To hold a fallback on screen without delaying a request, use `react_toggle_suspense_fallback` from [Validate UI states](/docs/guides/validate-ui-states).

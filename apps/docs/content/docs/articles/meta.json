@@ -1,0 +1,5 @@
+{
+  "title": "Articles",
+  "icon": "Newspaper",
+  "pages": ["blank-screen-while-lazy-route-loads", "error-boundary-renders-nothing"]
+}
