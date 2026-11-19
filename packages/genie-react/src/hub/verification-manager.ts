@@ -308,7 +308,6 @@ export class VerificationManager<TSession extends VerificationSession> {
         session,
         startedAt,
         refusals,
-        resolutions,
         snapshot,
       })
     }
@@ -352,7 +351,7 @@ export class VerificationManager<TSession extends VerificationSession> {
         input.settle.domains ??
         advertisedDomains(session, (domain) => this.options.advertisedBefore?.(session, domain)),
       tailMs,
-      fingerprint: fingerprintOf(input, resolutions, session),
+      fingerprint: claimFingerprint({ claims: input.claims, url: session.app.url }),
       retained,
       expiry: setTimeout(() => this.expire(verificationId, 'window_lost'), input.maxDurationMs),
     }
@@ -435,7 +434,6 @@ export class VerificationManager<TSession extends VerificationSession> {
     session: TSession
     startedAt: string
     refusals: (VerifyRefusal | null)[]
-    resolutions: Map<string, TargetResolution>
     snapshot: Snapshot
   }): VerificationInvocation {
     const { verificationId, input, session, refusals } = context
@@ -460,7 +458,7 @@ export class VerificationManager<TSession extends VerificationSession> {
         refusal,
       }
     })
-    const fingerprint = fingerprintOf(input, context.resolutions, session)
+    const fingerprint = claimFingerprint({ claims: input.claims, url: session.app.url })
     return this.store({
       verificationId,
       input,
@@ -841,13 +839,15 @@ export class VerificationManager<TSession extends VerificationSession> {
       fingerprint: context.fingerprint,
       scope: context.session.logicalSessionId ?? context.session.sessionId,
       verdict: context.verdict,
-      reasons: context.claims.flatMap((claim) =>
-        claim.refusal
-          ? [claim.refusal.reason]
-          : claim.inconclusive
-            ? [claim.inconclusive.reason]
-            : [],
-      ),
+      reasons: context.claims
+        .filter((claim) => claim.verdict === context.verdict)
+        .flatMap((claim) =>
+          claim.refusal
+            ? [claim.refusal.reason]
+            : claim.inconclusive
+              ? [claim.inconclusive.reason]
+              : [],
+        ),
       endedAt,
       sessionId: context.session.sessionId,
       documentGeneration: context.session.documentGeneration ?? null,
@@ -1123,21 +1123,6 @@ function resolveTarget(target: VerifyTarget, cohort: CohortRead | null): TargetR
     begin,
     listed: cohort !== null,
   }
-}
-
-/** The claims, their resolved sources and the page: what a later run must share for its history to count. */
-function fingerprintOf(
-  input: BeginInput,
-  resolutions: ReadonlyMap<string, TargetResolution>,
-  session: VerificationSession,
-): string {
-  return claimFingerprint({
-    claims: input.claims,
-    targetSources: distinctTargets(input.claims).map(
-      (target) => resolutions.get(verifyTargetKey(target))?.sourceFile ?? null,
-    ),
-    url: session.app.url,
-  })
 }
 
 function distinctTargets(claims: readonly VerifyClaim[]): VerifyTarget[] {
