@@ -1212,3 +1212,468 @@ instances[10]:
 [teardown] stopped the dev server on 5222 and closed agent-browser session art-m2
 
 ```
+
+## Re-run on Genie 1.1.0
+
+- Date: 2026-11-19 (log timestamps are local time, UTC+3)
+- Commit: `ce408cb205c0e798cb04c35512772b7454283141`
+- App: `apps/realworld-dashboard` (Meridian Ops, React 19.3.1 in StrictMode), dev server `DASHBOARD_PORT=5243 pnpm exec vite --port 5243 --strictPort`, URL `http://127.0.0.1:5243/orders`
+- Genie: workspace build of `genie-react` and `@genie-react/cli` 1.1.0 at that commit (`pnpm install && pnpm build`). `node_modules/.bin/genie-react --version` in the app printed `1.1.0`.
+- Browser driver: agent-browser 0.43.0, session `upd-g`, headless. The Genie session is the same name.
+- Only Genie was re-run. The other tools' sections above are unchanged.
+
+Every command ran through a wrapper that appended the command, its combined stdout and stderr, and its exit code to the log. A `| head` inside a command line is part of the command that ran. Lines starting with `=====` or `##` are notes written at the time. The home directory is shown as `~`. Nothing else is edited.
+
+The reference fix for `SidebarNav` was applied with `sed` for the "after" run and reverted with `git checkout`.
+
+````text
+# HEAD: ce408cb205c0e798cb04c35512772b7454283141
+
+[11:57:48] $ git rev-parse HEAD
+ce408cb205c0e798cb04c35512772b7454283141
+[exit 0]
+
+[11:57:48] $ npx genie-react --version
+1.1.0
+[exit 0]
+
+[11:57:48] $ agent-browser --session upd-g open http://127.0.0.1:5243/login
+[agent-browser] launched browser
+✓ Meridian Ops
+  http://127.0.0.1:5243/login
+[exit 0]
+
+[11:57:51] $ npx genie-react status --session upd-g --wait 15000
+selectedBridgeUrl: ws://127.0.0.1:5243/__genie/ws
+sessionSelector:
+  requested: upd-g
+  source: flag
+  resolvedSessionId: cb24827f-05fe-4133-9bd3-cb4b0db1b9ea
+  implicit: false
+  agentBrowser: {session:upd-g,via:selector,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184}
+connected: true
+ready: true
+sessionId: cb24827f-05fe-4133-9bd3-cb4b0db1b9ea
+app: {name:"Meridian Ops",url:http://127.0.0.1:5243/login,reactVersion:19.3.1,reactMounted:true}
+domains: [session,react,app,memory,perf,plugin,timeline,network,router,query]
+toolCount: 101
+sessions[1] (sessionId {fields}):
+  cb24827f-05fe-4133-9bd3-cb4b0db1b9ea {logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:2,logicalSessionCollision:false,collisionWithSessionIds:[],app:{name:"Meridian Ops",url:http://127.0.0.1:5243/login,reactVersion:19.3.1,reactMounted:true},domains:[session,react,app,memory,perf,plugin,timeline,network,router,query],toolCount:101,connectedAt:1795078670175,ready:true,readyAt:1795078670175,current:true,origin:http://127.0.0.1:5243,runtimeVersion:1.1.0}
+warnings: []
+hub: {version:1.1.0,protocol:1}
+[exit 0]
+
+[11:58:01] $ npx genie-react call app_login_as '{"role":"manager"}' --session upd-g
+changed: true
+role: manager
+userId: u-manager
+[exit 0]
+
+[11:58:01] $ agent-browser --session upd-g open http://127.0.0.1:5243/orders
+✓ Meridian Ops
+  http://127.0.0.1:5243/orders?sort=placedAt&dir=desc
+[exit 0]
+
+[11:58:02] $ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g
+ok: true
+condition: settled
+waitedMs: 934
+validConditions: [connected,ready,component,query-settled,navigation,react-quiet,settled]
+lastObserved:
+  react:
+    documentCommitId: 7
+    renderCollection: available
+    quietForMs: 616
+    requiredQuietMs: 500
+    pendingWork: {documentCommitId:7,scheduledRoots:0,suspendedBoundaries:0,dehydratedBoundaries:0,boundaries:[],scanTruncated:false,scannedFibers:620}
+  query: {fetching:0,mutating:0}
+  router: {pathname:/orders,isLoading:false,settled:true,pendingWork:[],settlement:router-settled}
+domains:
+  react:
+    status: met
+    lastObserved: {documentCommitId:7,renderCollection:available,quietForMs:616,requiredQuietMs:500,pendingWork:{documentCommitId:7,scheduledRoots:0,suspendedBoundaries:0,dehydratedBoundaries:0,boundaries:[],scanTruncated:false,scannedFibers:620}}
+  query: {status:met,lastObserved:{fetching:0,mutating:0}}
+  router:
+    status: met
+    lastObserved: {pathname:/orders,isLoading:false,settled:true,pendingWork:[],settlement:router-settled}
+[exit 0]
+
+[11:58:03] $ agent-browser --session upd-g snapshot -i | grep -E 'checkbox' | head -5
+  - checkbox "Select all orders" [checked=false, ref=e40]
+    - checkbox "Select SO-106000" [checked=false, ref=e146]
+    - checkbox "Select SO-105999" [checked=false, ref=e148]
+    - checkbox "Select SO-105998" [checked=false, ref=e150]
+    - checkbox "Select SO-105997" [checked=false, ref=e152]
+[exit 0]
+
+[11:58:11] $ npx genie-react call react_clear_renders '{}' --session upd-g
+ok: true
+tracking: true
+documentCommitId: 16
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:16}
+observationConfig:
+  adaptive: true
+  adaptiveScale: 1
+  fiberLimit: 250
+  operationLimit: 30000
+  timeLimitMs: 12
+  targetOperationReserve: 4000
+  targetTimeReserveMs: 4
+  lifecycleBufferLimit: 1000
+  lifecycleTargetReserve: 100
+strictMode: on
+[exit 0]
+
+[11:58:12] $ agent-browser --session upd-g click @e146
+✓ Done
+[exit 0]
+
+[11:58:12] $ npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session upd-g
+ok: true
+outcome: idle
+elapsedMs: 739
+observedCommits: 0
+renderWindow: {id:observation:1,startedAfterDocumentCommitId:16,commits:3}
+documentCommitId: 19
+sessionId: 1fb5b629-135f-49a1-8ba8-319f38547218
+renderCollection: available
+pendingWork:
+  documentCommitId: 19
+  scheduledRoots: 0
+  suspendedBoundaries: 0
+  dehydratedBoundaries: 0
+  boundaries: []
+  scanTruncated: false
+  scannedFibers: 602
+[exit 0]
+
+[11:58:13] $ npx genie-react call react_get_renders '{"sort":"renders","limit":8,"appOnly":true}' --session upd-g --fields name,renders,necessity,necessityReason
+[8]:
+  - {name:OrdersTable,renders:2,necessity:necessary,necessityReason:dom-changed}
+  - {name:Checkbox,renders:2,necessity:unknown,necessityReason:callbacks-changed}
+  - {name:SyncStatus,renders:2,necessity:necessary,necessityReason:dom-changed}
+  - {name:SidebarNav,renders:1,necessity:unnecessary,necessityReason:output-unchanged}
+  - {name:BulkActionBar,renders:1,necessity:necessary,necessityReason:dom-changed}
+  - {name:Button,renders:1,necessity:necessary,necessityReason:mount}
+  - {name:Button,renders:1,necessity:necessary,necessityReason:mount}
+  - {name:Button,renders:1,necessity:necessary,necessityReason:mount}
+[exit 0]
+
+[11:58:13] $ npx genie-react call react_render_causes '{"component":"SidebarNav","limit":5}' --session upd-g
+componentMatch:
+  component: SidebarNav
+  exact: true
+  status: matched
+  matchedNames: [SidebarNav]
+  matchedNameCount: 1
+  similarNames: []
+tracking: true
+commits: 4
+documentCommitId: 20
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:16}
+attribution:
+  status: current
+  startedAtDocumentCommitId: 20
+  completedAtDocumentCommitId: 20
+  startedAtAnalysisGeneration: 21
+  completedAtAnalysisGeneration: 21
+view: summary
+events[1] (componentName #componentId {fields}, then ← kind evidence name {fields} per cause):
+  SidebarNav #8993711849514 {renderEventId:render:17:1,documentCommitId:17,mountId:mount:1,necessity:unnecessary,necessityReason:output-unchanged,inputEvidence:none-observed,source:{location:/src/layout/app-shell.tsx:38:9,role:element-callsite,ownership:app}}
+    ← external-store inferred anonymous-external-store {changedFields:[selectedOrderIds]}
+omittedByLimit: 0
+sourceClassification:
+  complete: true
+  affects: result
+  totalCandidates: 1
+  evaluated: 1
+  app: 1
+  library: 0
+  unknown: 0
+  unknownComponents: []
+  unknownComponentsOmitted: 0
+renderEventRetention: {evictedEvents:0,earliestDocumentCommitId:17,latestDocumentCommitId:20}
+coverage:
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 0
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  complete: true
+  inputAttributionComplete: true
+  semantics: exact
+  coverageDomain: render-causality
+  droppedRenderEvents: 0
+[exit 0]
+
+[11:58:19] $ npx genie-react call react_render_causes '{"component":"SidebarNav","limit":5,"view":"full"}' --session upd-g --select /events
+status: ok
+selection: {expression:/events,matchedPathCount:1,matchedPaths:[/events],omittedPathCount:48}
+result[1]:
+  - {renderEventId:render:17:1,observationId:observation:1,commitId:1,documentCommitId:17,componentId:8993711849514,componentName:SidebarNav,instance:{fiberId:8993711849514,mountId:mount:1,key:null,siblingIndex:0,parent:{fiberId:8993711849511,name:PreferencesProvider,key:null},keyedParent:null,logicalPath:"QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > SidebarNav[index=0]",logicalIdentityEvidence:positional,mountGeneration:1,mountGenerationEvidence:exact,hostSelector:null},causes:[{kind:external-store,evidence:inferred,reason:external-store-snapshot-changed,hookIndex:1,externalStoreIndex:0,subscriberId:subscriber:mount:1:0,selectionEqual:false,subscriptionFired:true,before:{density:comfortable,hiddenColumns:[],recentlyViewed:[],selectedOrderIds:{__genie_dehydrated__:true,kind:object,preview:"[object fields not inspected]",path:[selectedOrderIds]},setDensity:{__genie_dehydrated__:true,kind:function,preview:"ƒ setDensity()",path:[setDensity]},toggleColumn:{__genie_dehydrated__:true,kind:function,preview:"ƒ toggleColumn()",path:[toggleColumn]},pushRecent:{__genie_dehydrated__:true,kind:function,preview:"ƒ pushRecent()",path:[pushRecent]},toggleOrderSelection:{__genie_dehydrated__:true,kind:function,preview:"ƒ toggleOrderSelection()",path:[toggleOrderSelection]},setOrderSelection:{__genie_dehydrated__:true,kind:function,preview:"ƒ setOrderSelection()",path:[setOrderSelection]},clearOrderSelection:{__genie_dehydrated__:true,kind:function,preview:"ƒ clearOrderSelection()",path:[clearOrderSelection]}},after:{density:comfortable,hiddenColumns:[],recentlyViewed:[],selectedOrderIds:{__genie_dehydrated__:true,kind:object,preview:"[object fields not inspected]",path:[selectedOrderIds]},setDensity:{__genie_dehydrated__:true,kind:function,preview:"ƒ setDensity()",path:[setDensity]},toggleColumn:{__genie_dehydrated__:true,kind:function,preview:"ƒ toggleColumn()",path:[toggleColumn]},pushRecent:{__genie_dehydrated__:true,kind:function,preview:"ƒ pushRecent()",path:[pushRecent]},toggleOrderSelection:{__genie_dehydrated__:true,kind:function,preview:"ƒ toggleOrderSelection()",path:[toggleOrderSelection]},setOrderSelection:{__genie_dehydrated__:true,kind:function,preview:"ƒ setOrderSelection()",path:[setOrderSelection]},clearOrderSelection:{__genie_dehydrated__:true,kind:function,preview:"ƒ clearOrderSelection()",path:[clearOrderSelection]}},changedFields:[selectedOrderIds],deepDiff:{changes:[{kind:identity-changed-uninspected,path:/selectedOrderIds}],visited:11,truncated:true},storeId:external-store:1,storeLabel:anonymous-external-store,selector:null,equality:object-is,fanout:null,notificationId:null,competingCandidates:[external-store-snapshot-identity-changed],hookProvenance:{status:unavailable,evidence:unknown,reason:shadow-render-disabled}}],necessity:unnecessary,necessityReason:output-unchanged,assessment:{inputEvidence:none-observed,observedInputKinds:[],behaviorEvidence:{subtreeHostMutations:{status:none-observed,count:0,pendingSubtrees:0,omittedByLimit:0,callbackOnlyUpdates:0,writes:[],callbacks:[]},scheduledEffects:{status:observed,count:1},subtreeScheduledEffects:{status:none-observed,count:0},unobservedDomains:[focus,url,network,transition,freshness,effect-execution]},optimizationSafety:not-proven-safe,requiredValidation:[dom,aria,focus,url,network,transition]},inputCoverage:{complete:true,omittedInputs:0,scanTruncated:false,propsNotEnumerated:false},source:{file:/src/layout/app-shell.tsx,line:38,column:9,functionName:AppShell,sourceMapConfidence:mapped,role:element-callsite},sourceAttribution:{role:usage-or-definition-fallback,evidence:inferred},sourceOwnership:app,isLibrary:false}
+[exit 0]
+
+[11:58:24] $ npx genie-react verify begin --session upd-g --name "select one order" --claim 'render SidebarNav max 0' --claim 'render OrdersTable min 1' --claim 'boundaries clean'
+recording vfy_7747813a-33d9-4734-ac66-f39ae7b5ba8d "select one order"
+  url "http://127.0.0.1:5243/orders?sort=placedAt&dir=desc"
+  1 recording render SidebarNav max 0
+  2 recording render OrdersTable min 1
+  3 recording boundaries clean
+window: {observationId:observation:2,startDocumentCommitId:30,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_7747813a-33d9-4734-ac66-f39ae7b5ba8d --session upd-g
+session: {sessionId:1fb5b629-135f-49a1-8ba8-319f38547218,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:3}
+schemaVersion: "1.0"
+targets: [{target:{component:SidebarNav},status:resolved,instances:1,source:/src/layout/app-shell.tsx},{target:{component:OrdersTable},status:resolved,instances:1,source:/src/features/orders/orders-page.tsx}]
+startedAt: 2026-11-19T08:58:24.380Z
+expiresAt: 2026-11-19T09:03:24.387Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+[11:58:29] $ agent-browser --session upd-g find label 'Select SO-105999' check
+✓ Done
+[exit 0]
+
+[11:58:29] $ npx genie-react verify end vfy_7747813a-33d9-4734-ac66-f39ae7b5ba8d --session upd-g
+fail vfy_7747813a-33d9-4734-ac66-f39ae7b5ba8d "select one order"  8 commits, quiet after 722 ms (react, query, router, network)
+  url "http://127.0.0.1:5243/orders?sort=placedAt&dir=desc"
+  1 fail render SidebarNav max 0  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:SidebarNav},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:36,source:/src/layout/app-shell.tsx:38:9}]
+  2 pass render OrdersTable min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:OrdersTable},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:33,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:36,source:/src/features/orders/orders-page.tsx:88:9}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:30}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:2,startDocumentCommitId:30,settledDocumentCommitId:37,frozenDocumentCommitId:38,commits:8,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:722,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_7747813a-33d9-4734-ac66-f39ae7b5ba8d --claim 1 --session upd-g
+session: {sessionId:1fb5b629-135f-49a1-8ba8-319f38547218,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:3}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_8e3ced63f5cc,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T08:58:24.380Z
+endedAt: 2026-11-19T08:58:30.871Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+[11:58:38] $ git diff src/layout/sidebar-nav.tsx
+diff --git a/apps/realworld-dashboard/src/layout/sidebar-nav.tsx b/apps/realworld-dashboard/src/layout/sidebar-nav.tsx
+index fd9e6d8..82c92e7 100644
+--- a/apps/realworld-dashboard/src/layout/sidebar-nav.tsx
++++ b/apps/realworld-dashboard/src/layout/sidebar-nav.tsx
+@@ -29,7 +29,7 @@ const NAV_ITEMS: readonly NavItem[] = [
+ ]
+ 
+ export function SidebarNav({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+-  const { recentlyViewed } = useWorkspaceStore()
++  const recentlyViewed = useWorkspaceStore((state) => state.recentlyViewed)
+   return (
+     <aside
+       aria-label="Primary"
+[exit 0]
+
+[11:58:38] $ agent-browser --session upd-g open http://127.0.0.1:5243/orders
+✓ Meridian Ops
+  http://127.0.0.1:5243/orders?sort=placedAt&dir=desc
+[exit 0]
+
+[11:58:38] $ npx genie-react status --session upd-g --wait 15000 | grep -E '^(ready|sessionId):'
+ready: true
+sessionId: b8e3e6e3-7f37-476b-b591-0c954c477aef
+[exit 0]
+
+[11:58:38] $ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g | head -3
+ok: true
+condition: settled
+waitedMs: 919
+[exit 0]
+
+[11:58:39] $ npx genie-react verify begin --session upd-g --name "select one order" --claim 'render SidebarNav max 0' --claim 'render OrdersTable min 1' --claim 'boundaries clean'
+recording vfy_3abb24de-4698-4a82-baf0-52b75e584e1f "select one order"
+  url "http://127.0.0.1:5243/orders?sort=placedAt&dir=desc"
+  1 recording render SidebarNav max 0
+  2 recording render OrdersTable min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:8,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_3abb24de-4698-4a82-baf0-52b75e584e1f --session upd-g
+session: {sessionId:b8e3e6e3-7f37-476b-b591-0c954c477aef,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:5}
+schemaVersion: "1.0"
+targets: [{target:{component:SidebarNav},status:resolved,instances:1,source:/src/layout/app-shell.tsx},{target:{component:OrdersTable},status:resolved,instances:1,source:/src/features/orders/orders-page.tsx}]
+startedAt: 2026-11-19T08:58:40.185Z
+expiresAt: 2026-11-19T09:03:40.192Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+[11:58:45] $ agent-browser --session upd-g find label 'Select SO-105998' check
+✓ Done
+[exit 0]
+
+[11:58:45] $ npx genie-react verify end vfy_3abb24de-4698-4a82-baf0-52b75e584e1f --session upd-g
+pass vfy_3abb24de-4698-4a82-baf0-52b75e584e1f "select one order"  10 commits, quiet after 1324 ms (react, query, router, network)
+  url "http://127.0.0.1:5243/orders?sort=placedAt&dir=desc"
+  1 pass render SidebarNav max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:SidebarNav},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:coverage,complete:true,targetedComplete:true,semantics:exact},{kind:instance,mountId:mount:1,renderingState:mounted-rendering,source:/src/layout/app-shell.tsx:38:9}]
+  2 pass render OrdersTable min 1  {renders:2,mounts:0,updates:2,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:OrdersTable},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:2,renders:2,mounts:0,updates:2,mountGeneration:1,latestDocumentCommitId:16,source:/src/features/orders/orders-page.tsx:88:9}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:8}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:8,settledDocumentCommitId:17,frozenDocumentCommitId:18,commits:10,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:1324,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 2 for these claims on this tab; previous fail vfy_7747813a-33d9-4734-ac66-f39ae7b5ba8d; document reloaded since
+evidence: $ npx genie-react verify show vfy_3abb24de-4698-4a82-baf0-52b75e584e1f --session upd-g
+session: {sessionId:b8e3e6e3-7f37-476b-b591-0c954c477aef,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:5}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_8e3ced63f5cc,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_7747813a-33d9-4734-ac66-f39ae7b5ba8d,verdict:fail,reasons:[],endedAt:2026-11-19T08:58:30.871Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T08:58:40.185Z
+endedAt: 2026-11-19T08:58:48.180Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+[11:58:48] $ git checkout -- src/layout/sidebar-nav.tsx && git status --short
+
+[exit 0]
+
+===== cross-check: Genie cohort for OrderRow when one order is selected (fix reverted) =====
+
+[11:58:55] $ agent-browser --session upd-g open http://127.0.0.1:5243/orders
+✓ Meridian Ops
+  http://127.0.0.1:5243/orders?sort=placedAt&dir=desc
+[exit 0]
+
+[11:58:55] $ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g | head -3
+ok: true
+condition: settled
+waitedMs: 1695
+[exit 0]
+
+[11:58:57] $ npx genie-react call react_clear_renders '{}' --session upd-g | head -3
+ok: true
+tracking: true
+documentCommitId: 8
+[exit 0]
+
+[11:58:57] $ agent-browser --session upd-g find label 'Select SO-105997' check
+✓ Done
+[exit 0]
+
+[11:58:57] $ npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session upd-g
+ok: true
+outcome: idle
+elapsedMs: 721
+observedCommits: 0
+renderWindow: {id:observation:1,startedAfterDocumentCommitId:8,commits:3}
+documentCommitId: 11
+sessionId: 2a032a58-9a89-4aaf-91e2-ea955e7a1945
+renderCollection: available
+pendingWork:
+  documentCommitId: 11
+  scheduledRoots: 0
+  suspendedBoundaries: 0
+  dehydratedBoundaries: 0
+  boundaries: []
+  scanTruncated: false
+  scannedFibers: 602
+[exit 0]
+
+[11:58:58] $ npx genie-react call react_component_cohort '{"component":"OrderRow"}' --session upd-g
+attribution:
+  status: current
+  startedAtDocumentCommitId: 12
+  completedAtDocumentCommitId: 12
+  startedAtAnalysisGeneration: 13
+  completedAtAnalysisGeneration: 13
+documentCommitId: 12
+ownershipCoverage:
+  complete: false
+  totalCandidates: 10
+  app: 9
+  library: 0
+  unknown: 1
+  affects: ownership-labels
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:8}
+query: {component:OrderRow,exact:true}
+componentMatch:
+  component: OrderRow
+  exact: true
+  status: matched
+  matchedNames: [OrderRow]
+  matchedNameCount: 1
+  similarNames: []
+status: mixed
+matched: 10
+mountedUpdated: 1
+mountedIdle: 8
+mountedUnknown: 0
+unmounted: 1
+returned: 10
+omittedByLimit: 0
+rendererBundle: development
+coverage:
+  complete: true
+  freezeDetection: disabled
+  scannedFibers: 602
+  scanLimit: 20000
+  scanTruncated: false
+  rootAvailable: true
+  rootCount: 1
+  scannedRootCount: 1
+  rootLimit: 100
+  rootScope: committed
+  rootScopeComplete: true
+  rootScopeTruncated: false
+  inputAttributionComplete: true
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 0
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  generationHistoryEvictions: 0
+view: summary
+shared:
+  logicalPathPrefix: "QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > <div>[index=1] > <main>[index=1] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > OrdersPage[index=0] > <div>[index=0] > OrdersTable[index=3] > <div>[index=0] > <div>[index=1] > <div>[index=0]"
+  componentName: OrderRow
+  sourceOwnership: app
+  source: /src/features/orders/orders-table.tsx:121:17
+  parent: {fiberId:1234433999007,name:OrdersTable,key:null}
+  keyedParent: null
+  logicalIdentityEvidence: keyed
+  mountGenerationEvidence: exact
+  renderingState: mounted-rendering
+  reactVisibility: not-hidden
+instances[10]:
+  each: {mountGeneration:1,hostSelector:div.absolute.inset-x-0.flex}
+  - {status:mounted-idle,mountId:mount:60,fiberId:1234433999040,key:o-106000,siblingIndex:0,logicalPath:"OrderRow[key=\"o-106000\"]"}
+  - {status:mounted-idle,mountId:mount:61,fiberId:1234433999041,key:o-105999,siblingIndex:1,logicalPath:"OrderRow[key=\"o-105999\"]"}
+  - {status:mounted-idle,mountId:mount:62,fiberId:1234433999042,key:o-105998,siblingIndex:2,logicalPath:"OrderRow[key=\"o-105998\"]"}
+  - {status:mounted-updated,mountId:mount:37,fiberId:1234433999043,key:o-105997,siblingIndex:3,logicalPath:"OrderRow[key=\"o-105997\"]"}
+  - {status:mounted-idle,mountId:mount:63,fiberId:1234433999075,key:o-105996,siblingIndex:4,logicalPath:"OrderRow[key=\"o-105996\"]"}
+  - {status:mounted-idle,mountId:mount:64,fiberId:1234433999076,key:o-105995,siblingIndex:5,logicalPath:"OrderRow[key=\"o-105995\"]"}
+  - {status:mounted-idle,mountId:mount:65,fiberId:1234433999077,key:o-105994,siblingIndex:6,logicalPath:"OrderRow[key=\"o-105994\"]"}
+  - {status:mounted-idle,mountId:mount:66,fiberId:1234433999078,key:o-105993,siblingIndex:7,logicalPath:"OrderRow[key=\"o-105993\"]"}
+  - {status:mounted-idle,mountId:mount:67,fiberId:1234433999079,key:o-105992,siblingIndex:8,logicalPath:"OrderRow[key=\"o-105992\"]"}
+  - {status:unmounted,mountId:mount:46,fiberId:1234433999080,key:o-105991,siblingIndex:0,logicalPath:"OrderRow[index=0]",outsidePrefix:true,documentCommitId:10,sourceOwnership:unknown,source:null,parent:null,renderingState:unmounted,reactVisibility:unknown}
+[exit 0]
+[teardown] stopped the dev server on 5243 and closed agent-browser session upd-g
+````

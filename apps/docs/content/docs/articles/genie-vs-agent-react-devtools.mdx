@@ -5,7 +5,7 @@ description: Both tools give your coding agent React DevTools data as text. On t
 
 Genie and [agent-react-devtools](https://github.com/callstackincubator/agent-react-devtools) both hand your coding agent React internals as text, but they answer different questions. On the same seeded bug in a React 19.3.1 dashboard, Genie named the store field behind a wasted render and proved the fix with an exit code. agent-react-devtools read the component's props and hooks correctly, but its profile marked 291 components as first mounts and left the re-rendering component out.
 
-Both tools ran on `apps/realworld-dashboard` in this repo, against the same interaction. Every command and output below comes from those runs. The [full log](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/genie-vs-agent-react-devtools.md) has the untrimmed output.
+Both tools ran on `apps/realworld-dashboard` in this repo, against the same interaction. The Genie steps were re-run on Genie 1.1.0, and the Genie output below comes from that re-run. The [full log](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/genie-vs-agent-react-devtools.md) has the untrimmed output.
 
 ## Ticking an order re-renders the sidebar
 
@@ -16,20 +16,20 @@ On the Orders page, ticking one order's checkbox re-renders `SidebarNav`, the le
 Your agent opens a render window, drives the click with agent-browser, and asks why `SidebarNav` rendered:
 
 ```bash
-npx genie-react call react_clear_renders '{}' --session art-m2
-agent-browser --session art-m2 click @e146
-npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session art-m2
-npx genie-react call react_render_causes '{"component":"SidebarNav","limit":5}' --session art-m2
+npx genie-react call react_clear_renders '{}' --session upd-g
+agent-browser --session upd-g click @e146
+npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session upd-g
+npx genie-react call react_render_causes '{"component":"SidebarNav","limit":5}' --session upd-g
 ```
 
 The answer, trimmed to the event:
 
 ```text
-SidebarNav #5658652966954 {…,necessity:unnecessary,necessityReason:output-unchanged,…,source:{location:/src/layout/app-shell.tsx:38:9,…}}
-  ← external-store inferred anonymous-external-store
+SidebarNav #8993711849514 {…,necessity:unnecessary,necessityReason:output-unchanged,…,source:{location:/src/layout/app-shell.tsx:38:9,…}}
+  ← external-store inferred anonymous-external-store {changedFields:[selectedOrderIds]}
 ```
 
-The render changed nothing on screen, and an external store caused it. The cause is graded `inferred`, so it is a lead, not proof. Adding `"view":"full"` shows the store's before and after values. These fields name the cause:
+The render changed nothing on screen. An external store caused it, and the store field that changed is `selectedOrderIds`. Genie 1.0.2 listed that field only in the full view. The cause is graded `inferred`, so it is a lead, not proof. Adding `"view":"full"` shows the store's before and after values and how `SidebarNav` subscribed:
 
 ```text
 selectionEqual:false,subscriptionFired:true,…,changedFields:[selectedOrderIds],…,selector:null,equality:object-is
@@ -101,14 +101,14 @@ agent-react-devtools starts profiling with `recordChangeDescriptions: true`, whi
 Genie's `verify` turns the question into claims and exits with the verdict. Before the fix:
 
 ```bash
-npx genie-react verify begin --session art-m2 --name "select one order" \
+npx genie-react verify begin --session upd-g --name "select one order" \
   --claim 'render SidebarNav max 0' --claim 'render OrdersTable min 1' --claim 'boundaries clean'
-agent-browser --session art-m2 find label 'Select SO-105999' check
-npx genie-react verify end vfy_bd8955d1-9283-4f1d-abec-9101568729e5 --session art-m2
+agent-browser --session upd-g find label 'Select SO-105999' check
+npx genie-react verify end vfy_7747813a-33d9-4734-ac66-f39ae7b5ba8d --session upd-g
 ```
 
 ```text
-fail vfy_bd8955d1-9283-4f1d-abec-9101568729e5 "select one order"  7 commits, quiet after 1188 ms (react, query, router)
+fail vfy_7747813a-33d9-4734-ac66-f39ae7b5ba8d "select one order"  8 commits, quiet after 722 ms (react, query, router, network)
   1 fail render SidebarNav max 0  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
   2 pass render OrdersTable min 1  {renders:1,…}
   3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
@@ -124,7 +124,7 @@ The command exited `1`. The fix gives the store hook a selector:
 The same claims after the fix, ticking the next order:
 
 ```text
-pass vfy_c2bdaa61-f978-4818-ace9-b4268bfa7a61 "select one order"  4 commits, quiet after 1338 ms (react, query, router)
+pass vfy_3abb24de-4698-4a82-baf0-52b75e584e1f "select one order"  10 commits, quiet after 1324 ms (react, query, router, network)
   1 pass render SidebarNav max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
   2 pass render OrdersTable min 1  {renders:2,…}
   3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
