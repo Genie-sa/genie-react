@@ -12,6 +12,7 @@
     "lint": "biome check .",
     "check:content": "node scripts/check-docs.mjs",
     "check:live-contracts": "node scripts/check-live-contracts.mjs",
+    "check:live-site": "node scripts/check-live-site.mjs",
     "check": "pnpm lint && pnpm typecheck && pnpm check:content && pnpm build",
     "format": "biome format --write ."
   },
