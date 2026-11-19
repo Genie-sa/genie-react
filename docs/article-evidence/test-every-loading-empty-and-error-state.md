@@ -1426,3 +1426,819 @@ $ agent-browser --session art-m4 snapshot -c -s 'main header'
   - button "Refresh customers" [ref=e873]
 [exit 0]
 ```
+
+## Re-run on Genie 1.1.0
+
+- Date: 2026-11-19
+- Commit: `ce408cb205c0e798cb04c35512772b7454283141` (`git rev-parse HEAD`)
+- App: `apps/realworld-dashboard` (Meridian Ops), screens `/customers` and `/customers/c-0042`
+- URL: `http://127.0.0.1:5242/` (dev server started with `DASHBOARD_PORT=5242 pnpm exec vite --port 5242 --strictPort` from `apps/realworld-dashboard`)
+- Driver: agent-browser 0.43.0, session `upd-f`. Genie CLI, hub and runtime 1.1.0 from this checkout (`pnpm install && pnpm build`).
+- The reference fix for `customer-orders-tab-blanks-page` was applied only between the `git diff` and `git checkout` markers below and reverted with git. It is not committed.
+- New in this run: `query_get` reads `dataUpdatedAt` and `dataUpdateCount` during each simulation, the error state runs once more with `"keepData":true`, and both `verify` runs add the claim `suspense CustomerDetailPage hidden max 0`.
+
+Every command below ran in this order from `apps/realworld-dashboard`. Output is complete and untrimmed. A `jq` filter inside a command is part of that command. `[exit N]` is the command's exit code.
+
+```text
+
+$ git rev-parse HEAD
+ce408cb205c0e798cb04c35512772b7454283141
+[exit 0]
+
+$ node_modules/.bin/genie-react --version
+1.1.0
+[exit 0]
+
+$ agent-browser --version
+agent-browser 0.43.0
+[exit 0]
+
+$ agent-browser --session upd-f open "http://127.0.0.1:5242/login"
+[agent-browser] launched browser
+✓ Meridian Ops
+  http://127.0.0.1:5242/login
+[exit 0]
+
+$ npx genie-react status --session upd-f --wait 15000 --json | jq -c "{ready,app:.app.name,url:.app.url,runtime:.sessions[0].runtimeVersion,hub:.hub.version}"
+{"ready":true,"app":"Meridian Ops","url":"http://127.0.0.1:5242/login","runtime":"1.1.0","hub":"1.1.0"}
+[exit 0]
+
+$ npx genie-react call app_login_as --session upd-f '{"role":"manager"}'
+changed: true
+role: manager
+userId: u-manager
+[exit 0]
+
+$ npx genie-react call app_reset_backend --session upd-f '{}'
+seed: 20260302
+faults: []
+latency: []
+latencyScale: 1
+requestCount: 0
+counts: {orders:6000,customers:1200,products:2400}
+[exit 0]
+
+$ agent-browser --session upd-f open "http://127.0.0.1:5242/customers"
+✓ Meridian Ops
+  http://127.0.0.1:5242/customers?page=1&q=
+[exit 0]
+
+$ npx genie-react status --session upd-f --wait 15000 --json | jq -c "{ready,url:.app.url}"
+{"ready":true,"url":"http://127.0.0.1:5242/customers?page=1&q="}
+[exit 0]
+
+$ npx genie-react call devtools_wait --session upd-f '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:621}
+[exit 0]
+
+$ npx genie-react call query_list --session upd-f '{}' --fields queryHash,status,observerCount
+[2]:
+  - {queryHash:"[\"customers\",\"list\",{\"page\":1,\"pageSize\":25,\"q\":\"\"}]",status:success,observerCount:1}
+  - {queryHash:"[\"notifications\"]",status:success,observerCount:1}
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s 'main header'
+- sectionheader
+  - heading "Customers" [level=1, ref=e13]
+  - paragraph
+    - StaticText "1,200 accounts"
+  - StaticText "Updated 1 second ago"
+  - button "Refresh customers" [ref=e14]
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s 'main header'
+- sectionheader
+  - heading "Customers" [level=1, ref=e13]
+  - paragraph
+    - StaticText "1,200 accounts"
+  - StaticText "Updated 8 seconds ago"
+  - button "Refresh customers" [ref=e14]
+[exit 0]
+
+$ npx genie-react call query_simulate_state --session upd-f '{"queryKey":["customers","list",{"page":1,"pageSize":25,"q":""}],"state":"pending"}'
+ok: true
+queryHash: "[\"customers\",\"list\",{\"page\":1,\"pageSize\":25,\"q\":\"\"}]"
+simulatedState: pending
+originalStatus: success
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s main
+- main
+  - sectionheader
+    - heading "Customers" [level=1, ref=e13]
+    - paragraph
+      - StaticText "Loading accounts…"
+    - StaticText "Not synced yet"
+    - button "Refresh customers" [ref=e14]
+  - textbox "Search customers" [ref=e15]
+  - combobox "Tier" [expanded=false, ref=e5]: All tiers
+    - MenuListPopup
+      - option "All tiers" [selected, ref=e17]
+      - option "enterprise" [ref=e18]
+      - option "growth" [ref=e19]
+      - option "starter" [ref=e20]
+  - status "Loading page"
+[exit 0]
+
+$ npx genie-react call query_get --session upd-f '{"queryKey":["customers","list",{"page":1,"pageSize":25,"q":""}],"depth":1}' --fields status,fetchStatus,dataUpdatedAt,dataUpdateCount,simulatedState
+[1]:
+  - {status:pending,fetchStatus:fetching,dataUpdatedAt:0,dataUpdateCount:0,simulatedState:pending}
+[exit 0]
+
+$ npx genie-react call query_simulate_state --session upd-f '{"queryKey":["customers","list",{"page":1,"pageSize":25,"q":""}],"state":"error","errorMessage":"GET /api/customers failed with 503"}'
+ok: true
+queryHash: "[\"customers\",\"list\",{\"page\":1,\"pageSize\":25,\"q\":\"\"}]"
+simulatedState: error
+originalStatus: success
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s main
+- main
+  - sectionheader
+    - heading "Customers" [level=1, ref=e13]
+    - paragraph
+      - StaticText "Loading accounts…"
+    - StaticText "Not synced yet"
+    - button "Refresh customers" [ref=e14]
+  - textbox "Search customers" [ref=e15]
+  - combobox "Tier" [expanded=false, ref=e5]: All tiers
+    - MenuListPopup
+      - option "All tiers" [selected, ref=e17]
+      - option "enterprise" [ref=e18]
+      - option "growth" [ref=e19]
+      - option "starter" [ref=e20]
+  - alert
+    - paragraph
+      - StaticText "Customers could not be loaded"
+    - paragraph
+      - StaticText "GET /api/customers failed with 503"
+    - button "Retry" [ref=e230]
+[exit 0]
+
+$ npx genie-react call query_get --session upd-f '{"queryKey":["customers","list",{"page":1,"pageSize":25,"q":""}],"depth":1}' --json | jq -c '{status,simulatedState,dataUpdatedAt,dataUpdateCount,hasData:(.data!=null)}'
+{"status":"error","simulatedState":"error","dataUpdatedAt":0,"dataUpdateCount":0,"hasData":false}
+[exit 0]
+
+$ npx genie-react call query_simulate_state --session upd-f '{"queryKey":["customers","list",{"page":1,"pageSize":25,"q":""}],"state":"error","keepData":true,"errorMessage":"GET /api/customers failed with 503"}'
+ok: true
+queryHash: "[\"customers\",\"list\",{\"page\":1,\"pageSize\":25,\"q\":\"\"}]"
+simulatedState: error
+originalStatus: success
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s main -d 4
+- main
+  - sectionheader
+    - heading "Customers" [level=1, ref=e13]
+    - paragraph
+      - StaticText "1,200 accounts"
+    - StaticText "Updated 17 seconds ago"
+    - button "Refresh customers" [ref=e14]
+  - textbox "Search customers" [ref=e15]
+  - combobox "Tier" [expanded=false, ref=e5]: All tiers
+    - MenuListPopup
+      - option "All tiers" [selected, ref=e17]
+      - option "enterprise" [ref=e18]
+      - option "growth" [ref=e19]
+      - option "starter" [ref=e20]
+  - alert
+    - paragraph
+      - StaticText "Customers could not be loaded"
+    - paragraph
+      - StaticText "GET /api/customers failed with 503"
+    - button "Retry" [ref=e230]
+[exit 0]
+
+$ npx genie-react call query_get --session upd-f '{"queryKey":["customers","list",{"page":1,"pageSize":25,"q":""}],"depth":1}' --json | jq -c '{status,simulatedState,dataUpdatedAt,dataUpdateCount,hasData:(.data!=null),isRefetchError:.observers[0].currentResult.isRefetchError}'
+{"status":"error","simulatedState":"error","dataUpdatedAt":1795078601757,"dataUpdateCount":2,"hasData":true,"isRefetchError":true}
+[exit 0]
+
+$ npx genie-react call query_restore_state --session upd-f '{"all":true}'
+ok: true
+restored: 1
+outcomes[1]:
+  - {queryHash:"[\"customers\",\"list\",{\"page\":1,\"pageSize\":25,\"q\":\"\"}]",outcome:restored,refetched:false}
+[exit 0]
+
+$ npx genie-react call query_get --session upd-f '{"queryKey":["customers","list",{"page":1,"pageSize":25,"q":""}],"depth":1}' --json | jq -c '{status,simulatedState,dataUpdatedAt,dataUpdateCount,hasData:(.data!=null)}'
+{"status":"success","simulatedState":null,"dataUpdatedAt":1795078601757,"dataUpdateCount":2,"hasData":true}
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s 'main header'
+- sectionheader
+  - heading "Customers" [level=1, ref=e13]
+  - paragraph
+    - StaticText "1,200 accounts"
+  - StaticText "Updated 27 seconds ago"
+  - button "Refresh customers" [ref=e14]
+[exit 0]
+
+$ npx genie-react call app_inject_fault --session upd-f '{"path":"/api/customers","method":"GET","status":503}' --fields faults
+[1]:
+  - {faults:[{method:GET,path:/api/customers,status:503,remaining:null}]}
+[exit 0]
+
+$ agent-browser --session upd-f find label 'Refresh customers' click
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-f wait --text 'Customers could not be loaded'
+Customers could not be loaded
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s main -d 4
+- main
+  - sectionheader
+    - heading "Customers" [level=1, ref=e13]
+    - paragraph
+      - StaticText "1,200 accounts"
+    - StaticText "Updated 31 seconds ago"
+    - button "Refresh customers" [ref=e14]
+  - textbox "Search customers" [ref=e15]
+  - combobox "Tier" [expanded=false, ref=e5]: All tiers
+    - MenuListPopup
+      - option "All tiers" [selected, ref=e17]
+      - option "enterprise" [ref=e18]
+      - option "growth" [ref=e19]
+      - option "starter" [ref=e20]
+  - alert
+    - paragraph
+      - StaticText "Customers could not be loaded"
+    - paragraph
+      - StaticText "Injected 503 for GET /api/customers"
+    - button "Retry" [ref=e441]
+[exit 0]
+
+$ npx genie-react call query_get --session upd-f '{"queryKey":["customers","list",{"page":1,"pageSize":25,"q":""}],"depth":1}' --json | jq -c '{status,simulatedState,dataUpdatedAt,dataUpdateCount,hasData:(.data!=null),isRefetchError:.observers[0].currentResult.isRefetchError}'
+{"status":"error","simulatedState":null,"dataUpdatedAt":1795078601757,"dataUpdateCount":2,"hasData":true,"isRefetchError":true}
+[exit 0]
+
+$ npx genie-react call app_clear_faults --session upd-f '{}' --fields faults
+[1]:
+  - {faults:[]}
+[exit 0]
+
+$ npx genie-react call react_find_components --session upd-f '{"query":"CustomersPage","exact":true}'
+matches[1]:
+  - {id:2418486018335,name:CustomersPage,path:"QueryClientProvider > AuthProvider > App > RouterProvider > RouterContextProvider > Matches > MatchesInner > CatchBoundary > MatchImpl > MatchView > CatchBoundary > CatchNotFound > CatchBoundary > MatchInnerImpl > RootLayout > OutletImpl > MatchImpl > MatchView > CatchBoundary > MatchInnerImpl > Lazy > AuthenticatedLayout > PermissionsProvider > AppShell > PreferencesProvider > OutletImpl > MatchImpl > MatchView > CatchBoundary > MatchInnerImpl > Lazy > CustomersPage",kind:function,props:{},source:{file:/src/features/customers/customers-page.tsx,line:42,column:5,functionName:CustomersPage,sourceMapConfidence:mapped,role:component-body},isLibrary:false}
+ownershipCoverage: {complete:true,totalCandidates:1,app:1,library:0,unknown:0}
+omittedByLimit: 0
+scanTruncated: false
+nextCursor: null
+unmountedSinceSearch: 0
+[exit 0]
+
+$ npx genie-react call react_inspect_component --session upd-f '{"id":2418486018335}'
+id: 2418486018335
+name: CustomersPage
+kind: function
+props: {}
+hooks[19]:
+  - {index:0,kind:ref,hook:useRef,stateful:false,customHooks:[useSearch,useMatch,useStructuralSharing],value:{}}
+  - {index:1,kind:callback,hook:useCallback,stateful:false,customHooks:[useSearch,useMatch,useSelector],value:["ƒ anonymous()",[{__genie_dehydrated__:true,kind:object,preview:"{…}",path:[1,0]}]]}
+  - {index:2,kind:callback,hook:useCallback,stateful:false,customHooks:[useSearch,useMatch,useSelector],value:["ƒ anonymous()",[{__genie_dehydrated__:true,kind:object,preview:"{…}",path:[1,0]}]]}
+  - {index:3,kind:ref,hook:useRef,stateful:false,customHooks:[useSearch,useMatch,useSelector,useSyncExternalStoreWithSelector],value:{current:{hasValue:true,value:{__genie_dehydrated__:true,kind:object,preview:"{…}",path:[current,value]}}}}
+  - {index:4,kind:memo,hook:useMemo,stateful:false,customHooks:[useSearch,useMatch,useSelector,useSyncExternalStoreWithSelector],value:[["ƒ anonymous()","ƒ anonymous()"],["ƒ anonymous()","ƒ anonymous()","ƒ anonymous()","ƒ defaultCompare()"]]}
+  - {index:5,kind:other,hook:useSyncExternalStore,stateful:false,customHooks:[useSearch,useMatch,useSelector,useSyncExternalStoreWithSelector],value:{page:1,q:""}}
+  - {index:6,kind:effect,hook:useSyncExternalStore,stateful:false,customHooks:[useSearch,useMatch,useSelector,useSyncExternalStoreWithSelector],deps:["ƒ anonymous()"]}
+  - {index:7,kind:effect,hook:useEffect,stateful:false,customHooks:[useSearch,useMatch,useSelector,useSyncExternalStoreWithSelector],deps:[{page:1,q:""}]}
+  - {index:8,kind:callback,hook:useCallback,stateful:false,customHooks:[useNavigate],value:["ƒ anonymous()",[/customers/,{__genie_dehydrated__:true,kind:object,preview:"Router {…}",path:[1,1]}]]}
+  - {index:9,kind:state,hook:useState,stateful:true,stateIndex:0,value:""}
+  - {index:10,kind:state,hook:useState,stateful:true,stateIndex:1,customHooks:[useDebouncedValue],value:""}
+  - {index:11,kind:effect,hook:useEffect,stateful:false,customHooks:[useDebouncedValue],deps:["",250]}
+  - {index:12,kind:effect,hook:useEffect,stateful:false,customHooks:[useQuery,useBaseQuery,useClearResetErrorBoundary],deps:[{clearReset:"ƒ clearReset()",reset:"ƒ reset()",isReset:"ƒ isReset()"}]}
+  - {index:13,kind:state,hook:useState,stateful:true,stateIndex:2,customHooks:[useQuery,useBaseQuery],value:{listeners:{__type:Set,values:["ƒ anonymous()"]},subscribe:"ƒ bound subscribe()",options:{retry:"ƒ retry()",refetchOnWindowFocus:false,queryKey:{__genie_dehydrated__:true,kind:array,preview:"Array(3)",path:[options,queryKey],size:3},queryFn:"ƒ queryFn()",placeholderData:"ƒ keepPreviousData()",_defaulted:true,queryHash:"[\"customers\",\"list\",{\"page\":1,\"pageSize\":25,\"q\":\"\"}]",refetchOnReconnect:true,throwOnError:false,_optimisticResults:optimistic},refetch:"ƒ bound refetch()"}}
+  - {index:14,kind:callback,hook:useCallback,stateful:false,customHooks:[useQuery,useBaseQuery],value:["ƒ anonymous()",[{__genie_dehydrated__:true,kind:object,preview:"QueryObserver {…}",path:[1,0]},true]]}
+  - {index:15,kind:other,hook:useSyncExternalStore,stateful:false,customHooks:[useQuery,useBaseQuery],value:{status:error,fetchStatus:idle,isPending:false,isSuccess:false,isError:true,isInitialLoading:false,isLoading:false,data:{items:{__genie_dehydrated__:true,kind:array,preview:"Array(25)",path:[data,items],size:25},total:1200,page:1,pageSize:25},dataUpdatedAt:1795078601757,error:{__type:Error,name:ApiError,message:"Injected 503 for GET /api/customers",status:503,code:injected_fault},errorUpdatedAt:1795078632994,failureCount:3,failureReason:{__type:Error,name:ApiError,message:"Injected 503 for GET /api/customers",status:503,code:injected_fault},errorUpdateCount:1,isFetched:true,isFetchedAfterMount:true,isFetching:false,isRefetching:false,isLoadingError:false,isPaused:false,isPlaceholderData:false,isRefetchError:true,isStale:true,refetch:"ƒ bound refetch()",promise:{__genie_dehydrated__:true,kind:promise,preview:Promise,path:[promise]},isEnabled:true}}
+  - {index:16,kind:effect,hook:useSyncExternalStore,stateful:false,customHooks:[useQuery,useBaseQuery],deps:["ƒ anonymous()"]}
+  - {index:17,kind:effect,hook:useEffect,stateful:false,customHooks:[useQuery,useBaseQuery],deps:[{retry:"ƒ retry()",refetchOnWindowFocus:false,queryKey:{__genie_dehydrated__:true,kind:array,preview:"Array(3)",path:[0,queryKey],size:3},queryFn:"ƒ queryFn()",placeholderData:"ƒ keepPreviousData()",_defaulted:true,queryHash:"[\"customers\",\"list\",{\"page\":1,\"pageSize\":25,\"q\":\"\"}]",refetchOnReconnect:true,throwOnError:false,_optimisticResults:optimistic},{listeners:{__genie_dehydrated__:true,kind:set,preview:"Set(1)",path:[1,listeners],size:1},subscribe:"ƒ bound subscribe()",options:{__genie_dehydrated__:true,kind:object,preview:"{…}",path:[1,options]},refetch:"ƒ bound refetch()"}]}
+  - {index:18,kind:effect,hook:useEffect,stateful:false,deps:["","","ƒ anonymous()"]}
+customHookGrouping: exact
+wrapperAncestry: []
+[exit 0]
+
+$ npx genie-react call react_override_hook_state --session upd-f '{"id":2418486018335,"stateIndex":0,"value":"zzqx"}'
+ok: true
+name: CustomersPage
+hookIndex: 9
+stateIndex: 0
+commitObserved: true
+[exit 0]
+
+$ npx genie-react call devtools_wait --session upd-f '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:1381}
+[exit 0]
+
+$ agent-browser --session upd-f get url
+http://127.0.0.1:5242/customers?page=1&q=zzqx
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s main
+- main
+  - sectionheader
+    - heading "Customers" [level=1, ref=e13]
+    - paragraph
+      - StaticText "0 accounts"
+    - StaticText "Updated now"
+    - button "Refresh customers" [ref=e14]
+  - textbox "Search customers" [ref=e15]: zzqx
+    - StaticText "zzqx"
+  - combobox "Tier" [expanded=false, ref=e5]: All tiers
+    - MenuListPopup
+      - option "All tiers" [selected, ref=e17]
+      - option "enterprise" [ref=e18]
+      - option "growth" [ref=e19]
+      - option "starter" [ref=e20]
+  - paragraph
+    - StaticText "No customers match"
+  - paragraph
+    - StaticText "Try a different name or clear the tier filter."
+[exit 0]
+
+$ npx genie-react call react_reset_overrides --session upd-f '{}'
+ok: true
+cleared: [{kind:hook,componentName:CustomersPage,outcome:restored}]
+remaining: 0
+commitObserved: true
+[exit 0]
+
+$ npx genie-react call devtools_wait --session upd-f '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:1382}
+[exit 0]
+
+$ agent-browser --session upd-f get url
+http://127.0.0.1:5242/customers?page=1&q=
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s 'main header'
+- sectionheader
+  - heading "Customers" [level=1, ref=e13]
+  - paragraph
+    - StaticText "1,200 accounts"
+  - StaticText "Updated 1 second ago"
+  - button "Refresh customers" [ref=e14]
+[exit 0]
+
+$ agent-browser --session upd-f open "http://127.0.0.1:5242/customers/c-0042"
+✓ Meridian Ops
+  http://127.0.0.1:5242/customers/c-0042
+[exit 0]
+
+$ npx genie-react status --session upd-f --wait 15000 --json | jq -c "{ready,url:.app.url}"
+{"ready":true,"url":"http://127.0.0.1:5242/customers/c-0042"}
+[exit 0]
+
+$ agent-browser --session upd-f find role tab click --name 'Recent orders'
+✓ Done
+[exit 0]
+
+$ npx genie-react call devtools_wait --session upd-f '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:765}
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s main -d 3
+- main
+  - link "All customers" [ref=e657]
+  - sectionheader
+    - heading "Quarry Retail" [level=1, ref=e666]
+    - StaticText "starter"
+    - paragraph
+      - StaticText "LATAM · Managed by Tara Novak"
+    - button "Edit account" [ref=e667]
+  - tablist "Customer sections"
+    - tab "Profile" [ref=e668]
+    - tab "Recent orders" [selected, ref=e669]
+  - table "Recent orders"
+    - row
+      - cell "SO-105159" [ref=e670]
+      - cell "Pending" [ref=e671]
+      - cell "Feb 13, 2026" [ref=e672]
+      - cell "$1,311.62" [ref=e673]
+    - row
+      - cell "SO-104085" [ref=e674]
+      - cell "Delivered" [ref=e675]
+      - cell "Jan 23, 2026" [ref=e676]
+      - cell "$12,986.98" [ref=e677]
+    - row
+      - cell "SO-103582" [ref=e678]
+      - cell "Delivered" [ref=e679]
+      - cell "Jan 13, 2026" [ref=e680]
+      - cell "$4,856.40" [ref=e681]
+    - row
+      - cell "SO-103559" [ref=e682]
+      - cell "Processing" [ref=e683]
+      - cell "Jan 12, 2026" [ref=e684]
+      - cell "$5,225.36" [ref=e685]
+    - row
+      - cell "SO-103124" [ref=e686]
+      - cell "Processing" [ref=e687]
+      - cell "Jan 3, 2026" [ref=e688]
+      - cell "$12,253.53" [ref=e689]
+    - row
+      - cell "SO-102268" [ref=e690]
+      - cell "Processing" [ref=e691]
+      - cell "Dec 17, 2025" [ref=e692]
+      - cell "$10,007.28" [ref=e693]
+    - row
+      - cell "SO-102109" [ref=e694]
+      - cell "Delivered" [ref=e695]
+      - cell "Dec 14, 2025" [ref=e696]
+      - cell "$20,597.60" [ref=e697]
+    - row
+      - cell "SO-101900" [ref=e698]
+      - cell "Delivered" [ref=e699]
+      - cell "Dec 10, 2025" [ref=e700]
+      - cell "$14,546.47" [ref=e701]
+    - row
+      - cell "SO-101273" [ref=e702]
+      - cell "Delivered" [ref=e703]
+      - cell "Nov 27, 2025" [ref=e704]
+      - cell "$962.44" [ref=e705]
+    - row
+      - cell "SO-100173" [ref=e706]
+      - cell "Delivered" [ref=e707]
+      - cell "Nov 5, 2025" [ref=e708]
+      - cell "$5,061.90" [ref=e709]
+[exit 0]
+
+$ npx genie-react call react_find_components --session upd-f '{"query":"CustomerOrdersPanel","exact":true}' --json | jq -c '.matches[] | {id,name,path}'
+{"id":11958380134513,"name":"CustomerOrdersPanel","path":"QueryClientProvider > AuthProvider > App > RouterProvider > RouterContextProvider > Matches > MatchesInner > CatchBoundary > MatchImpl > MatchView > CatchBoundary > CatchNotFound > CatchBoundary > MatchInnerImpl > RootLayout > OutletImpl > MatchImpl > MatchView > CatchBoundary > MatchInnerImpl > Lazy > AuthenticatedLayout > PermissionsProvider > AppShell > PreferencesProvider > OutletImpl > MatchImpl > MatchView > CatchBoundary > MatchInnerImpl > Lazy > CustomerDetailPage > CustomerOrdersPanel"}
+[exit 0]
+
+$ npx genie-react call react_toggle_suspense_fallback --session upd-f '{"id":11958380134513,"showFallback":true}'
+ok: true
+boundaryId: 11958380134450
+showingFallback: true
+activeOverrides: 1
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s main
+(empty page)
+[exit 0]
+
+$ npx genie-react call react_suspense --session upd-f '{}'
+capability: {reactVersion:19.3.1,bundle:development,asyncDebugInfo:available,reason:null}
+observedAtMs: 7088.6
+documentCommitId: 11
+counts: {boundaries:4,fallback:1,transitionPending:0,dehydrated:0,content:3}
+omittedByLimit: 0
+coverage:
+  complete: false
+  scanTruncated: false
+  fiberScanLimit: 20000
+  waitingWithoutBlocker: 1
+  unattributedEntries: 0
+  unattributedSuspendedRoots: 0
+  changedDuringRead: false
+  commitScheduled: false
+  sourcesPartial: false
+  serverAwaits: none
+ownershipCoverage: {complete:false,totalCandidates:4,app:0,library:3,unknown:1}
+waitingHint: "<Suspense name=\"Suspense\"> #11958380134450 shows its fallback because react_toggle_suspense_fallback holds it; call react_reset_overrides to release it"
+view: summary
+boundaries[4]:
+  each: {name:Suspense,stateEvidence:exact,hydration:null,blockersOmitted:0,source:{sourceMapConfidence:mapped,role:element-callsite},serverComponents:[],serverComponentsOmitted:0,blockers:[]}
+  - {id:11958380134450,parentBoundaryId:11958380134436,state:fallback,forced:true,fallbackCommittedSinceMount:true,blockerStatus:not-observable,source:{file:/node_modules/.pnpm/@tanstack+react-router@1.170.41_react-dom@19.3.1_react@19.3.1__react@19.3.1/node_modules/@tanstack/react-router/dist/esm/Match.js,line:70,column:48,functionName:MatchView},sourceOwnership:library}
+  - {id:11958380134412,parentBoundaryId:null,state:content,forced:false,fallbackCommittedSinceMount:false,blockerStatus:none,source:{file:/node_modules/.pnpm/@tanstack+react-router@1.170.41_react-dom@19.3.1_react@19.3.1__react@19.3.1/node_modules/@tanstack/react-router/dist/esm/Matches.js,line:23,column:261,functionName:Matches},sourceOwnership:library}
+  - {id:11958380134425,parentBoundaryId:11958380134412,state:content,forced:false,fallbackCommittedSinceMount:false,blockerStatus:none,source:{file:/node_modules/.pnpm/@tanstack+react-router@1.170.41_react-dom@19.3.1_react@19.3.1__react@19.3.1/node_modules/@tanstack/react-router/dist/esm/Match.js,line:161,column:54,functionName:OutletImpl},sourceOwnership:library}
+  - {id:11958380134436,parentBoundaryId:11958380134425,state:content,forced:false,fallbackCommittedSinceMount:false,blockerStatus:none,source:{file:/src/routes/_app.tsx,line:20,column:7,functionName:AuthenticatedLayout},sourceOwnership:unknown}
+[exit 0]
+
+$ npx genie-react call react_reset_overrides --session upd-f '{}'
+ok: true
+cleared: [{kind:suspense,componentName:Suspense,outcome:released}]
+remaining: 0
+commitObserved: true
+[exit 0]
+
+$ npx genie-react call query_restore_state --session upd-f '{"all":true}'
+ok: true
+restored: 0
+outcomes: []
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s 'main header'
+- sectionheader
+  - heading "Quarry Retail" [level=1, ref=e666]
+  - StaticText "starter"
+  - paragraph
+    - StaticText "LATAM · Managed by Tara Novak"
+  - button "Edit account" [ref=e667]
+[exit 0]
+
+$ agent-browser --session upd-f open "http://127.0.0.1:5242/customers/c-0042"
+✓ Meridian Ops
+  http://127.0.0.1:5242/customers/c-0042
+[exit 0]
+
+$ npx genie-react status --session upd-f --wait 15000 --json | jq -c "{ready,url:.app.url}"
+{"ready":true,"url":"http://127.0.0.1:5242/customers/c-0042"}
+[exit 0]
+
+$ npx genie-react call devtools_wait --session upd-f '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:619}
+[exit 0]
+
+$ npx genie-react call app_set_latency --session upd-f '{"rules":[{"path":"/api/customers/c-0042/orders","ms":3000}]}'
+seed: 20260302
+faults: []
+latency: [{path:/api/customers/c-0042/orders,ms:3000}]
+latencyScale: 1
+requestCount: 61
+counts: {orders:6000,customers:1200,products:2400}
+[exit 0]
+
+$ npx genie-react verify begin --session upd-f --name 'open Recent orders' --claim 'render CustomerOrdersPanel min 1' --claim 'boundaries clean' --claim 'suspense CustomerDetailPage hidden max 0'
+recording vfy_b7e44950-b3a7-4c52-b0c2-ca4806ff231c "open Recent orders"
+  url "http://127.0.0.1:5242/customers/c-0042"
+  1 recording render CustomerOrdersPanel min 1
+  2 recording boundaries clean
+  3 recording suspense CustomerDetailPage hidden max 0
+window: {observationId:observation:1,startDocumentCommitId:6,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_b7e44950-b3a7-4c52-b0c2-ca4806ff231c --session upd-f
+session: {sessionId:fe9b8724-74df-41dc-b17d-3147df28d180,logicalSessionId:e7ac44c4-a84a-4786-85e2-cbf0eb72cb57,documentGeneration:5}
+schemaVersion: "1.0"
+targets: [{target:{component:CustomerOrdersPanel},status:pending,instances:0},{target:{component:CustomerDetailPage},status:resolved,instances:1,source:/src/features/customers/customer-detail-page.tsx}]
+startedAt: 2026-11-19T08:58:04.620Z
+expiresAt: 2026-11-19T09:03:04.648Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-f find role tab click --name 'Recent orders'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s main
+(empty page)
+[exit 0]
+
+$ npx genie-react verify end vfy_b7e44950-b3a7-4c52-b0c2-ca4806ff231c --session upd-f
+fail vfy_b7e44950-b3a7-4c52-b0c2-ca4806ff231c "open Recent orders"  4 commits, quiet after 3506 ms (react, query, router, network)
+  url "http://127.0.0.1:5242/customers/c-0042"
+  1 pass render CustomerOrdersPanel min 1  {renders:2,mounts:1,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:CustomerOrdersPanel},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:24,renders:2,mounts:1,updates:1,mountGeneration:1,latestDocumentCommitId:10,source:/src/features/customers/customer-detail-page.tsx:71:9}]
+  2 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:6}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+  3 fail suspense CustomerDetailPage hidden max 0  {hidden:1,hidesInWindow:1}
+      claim: {kind:suspense-hidden,target:{component:CustomerDetailPage},max:0}
+      deciding: [{kind:suspense-hide,hideId:hide:7:1,documentCommitId:7,boundary:Suspense,boundaryId:3450888781878}]
+window: {observationId:observation:1,startDocumentCommitId:6,settledDocumentCommitId:10,frozenDocumentCommitId:10,commits:4,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:3506,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:0},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_b7e44950-b3a7-4c52-b0c2-ca4806ff231c --claim 3 --session upd-f
+session: {sessionId:fe9b8724-74df-41dc-b17d-3147df28d180,logicalSessionId:e7ac44c4-a84a-4786-85e2-cbf0eb72cb57,documentGeneration:5}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_5a5c9002323a,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T08:58:04.620Z
+endedAt: 2026-11-19T08:58:14.549Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+$ agent-browser --session upd-f snapshot -c -s main -d 2
+- main
+  - link "All customers" [ref=e737]
+  - sectionheader
+    - heading "Quarry Retail" [level=1, ref=e738]
+    - StaticText "starter"
+    - button "Edit account" [ref=e739]
+  - tablist "Customer sections"
+    - tab "Profile" [ref=e740]
+    - tab "Recent orders" [selected, ref=e741]
+  - table "Recent orders"
+[exit 0]
+
+$ git diff  (reference fix applied temporarily)
+diff --git a/apps/realworld-dashboard/src/features/customers/customer-detail-page.tsx b/apps/realworld-dashboard/src/features/customers/customer-detail-page.tsx
+index 79352e5..c93c72e 100644
+--- a/apps/realworld-dashboard/src/features/customers/customer-detail-page.tsx
++++ b/apps/realworld-dashboard/src/features/customers/customer-detail-page.tsx
+@@ -1,9 +1,10 @@
+ import { useSuspenseQuery } from '@tanstack/react-query'
+ import { Link, useParams } from '@tanstack/react-router'
+ import { ArrowLeft, Pencil } from 'lucide-react'
+-import { useEffect, useState } from 'react'
++import { Suspense, useEffect, useState } from 'react'
+ import { PermissionGate } from '../../app/permissions'
+ import { Button } from '../../components/ui/button'
++import { Skeleton } from '../../components/ui/feedback'
+ import { Tabs } from '../../components/ui/tabs'
+ import { useWorkspaceStore } from '../../stores/workspace'
+ import { CustomerEditModal } from './customer-edit-modal'
+@@ -68,7 +69,9 @@ export function CustomerDetailPage() {
+           <RelatedAccounts ids={customer.relatedIds} />
+         </div>
+       ) : (
+-        <CustomerOrdersPanel customerId={customer.id} />
++        <Suspense fallback={<Skeleton className="h-64" />}>
++          <CustomerOrdersPanel customerId={customer.id} />
++        </Suspense>
+       )}
+       {editing && <CustomerEditModal customer={customer} onClose={() => setEditing(false)} />}
+     </div>
+
+$ agent-browser --session upd-f open "http://127.0.0.1:5242/customers/c-0042"
+✓ Meridian Ops
+  http://127.0.0.1:5242/customers/c-0042
+[exit 0]
+
+$ npx genie-react status --session upd-f --wait 15000 --json | jq -c "{ready,url:.app.url}"
+{"ready":true,"url":"http://127.0.0.1:5242/customers/c-0042"}
+[exit 0]
+
+$ npx genie-react call devtools_wait --session upd-f '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:621}
+[exit 0]
+
+$ npx genie-react call app_backend_state --session upd-f '{}' --fields latency
+[1]:
+  - {latency:[{path:/api/customers/c-0042/orders,ms:3000}]}
+[exit 0]
+
+$ npx genie-react verify begin --session upd-f --name 'open Recent orders' --claim 'render CustomerOrdersPanel min 1' --claim 'boundaries clean' --claim 'suspense CustomerDetailPage hidden max 0'
+recording vfy_7c6d1cff-15f4-438c-9b22-af86ef34ed1e "open Recent orders"
+  url "http://127.0.0.1:5242/customers/c-0042"
+  1 recording render CustomerOrdersPanel min 1
+  2 recording boundaries clean
+  3 recording suspense CustomerDetailPage hidden max 0
+window: {observationId:observation:1,startDocumentCommitId:6,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_7c6d1cff-15f4-438c-9b22-af86ef34ed1e --session upd-f
+session: {sessionId:ad8ee8c0-81cb-4133-a945-92c71f421d55,logicalSessionId:e7ac44c4-a84a-4786-85e2-cbf0eb72cb57,documentGeneration:7}
+schemaVersion: "1.0"
+targets: [{target:{component:CustomerOrdersPanel},status:pending,instances:0},{target:{component:CustomerDetailPage},status:resolved,instances:1,source:/src/features/customers/customer-detail-page.tsx}]
+startedAt: 2026-11-19T08:58:29.303Z
+expiresAt: 2026-11-19T09:03:29.324Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-f find role tab click --name 'Recent orders'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s main
+- main
+  - link "All customers" [ref=e801]
+  - sectionheader
+    - heading "Quarry Retail" [level=1, ref=e810]
+    - StaticText "starter"
+    - paragraph
+      - StaticText "LATAM · Managed by Tara Novak"
+    - button "Edit account" [ref=e811]
+  - tablist "Customer sections"
+    - tab "Profile" [ref=e812]
+    - tab "Recent orders" [selected, ref=e813]
+[exit 0]
+
+$ npx genie-react verify end vfy_7c6d1cff-15f4-438c-9b22-af86ef34ed1e --session upd-f
+pass vfy_7c6d1cff-15f4-438c-9b22-af86ef34ed1e "open Recent orders"  3 commits, quiet after 3377 ms (react, query, router, network)
+  url "http://127.0.0.1:5242/customers/c-0042"
+  1 pass render CustomerOrdersPanel min 1  {renders:1,mounts:1,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:CustomerOrdersPanel},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:36,renders:1,mounts:1,updates:0,mountGeneration:1,latestDocumentCommitId:9,source:/src/features/customers/customer-detail-page.tsx:73:11}]
+  2 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:6}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+  3 pass suspense CustomerDetailPage hidden max 0  {hidden:0,hidesInWindow:0}
+      claim: {kind:suspense-hidden,target:{component:CustomerDetailPage},max:0}
+      deciding: [{kind:suspense-hide-log,complete:true,afterDocumentCommitId:6}]
+window: {observationId:observation:1,startDocumentCommitId:6,settledDocumentCommitId:9,frozenDocumentCommitId:9,commits:3,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:3377,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:0},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 2 for these claims on this tab; previous fail vfy_b7e44950-b3a7-4c52-b0c2-ca4806ff231c; document reloaded since
+evidence: $ npx genie-react verify show vfy_7c6d1cff-15f4-438c-9b22-af86ef34ed1e --session upd-f
+session: {sessionId:ad8ee8c0-81cb-4133-a945-92c71f421d55,logicalSessionId:e7ac44c4-a84a-4786-85e2-cbf0eb72cb57,documentGeneration:7}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_5a5c9002323a,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_b7e44950-b3a7-4c52-b0c2-ca4806ff231c,verdict:fail,reasons:[],endedAt:2026-11-19T08:58:14.549Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T08:58:29.303Z
+endedAt: 2026-11-19T08:58:37.593Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ npx genie-react call react_find_components --session upd-f '{"query":"CustomerOrdersPanel","exact":true}' --json | jq -c '.matches[] | {id,name}'
+{"id":5353374744701,"name":"CustomerOrdersPanel"}
+[exit 0]
+
+$ npx genie-react call react_toggle_suspense_fallback --session upd-f '{"id":5353374744701,"showFallback":true}'
+ok: true
+boundaryId: 5353374744693
+showingFallback: true
+activeOverrides: 1
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s main
+- main
+  - link "All customers" [ref=e801]
+  - sectionheader
+    - heading "Quarry Retail" [level=1, ref=e810]
+    - StaticText "starter"
+    - paragraph
+      - StaticText "LATAM · Managed by Tara Novak"
+    - button "Edit account" [ref=e811]
+  - tablist "Customer sections"
+    - tab "Profile" [ref=e812]
+    - tab "Recent orders" [selected, ref=e813]
+[exit 0]
+
+$ npx genie-react call react_suspense --session upd-f '{}' --json | jq -c '.boundaries[] | {id,state,forced,source:.source.functionName,file:.source.file}'
+{"id":5353374744693,"state":"fallback","forced":true,"source":"CustomerDetailPage","file":"/src/features/customers/customer-detail-page.tsx"}
+{"id":5353374744588,"state":"content","forced":false,"source":"Matches","file":"/node_modules/.pnpm/@tanstack+react-router@1.170.41_react-dom@19.3.1_react@19.3.1__react@19.3.1/node_modules/@tanstack/react-router/dist/esm/Matches.js"}
+{"id":5353374744627,"state":"content","forced":false,"source":"OutletImpl","file":"/node_modules/.pnpm/@tanstack+react-router@1.170.41_react-dom@19.3.1_react@19.3.1__react@19.3.1/node_modules/@tanstack/react-router/dist/esm/Match.js"}
+{"id":5353374744638,"state":"content","forced":false,"source":"AuthenticatedLayout","file":"/src/routes/_app.tsx"}
+{"id":5353374744652,"state":"content","forced":false,"source":"MatchView","file":"/node_modules/.pnpm/@tanstack+react-router@1.170.41_react-dom@19.3.1_react@19.3.1__react@19.3.1/node_modules/@tanstack/react-router/dist/esm/Match.js"}
+[exit 0]
+
+$ npx genie-react call react_reset_overrides --session upd-f '{}'
+ok: true
+cleared: [{kind:suspense,componentName:Suspense,outcome:released}]
+remaining: 0
+commitObserved: true
+[exit 0]
+
+$ git checkout -- src/features/customers/customer-detail-page.tsx   (fix reverted)
+
+$ npx genie-react call app_set_latency --session upd-f '{}' --fields latency
+[1]:
+  - {latency:[]}
+[exit 0]
+
+$ npx genie-react call app_clear_faults --session upd-f '{}' --fields faults
+[1]:
+  - {faults:[]}
+[exit 0]
+
+$ npx genie-react call query_restore_state --session upd-f '{"all":true}'
+ok: true
+restored: 0
+outcomes: []
+[exit 0]
+
+$ npx genie-react call react_reset_overrides --session upd-f '{}'
+ok: true
+cleared: []
+remaining: 0
+[exit 0]
+
+$ npx genie-react call app_inject_fault --session upd-f '{"path":"/api/customers","method":"GET","status":503}' --fields faults
+[1]:
+  - {faults:[{method:GET,path:/api/customers,status:503,remaining:null}]}
+[exit 0]
+
+$ agent-browser --session upd-f open "http://127.0.0.1:5242/customers"
+✓ Meridian Ops
+  http://127.0.0.1:5242/customers?page=1&q=
+[exit 0]
+
+$ agent-browser --session upd-f wait --text 'This page could not be loaded'
+This page could not be loaded
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -c -s main
+- main
+  - alert
+    - paragraph
+      - StaticText "This page could not be loaded"
+    - paragraph
+      - StaticText "Injected 503 for GET /api/customers"
+    - button "Retry" [ref=e826]
+[exit 0]
+
+$ npx genie-react call app_clear_faults --session upd-f '{}' --fields faults
+[1]:
+  - {faults:[]}
+[exit 0]
+
+$ agent-browser --session upd-f open "http://127.0.0.1:5242/customers"
+✓ Meridian Ops
+  http://127.0.0.1:5242/customers?page=1&q=
+[exit 0]
+
+$ agent-browser --session upd-f wait --text '1,200 accounts'
+1,200 accounts
+[exit 0]
+
+$ npx genie-react call query_restore_state --session upd-f '{"all":true}'
+ok: true
+restored: 0
+outcomes: []
+[exit 0]
+
+$ npx genie-react call react_reset_overrides --session upd-f '{}'
+ok: true
+cleared: []
+remaining: 0
+[exit 0]
+```

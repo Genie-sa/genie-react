@@ -374,3 +374,309 @@ Rotate API keys
 Archive Q3 invoices
 [exit 0]
 ```
+
+## Re-run on Genie 1.1.0
+
+- Date: 2026-11-19
+- Commit: `ce408cb205c0e798cb04c35512772b7454283141` (`git rev-parse HEAD`)
+- App: `evals/fixture-app` (eval fixture, screen `tasks`, seeded bug from `evals/tasks/query-key-mismatch.json`)
+- URL: `http://localhost:5242/?screen=tasks` (dev server started with `npx vite --port 5242 --strictPort` from `evals/fixture-app`. Vite bound `[::1]:5242`.)
+- Driver: agent-browser 0.43.0, session `upd-f`. Genie CLI, hub and runtime 1.1.0 from this checkout (`pnpm install && pnpm build`).
+- The reference fix was applied only between the `git diff` and `git checkout` markers below and reverted with git. It is not committed.
+
+Every command below ran in this order from `evals/fixture-app`. Output is complete and untrimmed. A `jq` filter inside a command is part of that command. `[exit N]` is the command's exit code.
+
+```text
+
+$ git rev-parse HEAD
+ce408cb205c0e798cb04c35512772b7454283141
+[exit 0]
+
+$ npx genie-react --version
+1.1.0
+[exit 0]
+
+$ agent-browser --session upd-f open "http://localhost:5242/?screen=tasks"
+✓ Acme Console
+  http://localhost:5242/?screen=tasks
+[exit 0]
+
+$ npx genie-react status --session upd-f --wait 15000
+selectedBridgeUrl: "ws://[::1]:5242/__genie/ws"
+sessionSelector:
+  requested: upd-f
+  source: flag
+  resolvedSessionId: 476d46af-df68-4f85-964b-2d6204c47e44
+  implicit: false
+  agentBrowser: {session:upd-f,via:selector,logicalSessionId:93aafe39-6f16-4275-8912-4d29324be8e9}
+connected: true
+ready: true
+sessionId: 476d46af-df68-4f85-964b-2d6204c47e44
+app:
+  name: "Acme Console"
+  url: "http://localhost:5242/?screen=tasks"
+  reactVersion: 19.2.7
+  reactMounted: true
+domains: [session,react,memory,perf,plugin,timeline,network,query]
+toolCount: 81
+sessions[1] (sessionId {fields}):
+  476d46af-df68-4f85-964b-2d6204c47e44 {logicalSessionId:93aafe39-6f16-4275-8912-4d29324be8e9,documentGeneration:2,logicalSessionCollision:false,collisionWithSessionIds:[],app:{name:"Acme Console",url:"http://localhost:5242/?screen=tasks",reactVersion:19.2.7,reactMounted:true},domains:[session,react,memory,perf,plugin,timeline,network,query],toolCount:81,connectedAt:1795078905718,ready:true,readyAt:1795078905720,current:true,origin:http://localhost:5242,runtimeVersion:1.1.0}
+warnings: []
+hub: {version:1.1.0,protocol:1}
+[exit 0]
+
+$ agent-browser --session upd-f get text 'ul[aria-label="Tasks"]'
+Renew TLS certificate
+Rotate API keys
+[exit 0]
+
+$ npx genie-react call query_list --session upd-f '{}'
+queries[1]:
+  - {queryHash:"[\"tasks\",\"list\"]",queryKey:[tasks,list],status:success,fetchStatus:idle,isStale:true,isActive:true,isDisabled:false,hasFetched:true,isCached:true,observerCount:1,dataUpdatedAt:1795078905818,recentFetches:1}
+total: 1
+churn: {orphaned:0,families:[]}
+[exit 0]
+
+$ npx genie-react verify begin --session upd-f --name 'add a task' --claim 'render TaskList min 1' --claim 'render AddTaskForm min 1' --claim 'boundaries clean'
+recording vfy_1cacbcc2-a427-4360-9fa9-93b1fd4f8a00 "add a task"
+  url "http://localhost:5242/?screen=tasks"
+  1 recording render TaskList min 1
+  2 recording render AddTaskForm min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:2,domains:[react,query,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_1cacbcc2-a427-4360-9fa9-93b1fd4f8a00 --session upd-f
+session: {sessionId:476d46af-df68-4f85-964b-2d6204c47e44,logicalSessionId:93aafe39-6f16-4275-8912-4d29324be8e9,documentGeneration:2}
+schemaVersion: "1.0"
+targets: [{target:{component:TaskList},status:resolved,instances:1,source:/src/screens/tasks/TasksScreen.tsx},{target:{component:AddTaskForm},status:resolved,instances:1,source:/src/screens/tasks/TasksScreen.tsx}]
+startedAt: 2026-11-19T09:01:51.971Z
+expiresAt: 2026-11-19T09:06:51.987Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'input[aria-label="New task title"]' 'Archive Q3 invoices'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-f click 'button[type=submit]'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-f wait --text Saved
+Saved
+[exit 0]
+
+$ npx genie-react verify end vfy_1cacbcc2-a427-4360-9fa9-93b1fd4f8a00 --session upd-f
+fail vfy_1cacbcc2-a427-4360-9fa9-93b1fd4f8a00 "add a task"  3 commits, quiet after 625 ms (react, query, network)
+  url "http://localhost:5242/?screen=tasks"
+  1 fail render TaskList min 1  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:TaskList},min:1,counting:renders,allowRemount:false}
+      deciding: []
+  2 pass render AddTaskForm min 1  {renders:3,mounts:0,updates:3,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:AddTaskForm},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:2,renders:3,mounts:0,updates:3,mountGeneration:1,latestDocumentCommitId:5,source:/src/screens/tasks/TasksScreen.tsx:45:7}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:2}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:2,settledDocumentCommitId:5,frozenDocumentCommitId:5,commits:3,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:625,domains:{react:met,query:met,network:met}},tail:{ms:500,commits:0},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_1cacbcc2-a427-4360-9fa9-93b1fd4f8a00 --claim 1 --session upd-f
+session: {sessionId:476d46af-df68-4f85-964b-2d6204c47e44,logicalSessionId:93aafe39-6f16-4275-8912-4d29324be8e9,documentGeneration:2}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_6130050ec922,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T09:01:51.971Z
+endedAt: 2026-11-19T09:01:53.656Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+$ agent-browser --session upd-f get text 'ul[aria-label="Tasks"]'
+Renew TLS certificate
+Rotate API keys
+[exit 0]
+
+$ npx genie-react call query_invalidations --session upd-f '{}'
+calls[1]:
+  - {sequence:1,method:invalidateQueries,timestamp:1795078912160,byGenie:false,filters:{queryKey:[task,list],exact:false,type:null,refetchType:null,predicate:false},matchedCount:0,matched:[],nearMisses:["[\"tasks\",\"list\"]"],stack:["at QueryClient.wrapper (http://localhost:5242/@fs~/.t3/worktrees/genie-react/ali-articles-update-f-ce7752e6ad4d0d0f/packages/genie-react/dist/query-BmJH1kVV.js:167:5)","at Object.onSuccess (http://localhost:5242/src/screens/tasks/taskQueries.ts:17:32)","at Mutation.execute (http://localhost:5242/.vite/deps/modern-CUbVEGj4.js?v=9422e8ca:1669:34)"]}
+omittedByLimit: 0
+coverage:
+  methods: [invalidateQueries,refetchQueries,resetQueries,removeQueries]
+  since: 1795078905696
+[exit 0]
+
+$ npx genie-react call query_get --session upd-f '{"queryKey":["tasks","list"]}'
+queryHash: "[\"tasks\",\"list\"]"
+queryKey: [tasks,list]
+status: success
+fetchStatus: idle
+isStale: true
+isActive: true
+isInvalidated: false
+observerCount: 1
+hasQueryFn: true
+gcTime: 300000
+dataUpdatedAt: 1795078905818
+errorUpdatedAt: 0
+dataUpdateCount: 1
+errorUpdateCount: 0
+fetchFailureCount: 0
+fetchCount: 1
+recentFetches: 1
+fetchMeta: null
+data: [{id:1,title:"Renew TLS certificate"},{id:2,title:"Rotate API keys"}]
+observersOmitted: 0
+observers[1]:
+  - {observerId:query-observer:1,identityStatus:current,notificationPolicy:{mode:auto-tracked,trackedFieldsAvailable:true,fields:[data,isPending]},deliveryEvidence:public-track-prop-observed,hasSelect:false,enabled:default,currentResult:{data:[{__genie_dehydrated__:true,kind:object,preview:"{…}",path:[data,0]},{__genie_dehydrated__:true,kind:object,preview:"{…}",path:[data,1]}],dataUpdatedAt:1795078905818,error:null,errorUpdatedAt:0,failureCount:0,failureReason:null,errorUpdateCount:0,isError:false,isFetched:true,isFetchedAfterMount:true,isFetching:false,isLoading:false,isPending:false,isLoadingError:false,isInitialLoading:false,isPaused:false,isPlaceholderData:false,isRefetchError:false,isRefetching:false,isStale:true,isSuccess:true,isEnabled:true,refetch:{__genie_dehydrated__:true,kind:function,preview:"ƒ bound refetch()",path:[refetch]},status:success,fetchStatus:idle,promise:{__genie_dehydrated__:true,kind:promise,preview:Promise,path:[promise]}},resultFields:[data,dataUpdatedAt,error,errorUpdatedAt,failureCount,failureReason,errorUpdateCount,isError,isFetched,isFetchedAfterMount,isFetching,isLoading,isPending,isLoadingError,isInitialLoading,isPaused,isPlaceholderData,isRefetchError,isRefetching,isStale,isSuccess,isEnabled,refetch,status,fetchStatus,promise],subscriberObservationStatus:not-observed,subscriber:null}
+[exit 0]
+
+$ git diff  (reference fix applied temporarily)
+diff --git a/evals/fixture-app/src/screens/tasks/taskQueries.ts b/evals/fixture-app/src/screens/tasks/taskQueries.ts
+index bb4e8c6..5354854 100644
+--- a/evals/fixture-app/src/screens/tasks/taskQueries.ts
++++ b/evals/fixture-app/src/screens/tasks/taskQueries.ts
+@@ -14,6 +14,6 @@ export function useAddTask() {
+   const queryClient = useQueryClient()
+   return useMutation({
+     mutationFn: api.addTask,
+-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['task', 'list'] }),
++    onSuccess: () => queryClient.invalidateQueries({ queryKey: taskKeys.list() }),
+   })
+ }
+
+$ agent-browser --session upd-f open "http://localhost:5242/?screen=tasks"
+✓ Acme Console
+  http://localhost:5242/?screen=tasks
+[exit 0]
+
+$ npx genie-react status --session upd-f --wait 15000 --json | jq -c "{ready,url:.app.url}"
+{"ready":true,"url":"http://localhost:5242/?screen=tasks"}
+[exit 0]
+
+$ agent-browser --session upd-f get text 'ul[aria-label="Tasks"]'
+Renew TLS certificate
+Rotate API keys
+[exit 0]
+
+$ npx genie-react verify begin --session upd-f --name 'add a task' --claim 'render TaskList min 1' --claim 'render AddTaskForm min 1' --claim 'boundaries clean'
+recording vfy_65b7ac47-c406-48ae-b984-e383f63deaa6 "add a task"
+  url "http://localhost:5242/?screen=tasks"
+  1 recording render TaskList min 1
+  2 recording render AddTaskForm min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:3,domains:[react,query,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_65b7ac47-c406-48ae-b984-e383f63deaa6 --session upd-f
+session: {sessionId:c594268d-6615-447b-a63c-02ab85438636,logicalSessionId:93aafe39-6f16-4275-8912-4d29324be8e9,documentGeneration:3}
+schemaVersion: "1.0"
+targets: [{target:{component:TaskList},status:resolved,instances:1,source:/src/screens/tasks/TasksScreen.tsx},{target:{component:AddTaskForm},status:resolved,instances:1,source:/src/screens/tasks/TasksScreen.tsx}]
+startedAt: 2026-11-19T09:02:05.612Z
+expiresAt: 2026-11-19T09:07:05.620Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'input[aria-label="New task title"]' 'Archive Q3 invoices'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-f click 'button[type=submit]'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-f wait --text Saved
+Saved
+[exit 0]
+
+$ npx genie-react verify end vfy_65b7ac47-c406-48ae-b984-e383f63deaa6 --session upd-f
+pass vfy_65b7ac47-c406-48ae-b984-e383f63deaa6 "add a task"  3 commits, quiet after 621 ms (react, query, network)
+  url "http://localhost:5242/?screen=tasks"
+  1 pass render TaskList min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:TaskList},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:6,source:/src/screens/tasks/TasksScreen.tsx:46:7}]
+  2 pass render AddTaskForm min 1  {renders:3,mounts:0,updates:3,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:AddTaskForm},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:2,renders:3,mounts:0,updates:3,mountGeneration:1,latestDocumentCommitId:6,source:/src/screens/tasks/TasksScreen.tsx:45:7}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:3}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:3,settledDocumentCommitId:6,frozenDocumentCommitId:6,commits:3,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:621,domains:{react:met,query:met,network:met}},tail:{ms:500,commits:0},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 2 for these claims on this tab; previous fail vfy_1cacbcc2-a427-4360-9fa9-93b1fd4f8a00; document reloaded since
+evidence: $ npx genie-react verify show vfy_65b7ac47-c406-48ae-b984-e383f63deaa6 --session upd-f
+session: {sessionId:c594268d-6615-447b-a63c-02ab85438636,logicalSessionId:93aafe39-6f16-4275-8912-4d29324be8e9,documentGeneration:3}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_6130050ec922,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_1cacbcc2-a427-4360-9fa9-93b1fd4f8a00,verdict:fail,reasons:[],endedAt:2026-11-19T09:01:53.656Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T09:02:05.612Z
+endedAt: 2026-11-19T09:02:07.461Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-f get text 'ul[aria-label="Tasks"]'
+Renew TLS certificate
+Rotate API keys
+Archive Q3 invoices
+[exit 0]
+
+$ npx genie-react call query_invalidations --session upd-f '{}'
+calls[1]:
+  - {sequence:1,method:invalidateQueries,timestamp:1795078925813,byGenie:false,filters:{queryKey:[tasks,list],exact:false,type:null,refetchType:null,predicate:false},matchedCount:1,matched:[{queryHash:"[\"tasks\",\"list\"]",queryKey:[tasks,list],isActive:true,observerCount:1}],nearMisses:[],stack:["at QueryClient.wrapper (http://localhost:5242/@fs~/.t3/worktrees/genie-react/ali-articles-update-f-ce7752e6ad4d0d0f/packages/genie-react/dist/query-BmJH1kVV.js:167:5)","at Object.onSuccess (http://localhost:5242/src/screens/tasks/taskQueries.ts?t=1795078925009:17:32)","at Mutation.execute (http://localhost:5242/.vite/deps/modern-CUbVEGj4.js?v=9422e8ca:1669:34)"]}
+omittedByLimit: 0
+coverage:
+  methods: [invalidateQueries,refetchQueries,resetQueries,removeQueries]
+  since: 1795078924946
+[exit 0]
+
+$ npx genie-react call query_get --session upd-f '{"queryKey":["tasks","list"]}' --fields status,isInvalidated,dataUpdateCount,fetchCount,data
+[1]:
+  - {status:success,isInvalidated:false,dataUpdateCount:2,fetchCount:2,data:[{id:1,title:"Renew TLS certificate"},{id:2,title:"Rotate API keys"},{id:3,title:"Archive Q3 invoices"}]}
+[exit 0]
+
+$ git checkout -- src/screens/tasks/taskQueries.ts   (fix reverted)
+
+$ agent-browser --session upd-f open "http://localhost:5242/?screen=tasks"
+✓ Acme Console
+  http://localhost:5242/?screen=tasks
+[exit 0]
+
+$ npx genie-react status --session upd-f --wait 15000 --json | jq -c "{ready,url:.app.url}"
+{"ready":true,"url":"http://localhost:5242/?screen=tasks"}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'input[aria-label="New task title"]' 'Archive Q3 invoices'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-f click 'button[type=submit]'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-f wait --text Saved
+Saved
+[exit 0]
+
+$ agent-browser --session upd-f get text 'ul[aria-label="Tasks"]'
+Renew TLS certificate
+Rotate API keys
+[exit 0]
+
+$ npx genie-react call query_invalidations --session upd-f '{}' --json | jq -c '.calls[] | {queryKey:.filters.queryKey,matchedCount,nearMisses}'
+{"queryKey":["task","list"],"matchedCount":0,"nearMisses":["[\"tasks\",\"list\"]"]}
+[exit 0]
+
+$ npx genie-react call query_refetch --session upd-f '{"queryKey":["tasks","list"]}'
+ok: true
+matched: 1
+queries: [{queryHash:"[\"tasks\",\"list\"]",queryKey:[tasks,list],status:success,fetchStatus:idle}]
+[exit 0]
+
+$ agent-browser --session upd-f get text 'ul[aria-label="Tasks"]'
+Renew TLS certificate
+Rotate API keys
+Archive Q3 invoices
+[exit 0]
+```
