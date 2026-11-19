@@ -42,8 +42,8 @@ import {
   type ResolvedSource,
   type SourceProvenance,
   scheduleClassificationWarmup,
-  sourceLabel,
   sourceProvenanceForSource,
+  unnamedComponentLabel,
 } from './source'
 import { isGeneratedClass, parseStyleSources, type StyleSourceRef } from './style-provenance'
 import { isClassComponentFiber, isSuspenseFiber } from './work-tags'
@@ -803,12 +803,13 @@ async function foldLibrarySubtrees(entries: { node: TreeNode; fiber: Fiber }[]):
   const { classes, partial } = await classifyTreeEntries(entries)
   if (partial) scheduleClassificationWarmup(entries.map((entry) => entry.fiber))
   entries.forEach((entry, index) => {
-    const { source, isLibrary } = classes[index] ?? UNCLASSIFIED_FIBER
+    const classification = classes[index] ?? UNCLASSIFIED_FIBER
+    const { source, isLibrary } = classification
     entry.node.source = source
     entry.node.isLibrary = isLibrary
     entry.node.ownership = classes[index]?.ownership ?? 'unknown'
     if (entry.node.name === 'Anonymous') {
-      const label = sourceLabel(source)
+      const label = unnamedComponentLabel(classification)
       if (label) entry.node.name = label
     }
   })

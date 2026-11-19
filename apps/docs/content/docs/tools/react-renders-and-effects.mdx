@@ -148,8 +148,11 @@ are `unknown`, because the summary may count library work. If unknowns persist a
 metadata or source-map access before comparing app-only measurements.
 
 For `const FriendListRow = memo(() => ...)`, the wrapper does not retain the variable's name.
-Genie uses an explicit wrapper `displayName`, then the inner function's name, and finally source
-information when available. To preserve anonymous memo binding names automatically, add the
+Genie uses an explicit wrapper `displayName`, then the inner function's name, then the JSX tag the
+app wrote at the element's call site (such as `Link` for TanStack Router's
+`memo(forwardRef(...))` link), and finally source information when available. A
+`memo(forwardRef(...))` wrapper is owned by whoever wrote the component it wraps, so a library one
+is hidden by `appOnly:true`. To preserve anonymous memo binding names automatically, add the
 opt-in `genie-react/babel` plugin to your development Babel pipeline.
 
 For Expo, add it to your existing Babel configuration (keep your other presets and plugins):

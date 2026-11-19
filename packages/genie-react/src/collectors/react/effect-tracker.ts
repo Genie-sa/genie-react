@@ -34,7 +34,7 @@ import {
   isHiddenByAppOnly,
   type OwnershipBasis,
   type ResolvedSource,
-  sourceLabel,
+  unnamedComponentLabel,
 } from './source'
 import { ownsEffectList } from './work-tags'
 
@@ -526,7 +526,10 @@ export async function getEffectAuditReport(query: EffectAuditQuery): Promise<{
   const all: EffectAuditRecord[] = list.map((record, index) => {
     const classification = classes[index] ?? UNCLASSIFIED_FIBER
     const { source, ownership, isLibrary } = classification
-    const name = record.name === 'Anonymous' ? (sourceLabel(source) ?? record.name) : record.name
+    const name =
+      record.name === 'Anonymous'
+        ? (unnamedComponentLabel(classification) ?? record.name)
+        : record.name
     const declarations = declarationsByRecord[index]
     return {
       id: record.id,
