@@ -21,8 +21,20 @@ function docsPages() {
     })
 }
 
+const serverErrorRetries = 3
+
+async function fetchLive(path) {
+  const url = new URL(path, siteUrl)
+  let response = await fetch(url, { redirect: 'manual' })
+  for (let attempt = 1; response.status >= 500 && attempt <= serverErrorRetries; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, attempt * 2000))
+    response = await fetch(url, { redirect: 'manual' })
+  }
+  return response
+}
+
 async function expectStatus(path, status, contentType) {
-  const response = await fetch(new URL(path, siteUrl), { redirect: 'manual' })
+  const response = await fetchLive(path)
   if (response.status !== status) return `${path}: expected ${status}, got ${response.status}`
   const actualType = response.headers.get('content-type') ?? ''
   if (contentType && !actualType.startsWith(contentType)) {
@@ -32,7 +44,7 @@ async function expectStatus(path, status, contentType) {
 }
 
 async function expectRedirect(from, to) {
-  const response = await fetch(new URL(from, siteUrl), { redirect: 'manual' })
+  const response = await fetchLive(from)
   const location = response.headers.get('location')
   const expected = new URL(to, siteUrl).href
   if (response.status !== 301 || !location || new URL(location, siteUrl).href !== expected) {
