@@ -1,0 +1,8 @@
+{
+  "title": "Articles",
+  "icon": "Newspaper",
+  "pages": [
+    "why-did-this-react-component-re-render",
+    "wasted-re-renders-in-react-native-with-an-ai-agent"
+  ]
+}
