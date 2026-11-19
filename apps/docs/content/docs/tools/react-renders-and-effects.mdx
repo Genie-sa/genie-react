@@ -259,8 +259,11 @@ with equal contents does not make a render `necessary` and counts toward `noObse
 React renders a component on its own only for an input it saw change, so a render with no observed
 trigger and no rendered parent gets an `unknown` cause instead: `no-observable-fiber-input-change`
 for inputs Genie cannot read, such as `forceUpdate`, or `unclassified-hook-changed` with `hookIndex`
-for a hook it cannot classify, such as `useDeferredValue`. Neither counts toward
-`noObservedInputChange`. With complete coverage, a render of those components whose changed props
+for a hook it cannot classify. Neither counts toward `noObservedInputChange`. The render that catches
+a `useDeferredValue` up to its new value has an exact `state` cause named `useDeferredValue`, with
+the before and after values and `hook.stateIndex: null`. Genie reads which hook owns the slot from
+the record React's development build keeps, so in a production build the render stays
+`unclassified-hook-changed`. With complete coverage, a render of those components whose changed props
 were all reference-only or new functions counts toward `functionIdentityPropRenders` when any function
 changed identity, usually an inline callback, and toward `referenceOnlyPropRenders` otherwise.
 `undeterminedReferencePropRenders` counts renders whose reference changes a partial scan or a

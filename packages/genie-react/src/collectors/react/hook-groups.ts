@@ -15,6 +15,24 @@ const SLOT_LAYOUTS: ReadonlyArray<Readonly<Record<string, number>>> = [
   { ...MULTI_SLOT_PRIMITIVES, DeferredValue: 2 },
 ]
 
+// React's dev build records every hook call in `fiber._debugHookTypes`, including the ones that allocate no slot.
+const SLOTLESS_HOOK_TYPES = new Set(['useContext', 'useDebugValue'])
+
+/** The React hook that allocated each of a fiber's `slotCount` hook slots, read from React's dev-build record of the hooks the component called; null without that record, or when it accounts for a different number of slots, as early React 18's two-slot useDeferredValue does. */
+export function hookTypesBySlot(hookTypes: unknown, slotCount: number): string[] | null {
+  if (!Array.isArray(hookTypes)) return null
+  const slots: string[] = []
+  for (const type of hookTypes) {
+    if (typeof type !== 'string' || !type.startsWith('use')) return null
+    const allocated = SLOTLESS_HOOK_TYPES.has(type)
+      ? 0
+      : (MULTI_SLOT_PRIMITIVES[type.slice('use'.length)] ?? 1)
+    for (let slot = 0; slot < allocated; slot += 1) slots.push(type)
+    if (slots.length > slotCount) return null
+  }
+  return slots.length === slotCount ? slots : null
+}
+
 const EXPECTED_KINDS: Readonly<Record<string, readonly HookKind[]>> = {
   State: ['state'],
   Reducer: ['reducer'],

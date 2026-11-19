@@ -6,7 +6,8 @@ import {
   presenceDiff,
   safeOwnPropertyDescriptor,
 } from './deep-diff'
-import { classifyHook, isStatefulHook } from './fiber'
+import { classifyHook, hookChain, isStatefulHook } from './fiber'
+import { hookTypesBySlot } from './hook-groups'
 import {
   createRenderEvidenceBudget,
   diffStateWithBudget,
@@ -57,7 +58,7 @@ interface StateRenderChangeBase {
 export interface HookStateRenderChange extends StateRenderChangeBase {
   hook: {
     index: number
-    /** Null for state React keeps inside useTransition and useActionState, which has no ordinal react_override_hook_state accepts. */
+    /** Null for state React keeps inside useTransition, useActionState and useDeferredValue, which has no ordinal react_override_hook_state accepts. */
     stateIndex: number | null
     kind: 'state' | 'reducer'
   }
@@ -198,13 +199,28 @@ function isStateQueueHook(hook: MemoizedState): boolean {
   )
 }
 
-/** Hooks Genie cannot classify, such as useDeferredValue, whose value changed; React rendered for them, so they rule out an unnecessary verdict. */
+/** Reads lazily, since only a changed hook without an update queue needs it, whether a hook slot holds a useDeferredValue. */
+function deferredValueSlots(fiber: Fiber): (index: number) => boolean {
+  let slots: string[] | null | undefined
+  return (index) => {
+    if (slots === undefined) {
+      const hookTypes = safeOwnPropertyDescriptor(fiber, '_debugHookTypes')
+      slots = isDataDescriptor(hookTypes)
+        ? hookTypesBySlot(hookTypes.value, hookChain(fiber).length)
+        : null
+    }
+    return slots?.[index] === 'useDeferredValue'
+  }
+}
+
+/** Hooks Genie cannot classify whose value changed, such as useDeferredValue in a build without React's hook record; React rendered for them, so they rule out an unnecessary verdict. */
 export function diffUnclassifiedHooks(
   fiber: Fiber,
   evidence = createRenderEvidenceBudget(),
 ): number[] {
   if (isClassComponentFiber(fiber)) return []
   const changed: number[] = []
+  const isDeferredValue = deferredValueSlots(fiber)
   let cur: MemoizedState | null = fiber.memoizedState
   let alt: MemoizedState | null = fiber.alternate?.memoizedState ?? null
   for (let index = 0; cur && alt && index < HOOK_WALK_LIMIT; index += 1) {
@@ -214,7 +230,8 @@ export function diffUnclassifiedHooks(
       typeof cur.memoizedState !== 'function' &&
       !isStateQueueHook(cur) &&
       !isExternalStoreHook(cur) &&
-      classifyHook(cur) === 'other'
+      classifyHook(cur) === 'other' &&
+      !isDeferredValue(index)
     ) {
       changed.push(index)
     }
@@ -224,7 +241,7 @@ export function diffUnclassifiedHooks(
   return changed
 }
 
-/** Reports changed useState/useReducer slots in one guarded hook-chain pass. */
+/** Reports changed useState/useReducer slots, and the value a useDeferredValue caught up to, in one guarded hook-chain pass. */
 export function diffStateChanges(
   fiber: Fiber,
   evidence = createRenderEvidenceBudget(),
@@ -248,6 +265,7 @@ export function diffStateChanges(
   }
 
   const changes: StateRenderChange[] = []
+  const isDeferredValue = deferredValueSlots(fiber)
   let cur: MemoizedState | null = fiber.memoizedState
   let alt: MemoizedState | null = fiber.alternate?.memoizedState ?? null
   let index = 0
@@ -258,7 +276,23 @@ export function diffStateChanges(
     const previousStateful = isStateQueueHook(alt)
     const ordinal = isStatefulHook(cur) ? stateIndex : null
     if (ordinal !== null) stateIndex += 1
-    if (currentStateful || previousStateful) {
+    if (
+      !currentStateful &&
+      !previousStateful &&
+      !Object.is(cur.memoizedState, alt.memoizedState) &&
+      isDeferredValue(index) &&
+      retainInputEvidence(evidence)
+    ) {
+      changes.push({
+        name: 'useDeferredValue',
+        kind: 'state',
+        unstable: false,
+        hook: { index, stateIndex: null, kind: 'state' },
+        before: stateValue(alt.memoizedState, evidence, STATE_PLAIN_OBJECT_DEPTH),
+        after: stateValue(cur.memoizedState, evidence, STATE_PLAIN_OBJECT_DEPTH),
+        deepDiff: diffStateWithBudget(alt.memoizedState, cur.memoizedState, evidence),
+      })
+    } else if (currentStateful || previousStateful) {
       if (!Object.is(cur.memoizedState, alt.memoizedState)) {
         if (!retainInputEvidence(evidence)) {
           cur = cur.next

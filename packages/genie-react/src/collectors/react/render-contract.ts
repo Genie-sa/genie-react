@@ -112,7 +112,7 @@ const renderHookStateChangeSchema = renderStateChangeBase.extend({
       .int()
       .nullable()
       .describe(
-        "The hook's stateIndex in react_inspect_component, accepted by react_override_hook_state. null for the pending flag React keeps inside useTransition and useActionState, which has no stateIndex.",
+        "The hook's stateIndex in react_inspect_component, accepted by react_override_hook_state. null for the pending flag React keeps inside useTransition and useActionState, and for a useDeferredValue, which have no stateIndex.",
       ),
     kind: z.enum(['state', 'reducer']),
   }),
@@ -537,7 +537,7 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
         'unclassified-hook-changed',
       ])
       .describe(
-        'no-observable-fiber-input-change: React rendered for an input Genie cannot see, such as forceUpdate. unclassified-hook-changed: a hook Genie cannot classify, such as useDeferredValue, holds a new value.',
+        'no-observable-fiber-input-change: React rendered for an input Genie cannot see, such as forceUpdate. unclassified-hook-changed: a hook Genie cannot classify holds a new value. A useDeferredValue catch-up render is a state cause named useDeferredValue instead, except in production builds of React.',
       ),
     hookIndex: z
       .number()
@@ -698,7 +698,7 @@ export const renderComponentSchema = z.object({
   noObservedInputChange: z
     .number()
     .describe(
-      'Updates with complete input coverage where no input held a new value: the parent rendered without changing props, or state or context only received a new object with equal contents. Updates with no observed trigger, such as forceUpdate or useDeferredValue, are excluded and carry an unknown cause.',
+      'Updates with complete input coverage where no input held a new value: the parent rendered without changing props, or state or context only received a new object with equal contents. Updates with no observed trigger, such as forceUpdate, are excluded and carry an unknown cause.',
     ),
   referenceOnlyPropRenders: z
     .number()
