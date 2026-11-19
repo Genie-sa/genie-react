@@ -37,7 +37,11 @@ const getSourceFromSourceMap = vi.fn<
     column: number,
   ) => { fileName: string; lineNumber: number; columnNumber: number } | null
 >(() => null)
-const normalize = (file: string) => file.replace(/\?.*$/, '').replace(/^https?:\/\/[^/]+/, '')
+const normalize = (file: string) =>
+  file
+    .replace(/\?.*$/, '')
+    .replace(/^https?:\/\/[^/]+/, '')
+    .replace(/^webpack-internal:\/\/\/\./, '')
 vi.mock('bippy/source', () => ({
   getSource: (fiber: { _debugSource?: unknown }) => getSource(fiber),
   formatOwnerStack: (stack: string) => formatOwnerStack(stack),
@@ -1562,6 +1566,111 @@ describe('resolveHookCallsite', () => {
       file: '/src/lab.tsx',
       line: 39,
       column: 5,
+    })
+  })
+
+  it('maps a Vite-served source module back to its own lines', async () => {
+    getSourceMap.mockResolvedValue({ version: 3 })
+    getSourceFromSourceMap.mockReturnValue({
+      fileName: '/repo/app/src/features/use-activity.ts',
+      lineNumber: 13,
+      columnNumber: 2,
+    })
+
+    await expect(
+      resolveHookCallsite(hookAt('http://localhost:5173/src/features/use-activity.ts?t=1', 15)),
+    ).resolves.toMatchObject({
+      file: '/src/features/use-activity.ts',
+      line: 13,
+      column: 3,
+      sourceMapConfidence: 'mapped',
+    })
+  })
+
+  describe('in a webpack eval module', () => {
+    const MODULE = 'webpack-internal:///./src/features/use-activity.ts'
+    const BUNDLE = 'http://localhost:4711/static/js/main.js'
+    const CDN_SCRIPT = 'https://cdn.example/analytics.js'
+    const map = {
+      version: 3,
+      sources: ['webpack://app/./src/features/use-activity.ts?9e16'],
+      names: [],
+      mappings: 'AAAA',
+    }
+    const evalModule = (id: string, footer: string) =>
+      `"${id}": () => { eval(${JSON.stringify(`code()\n${footer}//# sourceURL=${id}\n`)}) },`
+    const inlineMap = `//# sourceMappingURL=data:application/json;charset=utf-8;base64,${Buffer.from(JSON.stringify(map)).toString('base64')}\n`
+
+    const serveBundle = (modules: string) => {
+      const fetchMock = vi.fn(async (url: string) =>
+        url === BUNDLE ? new Response(modules) : new Response('', { status: 404 }),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      vi.stubGlobal('location', { origin: 'http://localhost:4711' })
+      vi.stubGlobal('document', {
+        baseURI: 'http://localhost:4711/',
+        scripts: [{ src: BUNDLE }, { src: CDN_SCRIPT }],
+      })
+      getSourceFromSourceMap.mockReturnValue({
+        fileName: 'webpack://app/./src/features/use-activity.ts?9e16',
+        lineNumber: 13,
+        columnNumber: 0,
+      })
+      return fetchMock
+    }
+
+    it('maps the hook through the inline map the page script carries', async () => {
+      const fetchMock = serveBundle(evalModule(MODULE, inlineMap))
+
+      await expect(
+        resolveHookCallsite({ ...hookAt(MODULE, 15), columnNumber: 51 }),
+      ).resolves.toMatchObject({
+        file: '/src/features/use-activity.ts',
+        line: 13,
+        column: 1,
+        sourceMapConfidence: 'mapped',
+      })
+      expect(getSourceFromSourceMap).toHaveBeenCalledWith(
+        expect.objectContaining({ sources: map.sources }),
+        15,
+        50,
+      )
+      expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain(CDN_SCRIPT)
+    })
+
+    it("keeps served coordinates when the module carries no map, never borrowing the previous module's", async () => {
+      serveBundle(
+        evalModule('webpack-internal:///./src/features/other.ts', inlineMap) +
+          evalModule(MODULE, ''),
+      )
+
+      await expect(
+        resolveHookCallsite({ ...hookAt(MODULE, 15), columnNumber: 51 }),
+      ).resolves.toMatchObject({
+        file: '/src/features/use-activity.ts',
+        line: 15,
+        column: 51,
+        sourceMapConfidence: 'served',
+      })
+      expect(getSourceFromSourceMap).not.toHaveBeenCalled()
+    })
+  })
+
+  it('keeps served coordinates when the map names a different source file', async () => {
+    getSourceMap.mockResolvedValue({ version: 3 })
+    getSourceFromSourceMap.mockReturnValue({
+      fileName: '/repo/app/src/features/other.ts',
+      lineNumber: 3,
+      columnNumber: 2,
+    })
+
+    await expect(
+      resolveHookCallsite(hookAt('http://localhost:5173/src/features/use-activity.ts', 15)),
+    ).resolves.toMatchObject({
+      file: '/src/features/use-activity.ts',
+      line: 15,
+      column: 0,
+      sourceMapConfidence: 'served',
     })
   })
 

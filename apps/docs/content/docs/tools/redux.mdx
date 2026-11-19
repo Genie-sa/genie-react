@@ -26,7 +26,9 @@ action type and `typePrefix` keeps types starting with it. `slice` keeps records
 top-level slice or mutated something under it. `kinds` keeps record kinds (`action`, `thunk`,
 `unrecorded-change`, `mutation-outside-dispatch`). `mutationsOnly` defaults to false. Omit
 `afterSequence` to read the latest `limit` records (1 to 200, default 50); pass a previous
-`nextAfterSequence` to read forward. `view` defaults to `summary`; `full` adds each action's bounded
+`nextAfterSequence` to read forward. `matched` counts the retained records that match the filters;
+with `afterSequence` it counts only those after it: this page and the newer matches still to read.
+`view` defaults to `summary`; `full` adds each action's bounded
 `payload`, the render events that named it as exact, and Genie's own time.
 
 ```bash

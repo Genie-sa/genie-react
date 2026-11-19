@@ -79,12 +79,18 @@ causes you listed, such as `props.issue`, Genie counts the parent cause as settl
 | `refused` | 4 | the evidence is not good enough to decide |
 | `inconclusive` | 5 | complete evidence that does not decide, such as an excess only StrictMode explains |
 
-A refusal names its reason and the fix. Ending a window with no action:
+A refusal names its reason and the fix. When the window holds no React commit at all, claims that
+hold when nothing renders, such as `max 0`, refuse with `no_activity`:
 
 ```text
 refused vfy_… "nothing"  0 commits, quiet after 609 ms (react, query)
   1 refused render MemoChild max 0  no_activity: No React commit happened in the window; the interaction did not reach this tab or did not change React state.
 ```
+
+The guard counts every commit in the tab, from any component. On a page whose own timer or poll
+sets state, such as a clock or a sync status, a window with no interaction still has commits, so it
+passes with exit code 0. Only a `min 1` claim on a component the interaction must change catches an
+action that never reached the app.
 
 [Read evidence](/docs/reference/evidence#refusals) lists every refusal.
 

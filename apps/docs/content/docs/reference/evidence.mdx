@@ -56,7 +56,7 @@ rendered it) or `hook-callsite`, the most precise place to edit.
 
 | Reason | Cause |
 | --- | --- |
-| `no_activity` | No React commit in the window. The action went to another tab or changed nothing. |
+| `no_activity` | No React commit in the window, from any component. A commit from the app's own timer prevents it, so add a `min 1` claim to catch an action that missed the app. |
 | `not_quiescent` | Work was still arriving after the app settled. |
 | `coverage_incomplete`, `budget_exhausted` | The analysis skipped part of the target. Rerun with the budget it prints. When the interaction itself unmounts more components than Genie keeps (`droppedUnmountFibers`), a rerun loses them again: start from a page that mounts fewer components, or claim a lower bound. |
 | `evidence_truncated`, `evidence_unavailable` | Events were evicted or a read failed. `evidence_truncated` also covers a component with more than 2,000 mounted instances, more than `verify` lists, so it cannot check the rest. Start from a page that mounts fewer of them. |

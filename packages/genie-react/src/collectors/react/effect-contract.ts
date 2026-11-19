@@ -98,12 +98,12 @@ const effectHotnessSchema = z.object({
   scheduleReason: z
     .enum(['meets-threshold', 'below-schedule-rate', 'below-minimum-updates'])
     .describe(
-      'The scheduled/updates rate against minScheduleRate, as a raw fact; label and basis decide hotness.',
+      'The scheduled/updates rate against minScheduleRate, as a raw fact. It decides the label only for an effect without a dependency array, so a hot effect with dependencies can be below-schedule-rate; basis says why the label holds.',
     ),
   reason: z
     .enum(['meets-threshold', 'below-fire-rate', 'below-minimum-updates'])
     .describe(
-      'Legacy alias for scheduleReason; below-fire-rate means below schedule rate and does not prove execution.',
+      'Legacy alias for scheduleReason, so it does not decide the label either; below-fire-rate means below schedule rate and does not prove execution.',
     ),
 })
 
