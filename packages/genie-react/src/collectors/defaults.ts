@@ -18,8 +18,8 @@ export interface DefaultCollectorOptions {
   reduxStore?: ReduxStoreLike
 }
 
-/** Every collector wired beyond the session/react core — the single list the web and native entries share, so a new default ships to both platforms at once. */
-export function defaultAppCollectors(options: DefaultCollectorOptions): GenieCollector[] {
+/** Every collector wired beyond the session/react core — the single list the web and native entries and hand-built clients share, so a new default ships to all of them at once. */
+export function defaultAppCollectors(options: DefaultCollectorOptions = {}): GenieCollector[] {
   const collectors: GenieCollector[] = [
     memoryCollector(),
     perfCollector(),

@@ -8,7 +8,9 @@ Declare claims, drive the UI, and end the window. Genie waits for the app to set
 each claim. Settling means React stopped committing, Query and Router work finished, and every fetch
 or XMLHttpRequest call the app started during the window got its response. A request still in flight
 when `--timeout-ms` runs out refuses the claims it could change, naming the request; the `$` fix
-raises the timeout.
+raises the timeout. `--domains` limits the wait to a list such as `react,network`. A domain the app
+does not report refuses at `begin` and names the collector to add, such as `requestWatchCollector()`
+for `network`.
 
 ## Run one verification
 

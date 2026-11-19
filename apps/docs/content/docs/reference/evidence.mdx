@@ -57,7 +57,7 @@ rendered it) or `hook-callsite`, the most precise place to edit.
 | Reason | Cause |
 | --- | --- |
 | `no_activity` | No React commit in the window, from any component. A commit from the app's own timer prevents it, so add a `min 1` claim to catch an action that missed the app. |
-| `not_quiescent` | Work was still arriving after the app settled, or a request the interaction started was still in flight when the settle timeout ran out. |
+| `not_quiescent` | Work was still arriving after the app settled, a request the interaction started was still in flight when the settle timeout ran out, or Genie could not observe a settle domain, such as a request watch that stopped. |
 | `coverage_incomplete`, `budget_exhausted` | The analysis skipped part of the target. Rerun with the budget it prints. When the interaction itself unmounts more components than Genie keeps (`droppedUnmountFibers`), a rerun loses them again: start from a page that mounts fewer components, or claim a lower bound. |
 | `evidence_truncated`, `evidence_unavailable` | Events were evicted or a read failed. `evidence_truncated` also covers a component with more than 2,000 mounted instances, more than `verify` lists, so it cannot check the rest. Start from a page that mounts fewer of them. |
 | `evidence_inferred` | The deciding cause is only `inferred`. A `parent` cause is settled when the parent is the component's own wrapper, such as `Connect(Name)`, and the wrapper rendered only for exact causes the claim allows. |
@@ -66,7 +66,7 @@ rendered it) or `hook-callsite`, the most precise place to edit.
 | `code_changed` | Fast Refresh ran during the window. |
 | `document_hidden` | The tab was hidden. |
 | `override_active` | A Genie override was active. Reset it first. |
-| `unsupported_environment`, `capability_unavailable` | A production React build, or a missing collector. |
+| `unsupported_environment`, `capability_unavailable` | A production React build, or a missing collector. `--domains` naming a domain the app does not report refuses at `begin` and names the collector to add, such as `requestWatchCollector()` for `network`. |
 | `too_few_samples`, `not_comparable` | Comparison claims without enough comparable runs. |
 
 `inconclusive` is complete evidence that does not decide, such as `strict_mode_replay`.

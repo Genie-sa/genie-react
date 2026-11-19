@@ -194,6 +194,44 @@ describe('renders decision table', () => {
     expect(reasonOf({ ...badgeMax0, max: 5 }, evidence)).toBe(reason)
   })
 
+  it('blames the timeout and raises it when the app was still busy at the deadline', () => {
+    const refusal = outcome({ ...badgeMax0, max: 5 }, withSettle('timed-out')).refusal
+
+    expect(refusal?.message).toBe(
+      'The app did not settle within the timeout, so later work could still change the answer.',
+    )
+    expect(refusal?.fix).toEqual({ action: 'begin-again', settle: { timeoutMs: 20_000 } })
+  })
+
+  it('names the settle domain Genie could not observe instead of a timeout that never ran out', () => {
+    const base = withSettle('failed')
+    const unobserved = {
+      ...base,
+      window: {
+        ...base.window,
+        settle: {
+          ...base.window.settle,
+          waitedMs: 21,
+          reason: 'Generic network quiet is not instrumented by this app.',
+        },
+      },
+    }
+
+    const refusal = outcome({ ...badgeMax0, max: 5 }, unobserved).refusal
+
+    expect(refusal).toMatchObject({ reason: 'not_quiescent', fix: { action: 'check-setup' } })
+    expect(refusal?.message).toBe(
+      'Genie could not observe whether the app settled (Generic network quiet is not instrumented by this app.), so later work could still change the answer.',
+    )
+    expect(
+      evaluateGuards(guardInputs({ settle: unobserved.window.settle })).find(
+        (guard) => guard.guard === 'settled',
+      )?.message,
+    ).toBe(
+      'Genie could not observe whether the app settled (Generic network quiet is not instrumented by this app.); upper-bound claims refuse, lower-bound claims can still pass.',
+    )
+  })
+
   it('counts an instance mounted at both begin and end as one active instance', () => {
     expect(outcome(badgeMax0, windowEvidence())).toMatchObject({
       observed: { instances: 1, activeInstances: 1 },

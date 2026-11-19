@@ -814,6 +814,57 @@ describe('verify on a real React tree', () => {
   })
 })
 
+describe('verify with settle domains the app does not report', () => {
+  const positiveControl = [badgeClaims[1] as VerifyClaimInput]
+
+  it('refuses at begin, naming the domain and the collector that reports it', async () => {
+    await mount(createElement(SearchScreen, { fixed: true }))
+    start()
+
+    const refusedAtBegin = await begin(positiveControl, {
+      settle: { domains: ['react', 'network'] },
+    })
+
+    expect(refusedAtBegin).toMatchObject({
+      verdict: 'refused',
+      exitCode: 4,
+      state: 'completed',
+      stage: 'begin',
+    })
+    expect(verificationSchema.safeParse(refusedAtBegin).error).toBeUndefined()
+    expect(refusedAtBegin.claims[0]?.refusal).toMatchObject({
+      reason: 'capability_unavailable',
+      evidence: { unsupportedDomains: ['network'], advertisedDomains: ['react'] },
+      fix: { action: 'check-setup' },
+    })
+    expect(refusedAtBegin.claims[0]?.refusal?.message).toBe(
+      'The app does not report the network settle domain that --domains asks for. Add requestWatchCollector() to its Genie collectors, or leave network out of --domains.',
+    )
+  })
+
+  it('names every unsupported domain and how to add each one', async () => {
+    await mount(createElement(SearchScreen, { fixed: true }))
+    start()
+
+    const refusedAtBegin = await begin(positiveControl, {
+      settle: { domains: ['react', 'query', 'router'] },
+    })
+
+    expect(refusedAtBegin.claims[0]?.refusal?.message).toBe(
+      'The app does not report the query and router settle domains that --domains asks for. Add queryCollector(queryClient) and routerCollector(router) to its Genie collectors, or leave query and router out of --domains.',
+    )
+  })
+
+  it('records when the app reports every requested domain', async () => {
+    await mount(createElement(SearchScreen, { fixed: true }))
+    harness = verifyHarness([reactCollector(), requestWatchCollector()])
+
+    const began = await begin(positiveControl, { settle: { domains: ['react', 'network'] } })
+
+    expect(began.state).toBe('recording')
+  })
+})
+
 describe('verify after an in-app navigation', () => {
   afterEach(() => window.history.replaceState(null, '', '/'))
 

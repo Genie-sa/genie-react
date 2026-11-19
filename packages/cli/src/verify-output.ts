@@ -217,6 +217,32 @@ function firstNotPassing(claims: unknown): number | undefined {
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
 
+/** A failed settle stopped before its timeout because a domain could not be observed, so it names that domain instead of reading as a timeout. */
+function settleSummary(settle: Record<string, unknown>): string {
+  const domains = isRecord(settle.domains) ? Object.entries(settle.domains) : []
+  const waited = `after ${scalarText(settle.waitedMs)} ms`
+  if (settle.outcome === 'failed') {
+    const unobserved = domains
+      .filter(([, status]) => status === 'unsupported' || status === 'failed')
+      .map(([domain, status]) => `${domain} ${status}`)
+    return `settle not observed ${waited}${unobserved.length > 0 ? ` (${unobserved.join(', ')})` : ''}`
+  }
+  const names = domains.map(([domain]) => domain).join(', ')
+  return `${settle.outcome === 'met' ? 'quiet' : 'not quiet'} ${waited}${names ? ` (${names})` : ''}`
+}
+
+function caveatText(caveat: unknown, window: unknown): string | undefined {
+  if (typeof caveat !== 'string') return undefined
+  if (
+    caveat === 'not-settled' &&
+    isRecord(window) &&
+    isRecord(window.settle) &&
+    window.settle.outcome === 'failed'
+  )
+    return 'Genie could not observe whether the app settled'
+  return CAVEAT_TEXT[caveat]
+}
+
 function headline(document: FieldReader): string {
   const verdict = document.take('verdict')
   const state = document.take('state')
@@ -228,10 +254,7 @@ function headline(document: FieldReader): string {
   const settle = isRecord(window) && isRecord(window.settle) ? window.settle : null
   const commits =
     isRecord(window) && typeof window.commits === 'number' ? plural(window.commits, 'commit') : null
-  const domains = settle && isRecord(settle.domains) ? Object.keys(settle.domains).join(', ') : ''
-  const quiet = settle
-    ? `${settle.outcome === 'met' ? 'quiet' : 'not quiet'} after ${scalarText(settle.waitedMs)} ms${domains ? ` (${domains})` : ''}`
-    : null
+  const quiet = settle ? settleSummary(settle) : null
   const ledger = document.record.ledger
   const retries =
     verdict === 'pass' &&
@@ -341,11 +364,12 @@ export function renderVerificationText(value: unknown): string {
     lines.push(`  url ${quoteString(session.url)}`)
   const claims = document.take('claims')
   lines.push(...claimLines(claims, document.record.state))
-  lines.push(...windowLines(document.take('window')))
+  const window = document.take('window')
+  lines.push(...windowLines(window))
   const caveats = document.take('caveats')
   if (Array.isArray(caveats)) {
     for (const caveat of caveats) {
-      const known = typeof caveat === 'string' ? CAVEAT_TEXT[caveat] : undefined
+      const known = caveatText(caveat, window)
       lines.push(known ? `! ${caveat}: ${known}` : `! caveat: ${scalarText(caveat)}`)
     }
   } else if (caveats !== undefined) {
