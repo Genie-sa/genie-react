@@ -1,5 +1,10 @@
 {
   "title": "Articles",
   "icon": "Newspaper",
-  "pages": ["prove-your-agents-react-fix", "the-fix-that-passed-and-changed-nothing"]
+  "pages": [
+    "prove-your-agents-react-fix",
+    "the-fix-that-passed-and-changed-nothing",
+    "effect-fetches-on-every-keystroke",
+    "clicked-7-days-got-90-days"
+  ]
 }
