@@ -1,0 +1,186 @@
+---
+title: "You clicked 7 days and got 90 days of data: catching request races in React"
+description: "A slow 90-day response landed after the 7-day one and overwrote the chart. Genie's timeline and Redux log show which response won, and where its verify check misses the race."
+---
+
+You clicked **Last 90 days**, then **Last 7 days**, and the chart drew 90 days of data under a pressed 7-day button. The 90-day request started first and finished last, and the `loadReports` thunk stored whichever response came back, so the stale one won.
+
+Genie shows both facts. The timeline request lane shows the order the requests finished in. The Redux log shows which thunk's result the store applied. Genie's `verify` check is weaker here than for render bugs, and the last sections show where it misses.
+
+Everything below ran on 2026-11-19 against `apps/realworld-legacy`, a React 18 app in this repo with webpack and hand-written Redux thunks. The [raw evidence](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/clicked-7-days-got-90-days.md) has every command and its full output.
+
+## Make the race happen every time
+
+A race that depends on network luck is hard to debug. The app ships a fault tool, so make the 90-day throughput request 1200 ms slower:
+
+```bash
+npx genie-react call app_backend_faults '{"rules":[{"method":"GET","path":"/api/reports/throughput","query":{"range":"90d"},"latencyMs":1200}]}' --session art-l3
+```
+
+```text
+rules[1]:
+  - {method:GET,path:/api/reports/throughput,query:{range:90d},latencyMs:1200,status:null,times:null,hits:0}
+```
+
+The fault fixes the order, so every run shows the same race.
+
+## The screen disagrees with the button
+
+Record a timeline with plain query values, click both buttons, and read the screen:
+
+```bash
+npx genie-react call timeline_start '{"name":"range switch","queryValues":"plain"}' --session art-l3 --json
+agent-browser --session art-l3 find role button click --name 'Last 90 days' && agent-browser --session art-l3 find role button click --name 'Last 7 days'
+agent-browser --session art-l3 wait 2000
+npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session art-l3 --fields outcome,elapsedMs
+npx genie-react call timeline_stop '{"id":"timeline-7bbaee98-d4d0-4be7-9e71-86425b32567c"}' --session art-l3 --fields stopReason,eventCount,truncated,queryValues
+agent-browser --session art-l3 eval "JSON.stringify({pressed: document.querySelector('[aria-label=\"Date range\"] [aria-pressed=true]').textContent, chartRange: document.querySelector('.bar-chart').dataset.range, bars: document.querySelectorAll('.bar-chart__bar').length})"
+```
+
+```text
+"{\"pressed\":\"Last 7 days\",\"chartRange\":\"90d\",\"bars\":13}"
+```
+
+The pressed button says 7 days. The chart has 13 weekly bars from the 90-day report. A 7-day chart has 7 daily bars.
+
+## The request lane shows the race
+
+```bash
+npx genie-react call timeline_read '{"id":"timeline-7bbaee98-d4d0-4be7-9e71-86425b32567c","domains":["request"]}' --session art-l3 --fields atMs,details
+```
+
+Trimmed to the two throughput requests:
+
+```text
+  - {atMs:137.7,details:{url:http://127.0.0.1:5313/api/reports/throughput,query:"?project=CORE&range=7d",startMs:74.9,endMs:137.3,durationMs:62.4,bodyReadMs:137.7,finishedAfterNewer:false,bodyReadLast:false}}
+  - {atMs:1306.8,details:{url:http://127.0.0.1:5313/api/reports/throughput,query:"?project=CORE&range=90d",startMs:39,endMs:1301.6,durationMs:1262.6,bodyReadMs:1301.9,finishedAfterNewer:true,bodyReadLast:true}}
+```
+
+The 90-day request started at 39 ms and the 7-day one at 74.9 ms. The 7-day response arrived at 137.3 ms. The 90-day response arrived at 1301.6 ms, so Genie marks it `finishedAfterNewer: true`. `bodyReadLast: true` says the app read its body last. The [timeline docs](/docs/tools/timeline) call that pair the classic response race.
+
+The network lane cannot see what the app did with each body. For that, ask the store.
+
+## The Redux log shows which response won
+
+Genie's Redux collector records each action with the thunk that dispatched it as `parentActionId`. Read the `reports/` actions after the clicks (sequence 146 was the last action before them):
+
+```bash
+npx genie-react call redux_actions '{"afterSequence":146,"typePrefix":"reports/","view":"full"}' --session art-l3 --json | jq -c '{matched, records: [.records[] | {sequence, type, parentActionId, payload}]}'
+```
+
+Trimmed to the fields that matter:
+
+```text
+{"sequence":148,"type":"reports/REQUESTED","parentActionId":"redux-store:1/action:147","payload":{…,"range":"90d"}}
+{"sequence":166,"type":"reports/REQUESTED","parentActionId":"redux-store:1/action:165","payload":{…,"range":"7d"}}
+{"sequence":183,"type":"reports/RECEIVED","parentActionId":"redux-store:1/action:165","payload":{…,"throughput":{"project":"CORE","range":"7d","total":9,…}}}
+{"sequence":200,"type":"reports/RECEIVED","parentActionId":"redux-store:1/action:147","payload":{…,"throughput":{"project":"CORE","range":"90d","total":33,…}}}
+```
+
+Thunk 147 asked for 90 days. Thunk 165 asked for 7 days. The 7-day data arrived first (sequence 183), then thunk 147 dispatched its 90-day data on top (sequence 200). The store's range still says 7 days:
+
+```bash
+npx genie-react call redux_state '{"path":["reports","range"]}' --session art-l3
+```
+
+```text
+path: [reports,range]
+found: true
+value: 7d
+```
+
+And the component on screen holds the 90-day report:
+
+```bash
+npx genie-react call react_inspect_component '{"id":7478326591621}' --session art-l3 --select /props
+```
+
+```text
+result:
+  report:
+    project: CORE
+    range: 90d
+    total: 33
+    buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(13)",path:[report,buckets],size:13}
+```
+
+## The thunk stores whichever response lands last
+
+```ts title="src/features/reports/state/actions.ts"
+export function loadReports(projectKey: string, range: ReportRange): ReportsThunk {
+  return async (dispatch) => {
+    dispatch({ type: REPORTS_REQUESTED, projectKey, range })
+    // …
+      const [throughput, cycleTime, workload] = await Promise.all([/* three requests */])
+      dispatch({ type: REPORTS_RECEIVED, throughput, cycleTime, workload })
+```
+
+Each click starts its own thunk. Nothing checks whether the response still matches the range the user picked last. `REPORTS_REQUESTED` sets `range` to the newest choice, but `REPORTS_RECEIVED` replaces the data from whichever thunk finishes last.
+
+## Ignore responses the user has moved past
+
+Drop the response when the store has moved on:
+
+```diff
+-  return async (dispatch) => {
++  return async (dispatch, getState) => {
+     dispatch({ type: REPORTS_REQUESTED, projectKey, range })
+@@
+       ])
++      const current = getState().reports
++      if (current.projectKey !== projectKey || current.range !== range) return
+       dispatch({ type: REPORTS_RECEIVED, throughput, cycleTime, workload })
+```
+
+The race still happens. The 90-day request still runs and still arrives last, and the app now ignores it.
+
+## What verify can prove here, and what it cannot
+
+`verify` claims cover render counts, render causes, effect runs and error boundaries. None of them can say "the store holds the 7-day data". The closest claim is a render bound. On the shipped code, `ThroughputWidget` rendered 4 times during the two clicks. With the fix, which drops one `RECEIVED`, it rendered 3 times. So the claim is `max 3`:
+
+```bash
+npx genie-react verify begin --session art-l3 --name 'switch 90d then 7d' \
+  --claim 'render ThroughputWidget max 3' --claim 'render ReportRangePicker min 1' --claim 'boundaries clean'
+agent-browser --session art-l3 find role button click --name 'Last 90 days' && agent-browser --session art-l3 find role button click --name 'Last 7 days'
+npx genie-react verify end vfy_1bb074f5-90cc-4ad8-b419-29731dfad9a0 --session art-l3
+```
+
+Before the fix it exits 1, and failed the same way in all three runs:
+
+```text
+fail vfy_1bb074f5-90cc-4ad8-b419-29731dfad9a0 "switch 90d then 7d"  9 commits, quiet after 2007 ms (react)
+  1 fail render ThroughputWidget max 3  {renders:4,mounts:0,updates:4,remounts:0,semantics:exact,instances:1,activeInstances:1}
+```
+
+After the fix it exits 0 in all three runs, and the screen reads `{"pressed":"Last 7 days","chartRange":"7d","bars":7}`:
+
+```text
+pass vfy_541b3c0c-a4da-475d-b3f5-9c8bf9a9f6af "switch 90d then 7d"  7 commits, quiet after 1095 ms (react)
+  1 pass render ThroughputWidget max 3  {renders:3,mounts:0,updates:3,remounts:0,semantics:exact,instances:1,activeInstances:1}
+```
+
+A render count is a proxy, and the proxy has a hole. `verify end` waits until React stops committing. It does not wait for a pending `fetch`, and the verdict did not mention one. With the fix reverted and the 90-day latency raised to 5000 ms, the buggy code passed:
+
+```text
+pass vfy_078b910d-aca6-4523-81d1-fb6468b185b8 "switch 90d then 7d"  7 commits, quiet after 1099 ms (react)
+  1 pass render ThroughputWidget max 3  {renders:3,mounts:0,updates:3,remounts:0,semantics:exact,instances:1,activeInstances:1}
+```
+
+Five seconds later the chart flipped to `"chartRange":"90d","bars":13`. Adding `--tail-ms 6000` to `verify begin`, longer than the stale response, made the same buggy code fail with `renders:4`. Set the tail longer than your slowest request when a late response is the bug.
+
+The stronger proof is the Redux log. After the fix, the same clicks with the 1200 ms delay produced the same late 90-day response at 1308.9 ms, still `finishedAfterNewer: true`. Only three `reports/` actions followed:
+
+```text
+[{"sequence":148,"type":"reports/REQUESTED","parentActionId":"redux-store:1/action:147","range":"90d","throughputRange":null},{"sequence":166,"type":"reports/REQUESTED","parentActionId":"redux-store:1/action:165","range":"7d","throughputRange":null},{"sequence":183,"type":"reports/RECEIVED","parentActionId":"redux-store:1/action:165","range":null,"throughputRange":"7d"}]
+```
+
+Thunk 147 never dispatched `RECEIVED`. That is the fix working, read from the store instead of inferred from a render count.
+
+## When this approach does not fit
+
+- The request lane sees `fetch` and `XMLHttpRequest` calls from the page. It does not see requests from workers, and it cannot see what the app did with a response. Pair it with the store, component props or the screen.
+- `parentActionId` exists because the app's Redux store goes through Genie's Redux collector. With React state or a different store, use `react_inspect_component` on the component that renders the data.
+- `react_render_causes` did not tie the stale render to its action here. On `ReportDataLoader` it reported `props.throughput` as `exact` and the parent as `inferred`, with no Redux action named. The app's [answer key](https://github.com/Genie-sa/genie-react/blob/main/evals/realworld/legacy/README.md) explains that nested `connect()` components get that link only as inferred.
+- An `AbortController` per request is another common fix. This walkthrough did not test it.
+
+See [Verify a fix](/docs/guides/verify-a-fix) for claim forms, `npx genie-react verify begin --help` for `--tail-ms`, and the [Redux tools](/docs/tools/redux) for `redux_actions`.
