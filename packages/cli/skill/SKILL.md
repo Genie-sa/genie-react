@@ -26,11 +26,11 @@ Genie records renders and effects only inside a window, so open one before the a
 ```bash
 npx genie-react call react_clear_renders '{"component":"CheckoutRow"}' --session my-agent
 # Perform the action once with the driver.
-npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session my-agent
+npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session my-agent
 npx genie-react call react_render_causes '{"component":"CheckoutRow","limit":20}' --session my-agent
 ```
 
-The capture counts when quiesce reports `idle` and coverage is complete. If `coverage.budgetAdvice` appears, clear again with its budget and repeat the action. Each cause has a grade: `exact` is proof, `inferred` a lead, `unknown` open.
+The wait holds until React stops committing, no query is fetching, no mutation is running and the router has settled, so a refetch the action starts lands before you read. List only the domains `status` reports; a domain the app lacks fails the wait. Without `domains`, `settled` waits for React only, as `react_quiesce` does, which can report idle before a refetch commits. The capture counts when the wait reports `ok: true` and coverage is complete. If `coverage.budgetAdvice` appears, clear again with its budget and repeat the action. Each cause has a grade: `exact` is proof, `inferred` a lead, `unknown` open.
 
 | Question | Tool |
 | --- | --- |

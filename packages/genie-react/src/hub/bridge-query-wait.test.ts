@@ -230,6 +230,63 @@ describe('GenieBridge waits', () => {
     })
   })
 
+  it('waits for an in-flight query only when settled lists the query domain', async () => {
+    const { ws: app } = await open(`${url}?role=app`)
+    let queryChecks = 0
+    app.on('message', (data) => {
+      const message = decodeFrame(data.toString()) as Frame
+      if (message.kind !== 'bridge/request') return
+      let result: unknown = { documentCommitId: 32, renderCollection: 'available' }
+      if (message.tool === 'query_is_fetching') {
+        queryChecks += 1
+        result = { fetching: queryChecks < 3 ? 1 : 0, mutating: 0 }
+      }
+      send(app, { kind: 'app/response', id: message.id, ok: true, result })
+    })
+    send(app, {
+      kind: 'app/hello',
+      protocol: 1,
+      sessionId: 'refetch-after-react-idle',
+      app: { name: 'refetch fixture' },
+      capabilities: ['react', 'query'],
+      tools: [
+        ['react_get_renders', 'react'],
+        ['query_is_fetching', 'query'],
+      ].map(([name, group]) => ({ name, title: name, description: name, group })),
+    })
+    const { ws: agent, inbox } = await open(`${url}?role=agent`)
+    const invoke = async (tool: string, args: unknown) => {
+      const id = newId()
+      send(agent, { kind: 'agent/invoke', id, tool, args })
+      return (await inbox.wait(isResult(id), 3_000)).result
+    }
+
+    expect(await invoke('react_quiesce', { idleMs: 100, timeoutMs: 2_000 })).toMatchObject({
+      outcome: 'idle',
+    })
+    const reactOnly = await invoke('devtools_wait', {
+      condition: 'settled',
+      quietMs: 100,
+      timeoutMs: 2_000,
+    })
+    expect(reactOnly).toMatchObject({ ok: true, domains: { react: { status: 'met' } } })
+    expect(reactOnly.domains).not.toHaveProperty('query')
+    expect(queryChecks).toBe(0)
+
+    expect(
+      await invoke('devtools_wait', {
+        condition: 'settled',
+        domains: ['react', 'query'],
+        quietMs: 100,
+        timeoutMs: 2_000,
+      }),
+    ).toMatchObject({
+      ok: true,
+      domains: { query: { status: 'met', lastObserved: { fetching: 0, mutating: 0 } } },
+    })
+    expect(queryChecks).toBeGreaterThanOrEqual(3)
+  })
+
   it('keeps unsupported and timed-out settle evidence explicit', async () => {
     const { ws: app } = await open(`${url}?role=app`)
     let commit = 0

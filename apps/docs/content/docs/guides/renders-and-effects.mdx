@@ -24,6 +24,21 @@ npx @genie-react/cli call react_get_renders --session my-agent '{"component":"Ap
 So start every investigation with `react_clear_renders`, then do the action. To observe the page
 load itself, open the page with `_genie_observe` in its URL.
 
+## Wait before you read
+
+An action can keep committing after the click: a mutation finishes, then a TanStack Query refetch
+renders the new data. Wait for that work before you read:
+
+```bash
+npx @genie-react/cli call devtools_wait --session my-agent \
+  '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error
+```
+
+`settled` holds until React stops committing for `quietMs` (500 by default), no query is fetching,
+no mutation is running and the router has settled. List only the domains `status` reports; a domain
+the app lacks fails the wait. Without `domains`, `settled` waits for React only, as `react_quiesce`
+does. Either can report idle while a refetch is in flight, then the refetch commits after you read.
+
 ## Why did it render
 
 ```bash

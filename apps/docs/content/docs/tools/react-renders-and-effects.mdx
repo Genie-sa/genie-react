@@ -1435,7 +1435,9 @@ suspended transition, a Suspense boundary showing its fallback, or server HTML R
 keeps the outcome from `idle`, and
 a timeout names the blocking work in `reason`. `pendingWork` is `null` when the app runtime predates
 that tool; idle then covers commits only. Quiesce does not observe timers, promises that never reach
-React, query freshness, or continuous canvas/native frames.
+React, query freshness, or continuous canvas/native frames. When the action starts Query or Router
+work, such as a refetch after a mutation, wait with `devtools_wait`, condition `settled` and the
+domains `status` reports, for example `"domains":["react","query","router"]`.
 
 ## `react_pending_work`
 

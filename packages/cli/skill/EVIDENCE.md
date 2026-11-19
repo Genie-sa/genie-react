@@ -7,7 +7,7 @@
 - An empty result or a smaller count proves nothing until coverage is complete. `coverage.incompleteBecause` names each gap and its `next` step.
 - `commits-not-observed`: commits happened with no window open. Open one and repeat the action.
 - `commits-during-fast-refresh`: the window saw a Fast Refresh edit. Wait a second after it applies, open a new window, and repeat.
-- Quiesce covers React only. When Query or Router work belongs in the capture, also run `devtools_wait` with condition `settled`.
+- Quiesce covers React only, and so does `devtools_wait` with condition `settled` unless you pass `domains`. When Query or Router work belongs in the capture, wait with `"domains":["react","query","router"]`, listing only the domains `status` reports.
 
 ## Renders
 
