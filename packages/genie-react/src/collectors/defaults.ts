@@ -5,6 +5,7 @@ import { pluginPassthroughCollector } from './devtools-passthrough'
 import { memoryCollector } from './memory'
 import { perfCollector } from './perf'
 import { type ReduxStoreLike, reduxCollector } from './redux/index'
+import { requestWatchCollector } from './request-watch'
 import { queryCollector, routerCollector } from './tanstack'
 import { timelineCollector } from './timeline'
 import { type AppStateLike, visibilityCollector } from './visibility'
@@ -25,6 +26,7 @@ export function defaultAppCollectors(options: DefaultCollectorOptions): GenieCol
     visibilityCollector({ appState: options.appState }),
     pluginPassthroughCollector({ plugins: options.plugins }),
     timelineCollector(options),
+    requestWatchCollector(),
   ]
   if (options.router) collectors.push(routerCollector(options.router))
   if (options.queryClient) collectors.push(queryCollector(options.queryClient))

@@ -7,7 +7,8 @@ icon: Activity
 The JSON examples below show selected fields from the full response.
 
 These tools belong to the `timeline` group and are available through `<Genie />`, the hub-served
-script entry, or the manual `timelineCollector`. They record only after an explicit start. Events
+script entry, or the manual `timelineCollector` (the `request_watch_*` tools come from
+`requestWatchCollector`). They record only after an explicit start. Events
 line up by time only (`correlation: "temporal-only"`), so confirm a link with render causes. A lane
 whose coverage is unavailable recorded nothing, which does not mean nothing happened. The
 [optimize guide](/docs/guides/optimize#request-or-render) shows a recording end to end.
@@ -163,6 +164,99 @@ Repeated stops return the same metadata.
 `max-duration`, or `collector-cleanup`. Hitting the event cap sets `truncated`; resource observation
 still has its documented coverage limits even when that flag is false. Only one stopped recording
 is retained in app memory, so save it before starting another or reloading.
+
+## `request_watch_start`
+
+Starts counting the app's fetch and XMLHttpRequest calls from now on. `verify begin` opens one for
+its `network` settle domain, so `verify end` waits for requests the interaction started.
+
+**Input:** Optional `maxDurationMs` is an integer from 1,000–1,800,000, default 300,000. The watch
+stops by itself after it.
+
+```bash
+npx @genie-react/cli call request_watch_start '{"maxDurationMs":300000}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "watchId": "requests-3b74e2c8-91a6-4f5d-b207-6c83a1d94e50",
+  "state": "watching",
+  "started": 0,
+  "inFlight": 0,
+  "requests": []
+}
+```
+
+**Agent use:** Keep `watchId`, drive the interaction, then read the watch before you trust state
+that depends on a response.
+
+**Limits:** Requests started before the call, Genie's own requests, workers, WebSocket and
+EventSource are not seen. A fetch whose body the app reads through `response.body` or a clone counts
+as finished when its headers arrive. A page keeps 8 watches; a newer one stops the oldest with
+`stopReason: "replaced"`.
+
+## `request_watch_read`
+
+Reports how many app requests the watch saw start and how many are still in flight.
+
+**Input:** Required `watchId` is the ID `request_watch_start` returned.
+
+```bash
+npx @genie-react/cli call request_watch_read \
+  '{"watchId":"requests-3b74e2c8-91a6-4f5d-b207-6c83a1d94e50"}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "watchId": "requests-3b74e2c8-91a6-4f5d-b207-6c83a1d94e50",
+  "state": "watching",
+  "started": 2,
+  "inFlight": 1,
+  "requests": [
+    {
+      "requestId": 2,
+      "initiatorType": "fetch",
+      "method": "GET",
+      "url": "http://127.0.0.1:5313/api/reports/throughput",
+      "ageMs": 4210.5
+    }
+  ]
+}
+```
+
+**Agent use:** `inFlight` above 0 means a response can still change the app. A request is in flight
+until its response arrives and, for fetch, until the app finishes reading a body it started reading.
+`requests` lists the oldest 10; `url` leaves out the query, fragment and credentials.
+
+## `request_watch_stop`
+
+Stops the watch and returns its final report.
+
+**Input:** Required `watchId` is the ID `request_watch_start` returned.
+
+```bash
+npx @genie-react/cli call request_watch_stop \
+  '{"watchId":"requests-3b74e2c8-91a6-4f5d-b207-6c83a1d94e50"}' --json
+```
+
+**Output (selected fields):**
+
+```json
+{
+  "watchId": "requests-3b74e2c8-91a6-4f5d-b207-6c83a1d94e50",
+  "state": "stopped",
+  "stopReason": "manual",
+  "started": 2,
+  "inFlight": 0
+}
+```
+
+**Agent use:** Repeated stops return the same report. `stopReason` can also be `max-duration`,
+`replaced` or `collector-cleanup`. After a stop, `inFlight` stays at the count from the stop.
 
 ## Coverage codes
 

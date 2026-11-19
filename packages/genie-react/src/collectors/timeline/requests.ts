@@ -10,6 +10,7 @@ export interface RequestRecord {
   startedAt: number
   headersAt: number | null
   endedAt: number | null
+  bodyReadStartedAt: number | null
   bodyReadAt: number | null
   status: number | null
   outcome: 'in-flight' | 'response' | 'aborted' | 'aborted-after-response' | 'failed'
@@ -53,6 +54,7 @@ export function observeRequests(onStart: (record: RequestRecord) => void): () =>
       startedAt: now(),
       headersAt: null,
       endedAt: null,
+      bodyReadStartedAt: null,
       bodyReadAt: null,
       status: null,
       outcome: 'in-flight',
@@ -90,6 +92,7 @@ export function observeRequests(onStart: (record: RequestRecord) => void): () =>
           writable: true,
           enumerable: false,
           value: function (this: Response, ...args: unknown[]) {
+            record.bodyReadStartedAt ??= now()
             const result = Reflect.apply(read, this, args) as Promise<unknown>
             return result.then(
               (value) => {

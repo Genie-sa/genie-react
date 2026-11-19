@@ -135,7 +135,7 @@ function bounded(value: string): string {
 }
 
 /** Keep request identity useful without credentials or fragments; the query is reported separately and redacted. */
-function requestLocation(value: string): string {
+export function requestLocation(value: string): string {
   try {
     const url = new URL(value)
     return bounded(`${url.origin}${url.pathname}`)

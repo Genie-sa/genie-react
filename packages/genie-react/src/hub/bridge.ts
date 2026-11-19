@@ -16,6 +16,7 @@ import {
   callerIdSchema,
   DEFAULT_REQUEST_TIMEOUT_MS,
   decodeFrame,
+  describeInFlightRequests,
   devtoolsStatusContract,
   devtoolsWaitContract,
   encodeMessage,
@@ -31,6 +32,7 @@ import {
   type PendingReactWork,
   reactPendingWorkContract,
   reactQuiesceContract,
+  requestWatchReadContract,
   type SessionSummary,
   safeDiagnostic,
   sameReleaseLine,
@@ -217,6 +219,8 @@ interface WaitInput {
   domains: WaitDomain[]
   quietMs: number
   deadline?: number
+  /** The app's request watch that the network domain reads; without one, network quiet is not observed. */
+  requestWatchId?: string
 }
 
 interface WaitDomainCheck {
@@ -407,8 +411,8 @@ export class GenieBridge {
       hasLogicalCollision: (session) => this.logicalPeers(session).length > 0,
       blockingInteraction: (sessionId) => this.interactions.blockingInteraction(sessionId),
       request: (session, tool, args) => this.appRequestForSession(tool, args, session),
-      settle: (session, domains, quietMs, timeoutMs) =>
-        this.settleInteraction(session, domains, quietMs, timeoutMs),
+      settle: (session, domains, quietMs, timeoutMs, requestWatchId) =>
+        this.settleInteraction(session, domains, quietMs, timeoutMs, requestWatchId),
       advertisedBefore: (session, domain) =>
         this.settleDomains.advertisedBefore(tabKeyOf(session), domain),
     })
@@ -1598,10 +1602,16 @@ export class GenieBridge {
     domains: WaitDomain[],
     quietMs: number,
     timeoutMs: number,
+    requestWatchId?: string,
   ): Promise<InteractionSettleResult> {
     const started = Date.now()
     const check = await this.pollCondition(
-      { condition: 'settled', domains, quietMs },
+      {
+        condition: 'settled',
+        domains,
+        quietMs,
+        ...(requestWatchId === undefined ? {} : { requestWatchId }),
+      },
       timeoutMs,
       session,
     )
@@ -1783,7 +1793,7 @@ export class GenieBridge {
     session: AppSession | null,
     pollState: WaitPollState,
   ): Promise<WaitDomainCheck> {
-    if (domain === 'network') {
+    if (domain === 'network' && input.requestWatchId === undefined) {
       return {
         status: 'unsupported',
         reason: 'Generic network quiet is not instrumented by this app.',
@@ -1871,6 +1881,38 @@ export class GenieBridge {
             reason: `${fetching} ${fetching === 1 ? 'query is' : 'queries are'} fetching and ${mutating} ${mutating === 1 ? 'mutation is' : 'mutations are'} running.`,
             lastObserved,
           }
+    }
+    if (domain === 'network') {
+      if (!toolDescriptor(session, requestWatchReadContract.name)) {
+        return unsupported(requestWatchReadContract.name)
+      }
+      const response = await this.appRequestForSession(
+        requestWatchReadContract.name,
+        { watchId: input.requestWatchId },
+        session,
+        input.deadline,
+      )
+      const parsed = requestWatchReadContract.output.safeParse(response.result)
+      if (!response.ok || !parsed.success) {
+        return {
+          status: 'pending',
+          reason: `The request watch could not be read: ${response.error ?? 'malformed request_watch_read result'}.`,
+          lastObserved: null,
+          unanswered: true,
+        }
+      }
+      const watch = parsed.data
+      const lastObserved = { started: watch.started, inFlight: watch.inFlight }
+      if (watch.state === 'stopped') {
+        return {
+          status: 'failed',
+          reason: `The request watch stopped (${watch.stopReason ?? 'unknown'}), so new requests are not observed.`,
+          lastObserved,
+        }
+      }
+      return watch.inFlight === 0
+        ? { status: 'met', lastObserved }
+        : { status: 'pending', reason: describeInFlightRequests(watch), lastObserved }
     }
     if (domain === 'router') {
       if (!toolDescriptor(session, 'router_get_state')) {

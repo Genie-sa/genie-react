@@ -4,6 +4,7 @@ import {
   type AgentToolContract,
   ALWAYS_INFERRED_CAUSE_KINDS,
   claimTarget,
+  describeInFlightRequests,
   devtoolsVerifyAbortContract,
   devtoolsVerifyBeginContract,
   devtoolsVerifyEndContract,
@@ -12,6 +13,10 @@ import {
   type HubErrorCode,
   newId,
   type RefusalReason,
+  type RequestWatchReport,
+  requestWatchReadContract,
+  requestWatchStartContract,
+  requestWatchStopContract,
   type ToolDescriptor,
   toolValidationFailure,
   VERDICT_EXIT_CODES,
@@ -141,6 +146,7 @@ interface VerificationManagerOptions<TSession extends VerificationSession> {
     domains: VerifySettleDomain[],
     quietMs: number,
     timeoutMs: number,
+    requestWatchId?: string,
   ) => Promise<InteractionSettleResult>
   /** Whether an earlier document of the session's tab advertised a settle domain this one has not registered yet; such a domain is waited on, not dropped. */
   advertisedBefore?: (session: TSession, domain: VerifySettleDomain) => boolean
@@ -165,6 +171,8 @@ interface ActiveVerification<TSession extends VerificationSession> {
   /** The page at begin, which can differ from the URL the app connected on after in-app navigation. */
   url: string | undefined
   domains: VerifySettleDomain[]
+  /** The app's watch over requests started in the window, open while `network` is a settle domain. */
+  requestWatchId: string | undefined
   tailMs: number
   fingerprint: string
   retained: RetainedTool[]
@@ -345,6 +353,24 @@ export class VerificationManager<TSession extends VerificationSession> {
         errorCode: 'not-connected',
       }
     }
+    const domains =
+      input.settle.domains ??
+      advertisedDomains(session, (domain) => this.options.advertisedBefore?.(session, domain))
+    let requestWatchId: string | undefined
+    if (domains.includes('network') && hasTool(session, requestWatchStartContract.name)) {
+      const started = await capture(requestWatchStartContract.name, {
+        maxDurationMs: input.maxDurationMs,
+      })
+      const watch = started.status === 'ok' ? requestWatchOf(started.result) : null
+      if (!watch) {
+        return {
+          ok: false,
+          error: `${requestWatchStartContract.name} failed while beginning the verification: ${started.error ?? 'malformed result'}. Begin again, or leave network out of --domains.`,
+          errorCode: 'tool-error',
+        }
+      }
+      requestWatchId = watch.watchId
+    }
     const tailMs = defaultTailMs(input)
     const expiresAt = new Date(Date.now() + input.maxDurationMs).toISOString()
     const active: ActiveVerification<TSession> = {
@@ -358,9 +384,8 @@ export class VerificationManager<TSession extends VerificationSession> {
       resolutions,
       begin: { ...snapshot, clear },
       url,
-      domains:
-        input.settle.domains ??
-        advertisedDomains(session, (domain) => this.options.advertisedBefore?.(session, domain)),
+      domains,
+      requestWatchId,
       tailMs,
       fingerprint: claimFingerprint({ claims: input.claims, url }),
       retained,
@@ -524,14 +549,17 @@ export class VerificationManager<TSession extends VerificationSession> {
         'The document closed or reloaded during the window.',
       )
     }
-    const settle = await this.options.settle(
+    const settleStartedAt = Date.now()
+    const firstSettle = await this.options.settle(
       session,
       active.domains,
       input.settle.quietMs,
       input.settle.timeoutMs,
+      active.requestWatchId,
     )
-    const settledAt = settledCommit(settle)
+    const settledAt = settledCommit(firstSettle)
     await this.wait(active.tailMs)
+    const settle = await this.settleRequests(active, capture, firstSettle, settleStartedAt)
     const preFreeze = readRenderProbe(await capture('react_get_renders', RENDER_PROBE_ARGS))
     const freeze = readFreeze(await capture('react_profile_stop', {}))
     const frozenDocumentCommitId = freeze?.documentCommitId ?? preFreeze?.documentCommitId ?? null
@@ -816,9 +844,54 @@ export class VerificationManager<TSession extends VerificationSession> {
     })
   }
 
+  /** A pass must not rest on a request still in flight: one the tail left open extends settle within its timeout, and one still open at the freeze means the app did not settle. */
+  private async settleRequests(
+    active: ActiveVerification<TSession>,
+    capture: (tool: string, args: unknown) => Promise<RetainedTool>,
+    settle: InteractionSettleResult,
+    settleStartedAt: number,
+  ): Promise<InteractionSettleResult> {
+    const watchId = active.requestWatchId
+    if (watchId === undefined) return settle
+    const { session, input } = active
+    let result = settle
+    if (result.ok) {
+      const read = await this.options.request(session, requestWatchReadContract.name, { watchId })
+      const pending = read.ok ? requestWatchOf(read.result) : null
+      if (!pending || pending.inFlight > 0) {
+        const remainingMs = input.settle.timeoutMs - (Date.now() - settleStartedAt)
+        result =
+          remainingMs > 0
+            ? {
+                ...(await this.options.settle(
+                  session,
+                  active.domains,
+                  input.settle.quietMs,
+                  remainingMs,
+                  watchId,
+                )),
+                waitedMs: Date.now() - settleStartedAt,
+              }
+            : requestsUnsettled(result, pending)
+      }
+    }
+    const stopped = await capture(requestWatchStopContract.name, { watchId })
+    const final = stopped.status === 'ok' ? requestWatchOf(stopped.result) : null
+    return result.ok && (!final || final.inFlight > 0) ? requestsUnsettled(result, final) : result
+  }
+
+  /** Best effort: the app also stops the watch on its own once the window's maximum duration passes. */
+  private stopRequestWatch(active: ActiveVerification<TSession>): void {
+    if (active.requestWatchId === undefined) return
+    void this.options
+      .request(active.session, requestWatchStopContract.name, { watchId: active.requestWatchId })
+      .catch(() => undefined)
+  }
+
   private expire(verificationId: string, reason: 'window_lost' | 'session_changed'): void {
     const active = this.active.get(verificationId)
     if (!active || active.ending) return
+    this.stopRequestWatch(active)
     this.storeWindowLoss(
       active,
       reason,
@@ -996,6 +1069,7 @@ export class VerificationManager<TSession extends VerificationSession> {
       }
     }
     this.release(active)
+    this.stopRequestWatch(active)
     const document = {
       schemaVersion: VERIFY_SCHEMA_VERSION,
       kind: 'verification',
@@ -1164,7 +1238,29 @@ function advertisedDomains(
     'react',
     ...(expected('query', 'query_is_fetching') ? (['query'] as const) : []),
     ...(expected('router', 'router_get_state') ? (['router'] as const) : []),
+    ...(hasTool(session, requestWatchStartContract.name) ? (['network'] as const) : []),
   ]
+}
+
+function requestWatchOf(result: unknown): RequestWatchReport | null {
+  const parsed = requestWatchReadContract.output.safeParse(result)
+  return parsed.success ? parsed.data : null
+}
+
+function requestsUnsettled(
+  settle: InteractionSettleResult,
+  watch: RequestWatchReport | null,
+): InteractionSettleResult {
+  const blocking = watch
+    ? describeInFlightRequests(watch)
+    : 'the request watch could not be read, so requests in flight are unknown'
+  return {
+    ...settle,
+    ok: false,
+    reason: 'timeout',
+    blocking,
+    domains: { ...settle.domains, network: { status: 'pending', reason: blocking } },
+  }
 }
 
 function defaultTailMs(input: BeginInput): number {

@@ -53,7 +53,7 @@ export const VERIFY_OPTION_DETAILS: Record<keyof typeof VERIFY_OPTIONS, OptionDe
   },
   domains: {
     description:
-      'verify begin: comma-separated settle domains, from react, query and router; default every domain the app advertises, and react is required',
+      'verify begin: comma-separated settle domains, from react, query, router and network; default every domain the app advertises, and react is required',
   },
   'max-duration': {
     description:
