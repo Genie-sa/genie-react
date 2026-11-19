@@ -39,7 +39,13 @@ interface Verification {
   claims: VerifyClaimResult[]
   caveats: string[]
   window: { commits: number; refusals: { guard: string; refusal: { reason: string } }[] }
-  ledger: { attempt: number; failsOnSameCode: number; codeChangedSincePrevious: string | null }
+  ledger: {
+    fingerprint: string
+    attempt: number
+    history: { verificationId: string; verdict: string; reasons: string[] }[]
+    failsOnSameCode: number
+    codeChangedSincePrevious: string | null
+  }
 }
 
 const STABLE_APPEARANCE = { tone: 'success' }
@@ -602,6 +608,72 @@ describe('verify on a real React tree', () => {
     expect(verdict.verdict).toBe('pass')
     expect(verdict.ledger).toMatchObject({ attempt: 3, failsOnSameCode: 2 })
     expect(verdict.caveats).toContain('passed-after-failures-on-same-code')
+  })
+
+  it('keeps the rerun history when the target source resolves only on a later run', async () => {
+    const app = await mount(createElement(SearchScreen, { fixed: false }))
+    const collector = reactCollector()
+    const cohort = collector.tools?.find((tool) => tool.contract.name === 'react_component_cohort')
+    if (!cohort) throw new Error('react_component_cohort is not registered')
+    const listInstances = cohort.handler
+    harness = verifyHarness([collector])
+    const claims = [badgeClaims[0] as VerifyClaimInput, { kind: 'boundaries-clean' } as const]
+
+    const first = await begin(claims)
+    await typeTwice(app.container)
+    const unresolved = await end(first.verificationId)
+    cohort.handler = async (args, context) => {
+      const listed = (await listInstances(args, context)) as {
+        instances: Record<string, unknown>[]
+      }
+      return {
+        ...listed,
+        instances: listed.instances.map((instance) => ({
+          ...instance,
+          source: { file: '/src/status-badge.tsx', line: 4, column: 3 },
+        })),
+      }
+    }
+    const second = await begin(claims)
+    expect(second).toMatchObject({ targets: [{ source: '/src/status-badge.tsx' }] })
+    await typeTwice(app.container)
+    const resolved = await end(second.verificationId)
+
+    expect(resolved.ledger).toMatchObject({
+      fingerprint: unresolved.ledger.fingerprint,
+      attempt: 2,
+      history: [expect.objectContaining({ verificationId: first.verificationId })],
+    })
+  })
+
+  it('records only the reasons behind a run verdict, not another claim refusal', async () => {
+    const app = await mount(createElement(SearchScreen, { fixed: false }))
+    start()
+    const claims: VerifyClaimInput[] = [
+      { kind: 'renders', target: { component: 'StatusBadgeRenamed' }, max: 0 },
+      badgeClaims[0] as VerifyClaimInput,
+    ]
+    const failed = await begin(claims)
+    await typeTwice(app.container)
+    expect(
+      (await end(failed.verificationId)).claims.map((claim) => [
+        claim.verdict,
+        claim.refusal?.reason,
+      ]),
+    ).toEqual([
+      ['refused', 'target_not_found'],
+      ['fail', undefined],
+    ])
+    const rerun = await begin(claims)
+    await typeTwice(app.container)
+
+    expect((await end(rerun.verificationId)).ledger.history).toEqual([
+      expect.objectContaining({
+        verificationId: failed.verificationId,
+        verdict: 'fail',
+        reasons: [],
+      }),
+    ])
   })
 })
 

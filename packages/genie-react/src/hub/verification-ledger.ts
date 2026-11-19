@@ -41,14 +41,13 @@ export class InMemoryVerificationLedger implements VerificationLedger {
   }
 }
 
-/** The claims, the sources they resolved to, and the page they ran on; the free-text name is left out so renaming a run keeps its history. */
+/** The claims as declared and the page they ran on. The free-text name is left out so renaming a run keeps its history, and so are the sources targets resolved to, which can resolve on one run and not the next. */
 export function claimFingerprint(input: {
   claims: readonly VerifyClaim[]
-  targetSources: readonly (string | null)[]
   url: string | undefined
 }): string {
   const page = pageOf(input.url)
-  const canonical = JSON.stringify([input.claims.map(canonicalize), input.targetSources, page])
+  const canonical = JSON.stringify([input.claims.map(canonicalize), page])
   return `cf_${createHash('sha256').update(canonical).digest('hex').slice(0, 12)}`
 }
 

@@ -58,7 +58,7 @@ npx genie-react verify begin --session my-agent --name "type in filter" \
 npx genie-react verify end <id> --session my-agent
 ```
 
-Include a `min 1` claim on a component the interaction must change, so an interaction that missed the app fails. `npx genie-react verify begin --help` lists the claim forms. The exit code is the verdict: `0` pass, `1` fail, `4` refused, `5` inconclusive. On a refusal, run its `$` fix and repeat the interaction. Report a fix only on a pass, quoting the verdict line, with the driver confirming the screen.
+Include a `min 1` claim on a component the interaction must change, so an interaction that missed the app fails. `npx genie-react verify begin --help` lists the claim forms. The exit code is the verdict: `0` pass, `1` fail, `4` refused, `5` inconclusive. On a refusal, run its `$` fix and repeat the interaction; a refusal without one says what to change first. Report a fix only on a pass, quoting the verdict line, with the driver confirming the screen.
 
 ## Other agents
 

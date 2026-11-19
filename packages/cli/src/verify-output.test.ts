@@ -189,6 +189,26 @@ describe('verdict text', () => {
     ).toBe(true)
   })
 
+  it('marks the claims of a recording window as not decided yet', () => {
+    const text = renderVerificationText({
+      schemaVersion: '1.0',
+      kind: 'verification',
+      verificationId: ID,
+      state: 'recording',
+      name: 'put one order on hold',
+      claims: [
+        { index: 1, text: 'render OrderRow only props.order' },
+        { index: 2, text: 'boundaries clean' },
+      ],
+    })
+
+    expect(text.split('\n').slice(0, 3)).toEqual([
+      `recording ${ID} "put one order on hold"`,
+      '  1 recording render OrderRow only props.order',
+      '  2 recording boundaries clean',
+    ])
+  })
+
   it('names an earlier failure on the same code on the first line of a pass', () => {
     const text = renderVerificationText(
       verdict({ verdict: 'pass', ledger: { attempt: 4, history: [], failsOnSameCode: 2 } }),

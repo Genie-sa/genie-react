@@ -114,6 +114,20 @@ describe('renders decision table', () => {
     })
   })
 
+  it('does not advise beginning again when the window itself unmounted more than Genie keeps', () => {
+    const unmountedBoard = withCoverage({
+      complete: false,
+      semantics: 'lower-bound',
+      droppedUnmountFibers: 3057,
+    })
+
+    expect(outcome(badgeMax0, unmountedBoard).refusal).toMatchObject({
+      reason: 'coverage_incomplete',
+      message: expect.stringContaining('fewer components'),
+      fix: { action: 'change-claim' },
+    })
+  })
+
   it('counts updates only with counting updates, but fails on a key-change remount', () => {
     const remount = windowEvidence([
       targetEvidence({

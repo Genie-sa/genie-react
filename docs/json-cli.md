@@ -65,7 +65,7 @@ Results with a known structure use a layout that reads better and costs fewer to
 | `tools <group>` | one `name title params {fields}` line per tool |
 | `tools <tool>`, `tools --all` | a `name title` line, one `name?: type keyword:value — description` line per argument (`?` marks an optional argument), and one `field?: type` line per output outline field |
 | `doctor` | one `ok\|FAIL critical\|optional label — detail {fields}` line per check |
-| `verify` | a `verdict id "name"  commits, settle` line, one `index verdict claim  {observed}` or `index verdict claim  reason: message` line per claim with its evidence indented below, one `window reason: message` line per window refusal, one `! caveat: text` line per caveat, and an `attempt` line for the rerun history |
+| `verify` | a `verdict id "name"  commits, settle` line, one `index verdict claim  {observed}` or `index verdict claim  reason: message` line per claim with its evidence indented below (after `begin`, an undecided claim prints `index recording claim`), one `window reason: message` line per window refusal, one `! caveat: text` line per caveat, and an `attempt` line for the rerun history |
 
 ### Lines only the CLI writes
 
@@ -132,7 +132,7 @@ Every CLI-owned envelope carries `schemaVersion: "2.0"`. Version 2.0 renamed eve
 
 ### Verify
 
-`verify begin|end|show|abort` prints one verification document. Its first fields are `schemaVersion: "1.0"`, `kind: "verification"`, `verificationId`, `verdict` and `exitCode`, so a cut-off document still says what happened. `state` is `recording` after `begin`, `completed` once decided, and `aborted` after `abort`. Each claim carries `index`, `text` (the claim in the DSL), `claim` (the same claim as JSON), `verdict`, `observed`, `deciding` (at most three items), `caveats`, and a `refusal: {reason, message, evidence, fix, next?}` or `inconclusive: {reason, message, evidence}`. `window.refusals` lists guards that refused the whole window. `ledger` gives the attempt number and earlier verdicts for the same claims on the same tab. `request` holds the options the run began with; `next` commands are rebuilt from it and keep `--session`.
+`verify begin|end|show|abort` prints one verification document. Its first fields are `schemaVersion: "1.0"`, `kind: "verification"`, `verificationId`, `verdict` and `exitCode`, so a cut-off document still says what happened. `state` is `recording` after `begin`, `completed` once decided, and `aborted` after `abort`. Each claim carries `index`, `text` (the claim in the DSL), `claim` (the same claim as JSON), `verdict`, `observed`, `deciding` (at most three items), `caveats`, and a `refusal: {reason, message, evidence, fix, next?}` or `inconclusive: {reason, message, evidence}`. `window.refusals` lists guards that refused the whole window. `ledger` gives the attempt number and earlier verdicts for the same claims on the same page of the same tab; the run name and the source files targets resolved to do not count, and each earlier run's `reasons` are the refusal or inconclusive reasons of the claims that decided its verdict, so a `fail` has none. `request` holds the options the run began with; `next` commands are rebuilt from it and keep `--session`.
 
 `verify` exits with its verdict and uses the taxonomy that `exit` reports for every failure:
 
