@@ -87,11 +87,16 @@ export function coverageRefusal(evidence: VerificationEvidence): Refusal | null 
   }
   const lossy = Object.entries(gaps).filter(([, value]) => value > 0)
   if (!coverage.complete || coverage.semantics !== 'exact' || lossy.length > 0) {
-    return refuse(
-      'coverage_incomplete',
-      `Render analysis was incomplete in the window (${lossy.map(([name, value]) => `${name} ${value}`).join(', ') || 'coverage not exact'}), so counts are a lower bound.`,
-      gaps,
-    )
+    const message = `Render analysis was incomplete in the window (${lossy.map(([name, value]) => `${name} ${value}`).join(', ') || 'coverage not exact'}), so counts are a lower bound.`
+    if (coverage.droppedUnmountFibers > 0) {
+      return refuse(
+        'coverage_incomplete',
+        `${message} The interaction unmounted more components than one window keeps, so beginning again loses them again; start from a page that mounts fewer components, such as a shorter list, or claim a lower bound (min) instead.`,
+        gaps,
+        { action: 'change-claim' },
+      )
+    }
+    return refuse('coverage_incomplete', message, gaps)
   }
   if (coverage.targeted && !coverage.targeted.complete) {
     return refuse(

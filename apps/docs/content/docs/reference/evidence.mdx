@@ -58,7 +58,7 @@ rendered it) or `hook-callsite`, the most precise place to edit.
 | --- | --- |
 | `no_activity` | No React commit in the window. The action went to another tab or changed nothing. |
 | `not_quiescent` | Work was still arriving after the app settled. |
-| `coverage_incomplete`, `budget_exhausted` | The analysis skipped part of the target. Rerun with the budget it prints. |
+| `coverage_incomplete`, `budget_exhausted` | The analysis skipped part of the target. Rerun with the budget it prints. When the interaction itself unmounts more components than Genie keeps (`droppedUnmountFibers`), a rerun loses them again: start from a page that mounts fewer components, or claim a lower bound. |
 | `evidence_truncated`, `evidence_unavailable` | Events were evicted or a read failed. |
 | `evidence_inferred` | The deciding cause is only `inferred`. |
 | `target_not_found`, `target_ambiguous`, `target_inactive` | The component name matched nothing, several things, or a hidden or frozen instance. |
