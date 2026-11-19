@@ -1,6 +1,6 @@
 import type { FailureReason } from './failure'
 
-/** One exit-code taxonomy for the CLI; `verify` uses it now, and every failure envelope reports the code its command will use once every command switches. */
+/** The exit-code taxonomy `verify` exits with; other commands exit 0 or 1. */
 export const EXIT_CODES = {
   success: 0,
   failure: 1,

@@ -84,6 +84,8 @@ details:
   didYouMean: {limt:limit}
 ```
 
+`next` starts with the runner you used, such as `npx` or `pnpm exec`.
+
 | `reason` | What to do |
 | --- | --- |
 | `invalid_input` | Fix the JSON, `--fields` or `--select` value. |
@@ -102,7 +104,8 @@ details:
 ## Exit codes
 
 `verify end` exits 0 pass, 1 fail, 4 refused or 5 inconclusive. Other commands exit 0 or 1. A wait
-that times out returns `ok: false` with exit 0 unless you add `--fail-on-result-error`.
+that times out returns `ok: false` with exit 0 unless you add `--fail-on-result-error`. A failure's
+`exit` field is the code the process exits with.
 
 ## Limits
 

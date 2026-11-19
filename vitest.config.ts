@@ -34,6 +34,8 @@ export default defineConfig({
     env: {
       XDG_RUNTIME_DIR: testRuntimeDir,
       GENIE_AGENT_BROWSER: join(testRuntimeDir, 'no-agent-browser'),
+      // Suggested commands follow the runner that launched the CLI; clearing it keeps them on each fixture's lockfile, however the tests were started.
+      npm_config_user_agent: '',
     },
     include: [
       'packages/*/src/**/*.test.ts',

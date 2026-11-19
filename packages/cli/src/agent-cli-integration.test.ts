@@ -628,7 +628,7 @@ describe('agent CLI integration', () => {
           command: 'pnpm exec genie-react tools',
           argv: ['pnpm', 'exec', 'genie-react', 'tools'],
         },
-        exit: { code: 2, class: 'usage' },
+        exit: { code: 1, class: 'failure' },
       })
       expect(stdout.mock.calls.flat().join('')).not.toContain('secret')
     },
@@ -1345,7 +1345,7 @@ describe('actionable CLI failures', () => {
         command: 'pnpm exec genie-react tools app',
         argv: ['pnpm', 'exec', 'genie-react', 'tools', 'app'],
       },
-      exit: { code: 2, class: 'usage' },
+      exit: { code: 1, class: 'failure' },
     })
 
     expect(await runCall('app_seed_taks', '{}', { url })).toBe(1)

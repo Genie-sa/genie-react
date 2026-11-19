@@ -80,13 +80,35 @@ export function packageManagerCommands(cwd: string): PackageManagerCommands {
   return COMMANDS[detectPackageManager(cwd)]
 }
 
-/** The `genie-react` invocation for this project, shared by the installed skill and every CLI hint. */
+/** The package manager that ran this process, read from the user agent each one sets for the commands it runs, such as `pnpm/10.34.4 npm/? node/v22.23.4`. */
+function invokingPackageManager(): PackageManager | null {
+  const [name, version = ''] = process.env.npm_config_user_agent?.split(' ', 1)[0]?.split('/') ?? []
+  switch (name) {
+    case 'npm':
+    case 'pnpm':
+    case 'bun':
+      return name
+    case 'yarn':
+      return version.startsWith('1.') ? 'yarn-classic' : 'yarn-berry'
+    default:
+      return null
+  }
+}
+
+function genieInvocation(
+  manager: PackageManager,
+  args: readonly string[],
+): { command: string; argv: string[] } {
+  const argv = [...COMMANDS[manager].exec, 'genie-react', ...args]
+  return { command: argv.map(shellQuote).join(' '), argv }
+}
+
+/** The `genie-react` invocation for every CLI hint: the runner the caller used, else the project's package manager. */
 export function genieCommand(
   args: readonly string[],
   cwd = process.cwd(),
 ): { command: string; argv: string[] } {
-  const argv = [...packageManagerCommands(cwd).exec, 'genie-react', ...args]
-  return { command: argv.map(shellQuote).join(' '), argv }
+  return genieInvocation(invokingPackageManager() ?? detectPackageManager(cwd), args)
 }
 
 /** The installed CLI binary nearest to `cwd` within the project, as a path from `cwd`; the lockfile's directory bounds the search so a binary from another project is never chosen. */
@@ -99,10 +121,10 @@ function installedGenieBin(cwd: string): string | null {
   }
 }
 
-/** What the installed skill runs: the project's binary when one is installed, since a package-manager wrapper adds 10–350 ms to every command; Windows shells and Yarn Plug'n'Play installs, which have no runnable `.bin` path, keep the exec command. */
+/** What the installed skill runs: the project's binary when one is installed, since a package-manager wrapper adds 10–350 ms to every command; Windows shells and Yarn Plug'n'Play installs, which have no runnable `.bin` path, keep the project's exec command, which stays the same whichever runner wrote the skill. */
 export function skillInvocation(cwd: string): string {
   const bin = process.platform === 'win32' ? null : installedGenieBin(cwd)
-  return bin ?? genieCommand([], cwd).command
+  return bin ?? genieInvocation(detectPackageManager(cwd), []).command
 }
 
 function shellQuote(value: string): string {

@@ -1,4 +1,4 @@
-import { failureExit } from './exit-codes'
+import { type ExitStatus, exitStatus } from './exit-codes'
 import type { FailureErrorCode, FailureOptions, FailureReason } from './failure'
 import { CLI_OUTPUT_SCHEMA_VERSION } from './schema-version'
 import { jsonText } from './text-output'
@@ -29,10 +29,12 @@ export function formatAgentFailure(
   return jsonText(agentFailure(reason, message, options))
 }
 
+/** `exit` is the status the process exits with: commands other than `verify` exit 1 on every failure. */
 export function agentFailure(
   reason: FailureReason,
   message: string,
   options: FailureOptions = {},
+  exit: ExitStatus = exitStatus('failure'),
 ): Record<string, unknown> {
   return {
     schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
@@ -49,6 +51,6 @@ export function agentFailure(
       : { correctedExample: options.correctedExample }),
     ...(options.busyTelemetry === undefined ? {} : { busyTelemetry: options.busyTelemetry }),
     ...(options.details === undefined ? {} : { details: options.details }),
-    exit: failureExit(reason),
+    exit,
   }
 }
