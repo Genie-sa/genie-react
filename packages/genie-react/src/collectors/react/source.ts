@@ -1031,7 +1031,16 @@ function normalizeServedFileName(file: string): string {
   if (VITE_DEPENDENCY_CHUNK_RE.test(served)) {
     return served.replace(/^[a-z][\w+.-]*:\/\/[^/]+/i, '').replace(/[?#].*$/, '')
   }
-  return normalizeFileName(file).replaceAll('\\', '/').replace(NATIVE_METRO_BUNDLE_PARAMS_RE, '$1')
+  return normalizeModuleFileName(file)
+    .replaceAll('\\', '/')
+    .replace(NATIVE_METRO_BUNDLE_PARAMS_RE, '$1')
+}
+
+const HTTP_ORIGIN_RE = /^https?:\/\/[^/]+/i
+
+/** bippy reads the first directory of a served URL as a deploy base when the next one is short, so `/src/lib/a.ts` became `/lib/a.ts`; a served path names the module as the dev server does. */
+function normalizeModuleFileName(file: string): string {
+  return normalizeFileName(file.replace(HTTP_ORIGIN_RE, ''))
 }
 
 /** Metro's dev bundle and its source map are both far too large to pull into the app, so ask the dev server the way LogBox does. Only successes are cached, so a transient failure can recover. */
@@ -1124,7 +1133,7 @@ async function toOriginalPosition(
   if (original) {
     return {
       file: original.fileName
-        ? normalizeFileName(resolveMapSource(original.fileName, servedUrl))
+        ? normalizeModuleFileName(resolveMapSource(original.fileName, servedUrl))
         : null,
       line: original.lineNumber,
       column: original.columnNumber,
