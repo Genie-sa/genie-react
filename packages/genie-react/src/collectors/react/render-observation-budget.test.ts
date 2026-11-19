@@ -1,5 +1,5 @@
 import type { Fiber } from 'bippy'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { consumeCommitWork } from './commit-budget'
 import { reactClearRendersContract } from './render-contract'
 import {
@@ -163,5 +163,41 @@ describe('render observation budget regressions', () => {
       operationLimit: 20_000,
       timeLimitMs: 8,
     })
+  })
+})
+
+describe('the time budget on Hermes, which runs the analysis without a JIT', () => {
+  beforeEach(() => {
+    vi.stubGlobal('HermesInternal', {})
+    clearRenders()
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('gives an adaptive window eight times the time limits the defaults set for V8', () => {
+    expect(getRenderObservationConfig()).toMatchObject({
+      operationLimit: 20_000,
+      timeLimitMs: 64,
+      targetTimeReserveMs: 32,
+    })
+  })
+
+  it('keeps the time limits a window that is not adaptive was given', () => {
+    clearRenders({ budget: { adaptive: false } })
+
+    expect(getRenderObservationConfig()).toMatchObject({ timeLimitMs: 8, targetTimeReserveMs: 4 })
+  })
+
+  it('advises a time limit that the factor scales to double the one that ran out', () => {
+    let clock = 0
+    const budget = createCommitAnalysisBudget(250, { timeLimitMs: 64, now: () => clock })
+    clock = 100
+    consumeCommitWork(budget.work, 'commit-fibers')
+    finalizeCommitAnalysisBudget(budget)
+
+    expect(getRenderTrackingCoverage('measurement').budgetAdvice).toMatchObject({
+      exhaustedLimits: ['timeLimitMs'],
+      suggestedBudget: { timeLimitMs: 16 },
+    })
+    expect(getRenderObservationConfig()).toMatchObject({ timeLimitMs: 128 })
   })
 })

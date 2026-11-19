@@ -39,6 +39,11 @@ The first commit analyzed after commits nothing observed, such as the first inte
 window, gets four times `timeLimitMs` and `targetTimeReserveMs`, up to their maxima, because the
 analysis code runs cold; `operationLimit` still bounds its work.
 
+On Hermes, the JavaScript engine React Native uses, an adaptive window gives every commit eight
+times `timeLimitMs` and `targetTimeReserveMs`, up to their maxima: the defaults are measured in V8,
+and Hermes runs the analysis without a JIT. `observationConfig` reports the limits in effect, and
+`coverage.budgetAdvice` suggests a budget in the units you pass, so you can pass it back unchanged.
+
 The expanded maxima are opt-in. With `adaptive:true`, the call counts the components already
 mounted and raises `fiberLimit`, `operationLimit`, and `timeLimitMs` by the same factor until
 `fiberLimit` covers them, up to the maxima; `observationConfig.adaptiveScale` reports the factor. A
@@ -1170,6 +1175,11 @@ so naming a component never leaves it fewer causes than an unscoped window finds
 The first commit analyzed after commits nothing observed, such as the first interaction in a new
 window, gets four times `timeLimitMs` and `targetTimeReserveMs`, up to their maxima, because the
 analysis code runs cold; `operationLimit` still bounds its work.
+
+On Hermes, the JavaScript engine React Native uses, an adaptive window gives every commit eight
+times `timeLimitMs` and `targetTimeReserveMs`, up to their maxima: the defaults are measured in V8,
+and Hermes runs the analysis without a JIT. `observationConfig` reports the limits in effect, and
+`coverage.budgetAdvice` suggests a budget in the units you pass, so you can pass it back unchanged.
 
 The expanded maxima are opt-in. With `adaptive:true`, the call counts the components already
 mounted and raises `fiberLimit`, `operationLimit`, and `timeLimitMs` by the same factor until

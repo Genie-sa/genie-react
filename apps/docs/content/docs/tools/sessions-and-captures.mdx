@@ -410,7 +410,7 @@ and defaults to `[]`; each name gets its own cohort. `roots` is an optional list
 and `targetReserve` is an integer 0–5,000 (default 100) that cannot exceed `bufferLimit`.
 
 The expanded maxima are opt-in. An adaptive budget starts sized to the components already mounted,
-as in `react_clear_renders`. This window records one named action, so growth after an exhausted
+with eight times the time limits on Hermes, as in `react_clear_renders`. This window records one named action, so growth after an exhausted
 commit cannot restore evidence skipped by that action. For a
 large React Native interaction, provide an explicit budget and rerun from a fresh window if the
 stopped React coverage is incomplete.

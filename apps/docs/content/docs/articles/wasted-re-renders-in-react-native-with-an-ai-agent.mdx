@@ -241,7 +241,9 @@ renderer never sets. Later releases also compare the host props, so these rows r
 with `dom-changed` and a `#text` write.
 
 Check the budget before you count. On this simulator the default budget ran out on the first tap.
-When `coverage.budgetAdvice` appears, clear again with its budget and repeat the action.
+When `coverage.budgetAdvice` appears, clear again with its budget and repeat the action. Later
+releases give an adaptive window on Hermes eight times the default time limits, and the first tap
+in a default window on this demo then skips no component.
 
 Every `verify` result here carried this line in its `environment`:
 
