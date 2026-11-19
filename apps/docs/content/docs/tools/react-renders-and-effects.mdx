@@ -571,6 +571,11 @@ dependencies cannot be compared, such as functions, the label is `insufficient-d
 (`dependency-values-not-compared`). An effect without a dependency array is hot when it was
 scheduled on at least `minScheduleRate` of updates (`no-dependency-array`).
 
+`basis` says why the label holds. `scheduleReason` and its legacy alias `reason` compare the
+schedule rate with `minScheduleRate` and decide the label only for an effect without a dependency
+array. An effect with dependencies can be `hot` with `scheduleReason: "below-schedule-rate"`, for
+example when it re-ran on 10 of 11 updates, each time with an equal new object.
+
 **Agent use:** Inspect the exact hook callsite and changed dependency before editing the effect. A
 schedule does not prove execution or cleanup timing, and unknown ownership must not be assigned to
 the app.
