@@ -13,12 +13,14 @@ pnpm --filter @genie-react/realworld-legacy hub
 pnpm --filter @genie-react/realworld-legacy dev
 ```
 
+To run several copies side by side, give each its own `PORT` and `GENIE_HUB_PORT`, and set both in both terminals: `PORT=5212 GENIE_HUB_PORT=15212 pnpm --filter @genie-react/realworld-legacy hub`, then the same with `dev`. Pick hub ports away from the dev servers' range, such as `PORT` + 10000; `PORT` + 1 is often the next copy's dev server. The dev server refuses a `PORT` other than 4711 without `GENIE_HUB_PORT`, because that copy's page would otherwise connect to whichever app's hub owns port 4712.
+
 Open http://127.0.0.1:4711 and sign in as `dana@acme.test` with password `password` (every seeded user has the same password).
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PORT` | `4711` | Dev server port |
-| `GENIE_HUB_PORT` | `4712` | Hub port, used by `pnpm hub` and compiled into the development client |
+| `GENIE_HUB_PORT` | `4712`; required when `PORT` is not 4711 | Hub port, used by `pnpm hub` and compiled into the development client |
 | `MOCK_LATENCY_MS` | `60` | Latency added to every mock API response |
 
 Genie is wired only in development, as the [other web bundler guide](../../apps/docs/content/docs/setup/other-web.mdx) describes: the development entry loads `genie-react/hook` first, then a bundled client with the session, React, memory, performance and timeline collectors. The production build (`pnpm build`) contains neither.

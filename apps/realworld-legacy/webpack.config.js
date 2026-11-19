@@ -3,10 +3,9 @@
 const path = require('node:path')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const { DefinePlugin } = require('webpack')
+const { resolveDevPorts } = require('./dev-ports')
 const { createMockApi } = require('./mock-server')
 
-const DEFAULT_PORT = 4711
-const DEFAULT_HUB_PORT = 4712
 const DEFAULT_LATENCY_MS = 60
 
 const packageDir = (name) => path.dirname(require.resolve(`${name}/package.json`))
@@ -23,8 +22,7 @@ function numberFromEnv(name, fallback) {
 module.exports = (_env, argv) => {
   const isDevelopment = argv.mode !== 'production'
   const sourceDir = path.resolve(__dirname, process.env.APP_SOURCE_DIR ?? 'src')
-  const port = numberFromEnv('PORT', DEFAULT_PORT)
-  const hubPort = numberFromEnv('GENIE_HUB_PORT', DEFAULT_HUB_PORT)
+  const { port, hubPort } = resolveDevPorts(isDevelopment ? process.env : {})
   const entry = path.join(sourceDir, 'index.tsx')
 
   return {
