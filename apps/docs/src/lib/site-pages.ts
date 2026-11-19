@@ -70,7 +70,7 @@ export const privacyPage: SitePage = {
     {
       heading: 'This website',
       paragraphs: [
-        'This documentation site is a static-content site with no accounts, no sign-ups, and no advertising. We do not set tracking cookies and we do not run third-party analytics scripts. The built-in search runs against a server endpoint on this site; queries are used only to compute results and are not stored by us.',
+        'This documentation site is a static-content site with no accounts, no sign-ups, and no advertising. We do not set tracking cookies and we do not run third-party analytics scripts. The built-in search runs against a server endpoint on this site; queries are used only to compute results and are not stored by us. The server counts requests by page, referring site, and kind of client (browser, search engine, or AI agent, read from the user agent); it does not record IP addresses or search queries.',
         'The site is served by Cloudflare, which processes standard request metadata (such as IP address and user agent) to deliver and secure the service, as described in Cloudflare’s own privacy policy.',
       ],
     },

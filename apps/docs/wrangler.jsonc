@@ -3,7 +3,16 @@
   "name": "genie-react-docs",
   "compatibility_date": "2026-07-17",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "@tanstack/react-start/server-entry",
+  "main": "src/server.ts",
+  "analytics_engine_datasets": [
+    {
+      "binding": "DOCS_ANALYTICS",
+      "dataset": "genie_react_docs_requests"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
   "routes": [
     {
       "pattern": "genie-react.com",
