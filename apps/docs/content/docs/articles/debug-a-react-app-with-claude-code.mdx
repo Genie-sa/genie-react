@@ -25,9 +25,9 @@ You need both. `genie-react` holds the runtime, and `@genie-react/cli` holds the
 command. `npm view` shows that only the CLI package has a bin:
 
 ```text
-$ npm view genie-react@1.0.2 bin
+$ npm view genie-react@1.1.0 bin
 
-$ npm view @genie-react/cli@1.0.2 bin
+$ npm view @genie-react/cli@1.1.0 bin
 { 'genie-react': 'dist/cli.js' }
 ```
 
@@ -56,6 +56,9 @@ changes in other setups.
 
 The installed skill calls the CLI as `node_modules/.bin/genie-react`, so the commands below use that
 path. The README says a wrapper such as `npx` or `pnpm exec` adds up to 350 ms to every call.
+Suggested commands in Genie's output start with the runner you used. When you call the binary
+directly, Genie takes the runner from the project's lockfile, so in this pnpm repo the `next:` lines
+read `pnpm exec genie-react`.
 
 ## Ask for the outcome
 
@@ -63,8 +66,8 @@ Start the dev server, open the app with an agent-browser session, and check that
 connected. Use the same session name for both tools:
 
 ```bash
-agent-browser --session art-l6 open http://127.0.0.1:5216/orders
-node_modules/.bin/genie-react status --session art-l6 --wait 15000
+agent-browser --session upd-h open http://127.0.0.1:5244/orders
+node_modules/.bin/genie-react status --session upd-h --wait 15000
 ```
 
 `status` printed `connected: true` and `ready: true`. Then name the interaction and what you want:
@@ -76,33 +79,29 @@ The skill gives the agent a loop: open a window, act once, read the evidence, fi
 
 ## Reproduce once and read the render cause
 
-The agent opens a render window for `SidebarNav`, ticks one row, and waits for React to go idle:
+The agent opens a render window for `SidebarNav`, ticks one row, and waits until React, Query and
+the router settle:
 
 ```bash
-node_modules/.bin/genie-react call react_clear_renders '{"component":"SidebarNav"}' --session art-l6
-agent-browser --session art-l6 find role checkbox check --name 'Select SO-106000'
-node_modules/.bin/genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session art-l6
-node_modules/.bin/genie-react call react_render_causes '{"component":"SidebarNav","limit":20}' --session art-l6
+node_modules/.bin/genie-react call react_clear_renders '{"component":"SidebarNav"}' --session upd-h
+agent-browser --session upd-h find role checkbox check --name 'Select SO-106000'
+node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-h
+node_modules/.bin/genie-react call react_render_causes '{"component":"SidebarNav","limit":20}' --session upd-h
 ```
 
-The summary names one render, graded unnecessary, from an external store (trimmed):
+The summary names one render, graded unnecessary, from an external store, and the store field that
+changed (trimmed):
 
 ```text
-SidebarNav #8946769199146 {renderEventId:render:10:1,documentCommitId:10,mountId:mount:1,necessity:unnecessary,necessityReason:output-unchanged,inputEvidence:none-observed,source:{location:/src/layout/app-shell.tsx:38:9,role:element-callsite,ownership:app}}
-  ← external-store inferred anonymous-external-store
+SidebarNav #8736064143402 {renderEventId:render:10:1,documentCommitId:10,mountId:mount:1,necessity:unnecessary,necessityReason:output-unchanged,inputEvidence:none-observed,source:{location:/src/layout/app-shell.tsx:38:9,role:element-callsite,ownership:app}}
+  ← external-store inferred anonymous-external-store {changedFields:[selectedOrderIds]}
 coverage:
   complete: true
 ```
 
-`output-unchanged` means the render wrote nothing to the DOM. The same call with `"view":"full"`
-says which store field changed (selected fields of the cause):
-
-```text
-← external-store inferred {reason:external-store-snapshot-changed,...,selectionEqual:false,subscriptionFired:true,...,changedFields:[selectedOrderIds],...,selector:null,equality:object-is,...}
-```
-
-The sidebar never shows the selection, yet a change to `selectedOrderIds` re-rendered it.
-`selector:null` says the component reads the store with no selector.
+`output-unchanged` means the render wrote nothing to the DOM. The sidebar never shows the
+selection, yet a change to `selectedOrderIds` re-rendered it. Genie 1.0.2 printed the changed field
+only with `"view":"full"`, and 1.1.0 prints it in the default view.
 
 ## Find the line
 
@@ -126,23 +125,24 @@ Before changing code, the agent records a failing verdict. `begin` fixes the cla
 - `boundaries clean` says no error boundary catches anything.
 
 ```bash
-agent-browser --session art-l6 reload
-node_modules/.bin/genie-react verify begin --session art-l6 --name 'select one order' \
+agent-browser --session upd-h reload
+node_modules/.bin/genie-react verify begin --session upd-h --name 'select one order' \
   --claim 'render SidebarNav max 0' --claim 'render BulkActionBar min 1' --claim 'boundaries clean'
-agent-browser --session art-l6 find role checkbox check --name 'Select SO-106000'
-node_modules/.bin/genie-react verify end vfy_0f82808b-bf71-4fd4-a5b5-b9fd1e987a52 --session art-l6
+agent-browser --session upd-h find role checkbox check --name 'Select SO-106000'
+node_modules/.bin/genie-react verify end vfy_ca6cec22-2bae-4196-a1c9-39ef31c54fe6 --session upd-h
 ```
 
 Trimmed to the verdict and claim lines:
 
 ```text
-fail vfy_0f82808b-bf71-4fd4-a5b5-b9fd1e987a52 "select one order"  8 commits, quiet after 1235 ms (react, query, router)
+fail vfy_ca6cec22-2bae-4196-a1c9-39ef31c54fe6 "select one order"  11 commits, quiet after 884 ms (react, query, router, network)
   1 fail render SidebarNav max 0  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
   2 pass render BulkActionBar min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
   3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
 ```
 
-The command exited 1.
+The command exited 1. `network` in the verdict line means `verify` also waited for the app's own
+requests to finish before it decided.
 
 ## Apply the fix
 
@@ -165,26 +165,26 @@ The agent reloads the page, so no selection carries over, and runs the same `beg
 and `end`. Trimmed:
 
 ```text
-pass vfy_afb004ba-1020-43ca-8a3f-5430235db164 "select one order"  10 commits, quiet after 880 ms (react, query, router)
+pass vfy_a080db08-8413-4f17-b45d-78b38765c9a0 "select one order"  10 commits, quiet after 1498 ms (react, query, router, network)
   1 pass render SidebarNav max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
   2 pass render BulkActionBar min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
   3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
 ! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
-attempt 2 for these claims on this tab; previous fail vfy_0f82808b-bf71-4fd4-a5b5-b9fd1e987a52; document reloaded since
+attempt 2 for these claims on this tab; previous fail vfy_ca6cec22-2bae-4196-a1c9-39ef31c54fe6; document reloaded since
 ```
 
 The command exited 0. The sidebar rendered zero times, and the toolbar still rendered once. Genie
 does not check pixels, so the agent asks the driver what the toolbar shows:
 
 ```text
-$ agent-browser --session art-l6 snapshot -s '[aria-label="Bulk actions"]'
+$ agent-browser --session upd-h snapshot -s '[aria-label="Bulk actions"]'
 - toolbar "Bulk actions"
   - StaticText "1"
   - StaticText " selected"
-  - button "Mark shipped" [ref=e216]
-  - button "Put on hold" [ref=e217]
-  - button "Cancel" [ref=e218]
-  - button "Clear selection" [ref=e219]
+  - button "Mark shipped" [ref=e189]
+  - button "Put on hold" [ref=e190]
+  - button "Cancel" [ref=e191]
+  - button "Clear selection" [ref=e192]
 ```
 
 A good report from Claude Code quotes both verdict lines, the failing ID and the passing ID, and the
@@ -195,7 +195,7 @@ driver's check of the screen.
 - `verify` counts renders and checks effects and error boundaries. It does not measure time. For
   timing before and after a change, see [Optimize](/docs/guides/optimize).
 - `react_render_causes` graded the store cause `inferred`, not `exact`. The changed field and the
-  missing selector were enough here. When a cause is only inferred, read the code before you act
+  store call in `sidebar-nav.tsx` were enough here. When a cause is only inferred, read the code before you act
   on it.
 - Genie needs a development build of React 18 or newer and the dev-server setup from
   [Install and connect](/docs/getting-started/install).

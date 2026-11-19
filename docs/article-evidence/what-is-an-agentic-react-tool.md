@@ -1245,3 +1245,868 @@ request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperat
 # exit code: 1 (04:20:49Z UTC)
 ```
 
+
+## Re-run on Genie 1.1.0
+
+- Date: 2026-11-19 (runs between 08:57 and 08:59 UTC, times on each block)
+- Commit: `ce408cb205c0e798cb04c35512772b7454283141` (`git rev-parse HEAD`, first command below).
+  No app source was changed.
+- App: `apps/realworld-dashboard` (Meridian Ops), React 19.3.1 development build in StrictMode, dev
+  server started from the app folder with `DASHBOARD_PORT=5244 pnpm exec vite --port 5244 --strictPort`
+- URLs: `http://127.0.0.1:5244/` (dashboard), `/inventory`, `/orders/o-105000`
+- Genie: CLI and runtime 1.1.0 from this checkout (`pnpm install && pnpm build`)
+- Driver: agent-browser 0.43.0, headless Chromium, session `upd-h`, launched with
+  `--enable react-devtools` from the first command, so this run has no separate part 2
+- Helper: `/tmp/upd-h/fiber.py`, the same script as `/tmp/docs7/art-l6/fiber.py` above
+
+Every command below ran from `apps/realworld-dashboard`, in this order, through a wrapper that
+records the command, its full output and its exit code. Output is untrimmed. The home directory
+path is shown as `~`. The waits after the clicks use `devtools_wait` with condition `settled`,
+which the 1.1.0 skill uses in place of `react_quiesce`.
+
+The first dialog snapshot ran before the warehouse list loaded, so it shows only the placeholder
+option. The run waited one second and took the snapshot again.
+
+What changed from the 1.0.2 runs above:
+
+- `react_effect_timeline` reports the `usePageView` effect at
+  `{file:/src/lib/telemetry.ts,line:11,column:3,...,sourceMapConfidence:mapped}`. 1.0.2 reported
+  `{file:/lib/telemetry.ts,line:7,column:2,...}`.
+- After the in-app navigation from `/orders/o-105000?tab=overview` to `/` through the sidebar link,
+  `verify begin` and `verify end` print `url "http://127.0.0.1:5244/"`. 1.0.2 printed the order URL.
+- Suggested commands start with `npx genie-react`, the runner used here. 1.0.2 printed
+  `pnpm exec genie-react`.
+- The verdict lines list `network` among the settled domains.
+- This run did not reproduce the hidden-tab refusal (`document_hidden`). The tab stayed visible.
+  The article no longer mentions it.
+- No `react_render_causes` call in this article returns an `external-store` cause, so the new
+  default `changedFields` output does not appear here. See the evidence for
+  `debug-a-react-app-with-claude-code`.
+
+```console
+$ git rev-parse HEAD
+ce408cb205c0e798cb04c35512772b7454283141
+# exit code: 0 (08:57:00Z UTC)
+```
+
+```console
+$ npx genie-react --version
+1.1.0
+# exit code: 0 (08:57:01Z UTC)
+```
+
+```console
+$ agent-browser --version
+agent-browser 0.43.0
+# exit code: 0 (08:57:01Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h --enable react-devtools open http://127.0.0.1:5244/login
+[agent-browser] launched browser
+✓ Meridian Ops
+  http://127.0.0.1:5244/login
+# exit code: 0 (08:57:04Z UTC)
+```
+
+```console
+$ npx genie-react status --session upd-h --wait 15000
+selectedBridgeUrl: ws://127.0.0.1:5244/__genie/ws
+sessionSelector:
+  requested: upd-h
+  source: flag
+  resolvedSessionId: 2dd5af5d-35ec-41fa-b341-4f29fde113ce
+  implicit: false
+  agentBrowser: {session:upd-h,via:selector,logicalSessionId:118789ea-6c07-458c-9462-6fe4f51bd363}
+connected: true
+ready: true
+sessionId: 2dd5af5d-35ec-41fa-b341-4f29fde113ce
+app: {name:"Meridian Ops",url:http://127.0.0.1:5244/login,reactVersion:19.3.1,reactMounted:true}
+domains: [session,react,app,memory,perf,plugin,timeline,network,router,query]
+toolCount: 101
+sessions[1] (sessionId {fields}):
+  2dd5af5d-35ec-41fa-b341-4f29fde113ce {logicalSessionId:118789ea-6c07-458c-9462-6fe4f51bd363,documentGeneration:2,logicalSessionCollision:false,collisionWithSessionIds:[],app:{name:"Meridian Ops",url:http://127.0.0.1:5244/login,reactVersion:19.3.1,reactMounted:true},domains:[session,react,app,memory,perf,plugin,timeline,network,router,query],toolCount:101,connectedAt:1795078622621,ready:true,readyAt:1795078622622,current:true,origin:http://127.0.0.1:5244,runtimeVersion:1.1.0}
+warnings: []
+hub: {version:1.1.0,protocol:1}
+# exit code: 0 (08:57:04Z UTC)
+```
+
+```console
+$ npx genie-react call app_reset_backend '{}' --session upd-h
+seed: 20260302
+faults: []
+latency: []
+latencyScale: 1
+requestCount: 0
+counts: {orders:6000,customers:1200,products:2400}
+# exit code: 0 (08:57:11Z UTC)
+```
+
+```console
+$ npx genie-react call app_login_as '{"role":"manager"}' --session upd-h
+changed: true
+role: manager
+userId: u-manager
+# exit code: 0 (08:57:12Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h open http://127.0.0.1:5244/
+✓ Meridian Ops
+  http://127.0.0.1:5244/
+# exit code: 0 (08:57:12Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h wait 2500
+✓ Done
+# exit code: 0 (08:57:15Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h console --clear
+✓ Console log cleared
+# exit code: 0 (08:57:15Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h reload
+http://127.0.0.1:5244/
+# exit code: 0 (08:57:15Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h wait 2500
+✓ Done
+# exit code: 0 (08:57:18Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h snapshot | grep heading
+      - heading "Good morning, Priya" [level=1, ref=e12]
+        - heading "Orders per day" [level=2, ref=e13]
+        - heading "Revenue by region" [level=2, ref=e15]
+        - heading "Orders by status" [level=2, ref=e16]
+        - heading "Inventory health" [level=2, ref=e17]
+        - heading "Recent activity" [level=2, ref=e19]
+# exit code: 0 (08:57:18Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h console | grep -v '\[debug\]'
+[error] %o
+
+%s
+
+%s
+ {stack: "TypeError: Cannot read properties of null (reading…vite/deps/react-dom_client.js?v=5c370809:9082:37)", message: "Cannot read properties of null (reading 'toFixed')"} The above error occurred in the <CarrierPerformanceCard> component. React will try to recreate this component tree from scratch using the error boundary you provided, WidgetBoundary.
+# exit code: 0 (08:57:18Z UTC)
+```
+
+```console
+$ npx genie-react call react_error_state '{}' --session upd-h --fields boundaryName,boundarySource,throwingComponent,message,status,rendered
+[1]:
+  - {boundaryName:WidgetBoundary,boundarySource:{file:/src/features/dashboard/dashboard-page.tsx,line:71,column:9,functionName:DashboardPage,sourceMapConfidence:mapped,role:element-callsite},throwingComponent:CarrierPerformanceCard,message:"Cannot read properties of null (reading 'toFixed')",status:active,rendered:{output:nothing,hostNodes:0,text:null}}
+# exit code: 0 (08:57:18Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h get text '[data-testid=low-stock-count]'
+104
+# exit code: 0 (08:57:25Z UTC)
+```
+
+```console
+$ npx genie-react call query_get '{"queryKey":["dashboard","stock-summary"]}' --session upd-h --fields staleTime,isStale,dataUpdatedAt,dataUpdateCount,fetchCount
+[1]:
+  - {staleTime:Infinity,isStale:false,dataUpdatedAt:1795078635821,dataUpdateCount:1,fetchCount:1}
+# exit code: 0 (08:57:25Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h find role link click --name 'View all'
+✓ Done
+# exit code: 0 (08:57:25Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h wait 1500
+✓ Done
+# exit code: 0 (08:57:27Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h find role button click --name 'Adjust SAF-07762'
+✓ Done
+# exit code: 0 (08:57:27Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h snapshot -i -s '[role=dialog]'
+- heading "Adjust SAF-07762" [level=2, ref=e29]
+- button "Close dialog" [ref=e30]
+- combobox "Warehouse" [expanded=false, ref=e31]: Select a warehouse
+  - option "Select a warehouse" [selected, ref=e338]
+- spinbutton "Adjustment" [ref=e32]: 0
+- combobox "Reason" [expanded=false, ref=e33]: Cycle count
+  - option "Cycle count" [selected, ref=e339]
+  - option "Damaged goods" [ref=e340]
+  - option "Received shipment" [ref=e341]
+  - option "Customer return" [ref=e342]
+  - option "Transfer" [ref=e343]
+- button "Cancel" [ref=e34]
+- button "Apply adjustment" [ref=e35]
+# exit code: 0 (08:57:27Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h wait 1000
+✓ Done
+# exit code: 0 (08:57:40Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h snapshot -i -s '[role=dialog]'
+- heading "Adjust SAF-07762" [level=2, ref=e29]
+- button "Close dialog" [ref=e30]
+- combobox "Warehouse" [expanded=false, ref=e31]: Select a warehouse
+  - option "Select a warehouse" [selected, ref=e338]
+  - option "Reno DC · 0 on hand" [ref=e400]
+  - option "Columbus DC · 2 on hand" [ref=e401]
+  - option "Rotterdam Hub · 1 on hand" [ref=e402]
+  - option "Leipzig Hub · 6 on hand" [ref=e403]
+  - option "Singapore Hub · 1 on hand" [ref=e404]
+  - option "São Paulo DC · 0 on hand" [ref=e405]
+- spinbutton "Adjustment" [ref=e32]: 0
+- combobox "Reason" [expanded=false, ref=e33]: Cycle count
+  - option "Cycle count" [selected, ref=e339]
+  - option "Damaged goods" [ref=e340]
+  - option "Received shipment" [ref=e341]
+  - option "Customer return" [ref=e342]
+  - option "Transfer" [ref=e343]
+- button "Cancel" [ref=e34]
+- button "Apply adjustment" [ref=e35]
+# exit code: 0 (08:57:40Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h select @e31 'Reno DC · 0 on hand'
+✓ Done
+# exit code: 0 (08:57:47Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h fill @e32 614
+✓ Done
+# exit code: 0 (08:57:47Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h click @e35
+✓ Done
+# exit code: 0 (08:57:47Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h wait 1500
+✓ Done
+# exit code: 0 (08:57:48Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h snapshot | grep -n 'SAF-07762' | head -5
+502:        - StaticText "SAF-07762 adjusted"
+# exit code: 0 (08:57:48Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h find role link click --name 'Dashboard'
+✓ Done
+# exit code: 0 (08:57:49Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h wait 2000
+✓ Done
+# exit code: 0 (08:57:51Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h get text '[data-testid=low-stock-count]'
+104
+# exit code: 0 (08:57:51Z UTC)
+```
+
+```console
+$ npx genie-react call query_get '{"queryKey":["dashboard","stock-summary"]}' --session upd-h --fields staleTime,isStale,dataUpdatedAt,dataUpdateCount,fetchCount
+[1]:
+  - {staleTime:Infinity,isStale:false,dataUpdatedAt:1795078635821,dataUpdateCount:1,fetchCount:1}
+# exit code: 0 (08:57:51Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h reload
+http://127.0.0.1:5244/
+# exit code: 0 (08:57:51Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h wait 2500
+✓ Done
+# exit code: 0 (08:57:53Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h get text '[data-testid=low-stock-count]'
+103
+# exit code: 0 (08:57:54Z UTC)
+```
+
+```console
+$ npx genie-react call query_get '{"queryKey":["dashboard","stock-summary"]}' --session upd-h --fields staleTime,isStale,dataUpdatedAt,dataUpdateCount,fetchCount
+[1]:
+  - {staleTime:Infinity,isStale:false,dataUpdatedAt:1795078671709,dataUpdateCount:1,fetchCount:1}
+# exit code: 0 (08:57:54Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h react tree --json | python3 /tmp/upd-h/fiber.py WidgetBoundary LowStockCard StatCard
+49 158 157 Memo(StatCard)
+49 163 157 Memo(StatCard)
+49 168 157 Memo(StatCard)
+49 173 157 Memo(StatCard)
+49 221 208 WidgetBoundary
+49 239 208 LowStockCard
+# exit code: 0 (08:58:02Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h react inspect 221
+WidgetBoundary #221
+props:
+  name: "carrier-performance"
+  children: <CarrierPerformanceCard />
+state:
+  failed: true
+rendered by: DashboardPage > Lazy > Memo(MatchInnerImpl) > MatchView > Memo(MatchImpl) > Memo(OutletImpl) > AuthenticatedLayout > Lazy > Memo(MatchInnerImpl) > MatchView > Memo(MatchImpl) > Memo(OutletImpl) > RootLayout > Memo(MatchInnerImpl) > MatchView > Memo(MatchImpl) > MatchesInner > Matches > RouterProvider > App
+# exit code: 0 (08:58:05Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h react inspect 239
+LowStockCard #239
+hooks:
+  Query: undefined (1 sub)
+rendered by: DashboardPage > Lazy > Memo(MatchInnerImpl) > MatchView > Memo(MatchImpl) > Memo(OutletImpl) > AuthenticatedLayout > Lazy > Memo(MatchInnerImpl) > MatchView > Memo(MatchImpl) > Memo(OutletImpl) > RootLayout > Memo(MatchInnerImpl) > MatchView > Memo(MatchImpl) > MatchesInner > Matches > RouterProvider > App
+# exit code: 0 (08:58:05Z UTC)
+```
+
+```console
+$ npx genie-react call react_clear_renders '{"component":"StatCard"}' --session upd-h
+ok: true
+tracking: true
+documentCommitId: 12
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:12}
+observationConfig:
+  adaptive: true
+  adaptiveScale: 1
+  fiberLimit: 250
+  operationLimit: 30000
+  timeLimitMs: 12
+  targetOperationReserve: 4000
+  targetTimeReserveMs: 4
+  lifecycleBufferLimit: 1000
+  lifecycleTargetReserve: 100
+strictMode: on
+# exit code: 0 (08:58:16Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h react renders start
+✓ Done
+# exit code: 0 (08:58:16Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h find role button click --name 'Collapse sidebar'
+✓ Done
+# exit code: 0 (08:58:16Z UTC)
+```
+
+```console
+$ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-h
+ok: true
+condition: settled
+waitedMs: 778
+validConditions: [connected,ready,component,query-settled,navigation,react-quiet,settled]
+lastObserved:
+  react:
+    documentCommitId: 13
+    renderCollection: available
+    quietForMs: 626
+    requiredQuietMs: 500
+    pendingWork: {documentCommitId:13,scheduledRoots:0,suspendedBoundaries:0,dehydratedBoundaries:0,boundaries:[],scanTruncated:false,scannedFibers:463}
+  query: {fetching:0,mutating:0}
+  router: {pathname:/,isLoading:false,settled:true,pendingWork:[],settlement:router-settled}
+domains:
+  react:
+    status: met
+    lastObserved: {documentCommitId:13,renderCollection:available,quietForMs:626,requiredQuietMs:500,pendingWork:{documentCommitId:13,scheduledRoots:0,suspendedBoundaries:0,dehydratedBoundaries:0,boundaries:[],scanTruncated:false,scannedFibers:463}}
+  query: {status:met,lastObserved:{fetching:0,mutating:0}}
+  router:
+    status: met
+    lastObserved: {pathname:/,isLoading:false,settled:true,pendingWork:[],settlement:router-settled}
+# exit code: 0 (08:58:17Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h react renders stop
+# Render Profile - 1.14s recording
+# 83 renders (1 mounts + 82 re-renders) across 50 components
+# FPS: avg 59, min 15, max 61, drops (<30fps): 1
+
+## Components by total render time
+| Component           | Insts | Mounts | Re-renders | Total    | Self     | DOM   | Top change reason          |
+| ------------------- | ----- | ------ | ---------- | -------- | -------- | ----- | -------------------------- |
+| MatchImpl           |     6 |      0 |          3 |   11.1ms |        - |   0/3 | parent (OutletImpl)        |
+| CatchBoundary       |     6 |      0 |          3 |   11.1ms |        - |   0/3 | parent (MatchView)         |
+| OutletImpl          |     4 |      0 |          2 |    6.5ms |        - |   0/2 | parent (RootLayout)        |
+| QueryClientProvider |     2 |      0 |          1 |    4.6ms |        - |   0/1 | parent (unknown)           |
+| AuthProvider        |     2 |      0 |          1 |    4.6ms |        - |   0/1 | parent (QueryClientProvider) |
+| App                 |     2 |      0 |          1 |    4.6ms |        - |   0/1 | parent (AuthProvider)      |
+| MatchesInner        |     2 |      0 |          1 |    4.6ms |        - |   0/1 | parent (Matches)           |
+| CatchNotFound       |     2 |      0 |          1 |    4.6ms |        - |   0/1 | parent (CatchBoundary)     |
+| AppShell            |     2 |      0 |          1 |    4.6ms |    0.2ms |   0/1 | state (hook #5)            |
+| PreferencesProvider |     2 |      0 |          1 |    4.4ms |        - |   0/1 | state (hook #3)            |
+| DashboardPage       |     2 |      0 |          1 |    1.9ms |        - |   0/1 | parent (Lazy)              |
+| Card                |    10 |      0 |          5 |    1.7ms |    0.1ms |   5/5 | parent (OrdersTrendCard)   |
+| SidebarNav          |     2 |      0 |          1 |    1.6ms |    0.2ms |   1/1 | state (hook #2)            |
+| CardBody            |    10 |      0 |          5 |    1.5ms |    0.1ms |   5/5 | parent (Card)              |
+| TopBar              |     2 |      0 |          1 |    0.9ms |    0.1ms |   1/1 | parent (PreferencesProvider) |
+| NotificationBell    |     2 |      0 |          1 |    0.7ms |    0.1ms |   1/1 | state (hook #6)            |
+| StatCard            |     8 |      0 |          4 |    0.6ms |    0.4ms |   4/4 | context (unknown)          |
+| NotificationsDrawer |     2 |      0 |          1 |    0.6ms |    0.6ms |   0/1 | context (unknown)          |
+| StatusBreakdownCard |     2 |      0 |          1 |    0.6ms |    0.1ms |   0/1 | state (hook #0)            |
+| RevenueByRegionCard |     2 |      0 |          1 |    0.5ms |        - |   0/1 | context (unknown)          |
+| DonutChart          |     2 |      0 |          1 |    0.5ms |    0.4ms |   1/1 | props.segments             |
+| LowStockCard        |     2 |      0 |          1 |    0.5ms |    0.3ms |   0/1 | state (hook #0)            |
+| OrdersTrendCard     |     2 |      0 |          1 |    0.4ms |    0.1ms |   0/1 | context (unknown)          |
+| BarList             |     2 |      0 |          1 |    0.4ms |    0.3ms |   1/1 | props.data                 |
+| RecentActivityCard  |     2 |      0 |          1 |    0.4ms |    0.2ms |   0/1 | context (unknown)          |
+| Badge               |    10 |      0 |          5 |    0.2ms |    0.2ms |   5/5 | parent (CardBody)          |
+| ArrowUpRight        |     4 |      0 |          2 |    0.2ms |    0.1ms |   0/2 | parent (StatCard)          |
+| LayoutDashboard     |     2 |      0 |          1 |    0.2ms |        - |   0/1 | parent (SidebarNav)        |
+| Boxes               |     2 |      0 |          1 |    0.2ms |        - |   0/1 | parent (SidebarNav)        |
+| LineChart           |     2 |      0 |          1 |    0.2ms |    0.1ms |   1/1 | props.points               |
+| Avatar              |    14 |      0 |          7 |    0.1ms |    0.1ms |   7/7 | parent (CardBody)          |
+| CardHeader          |    10 |      0 |          5 |    0.1ms |    0.1ms |   5/5 | parent (Card)              |
+| Package             |     2 |      0 |          1 |    0.1ms |    0.1ms |   0/1 | parent (SidebarNav)        |
+| Users               |     2 |      0 |          1 |    0.1ms |        - |   0/1 | parent (SidebarNav)        |
+| ChartColumn         |     2 |      0 |          1 |    0.1ms |        - |   0/1 | parent (SidebarNav)        |
+| Settings            |     2 |      0 |          1 |    0.1ms |        - |   0/1 | parent (SidebarNav)        |
+| ChevronsRight       |     1 |      1 |          0 |    0.1ms |        - |   1/1 | mount                      |
+| Search              |     2 |      0 |          1 |    0.1ms |        - |   0/1 | parent (TopBar)            |
+| Sparkline           |     4 |      0 |          2 |        - |        - |   0/2 | parent (StatCard)          |
+| ArrowDownRight      |     4 |      0 |          2 |        - |        - |   0/2 | parent (StatCard)          |
+| Transitioner        |     2 |      0 |          1 |        - |        - |   0/1 | parent (Matches)           |
+| Bell                |     2 |      0 |          1 |        - |        - |   0/1 | parent (NotificationBell)  |
+| Drawer              |     2 |      0 |          1 |        - |        - |   0/1 | props.onClose              |
+| OverlayFrame        |     2 |      0 |          1 |        - |        - |   0/1 | state (hook #1)            |
+| UserMenu            |     2 |      0 |          1 |        - |        - |   1/1 | context (unknown)          |
+| Select              |     2 |      0 |          1 |        - |        - |   1/1 | props.onChange             |
+| WidgetBoundary      |     2 |      0 |          1 |        - |        - |   0/1 | parent (DashboardPage)     |
+| Toaster             |     2 |      0 |          1 |        - |        - |   0/1 | parent (RootLayout)        |
+| Genie               |     2 |      0 |          1 |        - |        - |   0/1 | parent (RootLayout)        |
+| DashboardDevTools   |     2 |      0 |          1 |        - |        - |   0/1 | parent (RootLayout)        |
+
+## Change details (prev -> next)
+  AppShell
+    state (hook #0): false -> true
+    state (hook #5): {tag, create, deps, ...} -> {tag, create, deps, ...}
+  PreferencesProvider
+    state (hook #3): {tag, create, deps, ...} -> {tag, create, deps, ...}
+  SidebarNav
+    props.collapsed: false -> true
+    state (hook #2): {tag, create, deps, ...} -> {tag, create, deps, ...}
+  NotificationBell
+    state (hook #1): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    state (hook #5): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    state (hook #6): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    state (hook #7): {tag, create, deps, ...} -> {tag, create, deps, ...}
+  StatCard
+    context (unknown): {formatMoney, formatCompactMoney, formatNumber, ...} -> {formatMoney, formatCompactMoney, formatNumber, ...}
+  NotificationsDrawer
+    props.onClose: fn() -> fn()
+    state (hook #1): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    state (hook #4): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    context (unknown): {formatMoney, formatCompactMoney, formatNumber, ...} -> {formatMoney, formatCompactMoney, formatNumber, ...}
+  StatusBreakdownCard
+    state (hook #0): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    state (hook #4): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    state (hook #5): {tag, create, deps, ...} -> {tag, create, deps, ...}
+  RevenueByRegionCard
+    state (hook #0): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    state (hook #4): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    state (hook #5): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    context (unknown): {formatMoney, formatCompactMoney, formatNumber, ...} -> {formatMoney, formatCompactMoney, formatNumber, ...}
+  DonutChart
+    props.segments: Array(6) -> Array(6)
+  LowStockCard
+    state (hook #0): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    state (hook #4): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    state (hook #5): {tag, create, deps, ...} -> {tag, create, deps, ...}
+  OrdersTrendCard
+    context (unknown): {formatMoney, formatCompactMoney, formatNumber, ...} -> {formatMoney, formatCompactMoney, formatNumber, ...}
+  BarList
+    props.data: Array(4) -> Array(4)
+  RecentActivityCard
+    state (hook #0): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    state (hook #4): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    state (hook #5): {tag, create, deps, ...} -> {tag, create, deps, ...}
+    context (unknown): {formatMoney, formatCompactMoney, formatNumber, ...} -> {formatMoney, formatCompactMoney, formatNumber, ...}
+  LineChart
+    props.formatValue: fn() -> fn()
+    props.points: Array(30) -> Array(30)
+    state (hook #0): Array(2) -> Array(2)
+  CardHeader
+    props.actions: {$$typeof, type, key, ...} -> {$$typeof, type, key, ...}
+# exit code: 0 (08:58:17Z UTC)
+```
+
+```console
+$ npx genie-react call react_render_causes '{"component":"StatCard","limit":10}' --session upd-h
+componentMatch:
+  component: StatCard
+  exact: true
+  status: matched
+  matchedNames: [StatCard]
+  matchedNameCount: 1
+  similarNames: []
+tracking: true
+commits: 1
+documentCommitId: 13
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:12}
+attribution:
+  status: current
+  startedAtDocumentCommitId: 13
+  completedAtDocumentCommitId: 13
+  startedAtAnalysisGeneration: 14
+  completedAtAnalysisGeneration: 14
+view: summary
+events[4] (componentName #componentId {fields}, then ← kind evidence name {fields} per cause):
+  each: {documentCommitId:13,necessity:unnecessary,necessityReason:output-unchanged,inputEvidence:incomplete,inputCoverage:{complete:false,scanTruncated:true},source:{role:element-callsite,ownership:app}}
+  StatCard #663304012004 {renderEventId:render:13:4,mountId:mount:6,source:{location:/src/features/dashboard/dashboard-page.tsx:55:9}}
+    ← context exact "Context(PreferencesProvider)" {contextIndex:0}
+  StatCard #663304011991 {renderEventId:render:13:3,mountId:mount:5,source:{location:/src/features/dashboard/dashboard-page.tsx:49:9}}
+    ← context exact "Context(PreferencesProvider)" {contextIndex:0}
+  StatCard #663304011977 {renderEventId:render:13:2,mountId:mount:4,source:{location:/src/features/dashboard/dashboard-page.tsx:42:9}}
+    ← context exact "Context(PreferencesProvider)" {contextIndex:0}
+  StatCard #663304011963 {renderEventId:render:13:1,mountId:mount:3,source:{location:/src/features/dashboard/dashboard-page.tsx:35:9}}
+    ← context exact "Context(PreferencesProvider)" {contextIndex:0}
+omittedByLimit: 0
+sourceClassification:
+  complete: true
+  affects: result
+  totalCandidates: 4
+  evaluated: 4
+  app: 4
+  library: 0
+  unknown: 0
+  unknownComponents: []
+  unknownComponentsOmitted: 0
+renderEventRetention: {evictedEvents:0,earliestDocumentCommitId:13,latestDocumentCommitId:13}
+coverage:
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 9
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  incompleteBecause[1]:
+    - {reason:inputs-truncated,fibers:9,components:[StatCard,NotificationsDrawer,UserMenu,OrdersTrendCard,RevenueByRegionCard,RecentActivityCard],detail:"An input held values Genie compares only in part, such as functions, class instances or objects past the inspected depth; read deepDiff.truncated on these components."}
+  complete: false
+  inputAttributionComplete: false
+  semantics: lower-bound
+  coverageDomain: render-causality
+  droppedRenderEvents: 0
+# exit code: 0 (08:58:17Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h find role button click --name 'Expand sidebar'
+✓ Done
+# exit code: 0 (08:58:30Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h open http://127.0.0.1:5244/orders/o-105000
+✓ Meridian Ops
+  http://127.0.0.1:5244/orders/o-105000?tab=overview
+# exit code: 0 (08:58:30Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h wait 2500
+✓ Done
+# exit code: 0 (08:58:33Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h network requests --clear
+✓ Request log cleared
+# exit code: 0 (08:58:33Z UTC)
+```
+
+```console
+$ npx genie-react call react_clear_renders '{}' --session upd-h --fields ok,tracking
+[1]:
+  - {ok:true,tracking:true}
+# exit code: 0 (08:58:33Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h find role button click --name 'Edit order'
+✓ Done
+# exit code: 0 (08:58:33Z UTC)
+```
+
+```console
+$ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-h --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:737}
+# exit code: 0 (08:58:34Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h network requests --filter /api/
+[66305.949] POST http://127.0.0.1:5244/api/telemetry (Fetch) 200
+[66305.967] GET http://127.0.0.1:5244/api/activity?after=0 (Fetch) 200
+# exit code: 0 (08:58:34Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h react tree --json | python3 /tmp/upd-h/fiber.py OrderDetailPage
+47 153 152 OrderDetailPage
+# exit code: 0 (08:58:34Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h react inspect 153
+OrderDetailPage #153
+hooks:
+  Params: undefined (1 sub)
+  Search: undefined (1 sub)
+  Navigate: undefined (2 sub)
+  SuspenseQuery: undefined (1 sub)
+  SuspenseQuery: undefined (1 sub)
+  Preferences: undefined (1 sub)
+  BoundStore: undefined (1 sub)
+  [27] State: true
+  PageView: undefined (1 sub)
+  [29] Effect: () => {}
+rendered by: Lazy > Memo(MatchInnerImpl) > MatchView > Memo(MatchImpl) > Memo(OutletImpl) > AuthenticatedLayout > Lazy > Memo(MatchInnerImpl) > MatchView > Memo(MatchImpl) > Memo(OutletImpl) > RootLayout > Memo(MatchInnerImpl) > MatchView > Memo(MatchImpl) > MatchesInner > Matches > RouterProvider > App
+# exit code: 0 (08:58:39Z UTC)
+```
+
+```console
+$ npx genie-react call react_effect_timeline '{"component":"OrderDetailPage","appOnly":true,"limit":20}' --session upd-h
+tracking: true
+documentCommitId: 9
+componentMatch:
+  component: OrderDetailPage
+  exact: true
+  status: matched
+  matchedNames: [OrderDetailPage]
+  matchedNameCount: 1
+  similarNames: []
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:8}
+events[1]:
+  - {effectEventId:effect:9:3,effectId:effect:mount:1:11,observationId:observation:1,commitId:1,documentCommitId:9,componentId:8357184274488,componentName:OrderDetailPage,mountId:mount:1,effectIndex:11,hookIndex:33,kind:effect,phase:update,event:scheduled,evidence:exact,dependencyComparison:compared,changedDependencySlots:[1],dependencyChanges:[{slot:1,change:reference-only}],changedDependencySlotsOmitted:0,dependencySlotsUnscanned:0,execution:{status:observed,evidence:exact,startedAt:3002.5,completedAt:3003,durationMs:0.5,outcome:completed,trigger:commit},cleanupExecution:{status:unobserved,reason:no-cleanup-returned},consequences:{status:instrumented,observedDomains:[query-notification,router-notification,react-update,react-commit],unobservedDomains:[asynchronous-react-update,external-store-write,network,event-listener,navigation],events:[]},timeline:[{stage:schedule,timestamp:1795078713364,evidence:exact,referenceId:effect:9:3},{stage:execution,timestamp:1795078713365,evidence:exact,trigger:commit,outcome:completed}],hook:useEffect,customHooks:[usePageView],sourceOwnership:app,ownershipEvidence:exact,ownershipReason:exact-hook-order,source:{file:/src/lib/telemetry.ts,line:11,column:3,functionName:usePageView,sourceMapConfidence:mapped,role:hook-callsite},componentOwnership:app,componentSource:{file:/src/features/orders/order-detail-page.tsx,line:49,column:5,functionName:OrderDetailPage,sourceMapConfidence:mapped,role:component-body}}
+omittedByLimit: 0
+evictedEvents: 0
+droppedEvents: 0
+refreshCommitsExcluded: 0
+libraryEventsHidden: 2
+ownershipCoverage: {complete:true,totalCandidates:3,app:1,library:2,unknown:0}
+filteredNote: "1 effects shown; 2 library effects hidden — set appOnly:false to include them"
+coverage:
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 0
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  complete: true
+  inputAttributionComplete: true
+  semantics: exact
+  coverageDomain: render-measurement
+  targeted: {components:[],roots:[],processedFibers:0,skippedFibers:0,complete:true}
+  observationBudget:
+    adaptive: true
+    adaptiveScale: 1
+    fiberLimit: 250
+    operationLimit: 30000
+    timeLimitMs: 12
+    targetOperationReserve: 4000
+    targetTimeReserveMs: 4
+    lifecycleBufferLimit: 1000
+    lifecycleTargetReserve: 100
+  truncatedEffectLists: 0
+# exit code: 0 (08:58:39Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h press Escape
+✓ Done
+# exit code: 0 (08:58:54Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h find role link click --name 'Dashboard'
+✓ Done
+# exit code: 0 (08:58:55Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h wait 2500
+✓ Done
+# exit code: 0 (08:58:57Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h get url
+http://127.0.0.1:5244/
+# exit code: 0 (08:58:57Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h eval 'document.visibilityState'
+"visible"
+# exit code: 0 (08:58:57Z UTC)
+```
+
+```console
+$ npx genie-react verify begin --session upd-h --name 'collapse sidebar' --claim 'render StatCard max 0' --claim 'render SidebarNav min 1'
+recording vfy_bd8395ad-9f46-422b-a9a8-c14ce82bfd3a "collapse sidebar"
+  url "http://127.0.0.1:5244/"
+  1 recording render StatCard max 0
+  2 recording render SidebarNav min 1
+window: {observationId:observation:2,startDocumentCommitId:21,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_bd8395ad-9f46-422b-a9a8-c14ce82bfd3a --session upd-h
+session: {sessionId:260723b5-ecfb-4531-b9b6-717d3dac98e0,logicalSessionId:118789ea-6c07-458c-9462-6fe4f51bd363,documentGeneration:6}
+schemaVersion: "1.0"
+targets: [{target:{component:StatCard},status:resolved,instances:4,source:/src/features/dashboard/dashboard-page.tsx},{target:{component:SidebarNav},status:resolved,instances:1,source:/src/layout/app-shell.tsx}]
+startedAt: 2026-11-19T08:58:57.848Z
+expiresAt: 2026-11-19T09:03:57.874Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0 (08:58:57Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h find role button click --name 'Collapse sidebar'
+✓ Done
+# exit code: 0 (08:59:02Z UTC)
+```
+
+```console
+$ npx genie-react verify end vfy_bd8395ad-9f46-422b-a9a8-c14ce82bfd3a --session upd-h
+fail vfy_bd8395ad-9f46-422b-a9a8-c14ce82bfd3a "collapse sidebar"  1 commit, quiet after 739 ms (react, query, router, network)
+  url "http://127.0.0.1:5244/"
+  1 fail render StatCard max 0  {renders:4,mounts:0,updates:4,remounts:0,semantics:exact,instances:4,activeInstances:4}
+      claim: {kind:renders,target:{component:StatCard},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:76,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:22,source:/src/features/dashboard/dashboard-page.tsx:35:9},{kind:instance,mountId:mount:78,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:22,source:/src/features/dashboard/dashboard-page.tsx:42:9},{kind:instance,mountId:mount:80,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:22,source:/src/features/dashboard/dashboard-page.tsx:49:9}]
+  2 pass render SidebarNav min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:SidebarNav},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:143,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:22,source:/src/layout/app-shell.tsx:38:9}]
+window: {observationId:observation:2,startDocumentCommitId:21,settledDocumentCommitId:22,frozenDocumentCommitId:22,commits:1,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:739,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:0},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_bd8395ad-9f46-422b-a9a8-c14ce82bfd3a --claim 1 --session upd-h
+session: {sessionId:260723b5-ecfb-4531-b9b6-717d3dac98e0,logicalSessionId:118789ea-6c07-458c-9462-6fe4f51bd363,documentGeneration:6}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_7cde0e48f568,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop]}
+startedAt: 2026-11-19T08:58:57.848Z
+endedAt: 2026-11-19T08:59:03.779Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 1 (08:59:03Z UTC)
+```
+
+```console
+$ npx genie-react verify begin --session upd-h --name 'collapse sidebar' --claim 'render StatCard max 0' --claim 'render SidebarNav min 1'
+recording vfy_91a1a7e0-76e3-4ad5-b59b-3cc544b7139d "collapse sidebar"
+  url "http://127.0.0.1:5244/"
+  1 recording render StatCard max 0
+  2 recording render SidebarNav min 1
+window: {observationId:observation:3,startDocumentCommitId:22,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_91a1a7e0-76e3-4ad5-b59b-3cc544b7139d --session upd-h
+session: {sessionId:260723b5-ecfb-4531-b9b6-717d3dac98e0,logicalSessionId:118789ea-6c07-458c-9462-6fe4f51bd363,documentGeneration:6}
+schemaVersion: "1.0"
+targets: [{target:{component:StatCard},status:resolved,instances:4,source:/src/features/dashboard/dashboard-page.tsx},{target:{component:SidebarNav},status:resolved,instances:1,source:/src/layout/app-shell.tsx}]
+startedAt: 2026-11-19T08:59:11.744Z
+expiresAt: 2026-11-19T09:04:11.747Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0 (08:59:11Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h find role button click --name 'Collapse sidebar'
+✗ 4 elements have role "button", but none match name "Collapse sidebar". Names seen: "Expand sidebar", "Search orders, customers, products… ⌘K", "Notifications, 4 unread", "Account menu"
+# exit code: 1 (08:59:16Z UTC)
+```
+
+```console
+$ npx genie-react verify end vfy_91a1a7e0-76e3-4ad5-b59b-3cc544b7139d --session upd-h
+fail vfy_91a1a7e0-76e3-4ad5-b59b-3cc544b7139d "collapse sidebar"  0 commits, quiet after 622 ms (react, query, router, network)
+  url "http://127.0.0.1:5244/"
+  1 refused render StatCard max 0  no_activity: No React commit happened in the window; the interaction did not reach this tab or did not change React state.
+      observed: {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:4,activeInstances:4}
+      evidence:{startDocumentCommitId:22,frozenDocumentCommitId:22,commits:0},fix:{action:drive-observed-tab,url:http://127.0.0.1:5244/}
+      fix: $ npx genie-react verify begin --session upd-h --name 'collapse sidebar' --claim 'render StatCard max 0' --claim 'render SidebarNav min 1'
+      claim: {kind:renders,target:{component:StatCard},max:0,counting:renders,allowRemount:false}
+      deciding: []
+  2 fail render SidebarNav min 1  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:SidebarNav},min:1,counting:renders,allowRemount:false}
+      deciding: []
+  window no_activity: No React commit happened in the window; the interaction did not reach this tab or did not change React state.
+    guard:activity
+    evidence:{startDocumentCommitId:22,frozenDocumentCommitId:22,commits:0},fix:{action:drive-observed-tab,url:http://127.0.0.1:5244/}
+    fix: $ npx genie-react verify begin --session upd-h --name 'collapse sidebar' --claim 'render StatCard max 0' --claim 'render SidebarNav min 1'
+window: {observationId:observation:3,startDocumentCommitId:22,settledDocumentCommitId:22,frozenDocumentCommitId:22,commits:0,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:622,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:0},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 2 for these claims on this tab; previous fail vfy_bd8395ad-9f46-422b-a9a8-c14ce82bfd3a; no code change observed
+evidence: $ npx genie-react verify show vfy_91a1a7e0-76e3-4ad5-b59b-3cc544b7139d --claim 1 --session upd-h
+session: {sessionId:260723b5-ecfb-4531-b9b6-717d3dac98e0,logicalSessionId:118789ea-6c07-458c-9462-6fe4f51bd363,documentGeneration:6}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_7cde0e48f568,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_bd8395ad-9f46-422b-a9a8-c14ce82bfd3a,verdict:fail,reasons:[],endedAt:2026-11-19T08:59:03.779Z}],codeChangedSincePrevious:none-observed,failsOnSameCode:1}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop]}
+startedAt: 2026-11-19T08:59:11.744Z
+endedAt: 2026-11-19T08:59:18.379Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 1 (08:59:18Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h find role button click --name 'Expand sidebar'
+✓ Done
+# exit code: 0 (08:59:27Z UTC)
+```
+
+```console
+$ agent-browser --session upd-h close
+✓ Browser closed
+# exit code: 0 (08:59:27Z UTC)
+```
+

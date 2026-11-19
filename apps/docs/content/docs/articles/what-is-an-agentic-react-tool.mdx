@@ -10,8 +10,8 @@ the Query cache holds, what an error boundary swallowed, and whether the fix wor
 
 This page tests that on the Meridian Ops dashboard in this repo
 (`apps/realworld-dashboard`), which ships with seeded bugs. For each question, you see what
-[agent-browser](https://github.com/vercel-labs/agent-browser) 0.39.1 printed, including its own
-[React commands](https://agent-browser.dev/react), next to what Genie printed for the same
+[agent-browser](https://github.com/vercel-labs/agent-browser) 0.43.0 printed, including its own
+[React commands](https://agent-browser.dev/react), next to what Genie 1.1.0 printed for the same
 interaction. Every command and its full output are in the
 [evidence file](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/what-is-an-agentic-react-tool.md).
 
@@ -35,18 +35,18 @@ The dashboard should show a **Carrier performance** card. The driver's snapshot 
 on the page, and that one is missing:
 
 ```text
-- heading "Orders by status" [level=2, ref=e637]
-- heading "Inventory health" [level=2, ref=e638]
+- heading "Orders by status" [level=2, ref=e16]
+- heading "Inventory health" [level=2, ref=e17]
 ```
 
 Here the browser shows most of it. The console holds React's message, and `react inspect` shows the
 boundary's state (trimmed):
 
 ```text
-$ agent-browser --session art-l6 console | grep -v '\[debug\]'
+$ agent-browser --session upd-h console | grep -v '\[debug\]'
 ... message: "Cannot read properties of null (reading 'toFixed')"} The above error occurred in the <CarrierPerformanceCard> component. React will try to recreate this component tree from scratch using the error boundary you provided, WidgetBoundary.
 
-$ agent-browser --session art-l6 react inspect 221
+$ agent-browser --session upd-h react inspect 221
 WidgetBoundary #221
 props:
   name: "carrier-performance"
@@ -59,7 +59,7 @@ state:
 place of the card (selected fields):
 
 ```text
-$ npx genie-react call react_error_state '{}' --session art-l6 --fields boundaryName,boundarySource,throwingComponent,message,status,rendered
+$ npx genie-react call react_error_state '{}' --session upd-h --fields boundaryName,boundarySource,throwingComponent,message,status,rendered
   - {boundaryName:WidgetBoundary,boundarySource:{file:/src/features/dashboard/dashboard-page.tsx,line:71,column:9,...},throwingComponent:CarrierPerformanceCard,message:"Cannot read properties of null (reading 'toFixed')",status:active,rendered:{output:nothing,hostNodes:0,text:null}}
 ```
 
@@ -74,7 +74,7 @@ reorder point on the Inventory page and returned through the sidebar. The card s
 full reload showed 103.
 
 ```text
-$ agent-browser --session art-l6 get text '[data-testid=low-stock-count]'
+$ agent-browser --session upd-h get text '[data-testid=low-stock-count]'
 104
 ```
 
@@ -89,8 +89,8 @@ hooks:
 Genie reads the cache entry. After the restock, before the reload (selected fields):
 
 ```text
-$ npx genie-react call query_get '{"queryKey":["dashboard","stock-summary"]}' --session art-l6 --fields staleTime,isStale,dataUpdatedAt,dataUpdateCount,fetchCount
-  - {staleTime:Infinity,isStale:false,dataUpdatedAt:1795061730389,dataUpdateCount:1,fetchCount:1}
+$ npx genie-react call query_get '{"queryKey":["dashboard","stock-summary"]}' --session upd-h --fields staleTime,isStale,dataUpdatedAt,dataUpdateCount,fetchCount
+  - {staleTime:Infinity,isStale:false,dataUpdatedAt:1795078635821,dataUpdateCount:1,fetchCount:1}
 ```
 
 `dataUpdatedAt` matches the value from before the restock, and `fetchCount:1` says it fetched once.
@@ -103,7 +103,7 @@ agent-browser's render profile does well here. One recording around the click li
 that rendered, with times and frame rate. The `StatCard` row and its change detail:
 
 ```text
-| StatCard            |     8 |      0 |          4 |    1.4ms |    0.9ms |   4/4 | context (unknown)          |
+| StatCard            |     8 |      0 |          4 |    0.6ms |    0.4ms |   4/4 | context (unknown)          |
 
   StatCard
     context (unknown): {formatMoney, formatCompactMoney, formatNumber, ...} -> {formatMoney, formatCompactMoney, formatNumber, ...}
@@ -113,8 +113,8 @@ Genie's `react_render_causes` names the context and grades each render (trimmed 
 identical events):
 
 ```text
-each: {documentCommitId:15,necessity:unnecessary,necessityReason:output-unchanged,inputEvidence:incomplete,...}
-StatCard #16558743093476 {renderEventId:render:15:160,mountId:mount:6,source:{location:/src/features/dashboard/dashboard-page.tsx:55:9}}
+each: {documentCommitId:13,necessity:unnecessary,necessityReason:output-unchanged,inputEvidence:incomplete,...}
+StatCard #663304012004 {renderEventId:render:13:4,mountId:mount:6,source:{location:/src/features/dashboard/dashboard-page.tsx:55:9}}
   ← context exact "Context(PreferencesProvider)" {contextIndex:0}
 ```
 
@@ -129,9 +129,9 @@ On an order page, the agent clicked **Edit order**. The driver's network log sho
 event fired again:
 
 ```text
-$ agent-browser --session art-l6 network requests --filter /api/
-[16442.686] POST http://127.0.0.1:5216/api/telemetry (Fetch) 200
-[16442.704] GET http://127.0.0.1:5216/api/activity?after=0 (Fetch) 200
+$ agent-browser --session upd-h network requests --filter /api/
+[66305.949] POST http://127.0.0.1:5244/api/telemetry (Fetch) 200
+[66305.967] GET http://127.0.0.1:5244/api/activity?after=0 (Fetch) 200
 ```
 
 `react inspect` on `OrderDetailPage` lists a `PageView: undefined (1 sub)` hook. Nothing in the
@@ -139,38 +139,41 @@ browser says which effect sent the request or why it ran. `react_effect_timeline
 fields):
 
 ```text
-hook:useEffect,customHooks:[usePageView],phase:update,changedDependencySlots:[1],dependencyChanges:[{slot:1,change:reference-only}],execution:{status:observed,evidence:exact,...,outcome:completed,trigger:commit}
+phase:update,changedDependencySlots:[1],dependencyChanges:[{slot:1,change:reference-only}],execution:{status:observed,evidence:exact,...,outcome:completed,trigger:commit},...,hook:useEffect,customHooks:[usePageView],...,source:{file:/src/lib/telemetry.ts,line:11,column:3,functionName:usePageView,sourceMapConfidence:mapped,role:hook-callsite}
 ```
 
-Dependency slot 1 is the `properties` object. `OrderDetailPage` passes `{ orderId, tab }` as a new
-literal on every render, so the effect re-runs whenever the page renders. This result has one flaw. The
-hook source pointed at `/lib/telemetry.ts` line 7, but the `useEffect` is at
-`src/lib/telemetry.ts` line 11.
+The source points at the `useEffect` call in `src/lib/telemetry.ts` line 11. Dependency slot 1 is
+the `properties` object. `OrderDetailPage` passes `{ orderId, tab }` as a new literal on every
+render, so the effect re-runs whenever the page renders. Genie 1.0.2 reported this source as
+`/lib/telemetry.ts` line 7, and 1.1.0 fixed the path and the line.
 
 ## A verdict instead of a "Done"
 
 Each agent-browser click above printed `✓ Done` and exited 0. That means the click happened. It
 says nothing about what React did. `genie-react verify` takes claims before the interaction and
-returns a verdict as the exit code:
+returns a verdict as the exit code. The agent left the order page through the sidebar's
+**Dashboard** link, then ran:
 
 ```bash
-npx genie-react verify begin --session art-l6 --name 'collapse sidebar' \
+npx genie-react verify begin --session upd-h --name 'collapse sidebar' \
   --claim 'render StatCard max 0' --claim 'render SidebarNav min 1'
-agent-browser --session art-l6 find role button click --name 'Collapse sidebar'
-npx genie-react verify end vfy_6a45538b-c47a-484d-b42d-0bc1f073c4cd --session art-l6
+agent-browser --session upd-h find role button click --name 'Collapse sidebar'
+npx genie-react verify end vfy_bd8395ad-9f46-422b-a9a8-c14ce82bfd3a --session upd-h
 ```
 
 ```text
-fail vfy_6a45538b-c47a-484d-b42d-0bc1f073c4cd "collapse sidebar"  1 commit, quiet after 754 ms (react, query, router)
+fail vfy_bd8395ad-9f46-422b-a9a8-c14ce82bfd3a "collapse sidebar"  1 commit, quiet after 739 ms (react, query, router, network)
+  url "http://127.0.0.1:5244/"
   1 fail render StatCard max 0  {renders:4,mounts:0,updates:4,remounts:0,semantics:exact,instances:4,activeInstances:4}
   2 pass render SidebarNav min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
 ```
 
-The command exited 1. Two earlier runs went wrong. In one, the browser
-tab was hidden, the click still printed `✓ Done`, and `verify` refused with `document_hidden` and
-exit 4. In the other, the sidebar was already collapsed. agent-browser reported that no button
-matched, and the `SidebarNav min 1` claim failed with zero renders. That claim is the positive
-control, and it made the run fail with exit 1. On its own, `StatCard max 0` got a refusal with
+The command exited 1. The `url` line names the dashboard, the page the browser showed. Genie 1.0.2
+printed the order page URL after an in-app navigation, and 1.1.0 reads the page URL instead.
+
+The second claim is the positive control. The agent ran the same claims again with the sidebar
+already collapsed. agent-browser reported that no button matched, and the `SidebarNav min 1` claim
+failed with zero renders, so the run exited 1. On its own, `StatCard max 0` got a refusal with
 `no_activity`, not a pass.
 
 ## When the browser driver is enough
