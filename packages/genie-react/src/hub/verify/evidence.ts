@@ -263,6 +263,7 @@ const visibilitySchema = z.object({
   source: z.enum(['document', 'app-state', 'unavailable']),
   state: z.enum(['visible', 'hidden', 'unknown']),
   hiddenTransitions: z.number().int().nonnegative(),
+  url: z.string().optional(),
 })
 
 const clearSchema = z.object({

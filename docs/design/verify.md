@@ -675,7 +675,7 @@ The statistics stay in one place. Phase 2 moves `compareMetric`, `rejectOutliers
 
 ### 6.4 The rerun ledger
 
-Every completed, refused or expired verification writes one ledger entry. The claim fingerprint is a hash of the canonical claim JSON, the target sources, and the app origin and pathname. The free-text `name` is excluded, so renaming a run does not reset its history.
+Every completed, refused or expired verification writes one ledger entry. The claim fingerprint is a hash of the canonical claim JSON, the target sources, and the origin and pathname of the page at begin. `verify` reads the page URL from `browser_visibility` at begin and at end, because the app reports its URL only when it connects and an in-app navigation does not reconnect. The free-text `name` is excluded, so renaming a run does not reset its history.
 
 Each verdict shows the attempt number and the history for its fingerprint on the same logical session:
 

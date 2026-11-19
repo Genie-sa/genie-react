@@ -22,7 +22,7 @@ const browserVisibilityContract = defineAgentToolContract({
   name: 'browser_visibility',
   title: 'Document visibility record',
   description:
-    'Report whether the app is visible now and how often it was hidden since Genie started: a hidden browser tab, or a React Native app in the background or inactive. Hidden documents throttle timers and frames, so work deferred while hidden can land after a measurement. Compare hiddenTransitions between two reads to tell whether the app was hidden in between.',
+    'Report whether the app is visible now and how often it was hidden since Genie started: a hidden browser tab, or a React Native app in the background or inactive. Hidden documents throttle timers and frames, so work deferred while hidden can land after a measurement. Compare hiddenTransitions between two reads to tell whether the app was hidden in between. url is the page URL at the read, current after in-app navigation.',
   group: 'perf',
   input: z.object({}),
   output: z.object({
@@ -41,6 +41,10 @@ const browserVisibilityContract = defineAgentToolContract({
       .number()
       .nonnegative()
       .describe('Total time hidden since Genie started, including a current hidden interval.'),
+    url: z
+      .string()
+      .optional()
+      .describe('location.href when read; absent where there is no location, as on React Native.'),
   }),
   annotations: { readOnlyHint: true },
 })
@@ -73,6 +77,7 @@ class VisibilityRecord {
       state: this.state,
       hiddenTransitions: this.hiddenTransitions,
       hiddenMs: this.hiddenMs + current,
+      ...(typeof location === 'undefined' ? {} : { url: location.href }),
     }
   }
 }
