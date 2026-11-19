@@ -1,0 +1,192 @@
+---
+title: "AI React performance tuning: an agent cut a 45 ms render to 0.03 ms"
+description: Typing a 27-character note re-rendered a product picker 27 times at about 45 ms each. Genie named the component and its cost, and verify proved the fix.
+---
+
+Typing a 27-character note on a New order page re-rendered `ProductPicker` 27 times, and each render spent 44.7 ms in the picker's own code. A coding agent doing AI React performance work with Genie traced that cost to a search index rebuilt on every render, moved the build into `useMemo`, and measured 0.03 ms per render afterwards.
+
+The run uses `apps/realworld-dashboard`, a Vite and React 19 app in this repo. Every number comes from a React development bundle on 2026-11-19. Production builds do less work per render, so read the numbers as before and after, not as what users see. The [raw evidence](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/ai-react-performance-tuning-41ms-render.md) has the full output.
+
+## Typing a note re-rendered the product picker 27 times
+
+The symptom is lag in the **Notes for the warehouse team** field. Open a render window, type a sentence with agent-browser, wait for React to go quiet, and rank what rendered by self time. `@e18` is the Notes field's ref from `agent-browser snapshot -i`:
+
+```bash
+node_modules/.bin/genie-react call react_clear_renders '{"component":"ProductPicker"}' --session art-l7
+agent-browser --session art-l7 type @e18 'Leave at dock 4, call ahead'
+node_modules/.bin/genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session art-l7
+node_modules/.bin/genie-react call react_get_renders '{"sort":"selfTime","limit":5}' --session art-l7
+```
+
+Trimmed to the bundle and the top two rows:
+
+```text
+bundle: development
+commits: 27
+components[5] (name #id {fields}, then ← kind evidence name {fields} per cause):
+  each: {renders:27,updates:27,latestDocumentCommitId:36,inputEvidence:changed,source:{ownership:app}}
+  ProductPicker #7344108863628 {…,selfTime:42.3,totalTime:42.4,cumulativeSelfTime:1092.8,cumulativeTotalTime:1093.9,causeCounts:{props:54,parent:27},necessity:unknown,necessityReason:callbacks-changed,source:{location:/src/features/orders/create-order-page.tsx:172:15,role:element-callsite}}
+    ← parent inferred CardBody {origin:CreateOrderPage}
+    ← props exact selectedIds {referenceOnly:true}
+    ← props exact onPick
+  CreateOrderPage #7344108863541 {…,noObservedInputChange:27,selfTime:1,totalTime:44.2,cumulativeSelfTime:19.2,…,causeCounts:{state:27},necessity:unnecessary,necessityReason:inputs-unchanged,…}
+    ← state exact "state[3]"
+```
+
+27 characters produced 27 commits, and `ProductPicker` rendered in every one. Its cumulative self time was 1,092.8 ms, or 40.5 ms per render. A second run of the same typing measured 1,207.9 ms over 27 renders, 44.7 ms each. The title uses that run, because the after numbers below come from the same command.
+
+## Genie names the component, the trigger, and the cost
+
+Self time is the time React spent in a component's own function, without its children. That narrows the search to one function body:
+
+```tsx title="src/features/orders/product-picker.tsx"
+const { formatMoney } = usePreferences()
+const [term, setTerm] = useState('')
+const index = buildProductIndex(products)
+const matches = term.trim().length < MIN_TERM_LENGTH ? [] : index.search(term, RESULT_LIMIT)
+```
+
+The search term was empty, so `index.search` never ran. The work is `buildProductIndex`, which builds trigram and typo-tolerant postings over all 2,400 products on every render.
+
+The causes explain why the picker rendered at all. `CreateOrderPage` re-rendered 27 times from a state hook, `state[3]`. The page calls `form.watch()` with no arguments, which re-renders it when any field changes. The picker then received a new `selectedIds` array with equal contents (`referenceOnly:true`) and a new `onPick` function.
+
+Genie points at the component and its cost. It does not name the slow line. The agent read a four-line body to find it. In a long component, you would need the browser's Performance panel for that step.
+
+## Build the index once, then stop the extra renders
+
+The first change builds the index only when `products` changes:
+
+```diff title="src/features/orders/product-picker.tsx"
+-import { useState } from 'react'
++import { useMemo, useState } from 'react'
+@@
+-  const index = buildProductIndex(products)
++  const index = useMemo(() => buildProductIndex(products), [products])
+```
+
+The same typing and the same read on the picker:
+
+```bash
+node_modules/.bin/genie-react call react_get_renders '{"component":"ProductPicker","appOnly":false}' --session art-l7 --fields bundle,components,coverage
+```
+
+Before the change, trimmed:
+
+```text
+{bundle:development,components:[{…,name:ProductPicker,renders:27,updates:27,selfTime:50.6,totalTime:50.7,cumulativeSelfTime:1207.9,…}],coverage:{…,complete:true,…}}
+```
+
+After:
+
+```text
+{bundle:development,components:[{…,name:ProductPicker,renders:27,updates:27,selfTime:0.1,totalTime:0.2,cumulativeSelfTime:0.7,…}],coverage:{…,complete:true,…}}
+```
+
+0.7 ms over 27 renders is 0.03 ms per render. The picker still rendered 27 times, though. Each render was cheap, but the picker shows nothing that depends on the notes.
+
+The second change stops notes keystrokes from reaching the picker. Wrap it in `memo` and give it props that keep their identity:
+
+```diff title="src/features/orders/product-picker.tsx"
+-import { useMemo, useState } from 'react'
++import { memo, useMemo, useState } from 'react'
+@@
+-export function ProductPicker({
++export const ProductPicker = memo(function ProductPicker({
+@@
+-}
++})
+```
+
+```diff title="src/features/orders/create-order-page.tsx"
++import { useCallback, useMemo } from 'react'
+@@
+-import { ORDER_PRIORITIES, type OrderPriority } from '../../api/types'
++import { ORDER_PRIORITIES, type OrderPriority, type Product } from '../../api/types'
+@@
+   const values = form.watch()
++  const appendLine = lines.append
++  const selectedIds = useMemo(() => lines.fields.map((line) => line.productId), [lines.fields])
++  const addProduct = useCallback(
++    (product: Product) =>
++      appendLine({
++        productId: product.id,
++        name: product.name,
++        unitPrice: product.unitPrice,
++        quantity: 1,
++      }),
++    [appendLine],
++  )
+@@
+-                selectedIds={values.lines.map((line) => line.productId)}
+-                onPick={(product) =>
+-                  lines.append({
+-                    productId: product.id,
+-                    name: product.name,
+-                    unitPrice: product.unitPrice,
+-                    quantity: 1,
+-                  })
+-                }
++                selectedIds={selectedIds}
++                onPick={addProduct}
+```
+
+`lines.fields` comes from `useFieldArray` and changes only when a line is added or removed. After the change, agent-browser picked **Pallet Wrap XL**, the row appeared in the order table, and the same match showed as disabled in the next search. The picker still works.
+
+## Verify that notes keystrokes skip the picker
+
+`verify` claims cover render counts, render causes, effects and error boundaries. They do not cover time. So the claims check work you can count. The picker must render 0 times while you type. The page must render at least once, which proves the typing reached the app. No error boundary may catch. Empty the field with `agent-browser fill 'textarea[name="notes"]' ''`, then run:
+
+```bash
+node_modules/.bin/genie-react verify begin --session art-l7 --name 'type warehouse notes' \
+  --claim 'render ProductPicker max 0' --claim 'render CreateOrderPage min 1' --claim 'boundaries clean'
+agent-browser --session art-l7 type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+node_modules/.bin/genie-react verify end vfy_c854b38a-c520-4366-af0d-ed0486fed86f --session art-l7
+```
+
+On the original code, trimmed to the verdict and claim lines, it exits 1:
+
+```text
+fail vfy_c854b38a-c520-4366-af0d-ed0486fed86f "type warehouse notes"  27 commits, quiet after 757 ms (react, query, router)
+  1 fail render ProductPicker max 0  {renders:27,mounts:0,updates:27,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  2 pass render CreateOrderPage min 1  {renders:27,mounts:0,updates:27,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+```
+
+With both changes applied, the same claims and typing exit 0:
+
+```text
+pass vfy_7bbd1139-45e0-434c-8bd3-eba28f0b9723 "type warehouse notes"  27 commits, quiet after 798 ms (react, query, router)
+  1 pass render ProductPicker max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  2 pass render CreateOrderPage min 1  {renders:27,mounts:0,updates:27,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+attempt 2 for these claims on this tab; previous fail vfy_c854b38a-c520-4366-af0d-ed0486fed86f; document reloaded since
+```
+
+With `useMemo` alone, the picker still rendered 27 times, so claim 1 needs both changes. After the run, agent-browser read the field back as `Leave at dock 4, call ahead`.
+
+## Six runs on each side hold the timing
+
+One run can be noise. In a second dev server session, the agent captured six runs of the same typing before the `useMemo` change and six after, then compared them with an 8 ms budget:
+
+```bash
+node_modules/.bin/genie-react call devtools_capture_compare '{"baselineCaptureIds":[…6 before…],"candidateCaptureIds":[…6 after…],"metrics":["react.selfTimeMs","react.renders"],"budgets":[{"metric":"react.selfTimeMs","maxValue":8}]}' --session art-l7
+```
+
+Trimmed:
+
+```text
+overall: pass
+  react.selfTimeMs pass {…,baseline:{samples:5,median:46.2,p95:50.94,…},candidate:{samples:5,median:3.7,p95:3.98,…},comparable:true,…,budget:{metric:react.selfTimeMs,maxValue:8},confidence:{…,pValue:0.0079,significant:true,…}}
+  react.renders informational {…,baseline:{samples:5,median:756,…},candidate:{samples:5,median:756,…},…}
+```
+
+Genie drops the first capture of each side as warm-up. `react.selfTimeMs` adds up each component's self time from its latest render, so it measures the page's last keystroke, not the whole sentence. That cost fell from a median of 46.2 ms to 3.7 ms. Swap the two sides and the same budget fails with `candidate median 46.2 exceeds maxValue 8`. That `call` still exits 0, so a script must read `overall`.
+
+## When this approach does not fit
+
+- Genie times renders in a development bundle. These numbers show the direction and size of a change, not production latency. Measure a production profiling build before you quote user-facing numbers.
+- `verify` has no timing claim. A fix that only makes renders cheaper, like the `useMemo` change alone, needs `devtools_capture_compare` to prove it.
+- Self time stops at the component. When the body is long, profile it in the browser to find the slow call.
+- The `useMemo` holds while `products` keeps its identity. Here it is `useQuery` data. This walkthrough did not test a refetch.
+
+[Optimize a slow interaction](/docs/guides/optimize) covers the measuring loop, and [Verify a fix](/docs/guides/verify-a-fix) lists every claim form.

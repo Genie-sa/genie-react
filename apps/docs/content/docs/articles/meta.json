@@ -4,6 +4,8 @@
   "pages": [
     "what-is-an-agentic-react-tool",
     "debug-a-react-app-with-claude-code",
+    "react-runtime-tools-for-cursor-codex-copilot",
+    "ai-react-performance-tuning-41ms-render",
     "prove-your-agents-react-fix",
     "the-fix-that-passed-and-changed-nothing",
     "we-planted-15-bugs-in-a-legacy-react-app",
