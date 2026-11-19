@@ -117,7 +117,8 @@ const OPTION_DETAILS: Record<OptionName, OptionDetail> = {
     maximum: 50000000,
   },
   'fail-on-result-error': {
-    description: 'Exit 1 when a wait or quiesce result reports ok:false',
+    description:
+      'Exit 1 when a wait or quiesce result reports ok:false, or devtools_capture_compare reports overall:fail',
     default: false,
   },
   marker: {

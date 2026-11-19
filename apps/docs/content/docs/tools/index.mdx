@@ -40,5 +40,6 @@ npx @genie-react/cli tools react_render_causes
 - Prove a fix with [`verify`](/docs/guides/verify-a-fix), not by reading counts by hand.
 - Read coverage, omissions, truncation and evictions before you rely on a result.
 - Treat `inferred` and `unknown` as leads, not proof. See [read evidence](/docs/reference/evidence).
-- A wait can return `ok: false` with exit 0. Use `--fail-on-result-error` in scripts.
+- A wait can return `ok: false`, and `devtools_capture_compare` can return `overall: "fail"`, with
+  exit 0. Use `--fail-on-result-error` in scripts.
 - Restore Query simulations and React overrides when you finish.
