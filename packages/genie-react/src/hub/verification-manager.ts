@@ -932,15 +932,19 @@ export class VerificationManager<TSession extends VerificationSession> {
       fingerprint: context.fingerprint,
       scope: context.session.logicalSessionId ?? context.session.sessionId,
       verdict: context.verdict,
-      reasons: context.claims
-        .filter((claim) => claim.verdict === context.verdict)
-        .flatMap((claim) =>
-          claim.refusal
-            ? [claim.refusal.reason]
-            : claim.inconclusive
-              ? [claim.inconclusive.reason]
-              : [],
+      reasons: [
+        ...new Set(
+          context.claims
+            .filter((claim) => claim.verdict === context.verdict)
+            .flatMap((claim) =>
+              claim.refusal
+                ? [claim.refusal.reason]
+                : claim.inconclusive
+                  ? [claim.inconclusive.reason]
+                  : [],
+            ),
         ),
+      ],
       endedAt,
       sessionId: context.session.sessionId,
       documentGeneration: context.session.documentGeneration ?? null,
