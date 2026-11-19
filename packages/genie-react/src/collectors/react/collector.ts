@@ -86,6 +86,7 @@ import {
   membershipUnresolved,
   renderEvidenceComparability,
   renderSummarySemantics,
+  withEvictedRenderEvents,
   withMembershipCoverage,
 } from './render-snapshots'
 import { summarizeRenderCauseEvent, summarizeRenderComponent } from './render-summary'
@@ -723,15 +724,11 @@ export function reactCollector(): GenieCollector {
             sourceClassification,
             renderEventRetention: report.renderEventRetention,
             coverage: withMembershipCoverage(
-              {
-                ...coverage,
-                complete: coverage.complete && report.renderEventRetention.evictedEvents === 0,
-                semantics:
-                  coverage.complete && report.renderEventRetention.evictedEvents === 0
-                    ? ('exact' as const)
-                    : ('lower-bound' as const),
-                droppedRenderEvents: report.renderEventRetention.evictedEvents,
-              },
+              withEvictedRenderEvents(
+                coverage,
+                report.evictedRenderEvents,
+                component !== undefined,
+              ),
               sourceClassification,
             ),
             filteredNote: appOnly
