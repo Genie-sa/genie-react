@@ -8299,3 +8299,1925 @@ $ git status --short -- src
 [exit 0]
 
 ```
+
+## Re-run on Genie 1.1.0
+
+- Date: 2026-11-19
+- Commit: ce408cb205c0e798cb04c35512772b7454283141 (`git rev-parse HEAD`, tag `genie-react@1.1.0`)
+- Genie: `genie-react` and `@genie-react/cli` 1.1.0 built from this checkout (`pnpm install && pnpm build`, exit 0). `node_modules/.bin/genie-react --version` in apps/realworld-legacy printed `1.1.0`, and `status` reported `hub: {version:1.1.0,protocol:1}` and `runtimeVersion:1.1.0`.
+- App: apps/realworld-legacy (Acme Tracker), dev server http://127.0.0.1:5233, standalone Genie hub ws://127.0.0.1:15233/__genie/ws
+- Driver: agent-browser 0.39.1, session `upd-c`
+- App fixes: `node /tmp/upd-c/apply-fix.mjs <id>` applies the exact `referenceFix` edits from evals/realworld/legacy/<id>.json. Each fix was measured and then reverted with `git checkout -- src`. No app change is committed.
+- Redaction: the home directory is replaced by `~`. Nothing else is edited.
+
+Servers, run from apps/realworld-legacy:
+
+```bash
+GENIE_HUB_PORT=15233 node_modules/.bin/genie-react hub --port 15233
+PORT=5233 GENIE_HUB_PORT=15233 pnpm exec webpack serve --mode development --port 5233
+```
+
+Each command below is printed as `$ <command>` (shell-quoted with printf %q) and run from apps/realworld-legacy, followed by its full stdout and stderr and `[exit <code>]`. Lines starting with `#` are notes written during the run. Some commands were filtered on screen during the run, but the log holds their full output.
+
+Rows re-run on 1.1.0: `feature-flags-provider-value`, `title-draft-reset`, `report-range-race`, `lazy-route-blank-shell` and `board-column-selector-cache`. The `issue-row-inline-handler` row was re-run for the one-click-redraws-100-rows article on the same checkout and gave the same counts (see that evidence file). The other rows were not re-run, because 1.1.0 does not change what they show.
+
+What 1.1.0 changed for this article:
+
+- `feature-flags-provider-value`: the same claims and budget fail at 840 `FeatureGate` and 420 `PriorityPicker` renders and pass at 0, now with `instances:840,activeInstances:840` and `instances:420,activeInstances:420`. Genie 1.0.2 printed `activeInstances:200` before and `instances:200` after.
+- `title-draft-reset`: `render IssueTitleEditor only props.issue` fails before the fix on the `this.state.draft` render and passes after it (exit 0). The deciding event names the wrapper: `wrappedBy:{component:"Connect(IssueTitleEditor)",causes:[props.issue]}`. Genie 1.0.2 refused it with `evidence_inferred` (exit 4).
+- `report-range-race`: `react_inspect_component` on `ThroughputWidget` returned `range:90d,total:33` in all 13 reads across two reproductions, matching the DOM's `data-range`. Genie 1.0.2 returned `7d` in four of five reads in one run. After the fix it reads `7d`, `total:9`. The request lane and `redux_actions` show the same race as on 1.0.2.
+- `report-range-race`: this app registers its Genie collectors by hand, without `requestWatchCollector`, so `status` lists no `network` domain and `verify` settles on `react` only. With `--domains react,network`, `verify end` reports `network:unsupported` and `settle.outcome: failed` after 21 ms. It refuses a `max` claim with `not_quiescent` and passes a `min 1` claim, which a late response cannot break. With `requestWatchCollector()` added temporarily to src/devtools/connect-genie.ts, `verify` waited about 1,730 ms for the 90d response: `render ThroughputWidget max 3` failed at 4 renders before the fix and passed at 3 after it. The collector change was reverted, and the article keeps "no claim fits" for this row.
+- `lazy-route-blank-shell`: the new claim `suspense TopBar hidden max 0` fails before the fix (`hidden:1`) and passes after it (`hidden:0,hidesInWindow:1`), with the driver reporting `.top-bar` hidden during the load before the fix and visible after.
+- `board-column-selector-cache`: all five `BoardColumn` renders now carry `external-store inferred` with a reference-only `deepDiff`. On 1.0.2 one of the five came back `unknown`.
+- `title-draft-reset` render causes are unchanged on 1.1.0, at commits 31 and 32 instead of 32 and 33.
+
+Inspection outside the log: `verify end` for the lazy route printed `url "http://127.0.0.1:5233/board"` while the page was on `/settings`. `npx genie-react verify show vfy_3ed777a2-74b7-4cea-8f43-85bc9d7e8892 --session upd-c --json --max-bytes 3000000` holds that URL only at `/session/url`, and `agent-browser --session upd-c get url` printed `http://127.0.0.1:5233/settings`. The run reports `visibility:unavailable`, and verify falls back to the URL the app connected on when no `browser_visibility` URL is available.
+
+### Commands and output, in order
+
+```text
+# feature-flags-provider-value: verify before the fix
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/board
+✓ Acme Tracker
+  http://127.0.0.1:5233/board
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app
+status: ok
+selection: {expression:/app,matchedPathCount:1,matchedPaths:[/app],omittedPathCount:48}
+result: {name:"Acme Tracker",url:http://127.0.0.1:5233/board,reactVersion:18.3.1,reactMounted:true}
+[exit 0]
+
+$ agent-browser --session upd-c wait .board-column
+✓ Done
+[exit 0]
+
+$ npx genie-react verify begin --name toggle\ the\ sidebar\ on\ the\ board --claim render\ FeatureGate\ max\ 0 --claim render\ PriorityPicker\ max\ 0 --claim render\ AppShell\ min\ 1 --claim boundaries\ clean --budget \{\"fiberLimit\":2750,\"operationLimit\":330000,\"timeLimitMs\":132,\"targetOperationReserve\":156000,\"targetTimeReserveMs\":156\} --session upd-c
+recording vfy_de43ed0c-e4e2-498f-86d1-2088f1ace315 "toggle the sidebar on the board"
+  url "http://127.0.0.1:5233/board"
+  1 recording render FeatureGate max 0
+  2 recording render PriorityPicker max 0
+  3 recording render AppShell min 1
+  4 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:17,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_de43ed0c-e4e2-498f-86d1-2088f1ace315 --session upd-c
+session: {sessionId:be9a9c23-5a7a-4b24-9cc6-a553325c51bd,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:13}
+schemaVersion: "1.0"
+targets: [{target:{component:FeatureGate},status:resolved,instances:840,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx,unresolvedSources:720},{target:{component:PriorityPicker},status:resolved,instances:420,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-card.tsx,unresolvedSources:300},{target:{component:AppShell},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx}]
+startedAt: 2026-11-19T09:01:25.745Z
+expiresAt: 2026-11-19T09:06:25.826Z
+request: {budget:{fiberLimit:2750,operationLimit:330000,timeLimitMs:132,targetOperationReserve:156000,targetTimeReserveMs:156,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c click \[aria-label=\"Toggle\ sidebar\"\]
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_de43ed0c-e4e2-498f-86d1-2088f1ace315 --session upd-c
+fail vfy_de43ed0c-e4e2-498f-86d1-2088f1ace315 "toggle the sidebar on the board"  4 commits, quiet after 812 ms (react)
+  url "http://127.0.0.1:5233/board"
+  1 fail render FeatureGate max 0  {renders:840,mounts:0,updates:840,remounts:0,semantics:exact,instances:840,activeInstances:840}
+      claim: {kind:renders,target:{component:FeatureGate},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:18,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:7:7},{kind:instance,mountId:mount:2,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:18,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:12:7},{kind:instance,mountId:mount:3,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:18,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:7:7}]
+  2 fail render PriorityPicker max 0  {renders:420,mounts:0,updates:420,remounts:0,semantics:exact,instances:420,activeInstances:420}
+      claim: {kind:renders,target:{component:PriorityPicker},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:841,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:18,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-card.tsx:20:9},{kind:instance,mountId:mount:842,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:18,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-card.tsx:20:9},{kind:instance,mountId:mount:843,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:18,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-card.tsx:20:9}]
+  3 pass render AppShell min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:AppShell},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1261,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:18,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx:23:5}]
+  4 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:17}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:17,settledDocumentCommitId:20,frozenDocumentCommitId:21,commits:4,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:812,domains:{react:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:unknown,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_de43ed0c-e4e2-498f-86d1-2088f1ace315 --claim 1 --session upd-c
+session: {sessionId:be9a9c23-5a7a-4b24-9cc6-a553325c51bd,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:13}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_6fff3f65ed87,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:false,tools:[]}
+startedAt: 2026-11-19T09:01:25.745Z
+endedAt: 2026-11-19T09:01:27.809Z
+request: {budget:{fiberLimit:2750,operationLimit:330000,timeLimitMs:132,targetOperationReserve:156000,targetTimeReserveMs:156,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+# Apply the reference fix for feature-flags-provider-value
+
+$ node /tmp/upd-c/apply-fix.mjs feature-flags-provider-value
+applied 2 edits
+[exit 0]
+
+# Verify after the fix
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/board
+✓ Acme Tracker
+  http://127.0.0.1:5233/board
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app
+status: ok
+selection: {expression:/app,matchedPathCount:1,matchedPaths:[/app],omittedPathCount:48}
+result: {name:"Acme Tracker",url:http://127.0.0.1:5233/board,reactVersion:18.3.1,reactMounted:true}
+[exit 0]
+
+$ agent-browser --session upd-c wait .board-column
+✓ Done
+[exit 0]
+
+$ npx genie-react verify begin --name toggle\ the\ sidebar\ on\ the\ board --claim render\ FeatureGate\ max\ 0 --claim render\ PriorityPicker\ max\ 0 --claim render\ AppShell\ min\ 1 --claim boundaries\ clean --budget \{\"fiberLimit\":2750,\"operationLimit\":330000,\"timeLimitMs\":132,\"targetOperationReserve\":156000,\"targetTimeReserveMs\":156\} --session upd-c
+recording vfy_69bb2d92-37d5-404f-a24a-ea2f9f63052d "toggle the sidebar on the board"
+  url "http://127.0.0.1:5233/board"
+  1 recording render FeatureGate max 0
+  2 recording render PriorityPicker max 0
+  3 recording render AppShell min 1
+  4 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:17,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_69bb2d92-37d5-404f-a24a-ea2f9f63052d --session upd-c
+session: {sessionId:33cc20fc-4179-4ac8-9e58-96b7001641fc,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:15}
+schemaVersion: "1.0"
+targets: [{target:{component:FeatureGate},status:resolved,instances:840,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx,unresolvedSources:720},{target:{component:PriorityPicker},status:resolved,instances:420,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-card.tsx,unresolvedSources:300},{target:{component:AppShell},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx}]
+startedAt: 2026-11-19T09:01:39.972Z
+expiresAt: 2026-11-19T09:06:40.051Z
+request: {budget:{fiberLimit:2750,operationLimit:330000,timeLimitMs:132,targetOperationReserve:156000,targetTimeReserveMs:156,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c click \[aria-label=\"Toggle\ sidebar\"\]
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_69bb2d92-37d5-404f-a24a-ea2f9f63052d --session upd-c
+pass vfy_69bb2d92-37d5-404f-a24a-ea2f9f63052d "toggle the sidebar on the board"  4 commits, quiet after 778 ms (react)
+  url "http://127.0.0.1:5233/board"
+  1 pass render FeatureGate max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:840,activeInstances:840}
+      claim: {kind:renders,target:{component:FeatureGate},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:coverage,complete:true,targetedComplete:true,semantics:exact},{kind:instance,mountId:mount:1,renderingState:mounted-rendering,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:7:7},{kind:instance,mountId:mount:2,renderingState:mounted-rendering,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/card-meta.tsx:12:7}]
+  2 pass render PriorityPicker max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:420,activeInstances:420}
+      claim: {kind:renders,target:{component:PriorityPicker},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:coverage,complete:true,targetedComplete:true,semantics:exact},{kind:instance,mountId:mount:841,renderingState:mounted-rendering,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-card.tsx:20:9},{kind:instance,mountId:mount:842,renderingState:mounted-rendering,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-card.tsx:20:9}]
+  3 pass render AppShell min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:AppShell},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1261,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:18,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx:23:5}]
+  4 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:17}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:17,settledDocumentCommitId:20,frozenDocumentCommitId:21,commits:4,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:778,domains:{react:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:unknown,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 2 for these claims on this tab; previous fail vfy_de43ed0c-e4e2-498f-86d1-2088f1ace315; document reloaded since
+evidence: $ npx genie-react verify show vfy_69bb2d92-37d5-404f-a24a-ea2f9f63052d --session upd-c
+session: {sessionId:33cc20fc-4179-4ac8-9e58-96b7001641fc,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:15}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_6fff3f65ed87,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_de43ed0c-e4e2-498f-86d1-2088f1ace315,verdict:fail,reasons:[],endedAt:2026-11-19T09:01:27.809Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:false,tools:[]}
+startedAt: 2026-11-19T09:01:39.972Z
+endedAt: 2026-11-19T09:01:41.696Z
+request: {budget:{fiberLimit:2750,operationLimit:330000,timeLimitMs:132,targetOperationReserve:156000,targetTimeReserveMs:156,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c eval document.querySelectorAll\(\".board-card\"\).length
+420
+[exit 0]
+
+# Revert the fix
+
+$ git checkout -- src
+[exit 0]
+
+$ git status --short -- src
+## ali/articles-update-c
+[exit 0]
+
+# title-draft-reset: verify before the fix
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/issues/CORE-2
+✓ Acme Tracker
+  http://127.0.0.1:5233/issues/CORE-2
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app
+status: ok
+selection: {expression:/app,matchedPathCount:1,matchedPaths:[/app],omittedPathCount:48}
+result:
+  name: "Acme Tracker"
+  url: http://127.0.0.1:5233/issues/CORE-2
+  reactVersion: 18.3.1
+  reactMounted: true
+[exit 0]
+
+$ agent-browser --session upd-c wait textarea
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c click .issue-title__display
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c fill \[aria-label=\"Issue\ title\"\] Add\ dashboard\ filters\ by\ team
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c fill \[aria-label=\"Add\ a\ comment\"\] Renaming:\ filters\ are\ per\ team\ now
+✓ Done
+[exit 0]
+
+$ npx genie-react verify begin --name post\ a\ comment\ while\ renaming --claim render\ IssueTitleEditor\ only\ props.issue --claim render\ IssueTitleEditor\ min\ 1 --claim boundaries\ clean --session upd-c
+recording vfy_3605fed0-ec4e-422c-8fda-059bc44b5db5 "post a comment while renaming"
+  url "http://127.0.0.1:5233/issues/CORE-2"
+  1 recording render IssueTitleEditor only props.issue
+  2 recording render IssueTitleEditor min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:25,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_3605fed0-ec4e-422c-8fda-059bc44b5db5 --session upd-c
+session: {sessionId:d5c97f3d-dc41-4b84-bee6-f72fad54f35f,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:17}
+schemaVersion: "1.0"
+targets: [{target:{component:IssueTitleEditor},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/issue-detail/issue-title-editor.tsx}]
+startedAt: 2026-11-19T09:02:01.138Z
+expiresAt: 2026-11-19T09:07:01.145Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c click .comment-composer\ button\[type=\"submit\"\]
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_3605fed0-ec4e-422c-8fda-059bc44b5db5 --session upd-c
+fail vfy_3605fed0-ec4e-422c-8fda-059bc44b5db5 "post a comment while renaming"  11 commits, quiet after 789 ms (react)
+  url "http://127.0.0.1:5233/issues/CORE-2"
+  1 fail render IssueTitleEditor only props.issue  {renders:2,events:2,violatingEvents:1,causes:[parent,props.issue,this.state.draft]}
+      claim: {kind:render-causes,target:{component:IssueTitleEditor},allow:[{kind:props,name:issue}]}
+      deciding: [{kind:render-event,renderEventId:render:33:371,documentCommitId:33,mountId:mount:1,causes:[{cause:this.state.draft,evidence:exact}]}]
+  2 pass render IssueTitleEditor min 1  {renders:2,mounts:0,updates:2,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:IssueTitleEditor},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,renders:2,mounts:0,updates:2,mountGeneration:1,latestDocumentCommitId:33,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/issue-detail/issue-title-editor.tsx:54:7}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:25}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:25,settledDocumentCommitId:35,frozenDocumentCommitId:36,commits:11,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:789,domains:{react:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_3605fed0-ec4e-422c-8fda-059bc44b5db5 --claim 1 --session upd-c
+session: {sessionId:d5c97f3d-dc41-4b84-bee6-f72fad54f35f,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:17}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_a505c427125b,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,react_profile_stop,react_render_causes,react_error_state]}
+startedAt: 2026-11-19T09:02:01.138Z
+endedAt: 2026-11-19T09:02:02.737Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+$ agent-browser --session upd-c get value \[aria-label=\"Issue\ title\"\]
+Add dashboard filters
+[exit 0]
+
+# Apply the reference fix for title-draft-reset
+
+$ node /tmp/upd-c/apply-fix.mjs title-draft-reset
+applied 1 edits
+[exit 0]
+
+$ git diff -- src
+diff --git a/apps/realworld-legacy/src/features/issue-detail/issue-title-editor.tsx b/apps/realworld-legacy/src/features/issue-detail/issue-title-editor.tsx
+index 9933865..683be7c 100644
+--- a/apps/realworld-legacy/src/features/issue-detail/issue-title-editor.tsx
++++ b/apps/realworld-legacy/src/features/issue-detail/issue-title-editor.tsx
+@@ -18,7 +18,7 @@ class IssueTitleEditor extends Component<IssueTitleEditorProps, IssueTitleEditor
+   state: IssueTitleEditorState = { isEditing: false, draft: this.props.issue.title }
+ 
+   componentDidUpdate(prevProps: IssueTitleEditorProps) {
+-    if (prevProps.issue !== this.props.issue) {
++    if (prevProps.issue.title !== this.props.issue.title) {
+       this.setState({ draft: this.props.issue.title })
+     }
+   }
+[exit 0]
+
+# title-draft-reset: verify after the fix
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/issues/CORE-2
+✓ Acme Tracker
+  http://127.0.0.1:5233/issues/CORE-2
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app
+status: ok
+selection: {expression:/app,matchedPathCount:1,matchedPaths:[/app],omittedPathCount:48}
+result:
+  name: "Acme Tracker"
+  url: http://127.0.0.1:5233/issues/CORE-2
+  reactVersion: 18.3.1
+  reactMounted: true
+[exit 0]
+
+$ agent-browser --session upd-c wait textarea
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c click .issue-title__display
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c fill \[aria-label=\"Issue\ title\"\] Add\ dashboard\ filters\ by\ team
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c fill \[aria-label=\"Add\ a\ comment\"\] Renaming:\ filters\ are\ per\ team\ now
+✓ Done
+[exit 0]
+
+$ npx genie-react verify begin --name post\ a\ comment\ while\ renaming --claim render\ IssueTitleEditor\ only\ props.issue --claim render\ IssueTitleEditor\ min\ 1 --claim boundaries\ clean --session upd-c
+recording vfy_38a5cb00-896d-498f-a01a-4005b2859d32 "post a comment while renaming"
+  url "http://127.0.0.1:5233/issues/CORE-2"
+  1 recording render IssueTitleEditor only props.issue
+  2 recording render IssueTitleEditor min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:25,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_38a5cb00-896d-498f-a01a-4005b2859d32 --session upd-c
+session: {sessionId:f296dc46-56f0-4631-b2a4-90804af57ded,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:19}
+schemaVersion: "1.0"
+targets: [{target:{component:IssueTitleEditor},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/issue-detail/issue-title-editor.tsx}]
+startedAt: 2026-11-19T09:02:16.959Z
+expiresAt: 2026-11-19T09:07:16.969Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c click .comment-composer\ button\[type=\"submit\"\]
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_38a5cb00-896d-498f-a01a-4005b2859d32 --session upd-c
+pass vfy_38a5cb00-896d-498f-a01a-4005b2859d32 "post a comment while renaming"  9 commits, quiet after 949 ms (react)
+  url "http://127.0.0.1:5233/issues/CORE-2"
+  1 pass render IssueTitleEditor only props.issue  {renders:1,events:1,violatingEvents:0,causes:[parent,props.issue]}
+      claim: {kind:render-causes,target:{component:IssueTitleEditor},allow:[{kind:props,name:issue}]}
+      deciding: [{kind:render-event,renderEventId:render:31:273,documentCommitId:31,mountId:mount:1,causes:[{cause:parent,evidence:inferred},{cause:props.issue,evidence:exact}],wrappedBy:{component:"Connect(IssueTitleEditor)",causes:[props.issue]}}]
+  2 pass render IssueTitleEditor min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:IssueTitleEditor},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:31,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/issue-detail/issue-title-editor.tsx:54:7}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:25}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:25,settledDocumentCommitId:33,frozenDocumentCommitId:34,commits:9,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:949,domains:{react:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 2 for these claims on this tab; previous fail vfy_3605fed0-ec4e-422c-8fda-059bc44b5db5; document reloaded since
+evidence: $ npx genie-react verify show vfy_38a5cb00-896d-498f-a01a-4005b2859d32 --session upd-c
+session: {sessionId:f296dc46-56f0-4631-b2a4-90804af57ded,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:19}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_a505c427125b,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_3605fed0-ec4e-422c-8fda-059bc44b5db5,verdict:fail,reasons:[],endedAt:2026-11-19T09:02:02.737Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,react_profile_stop,react_render_causes,react_error_state]}
+startedAt: 2026-11-19T09:02:16.959Z
+endedAt: 2026-11-19T09:02:18.697Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c get value \[aria-label=\"Issue\ title\"\]
+Add dashboard filters by team
+[exit 0]
+
+# Revert the fix
+
+$ git checkout -- src
+[exit 0]
+
+$ git status --short -- src
+## ali/articles-update-c
+[exit 0]
+
+# report-range-race: before the fix
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/reports
+✓ Acme Tracker
+  http://127.0.0.1:5233/reports
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app
+status: ok
+selection: {expression:/app,matchedPathCount:1,matchedPaths:[/app],omittedPathCount:48}
+result:
+  name: "Acme Tracker"
+  url: http://127.0.0.1:5233/reports
+  reactVersion: 18.3.1
+  reactMounted: true
+[exit 0]
+
+$ agent-browser --session upd-c wait .bar-chart
+✓ Done
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\{\"method\":\"GET\",\"path\":\"/api/reports/throughput\",\"query\":\{\"range\":\"90d\"\},\"latencyMs\":1200\}\]\} --session upd-c
+rules[1]:
+  - {method:GET,path:/api/reports/throughput,query:{range:90d},latencyMs:1200,status:null,times:null,hits:0}
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 90\ days
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 7\ days
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce \{\"idleMs\":800,\"timeoutMs\":10000\} --session upd-c --select /outcome
+status: ok
+selection: {expression:/outcome,matchedPathCount:1,matchedPaths:[/outcome],omittedPathCount:14}
+result: idle
+[exit 0]
+
+$ npx genie-react call redux_state \{\"path\":\[\"reports\",\"range\"\]\} --session upd-c --select /value
+status: ok
+selection: {expression:/value,matchedPathCount:1,matchedPaths:[/value],omittedPathCount:17}
+result: 7d
+[exit 0]
+
+$ npx genie-react call redux_state \{\"path\":\[\"reports\",\"throughput\",\"range\"\]\} --session upd-c --select /value
+status: ok
+selection: {expression:/value,matchedPathCount:1,matchedPaths:[/value],omittedPathCount:18}
+result: 90d
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+90d
+[exit 0]
+
+$ agent-browser --session upd-c eval document.querySelector\(\".bar-chart\"\).closest\(\"section,\ .widget\"\)\?.textContent.slice\(0,40\)
+"Throughput33 completed"
+[exit 0]
+
+$ npx genie-react call react_find_components \{\"component\":\"ThroughputWidget\",\"exact\":true,\"limit\":1\} --session upd-c --select /matches/0/id
+status: ok
+selection:
+  expression: /matches/0/id
+  matchedPathCount: 1
+  matchedPaths: [/matches/0/id]
+  omittedPathCount: 23
+result: 16011151540349
+[exit 0]
+
+# Repeat react_inspect_component six times with no app action in between (selected fields: props.report.range and total)
+
+$ npx genie-react call react_inspect_component \{\"id\":16011151540349\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 90d
+  total: 33
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(13)",path:[report,buckets],size:13}
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":16011151540349\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 90d
+  total: 33
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(13)",path:[report,buckets],size:13}
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":16011151540349\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 90d
+  total: 33
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(13)",path:[report,buckets],size:13}
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":16011151540349\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 90d
+  total: 33
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(13)",path:[report,buckets],size:13}
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":16011151540349\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 90d
+  total: 33
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(13)",path:[report,buckets],size:13}
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":16011151540349\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 90d
+  total: 33
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(13)",path:[report,buckets],size:13}
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+90d
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\]\} --session upd-c
+rules: []
+[exit 0]
+
+# report-range-race: second reproduction, react_inspect_component read every 3 s for about 20 s while app timers commit (selected fields)
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/reports
+✓ Acme Tracker
+  http://127.0.0.1:5233/reports
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app/url
+status: ok
+selection: {expression:/app/url,matchedPathCount:1,matchedPaths:[/app/url],omittedPathCount:51}
+result: http://127.0.0.1:5233/reports
+[exit 0]
+
+$ agent-browser --session upd-c wait .bar-chart
+✓ Done
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\{\"method\":\"GET\",\"path\":\"/api/reports/throughput\",\"query\":\{\"range\":\"90d\"\},\"latencyMs\":1200\}\]\} --session upd-c
+rules[1]:
+  - {method:GET,path:/api/reports/throughput,query:{range:90d},latencyMs:1200,status:null,times:null,hits:0}
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 90\ days
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 7\ days
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce \{\"idleMs\":800,\"timeoutMs\":10000\} --session upd-c --select /outcome
+status: ok
+selection: {expression:/outcome,matchedPathCount:1,matchedPaths:[/outcome],omittedPathCount:14}
+result: idle
+[exit 0]
+
+$ npx genie-react call react_find_components \{\"component\":\"ThroughputWidget\",\"exact\":true,\"limit\":1\} --session upd-c --select /matches/0/id
+status: ok
+selection:
+  expression: /matches/0/id
+  matchedPathCount: 1
+  matchedPaths: [/matches/0/id]
+  omittedPathCount: 23
+result: 15382375039101
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":15382375039101\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 90d
+  total: 33
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(13)",path:[report,buckets],size:13}
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+90d
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":15382375039101\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 90d
+  total: 33
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(13)",path:[report,buckets],size:13}
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+90d
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":15382375039101\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 90d
+  total: 33
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(13)",path:[report,buckets],size:13}
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+90d
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":15382375039101\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 90d
+  total: 33
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(13)",path:[report,buckets],size:13}
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+90d
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":15382375039101\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 90d
+  total: 33
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(13)",path:[report,buckets],size:13}
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+90d
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":15382375039101\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 90d
+  total: 33
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(13)",path:[report,buckets],size:13}
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+90d
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":15382375039101\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 90d
+  total: 33
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(13)",path:[report,buckets],size:13}
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+90d
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\]\} --session upd-c
+rules: []
+[exit 0]
+
+# Apply the reference fix for report-range-race
+
+$ node /tmp/upd-c/apply-fix.mjs report-range-race
+applied 2 edits
+[exit 0]
+
+$ git diff -- src
+diff --git a/apps/realworld-legacy/src/features/reports/state/actions.ts b/apps/realworld-legacy/src/features/reports/state/actions.ts
+index 9787945..1db464c 100644
+--- a/apps/realworld-legacy/src/features/reports/state/actions.ts
++++ b/apps/realworld-legacy/src/features/reports/state/actions.ts
+@@ -36,15 +36,17 @@ export function removeReportNote(id: string): ReportsAction {
+ }
+ 
+ export function loadReports(projectKey: string, range: ReportRange): ReportsThunk {
+-  return async (dispatch) => {
++  return async (dispatch, getState) => {
+     dispatch({ type: REPORTS_REQUESTED, projectKey, range })
+     const query = toQueryString({ project: projectKey, range })
+     try {
+       const [throughput, cycleTime, workload] = await Promise.all([
+         request<ThroughputReport>(`/api/reports/throughput${query}`),
+         request<CycleTimeReport>(`/api/reports/cycle-time${query}`),
+         request<WorkloadReport>(`/api/reports/workload${toQueryString({ project: projectKey })}`),
+       ])
++      const current = getState().reports
++      if (current.projectKey !== projectKey || current.range !== range) return
+       dispatch({ type: REPORTS_RECEIVED, throughput, cycleTime, workload })
+     } catch (error) {
+       dispatch({
+[exit 0]
+
+# report-range-race: after the fix
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/reports
+✓ Acme Tracker
+  http://127.0.0.1:5233/reports
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app/url
+status: ok
+selection: {expression:/app/url,matchedPathCount:1,matchedPaths:[/app/url],omittedPathCount:51}
+result: http://127.0.0.1:5233/reports
+[exit 0]
+
+$ agent-browser --session upd-c wait .bar-chart
+✓ Done
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\{\"method\":\"GET\",\"path\":\"/api/reports/throughput\",\"query\":\{\"range\":\"90d\"\},\"latencyMs\":1200\}\]\} --session upd-c
+rules[1]:
+  - {method:GET,path:/api/reports/throughput,query:{range:90d},latencyMs:1200,status:null,times:null,hits:0}
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 90\ days
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 7\ days
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce \{\"idleMs\":800,\"timeoutMs\":10000\} --session upd-c --select /outcome
+status: ok
+selection: {expression:/outcome,matchedPathCount:1,matchedPaths:[/outcome],omittedPathCount:14}
+result: idle
+[exit 0]
+
+$ npx genie-react call redux_state \{\"path\":\[\"reports\",\"range\"\]\} --session upd-c --select /value
+status: ok
+selection: {expression:/value,matchedPathCount:1,matchedPaths:[/value],omittedPathCount:17}
+result: 7d
+[exit 0]
+
+$ npx genie-react call redux_state \{\"path\":\[\"reports\",\"throughput\",\"range\"\]\} --session upd-c --select /value
+status: ok
+selection: {expression:/value,matchedPathCount:1,matchedPaths:[/value],omittedPathCount:18}
+result: 7d
+[exit 0]
+
+$ npx genie-react call react_find_components \{\"component\":\"ThroughputWidget\",\"exact\":true,\"limit\":1\} --session upd-c --select /matches/0/id
+status: ok
+selection:
+  expression: /matches/0/id
+  matchedPathCount: 1
+  matchedPaths: [/matches/0/id]
+  omittedPathCount: 23
+result: 1043140182141
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":1043140182141\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 7d
+  total: 9
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(7)",path:[report,buckets],size:7}
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":1043140182141\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 7d
+  total: 9
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(7)",path:[report,buckets],size:7}
+[exit 0]
+
+$ npx genie-react call react_inspect_component \{\"id\":1043140182141\} --session upd-c --select /props/report
+status: ok
+selection:
+  expression: /props/report
+  matchedPathCount: 1
+  matchedPaths: [/props/report]
+  omittedPathCount: 7
+result:
+  project: CORE
+  range: 7d
+  total: 9
+  buckets: {__genie_dehydrated__:true,kind:array,preview:"Array(7)",path:[report,buckets],size:7}
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+7d
+[exit 0]
+
+$ agent-browser --session upd-c eval document.querySelector\(\".bar-chart\"\).closest\(\"section,\ .widget\"\)\?.textContent.slice\(0,40\)
+"Throughput9 completed"
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\]\} --session upd-c
+rules: []
+[exit 0]
+
+# Revert the fix
+
+$ git checkout -- src
+[exit 0]
+
+$ git status --short -- src
+## ali/articles-update-c
+[exit 0]
+
+# report-range-race: does verify wait for the slow 90d request in this app? (seeded bug in place)
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/reports
+✓ Acme Tracker
+  http://127.0.0.1:5233/reports
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /domains
+status: ok
+selection: {expression:/domains,matchedPathCount:1,matchedPaths:[/domains],omittedPathCount:45}
+result: [session,react,memory,perf,timeline,redux,app]
+[exit 0]
+
+$ npx genie-react tools request_watch_start --session upd-c
+error unknown_tool: No advertised tool or group matches the selector. Run next to inspect available groups.
+next: $ npx genie-react tools --session upd-c
+userActionRequired: true
+errorCode: unknown-tool
+exit: {code:1,class:failure}
+[exit 1]
+
+$ agent-browser --session upd-c wait .bar-chart
+✓ Done
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\{\"method\":\"GET\",\"path\":\"/api/reports/throughput\",\"query\":\{\"range\":\"90d\"\},\"latencyMs\":1200\}\]\} --session upd-c
+rules[1]:
+  - {method:GET,path:/api/reports/throughput,query:{range:90d},latencyMs:1200,status:null,times:null,hits:0}
+[exit 0]
+
+$ npx genie-react verify begin --name switch\ to\ 90d\ then\ 7d --claim render\ ThroughputWidget\ min\ 1 --domains react,network --session upd-c
+recording vfy_04446fe3-b06e-4bb0-ba26-b90791b3ea3e "switch to 90d then 7d"
+  url "http://127.0.0.1:5233/reports"
+  1 recording render ThroughputWidget min 1
+window: {observationId:observation:1,startDocumentCommitId:17,domains:[react,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_04446fe3-b06e-4bb0-ba26-b90791b3ea3e --session upd-c
+session: {sessionId:b23fb6b6-9faa-43f0-b8d3-9ee57ade5317,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:26}
+schemaVersion: "1.0"
+targets: [{target:{component:ThroughputWidget},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/reports/reports-page.tsx}]
+startedAt: 2026-11-19T09:03:59.252Z
+expiresAt: 2026-11-19T09:08:59.259Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000,domains:[react,network]},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 90\ days
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 7\ days
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_04446fe3-b06e-4bb0-ba26-b90791b3ea3e --session upd-c
+pass vfy_04446fe3-b06e-4bb0-ba26-b90791b3ea3e "switch to 90d then 7d"  12 commits, not quiet after 21 ms (react, network)
+  url "http://127.0.0.1:5233/reports"
+  1 pass render ThroughputWidget min 1  {renders:3,mounts:0,updates:3,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:ThroughputWidget},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,renders:3,mounts:0,updates:3,mountGeneration:1,latestDocumentCommitId:28,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/reports/reports-page.tsx:59:32}]
+window: {observationId:observation:1,startDocumentCommitId:17,settledDocumentCommitId:28,frozenDocumentCommitId:29,commits:12,settle:{outcome:failed,reason:"Generic network quiet is not instrumented by this app.",quietMs:500,timeoutMs:10000,waitedMs:21,domains:{react:pending,network:unsupported}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+! not-settled: the app did not settle within the timeout
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_04446fe3-b06e-4bb0-ba26-b90791b3ea3e --session upd-c
+session: {sessionId:b23fb6b6-9faa-43f0-b8d3-9ee57ade5317,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:26}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_24be819a78b1,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,react_profile_stop]}
+startedAt: 2026-11-19T09:03:59.252Z
+endedAt: 2026-11-19T09:04:05.777Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000,domains:[react,network]},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+7d
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+90d
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\]\} --session upd-c
+rules: []
+[exit 0]
+
+# max claim with --domains react,network
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/reports
+✓ Acme Tracker
+  http://127.0.0.1:5233/reports
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app/url
+status: ok
+selection: {expression:/app/url,matchedPathCount:1,matchedPaths:[/app/url],omittedPathCount:51}
+result: http://127.0.0.1:5233/reports
+[exit 0]
+
+$ agent-browser --session upd-c wait .bar-chart
+✓ Done
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\{\"method\":\"GET\",\"path\":\"/api/reports/throughput\",\"query\":\{\"range\":\"90d\"\},\"latencyMs\":1200\}\]\} --session upd-c
+rules[1]:
+  - {method:GET,path:/api/reports/throughput,query:{range:90d},latencyMs:1200,status:null,times:null,hits:0}
+[exit 0]
+
+$ npx genie-react verify begin --name switch\ to\ 90d\ then\ 7d --claim render\ ThroughputWidget\ max\ 3 --domains react,network --session upd-c
+recording vfy_0234d04b-33a4-4498-b2fb-6cd1fb3733cc "switch to 90d then 7d"
+  url "http://127.0.0.1:5233/reports"
+  1 recording render ThroughputWidget max 3
+window: {observationId:observation:1,startDocumentCommitId:17,domains:[react,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_0234d04b-33a4-4498-b2fb-6cd1fb3733cc --session upd-c
+session: {sessionId:c72f7748-1851-470b-a5b7-8e3852c1052c,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:27}
+schemaVersion: "1.0"
+targets: [{target:{component:ThroughputWidget},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/reports/reports-page.tsx}]
+startedAt: 2026-11-19T09:04:25.931Z
+expiresAt: 2026-11-19T09:09:25.938Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000,domains:[react,network]},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 90\ days
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 7\ days
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_0234d04b-33a4-4498-b2fb-6cd1fb3733cc --session upd-c
+refused vfy_0234d04b-33a4-4498-b2fb-6cd1fb3733cc "switch to 90d then 7d"  6 commits, not quiet after 21 ms (react, network)
+  url "http://127.0.0.1:5233/reports"
+  1 refused render ThroughputWidget max 3  not_quiescent: The app did not settle within the timeout (Generic network quiet is not instrumented by this app.), so later work could still change the answer.
+      observed: {renders:3,mounts:0,updates:3,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      evidence:{settle:failed,waitedMs:21,timeoutMs:10000},fix:{action:begin-again,settle:{timeoutMs:20000}}
+      fix: $ npx genie-react verify begin --session upd-c --name 'switch to 90d then 7d' --claim 'render ThroughputWidget max 3' --timeout-ms 20000 --domains 'react,network'
+      claim: {kind:renders,target:{component:ThroughputWidget},max:3,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,renders:3,mounts:0,updates:3,mountGeneration:1,latestDocumentCommitId:22,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/reports/reports-page.tsx:59:32}]
+window: {observationId:observation:1,startDocumentCommitId:17,settledDocumentCommitId:22,frozenDocumentCommitId:23,commits:6,settle:{outcome:failed,reason:"Generic network quiet is not instrumented by this app.",quietMs:500,timeoutMs:10000,waitedMs:21,domains:{react:pending,network:unsupported}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+! not-settled: the app did not settle within the timeout
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_0234d04b-33a4-4498-b2fb-6cd1fb3733cc --claim 1 --session upd-c
+session: {sessionId:c72f7748-1851-470b-a5b7-8e3852c1052c,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:27}
+schemaVersion: "1.0"
+exitCode: 4
+stage: end
+ledger: {fingerprint:cf_fb6e67087307,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,react_profile_stop]}
+startedAt: 2026-11-19T09:04:25.931Z
+endedAt: 2026-11-19T09:04:26.742Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000,domains:[react,network]},maxDurationMs:300000,allowOverrides:false}
+[exit 4]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+7d
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+90d
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\]\} --session upd-c
+rules: []
+[exit 0]
+
+# max claim with the default domains
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/reports
+✓ Acme Tracker
+  http://127.0.0.1:5233/reports
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app/url
+status: ok
+selection: {expression:/app/url,matchedPathCount:1,matchedPaths:[/app/url],omittedPathCount:51}
+result: http://127.0.0.1:5233/reports
+[exit 0]
+
+$ agent-browser --session upd-c wait .bar-chart
+✓ Done
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\{\"method\":\"GET\",\"path\":\"/api/reports/throughput\",\"query\":\{\"range\":\"90d\"\},\"latencyMs\":1200\}\]\} --session upd-c
+rules[1]:
+  - {method:GET,path:/api/reports/throughput,query:{range:90d},latencyMs:1200,status:null,times:null,hits:0}
+[exit 0]
+
+$ npx genie-react verify begin --name switch\ to\ 90d\ then\ 7d --claim render\ ThroughputWidget\ max\ 3 --session upd-c
+recording vfy_bfa4cdd8-b052-4663-98d0-29b79ae90a31 "switch to 90d then 7d"
+  url "http://127.0.0.1:5233/reports"
+  1 recording render ThroughputWidget max 3
+window: {observationId:observation:1,startDocumentCommitId:17,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_bfa4cdd8-b052-4663-98d0-29b79ae90a31 --session upd-c
+session: {sessionId:28d2ccf6-a18c-45a1-9d75-8f5864f5fbf3,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:28}
+schemaVersion: "1.0"
+targets: [{target:{component:ThroughputWidget},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/reports/reports-page.tsx}]
+startedAt: 2026-11-19T09:04:30.083Z
+expiresAt: 2026-11-19T09:09:30.096Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 90\ days
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 7\ days
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_bfa4cdd8-b052-4663-98d0-29b79ae90a31 --session upd-c
+fail vfy_bfa4cdd8-b052-4663-98d0-29b79ae90a31 "switch to 90d then 7d"  8 commits, quiet after 784 ms (react)
+  url "http://127.0.0.1:5233/reports"
+  1 fail render ThroughputWidget max 3  {renders:4,mounts:0,updates:4,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:ThroughputWidget},max:3,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,renders:4,mounts:0,updates:4,mountGeneration:1,latestDocumentCommitId:24,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/reports/reports-page.tsx:59:32}]
+window: {observationId:observation:1,startDocumentCommitId:17,settledDocumentCommitId:23,frozenDocumentCommitId:25,commits:8,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:784,domains:{react:met}},tail:{ms:500,commits:2},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 2 for these claims on this tab; previous refused vfy_0234d04b-33a4-4498-b2fb-6cd1fb3733cc (not_quiescent); document reloaded since
+evidence: $ npx genie-react verify show vfy_bfa4cdd8-b052-4663-98d0-29b79ae90a31 --claim 1 --session upd-c
+session: {sessionId:28d2ccf6-a18c-45a1-9d75-8f5864f5fbf3,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:28}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_fb6e67087307,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_0234d04b-33a4-4498-b2fb-6cd1fb3733cc,verdict:refused,reasons:[not_quiescent],endedAt:2026-11-19T09:04:26.742Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,react_profile_stop]}
+startedAt: 2026-11-19T09:04:30.083Z
+endedAt: 2026-11-19T09:04:31.682Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+90d
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+90d
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\]\} --session upd-c
+rules: []
+[exit 0]
+
+# report-range-race: temporary wiring check, requestWatchCollector() added to src/devtools/connect-genie.ts (reverted below)
+
+$ git diff -- src
+diff --git a/apps/realworld-legacy/src/devtools/connect-genie.ts b/apps/realworld-legacy/src/devtools/connect-genie.ts
+index 1807845..e2278e4 100644
+--- a/apps/realworld-legacy/src/devtools/connect-genie.ts
++++ b/apps/realworld-legacy/src/devtools/connect-genie.ts
+@@ -1,17 +1,18 @@
+ import { createGenieClient, reactCollector, sessionCollector } from 'genie-react/client'
+-import { memoryCollector, perfCollector, timelineCollector } from 'genie-react/collectors'
++import { memoryCollector, perfCollector, requestWatchCollector, timelineCollector } from 'genie-react/collectors'
+ import { reduxCollector } from 'genie-react/collectors/redux'
+ import { store } from '../store'
+ import { registerAppTools } from './app-tools'
+ 
+ createGenieClient({
+   url: process.env.GENIE_HUB_URL,
+   collectors: [
+     sessionCollector(),
+     reactCollector(),
+     memoryCollector(),
+     perfCollector(),
+     timelineCollector(),
++    requestWatchCollector(),
+     reduxCollector(store, { name: 'app' }),
+   ],
+ }).start()
+[exit 0]
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/reports
+✓ Acme Tracker
+  http://127.0.0.1:5233/reports
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /domains
+status: ok
+selection: {expression:/domains,matchedPathCount:1,matchedPaths:[/domains],omittedPathCount:46}
+result: [session,react,memory,perf,timeline,network,redux,app]
+[exit 0]
+
+$ agent-browser --session upd-c wait .bar-chart
+✓ Done
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\{\"method\":\"GET\",\"path\":\"/api/reports/throughput\",\"query\":\{\"range\":\"90d\"\},\"latencyMs\":1200\}\]\} --session upd-c
+rules[1]:
+  - {method:GET,path:/api/reports/throughput,query:{range:90d},latencyMs:1200,status:null,times:null,hits:0}
+[exit 0]
+
+$ npx genie-react verify begin --name switch\ to\ 90d\ then\ 7d --claim render\ ThroughputWidget\ max\ 3 --session upd-c
+recording vfy_455b89de-fb92-4594-89b2-8da54c45badb "switch to 90d then 7d"
+  url "http://127.0.0.1:5233/reports"
+  1 recording render ThroughputWidget max 3
+window: {observationId:observation:1,startDocumentCommitId:17,domains:[react,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_455b89de-fb92-4594-89b2-8da54c45badb --session upd-c
+session: {sessionId:79906291-bda8-4db1-b89c-2e11a17b6753,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:30}
+schemaVersion: "1.0"
+targets: [{target:{component:ThroughputWidget},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/reports/reports-page.tsx}]
+startedAt: 2026-11-19T09:05:06.278Z
+expiresAt: 2026-11-19T09:10:06.291Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 90\ days
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 7\ days
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_455b89de-fb92-4594-89b2-8da54c45badb --session upd-c
+fail vfy_455b89de-fb92-4594-89b2-8da54c45badb "switch to 90d then 7d"  9 commits, quiet after 1737 ms (react, network)
+  url "http://127.0.0.1:5233/reports"
+  1 fail render ThroughputWidget max 3  {renders:4,mounts:0,updates:4,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:ThroughputWidget},max:3,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,renders:4,mounts:0,updates:4,mountGeneration:1,latestDocumentCommitId:24,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/reports/reports-page.tsx:59:32}]
+window: {observationId:observation:1,startDocumentCommitId:17,settledDocumentCommitId:25,frozenDocumentCommitId:26,commits:9,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:1737,domains:{react:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 3 for these claims on this tab; previous fail vfy_bfa4cdd8-b052-4663-98d0-29b79ae90a31; document reloaded since
+evidence: $ npx genie-react verify show vfy_455b89de-fb92-4594-89b2-8da54c45badb --claim 1 --session upd-c
+session: {sessionId:79906291-bda8-4db1-b89c-2e11a17b6753,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:30}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_fb6e67087307,scope:logical-session,storage:memory,attempt:3,history:[{verificationId:vfy_0234d04b-33a4-4498-b2fb-6cd1fb3733cc,verdict:refused,reasons:[not_quiescent],endedAt:2026-11-19T09:04:26.742Z},{verificationId:vfy_bfa4cdd8-b052-4663-98d0-29b79ae90a31,verdict:fail,reasons:[],endedAt:2026-11-19T09:04:31.682Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,request_watch_start,request_watch_stop,react_profile_stop]}
+startedAt: 2026-11-19T09:05:06.278Z
+endedAt: 2026-11-19T09:05:08.838Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+90d
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\]\} --session upd-c
+rules: []
+[exit 0]
+
+# same wiring check with the report-range-race reference fix applied
+
+$ node /tmp/upd-c/apply-fix.mjs report-range-race
+applied 2 edits
+[exit 0]
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/reports
+✓ Acme Tracker
+  http://127.0.0.1:5233/reports
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /domains
+status: ok
+selection: {expression:/domains,matchedPathCount:1,matchedPaths:[/domains],omittedPathCount:46}
+result: [session,react,memory,perf,timeline,network,redux,app]
+[exit 0]
+
+$ agent-browser --session upd-c wait .bar-chart
+✓ Done
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\{\"method\":\"GET\",\"path\":\"/api/reports/throughput\",\"query\":\{\"range\":\"90d\"\},\"latencyMs\":1200\}\]\} --session upd-c
+rules[1]:
+  - {method:GET,path:/api/reports/throughput,query:{range:90d},latencyMs:1200,status:null,times:null,hits:0}
+[exit 0]
+
+$ npx genie-react verify begin --name switch\ to\ 90d\ then\ 7d --claim render\ ThroughputWidget\ max\ 3 --session upd-c
+recording vfy_5610e128-cc19-4c6e-b092-8d1d0d4cf627 "switch to 90d then 7d"
+  url "http://127.0.0.1:5233/reports"
+  1 recording render ThroughputWidget max 3
+window: {observationId:observation:1,startDocumentCommitId:17,domains:[react,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_5610e128-cc19-4c6e-b092-8d1d0d4cf627 --session upd-c
+session: {sessionId:6b00d83b-f06a-4ea0-b567-0f78bb83ca68,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:32}
+schemaVersion: "1.0"
+targets: [{target:{component:ThroughputWidget},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/reports/reports-page.tsx}]
+startedAt: 2026-11-19T09:05:28.688Z
+expiresAt: 2026-11-19T09:10:28.699Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 90\ days
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 7\ days
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_5610e128-cc19-4c6e-b092-8d1d0d4cf627 --session upd-c
+pass vfy_5610e128-cc19-4c6e-b092-8d1d0d4cf627 "switch to 90d then 7d"  8 commits, quiet after 1722 ms (react, network)
+  url "http://127.0.0.1:5233/reports"
+  1 pass render ThroughputWidget max 3  {renders:3,mounts:0,updates:3,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:ThroughputWidget},max:3,counting:renders,allowRemount:false}
+      deciding: [{kind:coverage,complete:true,targetedComplete:true,semantics:exact},{kind:instance,mountId:mount:1,renderingState:mounted-rendering,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/reports/reports-page.tsx:59:32}]
+window: {observationId:observation:1,startDocumentCommitId:17,settledDocumentCommitId:24,frozenDocumentCommitId:25,commits:8,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:1722,domains:{react:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 4 for these claims on this tab; previous fail vfy_455b89de-fb92-4594-89b2-8da54c45badb; document reloaded since
+evidence: $ npx genie-react verify show vfy_5610e128-cc19-4c6e-b092-8d1d0d4cf627 --session upd-c
+session: {sessionId:6b00d83b-f06a-4ea0-b567-0f78bb83ca68,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:32}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_fb6e67087307,scope:logical-session,storage:memory,attempt:4,history:[{verificationId:vfy_0234d04b-33a4-4498-b2fb-6cd1fb3733cc,verdict:refused,reasons:[not_quiescent],endedAt:2026-11-19T09:04:26.742Z},{verificationId:vfy_bfa4cdd8-b052-4663-98d0-29b79ae90a31,verdict:fail,reasons:[],endedAt:2026-11-19T09:04:31.682Z},{verificationId:vfy_455b89de-fb92-4594-89b2-8da54c45badb,verdict:fail,reasons:[],endedAt:2026-11-19T09:05:08.838Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,request_watch_start,request_watch_stop,react_profile_stop]}
+startedAt: 2026-11-19T09:05:28.688Z
+endedAt: 2026-11-19T09:05:31.205Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c get attr .bar-chart data-range
+7d
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\]\} --session upd-c
+rules: []
+[exit 0]
+
+# revert the wiring check and the fix
+
+$ git checkout -- src
+[exit 0]
+
+$ git status --short -- src
+## ali/articles-update-c
+[exit 0]
+
+# lazy-route-blank-shell: verify before the fix with the suspense hidden claim
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/board
+✓ Acme Tracker
+  http://127.0.0.1:5233/board
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app/url
+status: ok
+selection: {expression:/app/url,matchedPathCount:1,matchedPaths:[/app/url],omittedPathCount:51}
+result: http://127.0.0.1:5233/board
+[exit 0]
+
+$ agent-browser --session upd-c wait .board-card
+✓ Done
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\{\"path\":\"/static/js/settings\",\"latencyMs\":2500\}\]\} --session upd-c
+rules[1]:
+  - {method:null,path:/static/js/settings,query:null,latencyMs:2500,status:null,times:null,hits:0}
+[exit 0]
+
+$ npx genie-react verify begin --name open\ Settings\ from\ the\ sidebar --claim suspense\ TopBar\ hidden\ max\ 0 --claim render\ SettingsPage\ min\ 1 --claim boundaries\ clean --session upd-c
+recording vfy_3ed777a2-74b7-4cea-8f43-85bc9d7e8892 "open Settings from the sidebar"
+  url "http://127.0.0.1:5233/board"
+  1 recording suspense TopBar hidden max 0
+  2 recording render SettingsPage min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:17,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_3ed777a2-74b7-4cea-8f43-85bc9d7e8892 --session upd-c
+session: {sessionId:12de4847-a4a3-4138-b8b7-5893643e0090,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:34}
+schemaVersion: "1.0"
+targets: [{target:{component:TopBar},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx},{target:{component:SettingsPage},status:pending,instances:0}]
+startedAt: 2026-11-19T09:05:55.699Z
+expiresAt: 2026-11-19T09:10:55.717Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c click a.side-nav__link\[href=\"/settings\"\]
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c is visible .top-bar
+false
+[exit 0]
+
+$ agent-browser --session upd-c wait .settings-page
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_3ed777a2-74b7-4cea-8f43-85bc9d7e8892 --session upd-c
+fail vfy_3ed777a2-74b7-4cea-8f43-85bc9d7e8892 "open Settings from the sidebar"  12 commits, quiet after 1101 ms (react)
+  url "http://127.0.0.1:5233/board"
+  1 fail suspense TopBar hidden max 0  {hidden:1,hidesInWindow:1}
+      claim: {kind:suspense-hidden,target:{component:TopBar},max:0}
+      deciding: [{kind:suspense-hide,hideId:hide:18:1,documentCommitId:18,boundary:Suspense,boundaryId:3555310174220}]
+  2 pass render SettingsPage min 1  {renders:3,mounts:1,updates:2,remounts:0,semantics:lower-bound,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:SettingsPage},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1004,renders:3,mounts:1,updates:2,mountGeneration:1,latestDocumentCommitId:26,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/app.tsx:34:43}]
+      caveats: [count-is-a-lower-bound]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:17}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:17,settledDocumentCommitId:28,frozenDocumentCommitId:29,commits:12,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:1101,domains:{react:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:unknown,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_3ed777a2-74b7-4cea-8f43-85bc9d7e8892 --claim 1 --session upd-c
+session: {sessionId:12de4847-a4a3-4138-b8b7-5893643e0090,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:34}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_f071fd75913e,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T09:05:55.699Z
+endedAt: 2026-11-19T09:06:00.194Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+$ agent-browser --session upd-c is visible .top-bar
+true
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\]\} --session upd-c
+rules: []
+[exit 0]
+
+# Apply the reference fix for lazy-route-blank-shell
+
+$ node /tmp/upd-c/apply-fix.mjs lazy-route-blank-shell
+applied 3 edits
+[exit 0]
+
+$ git diff -- src
+diff --git a/apps/realworld-legacy/src/layout/app-shell.tsx b/apps/realworld-legacy/src/layout/app-shell.tsx
+index 220016f..e931581 100644
+--- a/apps/realworld-legacy/src/layout/app-shell.tsx
++++ b/apps/realworld-legacy/src/layout/app-shell.tsx
+@@ -1,7 +1,9 @@
+ import classNames from 'classnames'
++import { Suspense } from 'react'
+ import { connect } from 'react-redux'
+ import { Outlet } from 'react-router-dom'
+ import { useGetConfigQuery } from '../api/service'
++import { Spinner } from '../components/spinner'
+ import { FeatureFlagsProvider } from '../contexts/feature-flags'
+ import { CreateIssueModal } from '../features/create-issue/create-issue-modal'
+ import type { RootState } from '../store'
+@@ -25,7 +27,9 @@ function AppShell({ sidebarCollapsed, createIssueOpen }: AppShellProps) {
+         <TopBar />
+         <SideNav collapsed={sidebarCollapsed} />
+         <main className="shell__content">
+-          <Outlet />
++          <Suspense fallback={<Spinner label="Loading page" />}>
++            <Outlet />
++          </Suspense>
+         </main>
+         {config && <NotificationsPoller intervalMs={config.notificationPollMs} />}
+         {createIssueOpen && <CreateIssueModal />}
+[exit 0]
+
+# lazy-route-blank-shell: verify after the fix
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/board
+✓ Acme Tracker
+  http://127.0.0.1:5233/board
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app/url
+status: ok
+selection: {expression:/app/url,matchedPathCount:1,matchedPaths:[/app/url],omittedPathCount:51}
+result: http://127.0.0.1:5233/board
+[exit 0]
+
+$ agent-browser --session upd-c wait .board-card
+✓ Done
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\{\"path\":\"/static/js/settings\",\"latencyMs\":2500\}\]\} --session upd-c
+rules[1]:
+  - {method:null,path:/static/js/settings,query:null,latencyMs:2500,status:null,times:null,hits:0}
+[exit 0]
+
+$ npx genie-react verify begin --name open\ Settings\ from\ the\ sidebar --claim suspense\ TopBar\ hidden\ max\ 0 --claim render\ SettingsPage\ min\ 1 --claim boundaries\ clean --session upd-c
+recording vfy_37b8a7cd-90f7-4fb5-aeb3-b16df5a11653 "open Settings from the sidebar"
+  url "http://127.0.0.1:5233/board"
+  1 recording suspense TopBar hidden max 0
+  2 recording render SettingsPage min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:17,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_37b8a7cd-90f7-4fb5-aeb3-b16df5a11653 --session upd-c
+session: {sessionId:bd5bc8d1-09f1-42ad-adf8-5b4621f6e1af,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:36}
+schemaVersion: "1.0"
+targets: [{target:{component:TopBar},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/layout/app-shell.tsx},{target:{component:SettingsPage},status:pending,instances:0}]
+startedAt: 2026-11-19T09:06:36.268Z
+expiresAt: 2026-11-19T09:11:36.287Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c click a.side-nav__link\[href=\"/settings\"\]
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c is visible .top-bar
+true
+[exit 0]
+
+$ agent-browser --session upd-c wait .settings-page
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_37b8a7cd-90f7-4fb5-aeb3-b16df5a11653 --session upd-c
+pass vfy_37b8a7cd-90f7-4fb5-aeb3-b16df5a11653 "open Settings from the sidebar"  11 commits, quiet after 1108 ms (react)
+  url "http://127.0.0.1:5233/board"
+  1 pass suspense TopBar hidden max 0  {hidden:0,hidesInWindow:1}
+      claim: {kind:suspense-hidden,target:{component:TopBar},max:0}
+      deciding: [{kind:suspense-hide-log,complete:true,afterDocumentCommitId:17}]
+  2 pass render SettingsPage min 1  {renders:3,mounts:1,updates:2,remounts:0,semantics:lower-bound,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:SettingsPage},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1026,renders:3,mounts:1,updates:2,mountGeneration:1,latestDocumentCommitId:25,source:~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/app.tsx:34:43}]
+      caveats: [count-is-a-lower-bound]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:17}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:17,settledDocumentCommitId:27,frozenDocumentCommitId:28,commits:11,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:1108,domains:{react:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:unknown,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 2 for these claims on this tab; previous fail vfy_3ed777a2-74b7-4cea-8f43-85bc9d7e8892; document reloaded since
+evidence: $ npx genie-react verify show vfy_37b8a7cd-90f7-4fb5-aeb3-b16df5a11653 --session upd-c
+session: {sessionId:bd5bc8d1-09f1-42ad-adf8-5b4621f6e1af,logicalSessionId:e3bf1489-86ce-4bcb-9de1-5f396364758d,documentGeneration:36}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_f071fd75913e,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_3ed777a2-74b7-4cea-8f43-85bc9d7e8892,verdict:fail,reasons:[],endedAt:2026-11-19T09:06:00.194Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T09:06:36.268Z
+endedAt: 2026-11-19T09:06:40.769Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-c is visible .top-bar
+true
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\]\} --session upd-c
+rules: []
+[exit 0]
+
+# Revert the fix
+
+$ git checkout -- src
+[exit 0]
+
+$ git status --short -- src
+## ali/articles-update-c
+[exit 0]
+
+# board-column-selector-cache: re-read the BoardColumn causes (1.1.0 changed scoped-window cause attribution)
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/board
+✓ Acme Tracker
+  http://127.0.0.1:5233/board
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app/url
+status: ok
+selection: {expression:/app/url,matchedPathCount:1,matchedPaths:[/app/url],omittedPathCount:51}
+result: http://127.0.0.1:5233/board
+[exit 0]
+
+$ agent-browser --session upd-c wait .board-column
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_clear_renders \{\"component\":\"BoardColumn\"\} --session upd-c --select /ok
+status: ok
+selection: {expression:/ok,matchedPathCount:1,matchedPaths:[/ok],omittedPathCount:15}
+result: true
+[exit 0]
+
+$ agent-browser --session upd-c click \[aria-label=\"Toggle\ sidebar\"\]
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce \{\"idleMs\":500,\"timeoutMs\":10000\} --fail-on-result-error --session upd-c --select /outcome
+status: ok
+selection: {expression:/outcome,matchedPathCount:1,matchedPaths:[/outcome],omittedPathCount:16}
+result: idle
+[exit 0]
+
+$ npx genie-react call react_get_renders \{\"component\":\"BoardColumn\",\"limit\":5\} --session upd-c --fields name,key,causeCounts,causes
+[5]:
+  each: {name:BoardColumn,causeCounts:{external-store:1},causes:[{kind:external-store,evidence:inferred,name:anonymous-external-store,changedFields:[],redux:{evidence:inferred,actions:[ui/sidebarToggled]}}]}
+  - {key:backlog}
+  - {key:todo}
+  - {key:in_progress}
+  - {key:in_review}
+  - {key:done}
+[exit 0]
+
+$ npx genie-react call react_get_renders \{\"component\":\"BoardColumn\",\"limit\":5,\"view\":\"full\"\} --json --session upd-c
+{"schemaVersion":"2.0","status":"truncated","reason":"max_bytes","maxBytes":102400,"originalBytes":114811,"omittedPathCount":4477,"outputPath":"/var/folders/2z/yc5fydsd2650snr5nkhw7cmc0000gn/T/genie-react-501/out/call-react_get_renders-1795079255406-12558-1.json","message":"The result exceeded --max-bytes. The complete JSON was written to outputPath; read it from there, or follow a suggestion to request less.","largestPaths":[{"path":"/components","bytes":112819,"items":5},{"path":"/summary","bytes":294},{"path":"/coverage/incompleteBecause","bytes":283,"items":1},{"path":"/sourceClassification","bytes":154},{"path":"/attribution","bytes":152}],"suggestions":[{"reason":"Request the bounded summary view.","command":"npx genie-react call react_get_renders '{\"component\":\"BoardColumn\",\"limit\":5,\"view\":\"summary\"}' --session upd-c","argv":["npx","genie-react","call","react_get_renders","{\"component\":\"BoardColumn\",\"limit\":5,\"view\":\"summary\"}","--session","upd-c"]},{"reason":"Request at most 3 records.","command":"npx genie-react call react_get_renders '{\"component\":\"BoardColumn\",\"limit\":3,\"view\":\"full\"}' --session upd-c","argv":["npx","genie-react","call","react_get_renders","{\"component\":\"BoardColumn\",\"limit\":3,\"view\":\"full\"}","--session","upd-c"]},{"reason":"Inspect the first item of the largest array (largestPaths[0]).","command":"npx genie-react call react_get_renders '{\"component\":\"BoardColumn\",\"limit\":5,\"view\":\"full\"}' --session upd-c --select /components/0","argv":["npx","genie-react","call","react_get_renders","{\"component\":\"BoardColumn\",\"limit\":5,\"view\":\"full\"}","--session","upd-c","--select","/components/0"]},{"reason":"Accept the complete result on stdout.","command":"npx genie-react call react_get_renders '{\"component\":\"BoardColumn\",\"limit\":5,\"view\":\"full\"}' --session upd-c --max-bytes 114811","argv":["npx","genie-react","call","react_get_renders","{\"component\":\"BoardColumn\",\"limit\":5,\"view\":\"full\"}","--session","upd-c","--max-bytes","114811"]}],"topLevelPaths":["/attribution","/bundle","/commits","/comparable","/componentMatch","/components","/countsScope","/coverage","/documentCommitId","/filteredNote","/nextCursor","/notComparableReasons","/observation","/omittedByLimit","/pagination","/renderCollection","/sourceClassification","/summary","/timingsBundleDependent","/tracking"]}
+[exit 0]
+
+# the first call above was piped through the logging helper, which mixed its log lines into the JSON, so the read was repeated:
+$ npx genie-react call react_get_renders '{"component":"BoardColumn","limit":5,"view":"full"}' --json --session upd-c
+{"schemaVersion":"2.0","status":"truncated","reason":"max_bytes","maxBytes":102400,"originalBytes":114911,"omittedPathCount":4477,"outputPath":"/var/folders/2z/yc5fydsd2650snr5nkhw7cmc0000gn/T/genie-react-501/out/call-react_get_renders-1795079262769-14041-1.json","message":"The result exceeded --max-bytes. The complete JSON was written to outputPath; read it from there, or follow a suggestion to request less.","largestPaths":[{"path":"/components","bytes":112917,"items":5},{"path":"/summary","bytes":296},{"path":"/coverage/incompleteBecause","bytes":283,"items":1},{"path":"/sourceClassification","bytes":154},{"path":"/attribution","bytes":152}],"suggestions":[{"reason":"Request the bounded summary view.","command":"npx genie-react call react_get_renders '{\"component\":\"BoardColumn\",\"limit\":5,\"view\":\"summary\"}' --session upd-c","argv":["npx","genie-react","call","react_get_renders","{\"component\":\"BoardColumn\",\"limit\":5,\"view\":\"summary\"}","--session","upd-c"]},{"reason":"Request at most 3 records.","command":"npx genie-react call react_get_renders '{\"component\":\"BoardColumn\",\"limit\":3,\"view\":\"full\"}' --session upd-c","argv":["npx","genie-react","call","react_get_renders","{\"component\":\"BoardColumn\",\"limit\":3,\"view\":\"full\"}","--session","upd-c"]},{"reason":"Inspect the first item of the largest array (largestPaths[0]).","command":"npx genie-react call react_get_renders '{\"component\":\"BoardColumn\",\"limit\":5,\"view\":\"full\"}' --session upd-c --select /components/0","argv":["npx","genie-react","call","react_get_renders","{\"component\":\"BoardColumn\",\"limit\":5,\"view\":\"full\"}","--session","upd-c","--select","/components/0"]},{"reason":"Accept the complete result on stdout.","command":"npx genie-react call react_get_renders '{\"component\":\"BoardColumn\",\"limit\":5,\"view\":\"full\"}' --session upd-c --max-bytes 114911","argv":["npx","genie-react","call","react_get_renders","{\"component\":\"BoardColumn\",\"limit\":5,\"view\":\"full\"}","--session","upd-c","--max-bytes","114911"]}],"topLevelPaths":["/attribution","/bundle","/commits","/comparable","/componentMatch","/components","/countsScope","/coverage","/documentCommitId","/filteredNote","/nextCursor","/notComparableReasons","/observation","/omittedByLimit","/pagination","/renderCollection","/sourceClassification","/summary","/timingsBundleDependent","/tracking"]}
+[exit 0]
+
+# contents of the outputPath file:
+{"componentMatch":{"component":"BoardColumn","exact":true,"status":"matched","matchedNames":["BoardColumn"],"matchedNameCount":1,"similarNames":[]},"tracking":true,"renderCollection":"available","bundle":"development","timingsBundleDependent":true,"countsScope":"observed-run","commits":21,"documentCommitId":38,"observation":{"id":"observation:1","epoch":1,"startedAfterDocumentCommitId":17},"attribution":{"status":"current","startedAtDocumentCommitId":38,"completedAtDocumentCommitId":38,"startedAtAnalysisGeneration":39,"completedAtAnalysisGeneration":39},"view":"full","summary":{"commits":21,"trackedComponents":5,"totalRenders":15,"totalUpdates":15,"unstableComponents":0,"referenceOnlyPropComponents":0,"unnecessaryComponents":0,"noObservedInputChangeComponents":0,"topUnstableProps":[],"topReferenceOnlyProps":[],"semantics":"exact","coverageDomain":"render-measurement"},"components":[{"id":2698950738432,"name":"BoardColumn","instance":{"fiberId":2698950738432,"mountId":"mount:1294","key":"backlog","siblingIndex":0,"parent":{"fiberId":2698950738428,"name":"BoardPage","key":null},"keyedParent":null,"logicalPath":"AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > BoardPage[index=0] > <div>[index=0] > <div>[index=1] > BoardColumn[key=\"backlog\"]","logicalIdentityEvidence":"keyed","mountGeneration":1,"mountGenerationEvidence":"exact","hostSelector":null},"renders":3,"mounts":0,"updates":3,"unnecessary":0,"referenceOnlyPropRenders":0,"unstableRenders":0,"functionIdentityPropRenders":0,"undeterminedReferencePropRenders":0,"forget":false,"selfTime":0.3,"totalTime":0.6,"cumulativeSelfTime":0.5,"cumulativeTotalTime":1,"changes":[],"latestCommitId":19,"latestDocumentCommitId":36,"causes":[{"kind":"external-store","evidence":"inferred","reason":"external-store-snapshot-changed","hookIndex":7,"externalStoreIndex":0,"subscriberId":"subscriber:mount:1294:0","selectionEqual":false,"subscriptionFired":true,"before":[{"id":"iss-1","key":"CORE-1","projectKey":"CORE","title":"Migrate push notification opt-out","description":"Reported by the docs team. This regressed after the last release, bisecting now.","status":"backlog","priority":"urgent","assigneeId":"u-18","reporterId":"u-19","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[0,"labels"],"size":2},"estimate":3,"createdAt":"2026-01-31T19:49:51.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":5},{"id":"iss-10","key":"CORE-10","projectKey":"CORE","title":"Document error page copy","description":"Reported by the security team. Added logs, waiting for the next occurrence.","status":"backlog","priority":"high","assigneeId":"u-23","reporterId":"u-1","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[1,"labels"],"size":2},"estimate":3,"createdAt":"2025-06-11T13:14:51.000Z","updatedAt":"2025-08-04T13:14:51.000Z","completedAt":null,"commentCount":5},{"id":"iss-19","key":"CORE-19","projectKey":"CORE","title":"Document rate limiter headers","description":"Reported by the frontend team. Verified on mobile Safari and Chrome.","status":"backlog","priority":"high","assigneeId":"u-18","reporterId":"u-22","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[2,"labels"],"size":2},"estimate":null,"createdAt":"2025-11-28T05:01:50.000Z","updatedAt":"2026-01-08T05:01:50.000Z","completedAt":null,"commentCount":6},{"id":"iss-27","key":"CORE-27","projectKey":"CORE","title":"Document cache invalidation","description":"Reported by the infra team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"backlog","priority":"urgent","assigneeId":"u-36","reporterId":"u-32","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[3,"labels"],"size":2},"estimate":1,"createdAt":"2026-02-07T07:55:01.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":6},{"id":"iss-28","key":"CORE-28","projectKey":"CORE","title":"Remove onboarding checklist","description":"Reported by the design team. Design signed off on the copy changes.","status":"backlog","priority":"high","assigneeId":"u-22","reporterId":"u-24","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[4,"labels"],"size":2},"estimate":5,"createdAt":"2025-08-08T10:58:32.000Z","updatedAt":"2025-08-09T10:58:32.000Z","completedAt":null,"commentCount":6},{"id":"iss-29","key":"CORE-29","projectKey":"CORE","title":"Migrate audit log pagination","description":"Reported by the performance team. Customer success says three accounts are affected.","status":"backlog","priority":"low","assigneeId":"u-6","reporterId":"u-16","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[5,"labels"],"size":1},"estimate":1,"createdAt":"2025-06-23T22:42:01.000Z","updatedAt":"2025-07-04T22:42:01.000Z","completedAt":null,"commentCount":5},{"id":"iss-37","key":"CORE-37","projectKey":"CORE","title":"Refactor keyboard navigation","description":"Reported by the docs team. Added logs, waiting for the next occurrence.","status":"backlog","priority":"medium","assigneeId":"u-10","reporterId":"u-33","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[6,"labels"],"size":1},"estimate":null,"createdAt":"2026-02-25T09:59:32.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":0},{"id":"iss-38","key":"CORE-38","projectKey":"CORE","title":"Add API key rotation","description":"Reported by the performance team. Design signed off on the copy changes.","status":"backlog","priority":"medium","assigneeId":null,"reporterId":"u-6","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[7,"labels"],"size":1},"estimate":1,"createdAt":"2025-04-23T04:21:58.000Z","updatedAt":"2025-04-25T04:21:58.000Z","completedAt":null,"commentCount":0},{"id":"iss-42","key":"CORE-42","projectKey":"CORE","title":"Document database connection pool","description":"Reported by the security team. Can we split this into a backend and a frontend ticket?","status":"backlog","priority":"medium","assigneeId":null,"reporterId":"u-33","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[8,"labels"],"size":0},"estimate":8,"createdAt":"2025-03-06T06:47:22.000Z","updatedAt":"2025-04-10T06:47:22.000Z","completedAt":null,"commentCount":3},{"id":"iss-43","key":"CORE-43","projectKey":"CORE","title":"Remove GDPR export","description":"Reported by the frontend team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"backlog","priority":"high","assigneeId":null,"reporterId":"u-8","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[9,"labels"],"size":0},"estimate":2,"createdAt":"2025-07-12T12:00:16.000Z","updatedAt":"2025-08-25T12:00:16.000Z","completedAt":null,"commentCount":6},{"id":"iss-44","key":"CORE-44","projectKey":"CORE","title":"Add dark mode contrast","description":"Reported by the frontend team. I can reproduce this on staging with a fresh account.","status":"backlog","priority":"medium","assigneeId":"u-11","reporterId":"u-1","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[10,"labels"],"size":0},"estimate":2,"createdAt":"2025-06-16T05:28:10.000Z","updatedAt":"2025-08-10T05:28:10.000Z","completedAt":null,"commentCount":1},{"id":"iss-46","key":"CORE-46","projectKey":"CORE","title":"Add session timeout warning","description":"Reported by the design team. I can reproduce this on staging with a fresh account.","status":"backlog","priority":"medium","assigneeId":"u-24","reporterId":"u-2","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[11,"labels"],"size":0},"estimate":1,"createdAt":"2025-06-24T13:08:57.000Z","updatedAt":"2025-06-24T13:08:57.000Z","completedAt":null,"commentCount":3},{"id":"iss-48","key":"CORE-48","projectKey":"CORE","title":"Speed up database connection pool","description":"Reported by the performance team. Design signed off on the copy changes.","status":"backlog","priority":"high","assigneeId":"u-20","reporterId":"u-22","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[12,"labels"],"size":1},"estimate":2,"createdAt":"2025-05-20T13:49:13.000Z","updatedAt":"2025-05-22T13:49:13.000Z","completedAt":null,"commentCount":4},{"id":"iss-49","key":"CORE-49","projectKey":"CORE","title":"Add deploy pipeline caching","description":"Reported by the frontend team. Customer success says three accounts are affected.","status":"backlog","priority":"high","assigneeId":"u-19","reporterId":"u-3","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[13,"labels"],"size":2},"estimate":5,"createdAt":"2025-04-30T22:39:44.000Z","updatedAt":"2025-05-26T22:39:44.000Z","completedAt":null,"commentCount":6},{"id":"iss-50","key":"CORE-50","projectKey":"CORE","title":"Speed up database connection pool","description":"Reported by the performance team. This regressed after the last release, bisecting now.","status":"backlog","priority":"medium","assigneeId":"u-14","reporterId":"u-7","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[14,"labels"],"size":1},"estimate":8,"createdAt":"2025-08-21T02:51:19.000Z","updatedAt":"2025-08-30T02:51:19.000Z","completedAt":null,"commentCount":2},{"id":"iss-61","key":"CORE-61","projectKey":"CORE","title":"Investigate avatar upload","description":"Reported by the infra team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"backlog","priority":"medium","assigneeId":"u-32","reporterId":"u-30","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[15,"labels"],"size":1},"estimate":1,"createdAt":"2025-06-12T12:29:29.000Z","updatedAt":"2025-07-04T12:29:29.000Z","completedAt":null,"commentCount":6},{"id":"iss-63","key":"CORE-63","projectKey":"CORE","title":"Document permission matrix","description":"Reported by the infra team. I can reproduce this on staging with a fresh account.","status":"backlog","priority":"low","assigneeId":"u-11","reporterId":"u-3","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[16,"labels"],"size":1},"estimate":8,"createdAt":"2025-02-01T03:55:28.000Z","updatedAt":"2025-03-15T03:55:28.000Z","completedAt":null,"commentCount":0},{"id":"iss-68","key":"CORE-68","projectKey":"CORE","title":"Add dark mode contrast","description":"Reported by the security team. The fix is behind the new flag, rolling out to 10%.","status":"backlog","priority":"urgent","assigneeId":null,"reporterId":"u-35","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[17,"labels"],"size":0},"estimate":8,"createdAt":"2026-01-11T05:25:47.000Z","updatedAt":"2026-02-06T05:25:47.000Z","completedAt":null,"commentCount":1},{"id":"iss-69","key":"CORE-69","projectKey":"CORE","title":"Fix rate limiter headers","description":"Reported by the frontend team. Can we split this into a backend and a frontend ticket?","status":"backlog","priority":"medium","assigneeId":"u-27","reporterId":"u-17","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[18,"labels"],"size":1},"estimate":null,"createdAt":"2025-10-05T01:17:56.000Z","updatedAt":"2025-10-17T01:17:56.000Z","completedAt":null,"commentCount":4},{"id":"iss-73","key":"CORE-73","projectKey":"CORE","title":"Remove cache invalidation","description":"Reported by the performance team. I can reproduce this on staging with a fresh account.","status":"backlog","priority":"medium","assigneeId":"u-33","reporterId":"u-34","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[19,"labels"],"size":2},"estimate":null,"createdAt":"2025-12-20T17:17:08.000Z","updatedAt":"2026-02-18T17:17:08.000Z","completedAt":null,"commentCount":5}],"after":[{"id":"iss-1","key":"CORE-1","projectKey":"CORE","title":"Migrate push notification opt-out","description":"Reported by the docs team. This regressed after the last release, bisecting now.","status":"backlog","priority":"urgent","assigneeId":"u-18","reporterId":"u-19","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[0,"labels"],"size":2},"estimate":3,"createdAt":"2026-01-31T19:49:51.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":5},{"id":"iss-10","key":"CORE-10","projectKey":"CORE","title":"Document error page copy","description":"Reported by the security team. Added logs, waiting for the next occurrence.","status":"backlog","priority":"high","assigneeId":"u-23","reporterId":"u-1","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[1,"labels"],"size":2},"estimate":3,"createdAt":"2025-06-11T13:14:51.000Z","updatedAt":"2025-08-04T13:14:51.000Z","completedAt":null,"commentCount":5},{"id":"iss-19","key":"CORE-19","projectKey":"CORE","title":"Document rate limiter headers","description":"Reported by the frontend team. Verified on mobile Safari and Chrome.","status":"backlog","priority":"high","assigneeId":"u-18","reporterId":"u-22","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[2,"labels"],"size":2},"estimate":null,"createdAt":"2025-11-28T05:01:50.000Z","updatedAt":"2026-01-08T05:01:50.000Z","completedAt":null,"commentCount":6},{"id":"iss-27","key":"CORE-27","projectKey":"CORE","title":"Document cache invalidation","description":"Reported by the infra team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"backlog","priority":"urgent","assigneeId":"u-36","reporterId":"u-32","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[3,"labels"],"size":2},"estimate":1,"createdAt":"2026-02-07T07:55:01.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":6},{"id":"iss-28","key":"CORE-28","projectKey":"CORE","title":"Remove onboarding checklist","description":"Reported by the design team. Design signed off on the copy changes.","status":"backlog","priority":"high","assigneeId":"u-22","reporterId":"u-24","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[4,"labels"],"size":2},"estimate":5,"createdAt":"2025-08-08T10:58:32.000Z","updatedAt":"2025-08-09T10:58:32.000Z","completedAt":null,"commentCount":6},{"id":"iss-29","key":"CORE-29","projectKey":"CORE","title":"Migrate audit log pagination","description":"Reported by the performance team. Customer success says three accounts are affected.","status":"backlog","priority":"low","assigneeId":"u-6","reporterId":"u-16","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[5,"labels"],"size":1},"estimate":1,"createdAt":"2025-06-23T22:42:01.000Z","updatedAt":"2025-07-04T22:42:01.000Z","completedAt":null,"commentCount":5},{"id":"iss-37","key":"CORE-37","projectKey":"CORE","title":"Refactor keyboard navigation","description":"Reported by the docs team. Added logs, waiting for the next occurrence.","status":"backlog","priority":"medium","assigneeId":"u-10","reporterId":"u-33","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[6,"labels"],"size":1},"estimate":null,"createdAt":"2026-02-25T09:59:32.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":0},{"id":"iss-38","key":"CORE-38","projectKey":"CORE","title":"Add API key rotation","description":"Reported by the performance team. Design signed off on the copy changes.","status":"backlog","priority":"medium","assigneeId":null,"reporterId":"u-6","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[7,"labels"],"size":1},"estimate":1,"createdAt":"2025-04-23T04:21:58.000Z","updatedAt":"2025-04-25T04:21:58.000Z","completedAt":null,"commentCount":0},{"id":"iss-42","key":"CORE-42","projectKey":"CORE","title":"Document database connection pool","description":"Reported by the security team. Can we split this into a backend and a frontend ticket?","status":"backlog","priority":"medium","assigneeId":null,"reporterId":"u-33","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[8,"labels"],"size":0},"estimate":8,"createdAt":"2025-03-06T06:47:22.000Z","updatedAt":"2025-04-10T06:47:22.000Z","completedAt":null,"commentCount":3},{"id":"iss-43","key":"CORE-43","projectKey":"CORE","title":"Remove GDPR export","description":"Reported by the frontend team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"backlog","priority":"high","assigneeId":null,"reporterId":"u-8","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[9,"labels"],"size":0},"estimate":2,"createdAt":"2025-07-12T12:00:16.000Z","updatedAt":"2025-08-25T12:00:16.000Z","completedAt":null,"commentCount":6},{"id":"iss-44","key":"CORE-44","projectKey":"CORE","title":"Add dark mode contrast","description":"Reported by the frontend team. I can reproduce this on staging with a fresh account.","status":"backlog","priority":"medium","assigneeId":"u-11","reporterId":"u-1","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[10,"labels"],"size":0},"estimate":2,"createdAt":"2025-06-16T05:28:10.000Z","updatedAt":"2025-08-10T05:28:10.000Z","completedAt":null,"commentCount":1},{"id":"iss-46","key":"CORE-46","projectKey":"CORE","title":"Add session timeout warning","description":"Reported by the design team. I can reproduce this on staging with a fresh account.","status":"backlog","priority":"medium","assigneeId":"u-24","reporterId":"u-2","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[11,"labels"],"size":0},"estimate":1,"createdAt":"2025-06-24T13:08:57.000Z","updatedAt":"2025-06-24T13:08:57.000Z","completedAt":null,"commentCount":3},{"id":"iss-48","key":"CORE-48","projectKey":"CORE","title":"Speed up database connection pool","description":"Reported by the performance team. Design signed off on the copy changes.","status":"backlog","priority":"high","assigneeId":"u-20","reporterId":"u-22","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[12,"labels"],"size":1},"estimate":2,"createdAt":"2025-05-20T13:49:13.000Z","updatedAt":"2025-05-22T13:49:13.000Z","completedAt":null,"commentCount":4},{"id":"iss-49","key":"CORE-49","projectKey":"CORE","title":"Add deploy pipeline caching","description":"Reported by the frontend team. Customer success says three accounts are affected.","status":"backlog","priority":"high","assigneeId":"u-19","reporterId":"u-3","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[13,"labels"],"size":2},"estimate":5,"createdAt":"2025-04-30T22:39:44.000Z","updatedAt":"2025-05-26T22:39:44.000Z","completedAt":null,"commentCount":6},{"id":"iss-50","key":"CORE-50","projectKey":"CORE","title":"Speed up database connection pool","description":"Reported by the performance team. This regressed after the last release, bisecting now.","status":"backlog","priority":"medium","assigneeId":"u-14","reporterId":"u-7","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[14,"labels"],"size":1},"estimate":8,"createdAt":"2025-08-21T02:51:19.000Z","updatedAt":"2025-08-30T02:51:19.000Z","completedAt":null,"commentCount":2},{"id":"iss-61","key":"CORE-61","projectKey":"CORE","title":"Investigate avatar upload","description":"Reported by the infra team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"backlog","priority":"medium","assigneeId":"u-32","reporterId":"u-30","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[15,"labels"],"size":1},"estimate":1,"createdAt":"2025-06-12T12:29:29.000Z","updatedAt":"2025-07-04T12:29:29.000Z","completedAt":null,"commentCount":6},{"id":"iss-63","key":"CORE-63","projectKey":{"__genie_dehydrated__":true,"kind":"truncated","preview":"[omitted: commit budget]","path":[16,"projectKey"]}},{"__genie_dehydrated__":true,"kind":"truncated","preview":"[omitted: commit budget]","path":[17]}],"changedFields":[],"deepDiff":{"changes":[{"kind":"reference-only","path":""}],"visited":97,"truncated":false},"storeId":"external-store:2","storeLabel":"anonymous-external-store","selector":null,"equality":"object-is","fanout":null,"notificationId":null,"competingCandidates":["external-store-snapshot-identity-changed"],"redux":{"storeId":"redux-store:1","link":"subscription","evidence":"exact","reason":"dispatched-between-renders","actions":[{"actionId":"redux-store:1/action:5511","sequence":5511,"kind":"action","type":"notifications/fetch/fulfilled","changedSlices":["notifications"]}],"omittedActions":0},"hookProvenance":{"status":"unavailable","evidence":"unknown","reason":"shadow-render-disabled"}}],"causeCounts":{"mount":0,"props":0,"state":0,"children":0,"context":0,"external-store":3,"query":0,"router":0,"parent":0,"unknown":0},"necessity":"unknown","necessityReason":"effects-scheduled","assessment":{"inputEvidence":"incomplete","observedInputKinds":[],"behaviorEvidence":{"subtreeHostMutations":{"status":"none-observed","count":0,"pendingSubtrees":0,"omittedByLimit":0,"callbackOnlyUpdates":0,"writes":[],"callbacks":[]},"scheduledEffects":{"status":"observed","count":3},"subtreeScheduledEffects":{"status":"observed","count":2},"unobservedDomains":["focus","url","network","transition","freshness","effect-execution"]},"optimizationSafety":"not-proven-safe","requiredValidation":["dom","aria","focus","url","network","transition"]},"inputCoverage":{"complete":false,"omittedInputs":0,"scanTruncated":true,"propsNotEnumerated":false},"unmounted":false,"noObservedInputChange":0,"compiler":{"memoCacheObserved":false,"evidence":"exact","compilationStatus":"unknown","limitation":"runtime-memo-cache-presence-only"},"source":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"},"sourceAttribution":{"role":"usage-or-definition-fallback","evidence":"inferred"},"sourceProvenance":{"definitionSource":null,"allocationCallsite":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"},"hookDefinitionOwner":null,"hookCallsite":null,"package":null,"sourceMapConfidence":"served","failureReason":null,"usageOrDefinitionFallback":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"}},"sourceOwnership":"app","isLibrary":false,"wrapperAncestry":[]},{"id":2698950740152,"name":"BoardColumn","instance":{"fiberId":2698950740152,"mountId":"mount:1295","key":"todo","siblingIndex":1,"parent":{"fiberId":2698950738428,"name":"BoardPage","key":null},"keyedParent":null,"logicalPath":"AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > BoardPage[index=0] > <div>[index=0] > <div>[index=1] > BoardColumn[key=\"todo\"]","logicalIdentityEvidence":"keyed","mountGeneration":1,"mountGenerationEvidence":"exact","hostSelector":null},"renders":3,"mounts":0,"updates":3,"unnecessary":0,"referenceOnlyPropRenders":0,"unstableRenders":0,"functionIdentityPropRenders":0,"undeterminedReferencePropRenders":0,"forget":false,"selfTime":0.4,"totalTime":0.5,"cumulativeSelfTime":0.6,"cumulativeTotalTime":0.8,"changes":[],"latestCommitId":19,"latestDocumentCommitId":36,"causes":[{"kind":"external-store","evidence":"inferred","reason":"external-store-snapshot-changed","hookIndex":7,"externalStoreIndex":0,"subscriberId":"subscriber:mount:1295:0","selectionEqual":false,"subscriptionFired":true,"before":[{"id":"iss-3","key":"CORE-3","projectKey":"CORE","title":"Remove CSV import validation","description":"Reported by the security team. Moved to the next sprint, blocked on the API change.","status":"todo","priority":"low","assigneeId":"u-27","reporterId":"u-27","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[0,"labels"],"size":1},"estimate":null,"createdAt":"2025-10-14T00:51:43.000Z","updatedAt":"2025-11-07T00:51:43.000Z","completedAt":null,"commentCount":0},{"id":"iss-13","key":"CORE-13","projectKey":"CORE","title":"Speed up GDPR export","description":"Reported by the performance team. The fix is behind the new flag, rolling out to 10%.","status":"todo","priority":"medium","assigneeId":"u-3","reporterId":"u-3","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[1,"labels"],"size":0},"estimate":5,"createdAt":"2025-03-21T10:39:41.000Z","updatedAt":"2025-04-10T10:39:41.000Z","completedAt":null,"commentCount":3},{"id":"iss-15","key":"CORE-15","projectKey":"CORE","title":"Add SSO metadata refresh","description":"Reported by the backend team. Added logs, waiting for the next occurrence.","status":"todo","priority":"medium","assigneeId":"u-3","reporterId":"u-5","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[2,"labels"],"size":2},"estimate":2,"createdAt":"2025-08-21T07:57:38.000Z","updatedAt":"2025-09-23T07:57:38.000Z","completedAt":null,"commentCount":4},{"id":"iss-18","key":"CORE-18","projectKey":"CORE","title":"Refactor audit log pagination","description":"Reported by the performance team. Added logs, waiting for the next occurrence.","status":"todo","priority":"medium","assigneeId":null,"reporterId":"u-19","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[3,"labels"],"size":0},"estimate":3,"createdAt":"2025-02-06T08:13:19.000Z","updatedAt":"2025-02-14T08:13:19.000Z","completedAt":null,"commentCount":1},{"id":"iss-20","key":"CORE-20","projectKey":"CORE","title":"Migrate report scheduler","description":"Reported by the backend team. This regressed after the last release, bisecting now.","status":"todo","priority":"high","assigneeId":"u-36","reporterId":"u-19","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[4,"labels"],"size":0},"estimate":2,"createdAt":"2025-06-22T00:19:23.000Z","updatedAt":"2025-07-19T00:19:23.000Z","completedAt":null,"commentCount":0},{"id":"iss-22","key":"CORE-22","projectKey":"CORE","title":"Remove SSO metadata refresh","description":"Reported by the infra team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"todo","priority":"low","assigneeId":"u-20","reporterId":"u-25","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[5,"labels"],"size":2},"estimate":8,"createdAt":"2025-08-31T19:56:23.000Z","updatedAt":"2025-10-08T19:56:23.000Z","completedAt":null,"commentCount":4},{"id":"iss-23","key":"CORE-23","projectKey":"CORE","title":"Add rate limiter headers","description":"Reported by the infra team. I can reproduce this on staging with a fresh account.","status":"todo","priority":"high","assigneeId":"u-22","reporterId":"u-6","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[6,"labels"],"size":2},"estimate":3,"createdAt":"2025-03-20T14:05:06.000Z","updatedAt":"2025-04-20T14:05:06.000Z","completedAt":null,"commentCount":5},{"id":"iss-26","key":"CORE-26","projectKey":"CORE","title":"Remove onboarding checklist","description":"Reported by the design team. Design signed off on the copy changes.","status":"todo","priority":"high","assigneeId":"u-19","reporterId":"u-16","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[7,"labels"],"size":0},"estimate":3,"createdAt":"2025-07-25T02:35:56.000Z","updatedAt":"2025-09-16T02:35:56.000Z","completedAt":null,"commentCount":5},{"id":"iss-30","key":"CORE-30","projectKey":"CORE","title":"Refactor invoice export","description":"Reported by the security team. Can we split this into a backend and a frontend ticket?","status":"todo","priority":"high","assigneeId":"u-14","reporterId":"u-18","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[8,"labels"],"size":0},"estimate":null,"createdAt":"2025-09-10T07:33:18.000Z","updatedAt":"2025-10-28T07:33:18.000Z","completedAt":null,"commentCount":5},{"id":"iss-31","key":"CORE-31","projectKey":"CORE","title":"Add webhook retries","description":"Reported by the security team. Moved to the next sprint, blocked on the API change.","status":"todo","priority":"medium","assigneeId":null,"reporterId":"u-27","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[9,"labels"],"size":0},"estimate":8,"createdAt":"2026-01-02T07:01:49.000Z","updatedAt":"2026-02-23T07:01:49.000Z","completedAt":null,"commentCount":6},{"id":"iss-35","key":"CORE-35","projectKey":"CORE","title":"Investigate session timeout warning","description":"Reported by the backend team. Verified on mobile Safari and Chrome.","status":"todo","priority":"medium","assigneeId":"u-29","reporterId":"u-12","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[10,"labels"],"size":1},"estimate":8,"createdAt":"2025-06-24T09:47:27.000Z","updatedAt":"2025-07-30T09:47:27.000Z","completedAt":null,"commentCount":1},{"id":"iss-40","key":"CORE-40","projectKey":"CORE","title":"Remove timezone handling","description":"Reported by the frontend team. Design signed off on the copy changes.","status":"todo","priority":"low","assigneeId":"u-17","reporterId":"u-7","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[11,"labels"],"size":0},"estimate":8,"createdAt":"2026-01-20T01:43:13.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":6},{"id":"iss-55","key":"CORE-55","projectKey":"CORE","title":"Speed up session timeout warning","description":"Reported by the backend team. The fix is behind the new flag, rolling out to 10%.","status":"todo","priority":"low","assigneeId":"u-24","reporterId":"u-35","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[12,"labels"],"size":2},"estimate":8,"createdAt":"2025-06-21T07:44:37.000Z","updatedAt":"2025-08-09T07:44:37.000Z","completedAt":null,"commentCount":0},{"id":"iss-56","key":"CORE-56","projectKey":"CORE","title":"Investigate password reset throttling","description":"Reported by the backend team. I can reproduce this on staging with a fresh account.","status":"todo","priority":"medium","assigneeId":"u-26","reporterId":"u-4","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[13,"labels"],"size":1},"estimate":null,"createdAt":"2025-04-05T08:26:37.000Z","updatedAt":"2025-05-26T08:26:37.000Z","completedAt":null,"commentCount":3},{"id":"iss-58","key":"CORE-58","projectKey":"CORE","title":"Document invoice export","description":"Reported by the backend team. Added logs, waiting for the next occurrence.","status":"todo","priority":"urgent","assigneeId":"u-11","reporterId":"u-29","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[14,"labels"],"size":0},"estimate":3,"createdAt":"2025-06-25T14:11:38.000Z","updatedAt":"2025-07-01T14:11:38.000Z","completedAt":null,"commentCount":0},{"id":"iss-59","key":"CORE-59","projectKey":"CORE","title":"Document push notification opt-out","description":"Reported by the security team. The fix is behind the new flag, rolling out to 10%.","status":"todo","priority":"medium","assigneeId":null,"reporterId":"u-6","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[15,"labels"],"size":1},"estimate":1,"createdAt":"2025-10-27T06:24:21.000Z","updatedAt":"2025-11-20T06:24:21.000Z","completedAt":null,"commentCount":4},{"id":"iss-64","key":"CORE-64","projectKey":"CORE","title":"Speed up timezone handling","description":"Reported by the backend team. I can reproduce this on staging with a fresh account.","status":"todo","priority":"low","assigneeId":"u-27","reporterId":"u-29","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[16,"labels"],"size":0},"estimate":1,"createdAt":"2025-09-19T21:24:09.000Z","updatedAt":"2025-11-09T21:24:09.000Z","completedAt":null,"commentCount":1},{"id":"iss-70","key":"CORE-70","projectKey":"CORE","title":"Remove Kafka consumer lag","description":"Reported by the infra team. This regressed after the last release, bisecting now.","status":"todo","priority":"low","assigneeId":"u-29","reporterId":"u-1","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[17,"labels"],"size":1},"estimate":null,"createdAt":"2025-08-24T20:20:29.000Z","updatedAt":"2025-08-27T20:20:29.000Z","completedAt":null,"commentCount":6},{"id":"iss-85","key":"CORE-85","projectKey":"CORE","title":"Speed up search ranking","description":"Reported by the design team. Verified on mobile Safari and Chrome.","status":"todo","priority":"medium","assigneeId":null,"reporterId":"u-7","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[18,"labels"],"size":1},"estimate":2,"createdAt":"2025-07-07T13:36:29.000Z","updatedAt":"2025-08-01T13:36:29.000Z","completedAt":null,"commentCount":1},{"id":"iss-99","key":"CORE-99","projectKey":"CORE","title":"Fix push notification opt-out","description":"Reported by the performance team. This regressed after the last release, bisecting now.","status":"todo","priority":"medium","assigneeId":"u-32","reporterId":"u-15","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[19,"labels"],"size":2},"estimate":3,"createdAt":"2025-08-07T16:28:22.000Z","updatedAt":"2025-08-30T16:28:22.000Z","completedAt":null,"commentCount":4}],"after":[{"id":"iss-3","key":"CORE-3","projectKey":"CORE","title":"Remove CSV import validation","description":"Reported by the security team. Moved to the next sprint, blocked on the API change.","status":"todo","priority":"low","assigneeId":"u-27","reporterId":"u-27","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[0,"labels"],"size":1},"estimate":null,"createdAt":"2025-10-14T00:51:43.000Z","updatedAt":"2025-11-07T00:51:43.000Z","completedAt":null,"commentCount":0},{"id":"iss-13","key":"CORE-13","projectKey":"CORE","title":"Speed up GDPR export","description":"Reported by the performance team. The fix is behind the new flag, rolling out to 10%.","status":"todo","priority":"medium","assigneeId":"u-3","reporterId":"u-3","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[1,"labels"],"size":0},"estimate":5,"createdAt":"2025-03-21T10:39:41.000Z","updatedAt":"2025-04-10T10:39:41.000Z","completedAt":null,"commentCount":3},{"id":"iss-15","key":"CORE-15","projectKey":"CORE","title":"Add SSO metadata refresh","description":"Reported by the backend team. Added logs, waiting for the next occurrence.","status":"todo","priority":"medium","assigneeId":"u-3","reporterId":"u-5","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[2,"labels"],"size":2},"estimate":2,"createdAt":"2025-08-21T07:57:38.000Z","updatedAt":"2025-09-23T07:57:38.000Z","completedAt":null,"commentCount":4},{"id":"iss-18","key":"CORE-18","projectKey":"CORE","title":"Refactor audit log pagination","description":"Reported by the performance team. Added logs, waiting for the next occurrence.","status":"todo","priority":"medium","assigneeId":null,"reporterId":"u-19","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[3,"labels"],"size":0},"estimate":3,"createdAt":"2025-02-06T08:13:19.000Z","updatedAt":"2025-02-14T08:13:19.000Z","completedAt":null,"commentCount":1},{"id":"iss-20","key":"CORE-20","projectKey":"CORE","title":"Migrate report scheduler","description":"Reported by the backend team. This regressed after the last release, bisecting now.","status":"todo","priority":"high","assigneeId":"u-36","reporterId":"u-19","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[4,"labels"],"size":0},"estimate":2,"createdAt":"2025-06-22T00:19:23.000Z","updatedAt":"2025-07-19T00:19:23.000Z","completedAt":null,"commentCount":0},{"id":"iss-22","key":"CORE-22","projectKey":"CORE","title":"Remove SSO metadata refresh","description":"Reported by the infra team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"todo","priority":"low","assigneeId":"u-20","reporterId":"u-25","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[5,"labels"],"size":2},"estimate":8,"createdAt":"2025-08-31T19:56:23.000Z","updatedAt":"2025-10-08T19:56:23.000Z","completedAt":null,"commentCount":4},{"id":"iss-23","key":"CORE-23","projectKey":"CORE","title":"Add rate limiter headers","description":"Reported by the infra team. I can reproduce this on staging with a fresh account.","status":"todo","priority":"high","assigneeId":"u-22","reporterId":"u-6","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[6,"labels"],"size":2},"estimate":3,"createdAt":"2025-03-20T14:05:06.000Z","updatedAt":"2025-04-20T14:05:06.000Z","completedAt":null,"commentCount":5},{"id":"iss-26","key":"CORE-26","projectKey":"CORE","title":"Remove onboarding checklist","description":"Reported by the design team. Design signed off on the copy changes.","status":"todo","priority":"high","assigneeId":"u-19","reporterId":"u-16","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[7,"labels"],"size":0},"estimate":3,"createdAt":"2025-07-25T02:35:56.000Z","updatedAt":"2025-09-16T02:35:56.000Z","completedAt":null,"commentCount":5},{"id":"iss-30","key":"CORE-30","projectKey":"CORE","title":"Refactor invoice export","description":"Reported by the security team. Can we split this into a backend and a frontend ticket?","status":"todo","priority":"high","assigneeId":"u-14","reporterId":"u-18","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[8,"labels"],"size":0},"estimate":null,"createdAt":"2025-09-10T07:33:18.000Z","updatedAt":"2025-10-28T07:33:18.000Z","completedAt":null,"commentCount":5},{"id":"iss-31","key":"CORE-31","projectKey":"CORE","title":"Add webhook retries","description":"Reported by the security team. Moved to the next sprint, blocked on the API change.","status":"todo","priority":"medium","assigneeId":null,"reporterId":"u-27","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[9,"labels"],"size":0},"estimate":8,"createdAt":"2026-01-02T07:01:49.000Z","updatedAt":"2026-02-23T07:01:49.000Z","completedAt":null,"commentCount":6},{"id":"iss-35","key":"CORE-35","projectKey":"CORE","title":"Investigate session timeout warning","description":"Reported by the backend team. Verified on mobile Safari and Chrome.","status":"todo","priority":"medium","assigneeId":"u-29","reporterId":"u-12","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[10,"labels"],"size":1},"estimate":8,"createdAt":"2025-06-24T09:47:27.000Z","updatedAt":"2025-07-30T09:47:27.000Z","completedAt":null,"commentCount":1},{"id":"iss-40","key":"CORE-40","projectKey":"CORE","title":"Remove timezone handling","description":"Reported by the frontend team. Design signed off on the copy changes.","status":"todo","priority":"low","assigneeId":"u-17","reporterId":"u-7","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[11,"labels"],"size":0},"estimate":8,"createdAt":"2026-01-20T01:43:13.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":6},{"id":"iss-55","key":"CORE-55","projectKey":"CORE","title":"Speed up session timeout warning","description":"Reported by the backend team. The fix is behind the new flag, rolling out to 10%.","status":"todo","priority":"low","assigneeId":"u-24","reporterId":"u-35","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[12,"labels"],"size":2},"estimate":8,"createdAt":"2025-06-21T07:44:37.000Z","updatedAt":"2025-08-09T07:44:37.000Z","completedAt":null,"commentCount":0},{"id":"iss-56","key":"CORE-56","projectKey":"CORE","title":"Investigate password reset throttling","description":"Reported by the backend team. I can reproduce this on staging with a fresh account.","status":"todo","priority":"medium","assigneeId":"u-26","reporterId":"u-4","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[13,"labels"],"size":1},"estimate":null,"createdAt":"2025-04-05T08:26:37.000Z","updatedAt":"2025-05-26T08:26:37.000Z","completedAt":null,"commentCount":3},{"id":"iss-58","key":"CORE-58","projectKey":"CORE","title":"Document invoice export","description":"Reported by the backend team. Added logs, waiting for the next occurrence.","status":"todo","priority":"urgent","assigneeId":"u-11","reporterId":"u-29","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[14,"labels"],"size":0},"estimate":3,"createdAt":"2025-06-25T14:11:38.000Z","updatedAt":"2025-07-01T14:11:38.000Z","completedAt":null,"commentCount":0},{"id":"iss-59","key":"CORE-59","projectKey":"CORE","title":"Document push notification opt-out","description":"Reported by the security team. The fix is behind the new flag, rolling out to 10%.","status":{"__genie_dehydrated__":true,"kind":"truncated","preview":"[omitted: commit budget]","path":[15,"status"]}},{"__genie_dehydrated__":true,"kind":"truncated","preview":"[omitted: commit budget]","path":[16]}],"changedFields":[],"deepDiff":{"changes":[{"kind":"reference-only","path":""}],"visited":102,"truncated":false},"storeId":"external-store:2","storeLabel":"anonymous-external-store","selector":null,"equality":"object-is","fanout":null,"notificationId":null,"competingCandidates":["external-store-snapshot-identity-changed"],"redux":{"storeId":"redux-store:1","link":"subscription","evidence":"exact","reason":"dispatched-between-renders","actions":[{"actionId":"redux-store:1/action:5511","sequence":5511,"kind":"action","type":"notifications/fetch/fulfilled","changedSlices":["notifications"]}],"omittedActions":0},"hookProvenance":{"status":"unavailable","evidence":"unknown","reason":"shadow-render-disabled"}}],"causeCounts":{"mount":0,"props":0,"state":0,"children":0,"context":0,"external-store":3,"query":0,"router":0,"parent":0,"unknown":0},"necessity":"unknown","necessityReason":"effects-scheduled","assessment":{"inputEvidence":"incomplete","observedInputKinds":[],"behaviorEvidence":{"subtreeHostMutations":{"status":"none-observed","count":0,"pendingSubtrees":0,"omittedByLimit":0,"callbackOnlyUpdates":0,"writes":[],"callbacks":[]},"scheduledEffects":{"status":"observed","count":3},"subtreeScheduledEffects":{"status":"observed","count":2},"unobservedDomains":["focus","url","network","transition","freshness","effect-execution"]},"optimizationSafety":"not-proven-safe","requiredValidation":["dom","aria","focus","url","network","transition"]},"inputCoverage":{"complete":false,"omittedInputs":0,"scanTruncated":true,"propsNotEnumerated":false},"unmounted":false,"noObservedInputChange":0,"compiler":{"memoCacheObserved":false,"evidence":"exact","compilationStatus":"unknown","limitation":"runtime-memo-cache-presence-only"},"source":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"},"sourceAttribution":{"role":"usage-or-definition-fallback","evidence":"inferred"},"sourceProvenance":{"definitionSource":null,"allocationCallsite":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"},"hookDefinitionOwner":null,"hookCallsite":null,"package":null,"sourceMapConfidence":"served","failureReason":null,"usageOrDefinitionFallback":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"}},"sourceOwnership":"app","isLibrary":false,"wrapperAncestry":[]},{"id":2698950741927,"name":"BoardColumn","instance":{"fiberId":2698950741927,"mountId":"mount:1296","key":"in_progress","siblingIndex":2,"parent":{"fiberId":2698950738428,"name":"BoardPage","key":null},"keyedParent":null,"logicalPath":"AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > BoardPage[index=0] > <div>[index=0] > <div>[index=1] > BoardColumn[key=\"in_progress\"]","logicalIdentityEvidence":"keyed","mountGeneration":1,"mountGenerationEvidence":"exact","hostSelector":null},"renders":3,"mounts":0,"updates":3,"unnecessary":0,"referenceOnlyPropRenders":0,"unstableRenders":0,"functionIdentityPropRenders":0,"undeterminedReferencePropRenders":0,"forget":false,"selfTime":0.3,"totalTime":0.4,"cumulativeSelfTime":0.5,"cumulativeTotalTime":0.6,"changes":[],"latestCommitId":19,"latestDocumentCommitId":36,"causes":[{"kind":"external-store","evidence":"inferred","reason":"external-store-snapshot-changed","hookIndex":7,"externalStoreIndex":0,"subscriberId":"subscriber:mount:1296:0","selectionEqual":false,"subscriptionFired":true,"before":[{"id":"iss-2","key":"CORE-2","projectKey":"CORE","title":"Add dashboard filters","description":"Reported by the frontend team. Added logs, waiting for the next occurrence.","status":"in_progress","priority":"high","assigneeId":"u-33","reporterId":"u-15","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[0,"labels"],"size":1},"estimate":3,"createdAt":"2025-03-25T20:57:13.000Z","updatedAt":"2025-03-27T20:57:13.000Z","completedAt":null,"commentCount":0},{"id":"iss-6","key":"CORE-6","projectKey":"CORE","title":"Document API key rotation","description":"Reported by the backend team. Added logs, waiting for the next occurrence.","status":"in_progress","priority":"medium","assigneeId":"u-25","reporterId":"u-1","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[1,"labels"],"size":0},"estimate":5,"createdAt":"2025-06-28T02:44:25.000Z","updatedAt":"2025-07-10T02:44:25.000Z","completedAt":null,"commentCount":1},{"id":"iss-9","key":"CORE-9","projectKey":"CORE","title":"Remove search ranking","description":"Reported by the infra team. Verified on mobile Safari and Chrome.","status":"in_progress","priority":"medium","assigneeId":"u-7","reporterId":"u-26","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[2,"labels"],"size":0},"estimate":5,"createdAt":"2025-12-19T23:19:55.000Z","updatedAt":"2026-01-11T23:19:55.000Z","completedAt":null,"commentCount":6},{"id":"iss-24","key":"CORE-24","projectKey":"CORE","title":"Migrate API key rotation","description":"Reported by the security team. The fix is behind the new flag, rolling out to 10%.","status":"in_progress","priority":"high","assigneeId":"u-15","reporterId":"u-6","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[3,"labels"],"size":1},"estimate":null,"createdAt":"2025-05-01T19:51:55.000Z","updatedAt":"2025-05-08T19:51:55.000Z","completedAt":null,"commentCount":2},{"id":"iss-25","key":"CORE-25","projectKey":"CORE","title":"Add webhook retries","description":"Reported by the backend team. Customer success says three accounts are affected.","status":"in_progress","priority":"low","assigneeId":null,"reporterId":"u-18","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[4,"labels"],"size":0},"estimate":5,"createdAt":"2025-09-13T11:03:45.000Z","updatedAt":"2025-09-24T11:03:45.000Z","completedAt":null,"commentCount":6},{"id":"iss-32","key":"CORE-32","projectKey":"CORE","title":"Refactor invoice export","description":"Reported by the backend team. This regressed after the last release, bisecting now.","status":"in_progress","priority":"high","assigneeId":"u-35","reporterId":"u-31","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[5,"labels"],"size":0},"estimate":8,"createdAt":"2025-10-31T10:08:20.000Z","updatedAt":"2025-11-23T10:08:20.000Z","completedAt":null,"commentCount":2},{"id":"iss-33","key":"CORE-33","projectKey":"CORE","title":"Remove rate limiter headers","description":"Reported by the infra team. This regressed after the last release, bisecting now.","status":"in_progress","priority":"urgent","assigneeId":"u-6","reporterId":"u-18","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[6,"labels"],"size":1},"estimate":2,"createdAt":"2025-08-31T01:02:51.000Z","updatedAt":"2025-10-24T01:02:51.000Z","completedAt":null,"commentCount":2},{"id":"iss-34","key":"CORE-34","projectKey":"CORE","title":"Add search ranking","description":"Reported by the docs team. Design signed off on the copy changes.","status":"in_progress","priority":"low","assigneeId":null,"reporterId":"u-8","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[7,"labels"],"size":2},"estimate":null,"createdAt":"2025-02-21T21:54:01.000Z","updatedAt":"2025-03-12T21:54:01.000Z","completedAt":null,"commentCount":4},{"id":"iss-47","key":"CORE-47","projectKey":"CORE","title":"Add password reset throttling","description":"Reported by the performance team. Customer success says three accounts are affected.","status":"in_progress","priority":"medium","assigneeId":null,"reporterId":"u-26","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[8,"labels"],"size":0},"estimate":1,"createdAt":"2025-08-25T14:26:16.000Z","updatedAt":"2025-10-08T14:26:16.000Z","completedAt":null,"commentCount":1},{"id":"iss-57","key":"CORE-57","projectKey":"CORE","title":"Add rate limiter headers","description":"Reported by the docs team. The fix is behind the new flag, rolling out to 10%.","status":"in_progress","priority":"low","assigneeId":null,"reporterId":"u-21","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[9,"labels"],"size":2},"estimate":8,"createdAt":"2026-01-06T10:50:57.000Z","updatedAt":"2026-01-12T10:50:57.000Z","completedAt":null,"commentCount":6},{"id":"iss-67","key":"CORE-67","projectKey":"CORE","title":"Remove API key rotation","description":"Reported by the docs team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"in_progress","priority":"low","assigneeId":null,"reporterId":"u-20","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[10,"labels"],"size":2},"estimate":2,"createdAt":"2025-09-12T23:33:46.000Z","updatedAt":"2025-11-08T23:33:46.000Z","completedAt":null,"commentCount":2},{"id":"iss-74","key":"CORE-74","projectKey":"CORE","title":"Migrate error page copy","description":"Reported by the design team. Design signed off on the copy changes.","status":"in_progress","priority":"high","assigneeId":"u-26","reporterId":"u-13","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[11,"labels"],"size":0},"estimate":null,"createdAt":"2025-04-02T00:51:40.000Z","updatedAt":"2025-04-27T00:51:40.000Z","completedAt":null,"commentCount":6},{"id":"iss-78","key":"CORE-78","projectKey":"CORE","title":"Speed up push notification opt-out","description":"Reported by the frontend team. Added logs, waiting for the next occurrence.","status":"in_progress","priority":"high","assigneeId":"u-17","reporterId":"u-4","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[12,"labels"],"size":1},"estimate":5,"createdAt":"2025-03-23T07:41:23.000Z","updatedAt":"2025-05-19T07:41:23.000Z","completedAt":null,"commentCount":3},{"id":"iss-82","key":"CORE-82","projectKey":"CORE","title":"Refactor database connection pool","description":"Reported by the infra team. Design signed off on the copy changes.","status":"in_progress","priority":"high","assigneeId":"u-19","reporterId":"u-11","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[13,"labels"],"size":0},"estimate":5,"createdAt":"2025-07-20T02:19:51.000Z","updatedAt":"2025-07-29T02:19:51.000Z","completedAt":null,"commentCount":3},{"id":"iss-86","key":"CORE-86","projectKey":"CORE","title":"Add billing email template","description":"Reported by the docs team. The fix is behind the new flag, rolling out to 10%.","status":"in_progress","priority":"low","assigneeId":"u-16","reporterId":"u-15","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[14,"labels"],"size":1},"estimate":2,"createdAt":"2025-05-15T04:41:13.000Z","updatedAt":"2025-06-12T04:41:13.000Z","completedAt":null,"commentCount":0},{"id":"iss-88","key":"CORE-88","projectKey":"CORE","title":"Add database connection pool","description":"Reported by the docs team. Customer success says three accounts are affected.","status":"in_progress","priority":"high","assigneeId":"u-1","reporterId":"u-35","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[15,"labels"],"size":2},"estimate":2,"createdAt":"2026-01-30T10:33:02.000Z","updatedAt":"2026-02-28T10:33:02.000Z","completedAt":null,"commentCount":3},{"id":"iss-89","key":"CORE-89","projectKey":"CORE","title":"Document push notification opt-out","description":"Reported by the infra team. This regressed after the last release, bisecting now.","status":"in_progress","priority":"medium","assigneeId":"u-1","reporterId":"u-26","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[16,"labels"],"size":1},"estimate":8,"createdAt":"2025-08-05T16:10:10.000Z","updatedAt":"2025-09-20T16:10:10.000Z","completedAt":null,"commentCount":5},{"id":"iss-98","key":"CORE-98","projectKey":"CORE","title":"Fix avatar upload","description":"Reported by the infra team. Verified on mobile Safari and Chrome.","status":"in_progress","priority":"low","assigneeId":"u-33","reporterId":"u-8","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[17,"labels"],"size":1},"estimate":1,"createdAt":"2025-04-22T04:04:33.000Z","updatedAt":"2025-06-18T04:04:33.000Z","completedAt":null,"commentCount":1},{"id":"iss-101","key":"CORE-101","projectKey":"CORE","title":"Refactor feature flag cleanup","description":"Reported by the infra team. Added logs, waiting for the next occurrence.","status":"in_progress","priority":"low","assigneeId":"u-19","reporterId":"u-19","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[18,"labels"],"size":2},"estimate":8,"createdAt":"2026-02-22T08:48:21.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":1},{"id":"iss-121","key":"CORE-121","projectKey":"CORE","title":"Remove report scheduler","description":"Reported by the backend team. Design signed off on the copy changes.","status":"in_progress","priority":"medium","assigneeId":"u-35","reporterId":"u-21","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[19,"labels"],"size":0},"estimate":1,"createdAt":"2025-12-15T15:40:35.000Z","updatedAt":"2026-02-11T15:40:35.000Z","completedAt":null,"commentCount":1}],"after":[{"id":"iss-2","key":"CORE-2","projectKey":"CORE","title":"Add dashboard filters","description":"Reported by the frontend team. Added logs, waiting for the next occurrence.","status":"in_progress","priority":"high","assigneeId":"u-33","reporterId":"u-15","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[0,"labels"],"size":1},"estimate":3,"createdAt":"2025-03-25T20:57:13.000Z","updatedAt":"2025-03-27T20:57:13.000Z","completedAt":null,"commentCount":0},{"id":"iss-6","key":"CORE-6","projectKey":"CORE","title":"Document API key rotation","description":"Reported by the backend team. Added logs, waiting for the next occurrence.","status":"in_progress","priority":"medium","assigneeId":"u-25","reporterId":"u-1","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[1,"labels"],"size":0},"estimate":5,"createdAt":"2025-06-28T02:44:25.000Z","updatedAt":"2025-07-10T02:44:25.000Z","completedAt":null,"commentCount":1},{"id":"iss-9","key":"CORE-9","projectKey":"CORE","title":"Remove search ranking","description":"Reported by the infra team. Verified on mobile Safari and Chrome.","status":"in_progress","priority":"medium","assigneeId":"u-7","reporterId":"u-26","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[2,"labels"],"size":0},"estimate":5,"createdAt":"2025-12-19T23:19:55.000Z","updatedAt":"2026-01-11T23:19:55.000Z","completedAt":null,"commentCount":6},{"id":"iss-24","key":"CORE-24","projectKey":"CORE","title":"Migrate API key rotation","description":"Reported by the security team. The fix is behind the new flag, rolling out to 10%.","status":"in_progress","priority":"high","assigneeId":"u-15","reporterId":"u-6","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[3,"labels"],"size":1},"estimate":null,"createdAt":"2025-05-01T19:51:55.000Z","updatedAt":"2025-05-08T19:51:55.000Z","completedAt":null,"commentCount":2},{"id":"iss-25","key":"CORE-25","projectKey":"CORE","title":"Add webhook retries","description":"Reported by the backend team. Customer success says three accounts are affected.","status":"in_progress","priority":"low","assigneeId":null,"reporterId":"u-18","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[4,"labels"],"size":0},"estimate":5,"createdAt":"2025-09-13T11:03:45.000Z","updatedAt":"2025-09-24T11:03:45.000Z","completedAt":null,"commentCount":6},{"id":"iss-32","key":"CORE-32","projectKey":"CORE","title":"Refactor invoice export","description":"Reported by the backend team. This regressed after the last release, bisecting now.","status":"in_progress","priority":"high","assigneeId":"u-35","reporterId":"u-31","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[5,"labels"],"size":0},"estimate":8,"createdAt":"2025-10-31T10:08:20.000Z","updatedAt":"2025-11-23T10:08:20.000Z","completedAt":null,"commentCount":2},{"id":"iss-33","key":"CORE-33","projectKey":"CORE","title":"Remove rate limiter headers","description":"Reported by the infra team. This regressed after the last release, bisecting now.","status":"in_progress","priority":"urgent","assigneeId":"u-6","reporterId":"u-18","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[6,"labels"],"size":1},"estimate":2,"createdAt":"2025-08-31T01:02:51.000Z","updatedAt":"2025-10-24T01:02:51.000Z","completedAt":null,"commentCount":2},{"id":"iss-34","key":"CORE-34","projectKey":"CORE","title":"Add search ranking","description":"Reported by the docs team. Design signed off on the copy changes.","status":"in_progress","priority":"low","assigneeId":null,"reporterId":"u-8","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[7,"labels"],"size":2},"estimate":null,"createdAt":"2025-02-21T21:54:01.000Z","updatedAt":"2025-03-12T21:54:01.000Z","completedAt":null,"commentCount":4},{"id":"iss-47","key":"CORE-47","projectKey":"CORE","title":"Add password reset throttling","description":"Reported by the performance team. Customer success says three accounts are affected.","status":"in_progress","priority":"medium","assigneeId":null,"reporterId":"u-26","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[8,"labels"],"size":0},"estimate":1,"createdAt":"2025-08-25T14:26:16.000Z","updatedAt":"2025-10-08T14:26:16.000Z","completedAt":null,"commentCount":1},{"id":"iss-57","key":"CORE-57","projectKey":"CORE","title":"Add rate limiter headers","description":"Reported by the docs team. The fix is behind the new flag, rolling out to 10%.","status":"in_progress","priority":"low","assigneeId":null,"reporterId":"u-21","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[9,"labels"],"size":2},"estimate":8,"createdAt":"2026-01-06T10:50:57.000Z","updatedAt":"2026-01-12T10:50:57.000Z","completedAt":null,"commentCount":6},{"id":"iss-67","key":"CORE-67","projectKey":"CORE","title":"Remove API key rotation","description":"Reported by the docs team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"in_progress","priority":"low","assigneeId":null,"reporterId":"u-20","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[10,"labels"],"size":2},"estimate":2,"createdAt":"2025-09-12T23:33:46.000Z","updatedAt":"2025-11-08T23:33:46.000Z","completedAt":null,"commentCount":2},{"id":"iss-74","key":"CORE-74","projectKey":"CORE","title":"Migrate error page copy","description":"Reported by the design team. Design signed off on the copy changes.","status":"in_progress","priority":"high","assigneeId":"u-26","reporterId":"u-13","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[11,"labels"],"size":0},"estimate":null,"createdAt":"2025-04-02T00:51:40.000Z","updatedAt":"2025-04-27T00:51:40.000Z","completedAt":null,"commentCount":6},{"id":"iss-78","key":"CORE-78","projectKey":"CORE","title":"Speed up push notification opt-out","description":"Reported by the frontend team. Added logs, waiting for the next occurrence.","status":"in_progress","priority":"high","assigneeId":"u-17","reporterId":"u-4","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[12,"labels"],"size":1},"estimate":5,"createdAt":"2025-03-23T07:41:23.000Z","updatedAt":"2025-05-19T07:41:23.000Z","completedAt":null,"commentCount":3},{"id":"iss-82","key":"CORE-82","projectKey":"CORE","title":"Refactor database connection pool","description":"Reported by the infra team. Design signed off on the copy changes.","status":"in_progress","priority":"high","assigneeId":"u-19","reporterId":"u-11","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[13,"labels"],"size":0},"estimate":5,"createdAt":"2025-07-20T02:19:51.000Z","updatedAt":"2025-07-29T02:19:51.000Z","completedAt":null,"commentCount":3},{"id":"iss-86","key":"CORE-86","projectKey":"CORE","title":"Add billing email template","description":"Reported by the docs team. The fix is behind the new flag, rolling out to 10%.","status":"in_progress","priority":"low","assigneeId":"u-16","reporterId":"u-15","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[14,"labels"],"size":1},"estimate":2,"createdAt":"2025-05-15T04:41:13.000Z","updatedAt":"2025-06-12T04:41:13.000Z","completedAt":null,"commentCount":0},{"id":"iss-88","key":"CORE-88","projectKey":"CORE","title":"Add database connection pool","description":"Reported by the docs team. Customer success says three accounts are affected.","status":"in_progress","priority":"high","assigneeId":"u-1","reporterId":"u-35","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[15,"labels"],"size":2},"estimate":2,"createdAt":"2026-01-30T10:33:02.000Z","updatedAt":"2026-02-28T10:33:02.000Z","completedAt":null,"commentCount":3},{"id":"iss-89","key":"CORE-89","projectKey":"CORE","title":"Document push notification opt-out","description":"Reported by the infra team. This regressed after the last release, bisecting now.","status":"in_progress","priority":"medium","assigneeId":"u-1","reporterId":"u-26","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[16,"labels"],"size":1},"estimate":8,"createdAt":"2025-08-05T16:10:10.000Z","updatedAt":"2025-09-20T16:10:10.000Z","completedAt":null,"commentCount":5},{"id":"iss-98","key":"CORE-98","projectKey":"CORE","title":"Fix avatar upload","description":"Reported by the infra team. Verified on mobile Safari and Chrome.","status":"in_progress","priority":"low","assigneeId":"u-33","reporterId":"u-8","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[17,"labels"],"size":1},"estimate":1,"createdAt":"2025-04-22T04:04:33.000Z","updatedAt":"2025-06-18T04:04:33.000Z","completedAt":null,"commentCount":1},{"id":"iss-101","key":"CORE-101","projectKey":"CORE","title":"Refactor feature flag cleanup","description":"Reported by the infra team. Added logs, waiting for the next occurrence.","status":"in_progress","priority":"low","assigneeId":"u-19","reporterId":"u-19","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[18,"labels"],"size":2},"estimate":8,"createdAt":"2026-02-22T08:48:21.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":1},{"id":"iss-121","key":"CORE-121","projectKey":"CORE","title":"Remove report scheduler","description":"Reported by the backend team. Design signed off on the copy changes.","status":"in_progress","priority":"medium","assigneeId":"u-35","reporterId":"u-21","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[19,"labels"],"size":0},"estimate":1,"createdAt":"2025-12-15T15:40:35.000Z","updatedAt":"2026-02-11T15:40:35.000Z","completedAt":null,"commentCount":1}],"changedFields":[],"deepDiff":{"changes":[{"kind":"reference-only","path":""}],"visited":68,"truncated":false},"storeId":"external-store:2","storeLabel":"anonymous-external-store","selector":null,"equality":"object-is","fanout":null,"notificationId":null,"competingCandidates":["external-store-snapshot-identity-changed"],"redux":{"storeId":"redux-store:1","link":"subscription","evidence":"exact","reason":"dispatched-between-renders","actions":[{"actionId":"redux-store:1/action:5511","sequence":5511,"kind":"action","type":"notifications/fetch/fulfilled","changedSlices":["notifications"]}],"omittedActions":0},"hookProvenance":{"status":"unavailable","evidence":"unknown","reason":"shadow-render-disabled"}}],"causeCounts":{"mount":0,"props":0,"state":0,"children":0,"context":0,"external-store":3,"query":0,"router":0,"parent":0,"unknown":0},"necessity":"unknown","necessityReason":"effects-scheduled","assessment":{"inputEvidence":"incomplete","observedInputKinds":[],"behaviorEvidence":{"subtreeHostMutations":{"status":"none-observed","count":0,"pendingSubtrees":0,"omittedByLimit":0,"callbackOnlyUpdates":0,"writes":[],"callbacks":[]},"scheduledEffects":{"status":"observed","count":3},"subtreeScheduledEffects":{"status":"observed","count":2},"unobservedDomains":["focus","url","network","transition","freshness","effect-execution"]},"optimizationSafety":"not-proven-safe","requiredValidation":["dom","aria","focus","url","network","transition"]},"inputCoverage":{"complete":false,"omittedInputs":0,"scanTruncated":true,"propsNotEnumerated":false},"unmounted":false,"noObservedInputChange":0,"compiler":{"memoCacheObserved":false,"evidence":"exact","compilationStatus":"unknown","limitation":"runtime-memo-cache-presence-only"},"source":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"},"sourceAttribution":{"role":"usage-or-definition-fallback","evidence":"inferred"},"sourceProvenance":{"definitionSource":null,"allocationCallsite":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"},"hookDefinitionOwner":null,"hookCallsite":null,"package":null,"sourceMapConfidence":"served","failureReason":null,"usageOrDefinitionFallback":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"}},"sourceOwnership":"app","isLibrary":false,"wrapperAncestry":[]},{"id":2698950743112,"name":"BoardColumn","instance":{"fiberId":2698950743112,"mountId":"mount:1297","key":"in_review","siblingIndex":3,"parent":{"fiberId":2698950738428,"name":"BoardPage","key":null},"keyedParent":null,"logicalPath":"AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > BoardPage[index=0] > <div>[index=0] > <div>[index=1] > BoardColumn[key=\"in_review\"]","logicalIdentityEvidence":"keyed","mountGeneration":1,"mountGenerationEvidence":"exact","hostSelector":null},"renders":3,"mounts":0,"updates":3,"unnecessary":0,"referenceOnlyPropRenders":0,"unstableRenders":0,"functionIdentityPropRenders":0,"undeterminedReferencePropRenders":0,"forget":false,"selfTime":0.2,"totalTime":0.3,"cumulativeSelfTime":0.3,"cumulativeTotalTime":0.4,"changes":[],"latestCommitId":19,"latestDocumentCommitId":36,"causes":[{"kind":"external-store","evidence":"inferred","reason":"external-store-snapshot-changed","hookIndex":7,"externalStoreIndex":0,"subscriberId":"subscriber:mount:1297:0","selectionEqual":false,"subscriptionFired":true,"before":[{"id":"iss-17","key":"CORE-17","projectKey":"CORE","title":"Fix avatar upload","description":"Reported by the backend team. Added logs, waiting for the next occurrence.","status":"in_review","priority":"medium","assigneeId":"u-26","reporterId":"u-33","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[0,"labels"],"size":0},"estimate":8,"createdAt":"2025-03-04T05:27:14.000Z","updatedAt":"2025-04-26T05:27:14.000Z","completedAt":null,"commentCount":5},{"id":"iss-21","key":"CORE-21","projectKey":"CORE","title":"Investigate database connection pool","description":"Reported by the frontend team. Moved to the next sprint, blocked on the API change.","status":"in_review","priority":"low","assigneeId":"u-13","reporterId":"u-26","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[1,"labels"],"size":2},"estimate":3,"createdAt":"2025-11-22T06:36:42.000Z","updatedAt":"2026-01-18T06:36:42.000Z","completedAt":null,"commentCount":5},{"id":"iss-41","key":"CORE-41","projectKey":"CORE","title":"Add GDPR export","description":"Reported by the docs team. Design signed off on the copy changes.","status":"in_review","priority":"low","assigneeId":null,"reporterId":"u-24","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[2,"labels"],"size":0},"estimate":null,"createdAt":"2026-02-22T20:15:33.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":3},{"id":"iss-45","key":"CORE-45","projectKey":"CORE","title":"Speed up timezone handling","description":"Reported by the performance team. The fix is behind the new flag, rolling out to 10%.","status":"in_review","priority":"medium","assigneeId":"u-31","reporterId":"u-31","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[3,"labels"],"size":1},"estimate":3,"createdAt":"2025-04-09T01:27:37.000Z","updatedAt":"2025-05-07T01:27:37.000Z","completedAt":null,"commentCount":4},{"id":"iss-52","key":"CORE-52","projectKey":"CORE","title":"Refactor attachment previews","description":"Reported by the infra team. Added logs, waiting for the next occurrence.","status":"in_review","priority":"high","assigneeId":"u-4","reporterId":"u-17","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[4,"labels"],"size":0},"estimate":5,"createdAt":"2026-02-12T00:15:50.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":0},{"id":"iss-94","key":"CORE-94","projectKey":"CORE","title":"Speed up push notification opt-out","description":"Reported by the frontend team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"in_review","priority":"low","assigneeId":"u-3","reporterId":"u-6","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[5,"labels"],"size":2},"estimate":5,"createdAt":"2026-01-30T21:35:31.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":4},{"id":"iss-95","key":"CORE-95","projectKey":"CORE","title":"Fix feature flag cleanup","description":"Reported by the frontend team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"in_review","priority":"medium","assigneeId":null,"reporterId":"u-8","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[6,"labels"],"size":0},"estimate":null,"createdAt":"2025-05-16T21:16:45.000Z","updatedAt":"2025-06-11T21:16:45.000Z","completedAt":null,"commentCount":5},{"id":"iss-117","key":"CORE-117","projectKey":"CORE","title":"Migrate audit log pagination","description":"Reported by the security team. Moved to the next sprint, blocked on the API change.","status":"in_review","priority":"medium","assigneeId":null,"reporterId":"u-14","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[7,"labels"],"size":2},"estimate":null,"createdAt":"2025-12-04T19:08:47.000Z","updatedAt":"2026-01-28T19:08:47.000Z","completedAt":null,"commentCount":1},{"id":"iss-118","key":"CORE-118","projectKey":"CORE","title":"Refactor push notification opt-out","description":"Reported by the frontend team. Added logs, waiting for the next occurrence.","status":"in_review","priority":"medium","assigneeId":"u-11","reporterId":"u-17","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[8,"labels"],"size":0},"estimate":null,"createdAt":"2025-10-12T17:43:25.000Z","updatedAt":"2025-11-29T17:43:25.000Z","completedAt":null,"commentCount":2},{"id":"iss-133","key":"CORE-133","projectKey":"CORE","title":"Remove avatar upload","description":"Reported by the infra team. Can we split this into a backend and a frontend ticket?","status":"in_review","priority":"medium","assigneeId":"u-17","reporterId":"u-23","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[9,"labels"],"size":2},"estimate":3,"createdAt":"2026-02-22T17:48:43.000Z","updatedAt":"2026-02-28T17:48:43.000Z","completedAt":null,"commentCount":5},{"id":"iss-154","key":"CORE-154","projectKey":"CORE","title":"Investigate search ranking","description":"Reported by the security team. This regressed after the last release, bisecting now.","status":"in_review","priority":"medium","assigneeId":"u-4","reporterId":"u-12","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[10,"labels"],"size":0},"estimate":5,"createdAt":"2025-04-08T17:36:56.000Z","updatedAt":"2025-05-29T17:36:56.000Z","completedAt":null,"commentCount":3},{"id":"iss-175","key":"CORE-175","projectKey":"CORE","title":"Document database connection pool","description":"Reported by the infra team. Verified on mobile Safari and Chrome.","status":"in_review","priority":"medium","assigneeId":null,"reporterId":"u-7","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[11,"labels"],"size":2},"estimate":null,"createdAt":"2025-01-30T07:45:32.000Z","updatedAt":"2025-03-29T07:45:32.000Z","completedAt":null,"commentCount":3},{"id":"iss-182","key":"CORE-182","projectKey":"CORE","title":"Investigate attachment previews","description":"Reported by the docs team. Verified on mobile Safari and Chrome.","status":"in_review","priority":"low","assigneeId":"u-36","reporterId":"u-28","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[12,"labels"],"size":0},"estimate":1,"createdAt":"2026-02-09T18:40:55.000Z","updatedAt":"2026-02-17T18:40:55.000Z","completedAt":null,"commentCount":0},{"id":"iss-217","key":"CORE-217","projectKey":"CORE","title":"Speed up billing email template","description":"Reported by the security team. Moved to the next sprint, blocked on the API change.","status":"in_review","priority":"medium","assigneeId":"u-2","reporterId":"u-30","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[13,"labels"],"size":2},"estimate":2,"createdAt":"2025-02-03T01:03:49.000Z","updatedAt":"2025-03-24T01:03:49.000Z","completedAt":null,"commentCount":0},{"id":"iss-235","key":"CORE-235","projectKey":"CORE","title":"Add feature flag cleanup","description":"Reported by the infra team. Customer success says three accounts are affected.","status":"in_review","priority":"urgent","assigneeId":"u-23","reporterId":"u-25","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[14,"labels"],"size":1},"estimate":3,"createdAt":"2026-01-28T19:38:47.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":4},{"id":"iss-244","key":"CORE-244","projectKey":"CORE","title":"Speed up attachment previews","description":"Reported by the infra team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"in_review","priority":"high","assigneeId":"u-24","reporterId":"u-12","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[15,"labels"],"size":2},"estimate":2,"createdAt":"2026-01-13T21:16:43.000Z","updatedAt":"2026-01-29T21:16:43.000Z","completedAt":null,"commentCount":0},{"id":"iss-253","key":"CORE-253","projectKey":"CORE","title":"Refactor avatar upload","description":"Reported by the docs team. Moved to the next sprint, blocked on the API change.","status":"in_review","priority":"medium","assigneeId":"u-35","reporterId":"u-14","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[16,"labels"],"size":0},"estimate":8,"createdAt":"2026-01-30T08:26:22.000Z","updatedAt":"2026-02-14T08:26:22.000Z","completedAt":null,"commentCount":4},{"id":"iss-258","key":"CORE-258","projectKey":"CORE","title":"Refactor deploy pipeline caching","description":"Reported by the docs team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"in_review","priority":"medium","assigneeId":null,"reporterId":"u-12","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[17,"labels"],"size":2},"estimate":8,"createdAt":"2026-02-06T08:52:00.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":6},{"id":"iss-262","key":"CORE-262","projectKey":"CORE","title":"Migrate billing email template","description":"Reported by the security team. Can we split this into a backend and a frontend ticket?","status":"in_review","priority":"medium","assigneeId":"u-30","reporterId":"u-9","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[18,"labels"],"size":1},"estimate":2,"createdAt":"2025-05-08T20:59:09.000Z","updatedAt":"2025-05-13T20:59:09.000Z","completedAt":null,"commentCount":3},{"id":"iss-263","key":"CORE-263","projectKey":"CORE","title":"Speed up GDPR export","description":"Reported by the infra team. The fix is behind the new flag, rolling out to 10%.","status":"in_review","priority":"medium","assigneeId":"u-24","reporterId":"u-12","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[19,"labels"],"size":0},"estimate":null,"createdAt":"2025-10-06T09:09:44.000Z","updatedAt":"2025-11-16T09:09:44.000Z","completedAt":null,"commentCount":5}],"after":[{"id":"iss-17","key":"CORE-17","projectKey":"CORE","title":"Fix avatar upload","description":"Reported by the backend team. Added logs, waiting for the next occurrence.","status":"in_review","priority":"medium","assigneeId":"u-26","reporterId":"u-33","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[0,"labels"],"size":0},"estimate":8,"createdAt":"2025-03-04T05:27:14.000Z","updatedAt":"2025-04-26T05:27:14.000Z","completedAt":null,"commentCount":5},{"id":"iss-21","key":"CORE-21","projectKey":"CORE","title":"Investigate database connection pool","description":"Reported by the frontend team. Moved to the next sprint, blocked on the API change.","status":"in_review","priority":"low","assigneeId":"u-13","reporterId":"u-26","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[1,"labels"],"size":2},"estimate":3,"createdAt":"2025-11-22T06:36:42.000Z","updatedAt":"2026-01-18T06:36:42.000Z","completedAt":null,"commentCount":5},{"id":"iss-41","key":"CORE-41","projectKey":"CORE","title":"Add GDPR export","description":"Reported by the docs team. Design signed off on the copy changes.","status":"in_review","priority":"low","assigneeId":null,"reporterId":"u-24","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[2,"labels"],"size":0},"estimate":null,"createdAt":"2026-02-22T20:15:33.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":3},{"id":"iss-45","key":"CORE-45","projectKey":"CORE","title":"Speed up timezone handling","description":"Reported by the performance team. The fix is behind the new flag, rolling out to 10%.","status":"in_review","priority":"medium","assigneeId":"u-31","reporterId":"u-31","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[3,"labels"],"size":1},"estimate":3,"createdAt":"2025-04-09T01:27:37.000Z","updatedAt":"2025-05-07T01:27:37.000Z","completedAt":null,"commentCount":4},{"id":"iss-52","key":"CORE-52","projectKey":"CORE","title":"Refactor attachment previews","description":"Reported by the infra team. Added logs, waiting for the next occurrence.","status":"in_review","priority":"high","assigneeId":"u-4","reporterId":"u-17","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[4,"labels"],"size":0},"estimate":5,"createdAt":"2026-02-12T00:15:50.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":0},{"id":"iss-94","key":"CORE-94","projectKey":"CORE","title":"Speed up push notification opt-out","description":"Reported by the frontend team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"in_review","priority":"low","assigneeId":"u-3","reporterId":"u-6","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[5,"labels"],"size":2},"estimate":5,"createdAt":"2026-01-30T21:35:31.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":4},{"id":"iss-95","key":"CORE-95","projectKey":"CORE","title":"Fix feature flag cleanup","description":"Reported by the frontend team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"in_review","priority":"medium","assigneeId":null,"reporterId":"u-8","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[6,"labels"],"size":0},"estimate":null,"createdAt":"2025-05-16T21:16:45.000Z","updatedAt":"2025-06-11T21:16:45.000Z","completedAt":null,"commentCount":5},{"id":"iss-117","key":"CORE-117","projectKey":"CORE","title":"Migrate audit log pagination","description":"Reported by the security team. Moved to the next sprint, blocked on the API change.","status":"in_review","priority":"medium","assigneeId":null,"reporterId":"u-14","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[7,"labels"],"size":2},"estimate":null,"createdAt":"2025-12-04T19:08:47.000Z","updatedAt":"2026-01-28T19:08:47.000Z","completedAt":null,"commentCount":1},{"id":"iss-118","key":"CORE-118","projectKey":"CORE","title":"Refactor push notification opt-out","description":"Reported by the frontend team. Added logs, waiting for the next occurrence.","status":"in_review","priority":"medium","assigneeId":"u-11","reporterId":"u-17","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[8,"labels"],"size":0},"estimate":null,"createdAt":"2025-10-12T17:43:25.000Z","updatedAt":"2025-11-29T17:43:25.000Z","completedAt":null,"commentCount":2},{"id":"iss-133","key":"CORE-133","projectKey":"CORE","title":"Remove avatar upload","description":"Reported by the infra team. Can we split this into a backend and a frontend ticket?","status":"in_review","priority":"medium","assigneeId":"u-17","reporterId":"u-23","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[9,"labels"],"size":2},"estimate":3,"createdAt":"2026-02-22T17:48:43.000Z","updatedAt":"2026-02-28T17:48:43.000Z","completedAt":null,"commentCount":5},{"id":"iss-154","key":"CORE-154","projectKey":"CORE","title":"Investigate search ranking","description":"Reported by the security team. This regressed after the last release, bisecting now.","status":"in_review","priority":"medium","assigneeId":"u-4","reporterId":"u-12","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[10,"labels"],"size":0},"estimate":5,"createdAt":"2025-04-08T17:36:56.000Z","updatedAt":"2025-05-29T17:36:56.000Z","completedAt":null,"commentCount":3},{"id":"iss-175","key":"CORE-175","projectKey":"CORE","title":"Document database connection pool","description":"Reported by the infra team. Verified on mobile Safari and Chrome.","status":"in_review","priority":"medium","assigneeId":null,"reporterId":"u-7","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[11,"labels"],"size":2},"estimate":null,"createdAt":"2025-01-30T07:45:32.000Z","updatedAt":"2025-03-29T07:45:32.000Z","completedAt":null,"commentCount":3},{"id":"iss-182","key":"CORE-182","projectKey":"CORE","title":"Investigate attachment previews","description":"Reported by the docs team. Verified on mobile Safari and Chrome.","status":"in_review","priority":"low","assigneeId":"u-36","reporterId":"u-28","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[12,"labels"],"size":0},"estimate":1,"createdAt":"2026-02-09T18:40:55.000Z","updatedAt":"2026-02-17T18:40:55.000Z","completedAt":null,"commentCount":0},{"id":"iss-217","key":"CORE-217","projectKey":"CORE","title":"Speed up billing email template","description":"Reported by the security team. Moved to the next sprint, blocked on the API change.","status":"in_review","priority":"medium","assigneeId":"u-2","reporterId":"u-30","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[13,"labels"],"size":2},"estimate":2,"createdAt":"2025-02-03T01:03:49.000Z","updatedAt":"2025-03-24T01:03:49.000Z","completedAt":null,"commentCount":0},{"id":"iss-235","key":"CORE-235","projectKey":"CORE","title":"Add feature flag cleanup","description":"Reported by the infra team. Customer success says three accounts are affected.","status":"in_review","priority":"urgent","assigneeId":"u-23","reporterId":"u-25","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[14,"labels"],"size":1},"estimate":3,"createdAt":"2026-01-28T19:38:47.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":4},{"id":"iss-244","key":"CORE-244","projectKey":"CORE","title":"Speed up attachment previews","description":"Reported by the infra team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"in_review","priority":"high","assigneeId":"u-24","reporterId":"u-12","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[15,"labels"],"size":2},"estimate":2,"createdAt":"2026-01-13T21:16:43.000Z","updatedAt":"2026-01-29T21:16:43.000Z","completedAt":null,"commentCount":0},{"id":"iss-253","key":"CORE-253","projectKey":"CORE","title":"Refactor avatar upload","description":"Reported by the docs team. Moved to the next sprint, blocked on the API change.","status":"in_review","priority":"medium","assigneeId":"u-35","reporterId":"u-14","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[16,"labels"],"size":0},"estimate":8,"createdAt":"2026-01-30T08:26:22.000Z","updatedAt":"2026-02-14T08:26:22.000Z","completedAt":null,"commentCount":4},{"id":"iss-258","key":"CORE-258","projectKey":"CORE","title":"Refactor deploy pipeline caching","description":"Reported by the docs team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"in_review","priority":"medium","assigneeId":null,"reporterId":"u-12","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[17,"labels"],"size":2},"estimate":8,"createdAt":"2026-02-06T08:52:00.000Z","updatedAt":"2026-03-02T09:00:00.000Z","completedAt":null,"commentCount":6},{"id":"iss-262","key":"CORE-262","projectKey":"CORE","title":"Migrate billing email template","description":"Reported by the security team. Can we split this into a backend and a frontend ticket?","status":"in_review","priority":"medium","assigneeId":"u-30","reporterId":"u-9","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[18,"labels"],"size":1},"estimate":2,"createdAt":"2025-05-08T20:59:09.000Z","updatedAt":"2025-05-13T20:59:09.000Z","completedAt":null,"commentCount":3},{"id":"iss-263","key":"CORE-263","projectKey":"CORE","title":"Speed up GDPR export","description":"Reported by the infra team. The fix is behind the new flag, rolling out to 10%.","status":"in_review","priority":"medium","assigneeId":"u-24","reporterId":"u-12","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[19,"labels"],"size":0},"estimate":null,"createdAt":"2025-10-06T09:09:44.000Z","updatedAt":"2025-11-16T09:09:44.000Z","completedAt":null,"commentCount":5}],"changedFields":[],"deepDiff":{"changes":[{"kind":"reference-only","path":""}],"visited":34,"truncated":false},"storeId":"external-store:2","storeLabel":"anonymous-external-store","selector":null,"equality":"object-is","fanout":null,"notificationId":null,"competingCandidates":["external-store-snapshot-identity-changed"],"redux":{"storeId":"redux-store:1","link":"subscription","evidence":"exact","reason":"dispatched-between-renders","actions":[{"actionId":"redux-store:1/action:5511","sequence":5511,"kind":"action","type":"notifications/fetch/fulfilled","changedSlices":["notifications"]}],"omittedActions":0},"hookProvenance":{"status":"unavailable","evidence":"unknown","reason":"shadow-render-disabled"}}],"causeCounts":{"mount":0,"props":0,"state":0,"children":0,"context":0,"external-store":3,"query":0,"router":0,"parent":0,"unknown":0},"necessity":"unknown","necessityReason":"effects-scheduled","assessment":{"inputEvidence":"incomplete","observedInputKinds":[],"behaviorEvidence":{"subtreeHostMutations":{"status":"none-observed","count":0,"pendingSubtrees":0,"omittedByLimit":0,"callbackOnlyUpdates":0,"writes":[],"callbacks":[]},"scheduledEffects":{"status":"observed","count":3},"subtreeScheduledEffects":{"status":"observed","count":2},"unobservedDomains":["focus","url","network","transition","freshness","effect-execution"]},"optimizationSafety":"not-proven-safe","requiredValidation":["dom","aria","focus","url","network","transition"]},"inputCoverage":{"complete":false,"omittedInputs":0,"scanTruncated":true,"propsNotEnumerated":false},"unmounted":false,"noObservedInputChange":0,"compiler":{"memoCacheObserved":false,"evidence":"exact","compilationStatus":"unknown","limitation":"runtime-memo-cache-presence-only"},"source":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"},"sourceAttribution":{"role":"usage-or-definition-fallback","evidence":"inferred"},"sourceProvenance":{"definitionSource":null,"allocationCallsite":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"},"hookDefinitionOwner":null,"hookCallsite":null,"package":null,"sourceMapConfidence":"served","failureReason":null,"usageOrDefinitionFallback":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"}},"sourceOwnership":"app","isLibrary":false,"wrapperAncestry":[]},{"id":2698950743694,"name":"BoardColumn","instance":{"fiberId":2698950743694,"mountId":"mount:1298","key":"done","siblingIndex":4,"parent":{"fiberId":2698950738428,"name":"BoardPage","key":null},"keyedParent":null,"logicalPath":"AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > BoardPage[index=0] > <div>[index=0] > <div>[index=1] > BoardColumn[key=\"done\"]","logicalIdentityEvidence":"keyed","mountGeneration":1,"mountGenerationEvidence":"exact","hostSelector":null},"renders":3,"mounts":0,"updates":3,"unnecessary":0,"referenceOnlyPropRenders":0,"unstableRenders":0,"functionIdentityPropRenders":0,"undeterminedReferencePropRenders":0,"forget":false,"selfTime":0.4,"totalTime":0.7,"cumulativeSelfTime":0.6,"cumulativeTotalTime":1.1,"changes":[],"latestCommitId":19,"latestDocumentCommitId":36,"causes":[{"kind":"external-store","evidence":"inferred","reason":"external-store-snapshot-changed","hookIndex":7,"externalStoreIndex":0,"subscriberId":"subscriber:mount:1298:0","selectionEqual":false,"subscriptionFired":true,"before":[{"id":"iss-4","key":"CORE-4","projectKey":"CORE","title":"Speed up billing email template","description":"Reported by the frontend team. Design signed off on the copy changes.","status":"done","priority":"high","assigneeId":"u-4","reporterId":"u-11","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[0,"labels"],"size":0},"estimate":8,"createdAt":"2025-02-03T00:33:13.000Z","updatedAt":"2025-02-27T00:33:13.000Z","completedAt":"2025-02-27T00:33:13.000Z","commentCount":2},{"id":"iss-5","key":"CORE-5","projectKey":"CORE","title":"Migrate session timeout warning","description":"Reported by the design team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"done","priority":"medium","assigneeId":"u-21","reporterId":"u-23","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[1,"labels"],"size":2},"estimate":3,"createdAt":"2025-08-01T02:59:14.000Z","updatedAt":"2025-08-18T02:59:14.000Z","completedAt":"2025-08-18T02:59:14.000Z","commentCount":5},{"id":"iss-7","key":"CORE-7","projectKey":"CORE","title":"Investigate login redirect loop","description":"Reported by the frontend team. Customer success says three accounts are affected.","status":"done","priority":"medium","assigneeId":"u-15","reporterId":"u-32","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[2,"labels"],"size":0},"estimate":8,"createdAt":"2025-02-03T23:16:14.000Z","updatedAt":"2025-02-05T23:16:14.000Z","completedAt":"2025-02-05T23:16:14.000Z","commentCount":1},{"id":"iss-8","key":"CORE-8","projectKey":"CORE","title":"Refactor report scheduler","description":"Reported by the backend team. Customer success says three accounts are affected.","status":"done","priority":"high","assigneeId":"u-13","reporterId":"u-25","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[3,"labels"],"size":2},"estimate":2,"createdAt":"2025-07-19T07:53:55.000Z","updatedAt":"2025-07-22T07:53:55.000Z","completedAt":"2025-07-22T07:53:55.000Z","commentCount":6},{"id":"iss-11","key":"CORE-11","projectKey":"CORE","title":"Refactor GDPR export","description":"Reported by the infra team. The fix is behind the new flag, rolling out to 10%.","status":"done","priority":"medium","assigneeId":"u-24","reporterId":"u-30","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[4,"labels"],"size":1},"estimate":8,"createdAt":"2025-11-22T17:31:02.000Z","updatedAt":"2025-11-27T17:31:02.000Z","completedAt":"2025-11-27T17:31:02.000Z","commentCount":5},{"id":"iss-12","key":"CORE-12","projectKey":"CORE","title":"Document audit log pagination","description":"Reported by the backend team. Design signed off on the copy changes.","status":"done","priority":"urgent","assigneeId":"u-31","reporterId":"u-23","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[5,"labels"],"size":0},"estimate":2,"createdAt":"2026-02-27T07:10:24.000Z","updatedAt":"2026-03-01T09:00:00.000Z","completedAt":"2026-03-01T09:00:00.000Z","commentCount":4},{"id":"iss-14","key":"CORE-14","projectKey":"CORE","title":"Remove audit log pagination","description":"Reported by the frontend team. Moved to the next sprint, blocked on the API change.","status":"done","priority":"low","assigneeId":null,"reporterId":"u-12","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[6,"labels"],"size":1},"estimate":2,"createdAt":"2025-09-13T23:38:34.000Z","updatedAt":"2025-09-21T23:38:34.000Z","completedAt":"2025-09-21T23:38:34.000Z","commentCount":1},{"id":"iss-16","key":"CORE-16","projectKey":"CORE","title":"Add GDPR export","description":"Reported by the frontend team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"done","priority":"medium","assigneeId":"u-8","reporterId":"u-8","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[7,"labels"],"size":0},"estimate":3,"createdAt":"2025-05-30T16:37:39.000Z","updatedAt":"2025-06-22T16:37:39.000Z","completedAt":"2025-06-22T16:37:39.000Z","commentCount":5},{"id":"iss-36","key":"CORE-36","projectKey":"CORE","title":"Migrate CSV import validation","description":"Reported by the infra team. Moved to the next sprint, blocked on the API change.","status":"done","priority":"medium","assigneeId":"u-19","reporterId":"u-2","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[8,"labels"],"size":1},"estimate":null,"createdAt":"2025-03-12T21:44:25.000Z","updatedAt":"2025-04-06T21:44:25.000Z","completedAt":"2025-04-06T21:44:25.000Z","commentCount":1},{"id":"iss-39","key":"CORE-39","projectKey":"CORE","title":"Refactor error page copy","description":"Reported by the performance team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"done","priority":"low","assigneeId":"u-30","reporterId":"u-16","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[9,"labels"],"size":2},"estimate":null,"createdAt":"2025-04-30T08:17:26.000Z","updatedAt":"2025-05-14T08:17:26.000Z","completedAt":"2025-05-14T08:17:26.000Z","commentCount":6},{"id":"iss-51","key":"CORE-51","projectKey":"CORE","title":"Investigate GDPR export","description":"Reported by the infra team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"done","priority":"medium","assigneeId":null,"reporterId":"u-6","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[10,"labels"],"size":2},"estimate":3,"createdAt":"2025-03-15T21:29:53.000Z","updatedAt":"2025-03-30T21:29:53.000Z","completedAt":"2025-03-30T21:29:53.000Z","commentCount":2},{"id":"iss-53","key":"CORE-53","projectKey":"CORE","title":"Speed up invoice export","description":"Reported by the security team. Can we split this into a backend and a frontend ticket?","status":"done","priority":"high","assigneeId":"u-35","reporterId":"u-15","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[11,"labels"],"size":2},"estimate":1,"createdAt":"2025-06-11T18:28:10.000Z","updatedAt":"2025-06-12T18:28:10.000Z","completedAt":"2025-06-12T18:28:10.000Z","commentCount":1},{"id":"iss-54","key":"CORE-54","projectKey":"CORE","title":"Add SSO metadata refresh","description":"Reported by the docs team. This regressed after the last release, bisecting now.","status":"done","priority":"medium","assigneeId":"u-22","reporterId":"u-1","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[12,"labels"],"size":0},"estimate":3,"createdAt":"2025-12-05T04:46:38.000Z","updatedAt":"2025-12-17T04:46:38.000Z","completedAt":"2025-12-17T04:46:38.000Z","commentCount":1},{"id":"iss-60","key":"CORE-60","projectKey":"CORE","title":"Document dark mode contrast","description":"Reported by the security team. Verified on mobile Safari and Chrome.","status":"done","priority":"low","assigneeId":null,"reporterId":"u-34","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[13,"labels"],"size":2},"estimate":null,"createdAt":"2025-08-06T21:07:05.000Z","updatedAt":"2025-08-13T21:07:05.000Z","completedAt":"2025-08-13T21:07:05.000Z","commentCount":0},{"id":"iss-62","key":"CORE-62","projectKey":"CORE","title":"Fix feature flag cleanup","description":"Reported by the performance team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"done","priority":"medium","assigneeId":null,"reporterId":"u-5","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[14,"labels"],"size":2},"estimate":8,"createdAt":"2026-01-12T19:59:07.000Z","updatedAt":"2026-02-02T19:59:07.000Z","completedAt":"2026-02-02T19:59:07.000Z","commentCount":3},{"id":"iss-65","key":"CORE-65","projectKey":"CORE","title":"Speed up cache invalidation","description":"Reported by the infra team. Customer success says three accounts are affected.","status":"done","priority":"medium","assigneeId":"u-12","reporterId":"u-21","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[15,"labels"],"size":0},"estimate":1,"createdAt":"2025-07-11T05:46:05.000Z","updatedAt":"2025-07-25T05:46:05.000Z","completedAt":"2025-07-25T05:46:05.000Z","commentCount":3},{"id":"iss-66","key":"CORE-66","projectKey":"CORE","title":"Investigate GDPR export","description":"Reported by the performance team. Moved to the next sprint, blocked on the API change.","status":"done","priority":"urgent","assigneeId":null,"reporterId":"u-24","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[16,"labels"],"size":0},"estimate":1,"createdAt":"2026-01-07T04:00:50.000Z","updatedAt":"2026-01-13T04:00:50.000Z","completedAt":"2026-01-13T04:00:50.000Z","commentCount":3},{"id":"iss-71","key":"CORE-71","projectKey":"CORE","title":"Add timezone handling","description":"Reported by the infra team. Customer success says three accounts are affected.","status":"done","priority":"medium","assigneeId":"u-20","reporterId":"u-33","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[17,"labels"],"size":1},"estimate":null,"createdAt":"2025-12-17T15:37:37.000Z","updatedAt":"2026-01-14T15:37:37.000Z","completedAt":"2026-01-14T15:37:37.000Z","commentCount":6},{"id":"iss-72","key":"CORE-72","projectKey":"CORE","title":"Fix session timeout warning","description":"Reported by the frontend team. I can reproduce this on staging with a fresh account.","status":"done","priority":"urgent","assigneeId":"u-35","reporterId":"u-24","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[18,"labels"],"size":2},"estimate":null,"createdAt":"2026-02-21T02:46:15.000Z","updatedAt":"2026-03-01T09:00:00.000Z","completedAt":"2026-03-01T09:00:00.000Z","commentCount":4},{"id":"iss-75","key":"CORE-75","projectKey":"CORE","title":"Investigate feature flag cleanup","description":"Reported by the performance team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"done","priority":"low","assigneeId":"u-15","reporterId":"u-3","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[19,"labels"],"size":1},"estimate":8,"createdAt":"2025-05-14T15:33:53.000Z","updatedAt":"2025-05-20T15:33:53.000Z","completedAt":"2025-05-20T15:33:53.000Z","commentCount":2}],"after":[{"id":"iss-4","key":"CORE-4","projectKey":"CORE","title":"Speed up billing email template","description":"Reported by the frontend team. Design signed off on the copy changes.","status":"done","priority":"high","assigneeId":"u-4","reporterId":"u-11","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[0,"labels"],"size":0},"estimate":8,"createdAt":"2025-02-03T00:33:13.000Z","updatedAt":"2025-02-27T00:33:13.000Z","completedAt":"2025-02-27T00:33:13.000Z","commentCount":2},{"id":"iss-5","key":"CORE-5","projectKey":"CORE","title":"Migrate session timeout warning","description":"Reported by the design team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"done","priority":"medium","assigneeId":"u-21","reporterId":"u-23","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[1,"labels"],"size":2},"estimate":3,"createdAt":"2025-08-01T02:59:14.000Z","updatedAt":"2025-08-18T02:59:14.000Z","completedAt":"2025-08-18T02:59:14.000Z","commentCount":5},{"id":"iss-7","key":"CORE-7","projectKey":"CORE","title":"Investigate login redirect loop","description":"Reported by the frontend team. Customer success says three accounts are affected.","status":"done","priority":"medium","assigneeId":"u-15","reporterId":"u-32","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[2,"labels"],"size":0},"estimate":8,"createdAt":"2025-02-03T23:16:14.000Z","updatedAt":"2025-02-05T23:16:14.000Z","completedAt":"2025-02-05T23:16:14.000Z","commentCount":1},{"id":"iss-8","key":"CORE-8","projectKey":"CORE","title":"Refactor report scheduler","description":"Reported by the backend team. Customer success says three accounts are affected.","status":"done","priority":"high","assigneeId":"u-13","reporterId":"u-25","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[3,"labels"],"size":2},"estimate":2,"createdAt":"2025-07-19T07:53:55.000Z","updatedAt":"2025-07-22T07:53:55.000Z","completedAt":"2025-07-22T07:53:55.000Z","commentCount":6},{"id":"iss-11","key":"CORE-11","projectKey":"CORE","title":"Refactor GDPR export","description":"Reported by the infra team. The fix is behind the new flag, rolling out to 10%.","status":"done","priority":"medium","assigneeId":"u-24","reporterId":"u-30","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[4,"labels"],"size":1},"estimate":8,"createdAt":"2025-11-22T17:31:02.000Z","updatedAt":"2025-11-27T17:31:02.000Z","completedAt":"2025-11-27T17:31:02.000Z","commentCount":5},{"id":"iss-12","key":"CORE-12","projectKey":"CORE","title":"Document audit log pagination","description":"Reported by the backend team. Design signed off on the copy changes.","status":"done","priority":"urgent","assigneeId":"u-31","reporterId":"u-23","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[5,"labels"],"size":0},"estimate":2,"createdAt":"2026-02-27T07:10:24.000Z","updatedAt":"2026-03-01T09:00:00.000Z","completedAt":"2026-03-01T09:00:00.000Z","commentCount":4},{"id":"iss-14","key":"CORE-14","projectKey":"CORE","title":"Remove audit log pagination","description":"Reported by the frontend team. Moved to the next sprint, blocked on the API change.","status":"done","priority":"low","assigneeId":null,"reporterId":"u-12","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[6,"labels"],"size":1},"estimate":2,"createdAt":"2025-09-13T23:38:34.000Z","updatedAt":"2025-09-21T23:38:34.000Z","completedAt":"2025-09-21T23:38:34.000Z","commentCount":1},{"id":"iss-16","key":"CORE-16","projectKey":"CORE","title":"Add GDPR export","description":"Reported by the frontend team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"done","priority":"medium","assigneeId":"u-8","reporterId":"u-8","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(0)","path":[7,"labels"],"size":0},"estimate":3,"createdAt":"2025-05-30T16:37:39.000Z","updatedAt":"2025-06-22T16:37:39.000Z","completedAt":"2025-06-22T16:37:39.000Z","commentCount":5},{"id":"iss-36","key":"CORE-36","projectKey":"CORE","title":"Migrate CSV import validation","description":"Reported by the infra team. Moved to the next sprint, blocked on the API change.","status":"done","priority":"medium","assigneeId":"u-19","reporterId":"u-2","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(1)","path":[8,"labels"],"size":1},"estimate":null,"createdAt":"2025-03-12T21:44:25.000Z","updatedAt":"2025-04-06T21:44:25.000Z","completedAt":"2025-04-06T21:44:25.000Z","commentCount":1},{"id":"iss-39","key":"CORE-39","projectKey":"CORE","title":"Refactor error page copy","description":"Reported by the performance team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"done","priority":"low","assigneeId":"u-30","reporterId":"u-16","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[9,"labels"],"size":2},"estimate":null,"createdAt":"2025-04-30T08:17:26.000Z","updatedAt":"2025-05-14T08:17:26.000Z","completedAt":"2025-05-14T08:17:26.000Z","commentCount":6},{"id":"iss-51","key":"CORE-51","projectKey":"CORE","title":"Investigate GDPR export","description":"Reported by the infra team. Pushed a draft branch, would appreciate a second pair of eyes.","status":"done","priority":"medium","assigneeId":null,"reporterId":"u-6","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[10,"labels"],"size":2},"estimate":3,"createdAt":"2025-03-15T21:29:53.000Z","updatedAt":"2025-03-30T21:29:53.000Z","completedAt":"2025-03-30T21:29:53.000Z","commentCount":2},{"id":"iss-53","key":"CORE-53","projectKey":"CORE","title":"Speed up invoice export","description":"Reported by the security team. Can we split this into a backend and a frontend ticket?","status":"done","priority":"high","assigneeId":"u-35","reporterId":"u-15","labels":{"__genie_dehydrated__":true,"kind":"array","preview":"Array(2)","path":[11,"labels"],"size":2},"estimate":{"__genie_dehydrated__":true,"kind":"truncated","preview":"[omitted: commit budget]","path":[11,"estimate"]}},{"__genie_dehydrated__":true,"kind":"truncated","preview":"[omitted: commit budget]","path":[12]}],"changedFields":[],"deepDiff":{"changes":[{"kind":"reference-only","path":""}],"visited":124,"truncated":false},"storeId":"external-store:2","storeLabel":"anonymous-external-store","selector":null,"equality":"object-is","fanout":null,"notificationId":null,"competingCandidates":["external-store-snapshot-identity-changed"],"redux":{"storeId":"redux-store:1","link":"subscription","evidence":"exact","reason":"dispatched-between-renders","actions":[{"actionId":"redux-store:1/action:5511","sequence":5511,"kind":"action","type":"notifications/fetch/fulfilled","changedSlices":["notifications"]}],"omittedActions":0},"hookProvenance":{"status":"unavailable","evidence":"unknown","reason":"shadow-render-disabled"}}],"causeCounts":{"mount":0,"props":0,"state":0,"children":0,"context":0,"external-store":3,"query":0,"router":0,"parent":0,"unknown":0},"necessity":"unknown","necessityReason":"effects-scheduled","assessment":{"inputEvidence":"incomplete","observedInputKinds":[],"behaviorEvidence":{"subtreeHostMutations":{"status":"none-observed","count":0,"pendingSubtrees":0,"omittedByLimit":0,"callbackOnlyUpdates":0,"writes":[],"callbacks":[]},"scheduledEffects":{"status":"observed","count":3},"subtreeScheduledEffects":{"status":"observed","count":2},"unobservedDomains":["focus","url","network","transition","freshness","effect-execution"]},"optimizationSafety":"not-proven-safe","requiredValidation":["dom","aria","focus","url","network","transition"]},"inputCoverage":{"complete":false,"omittedInputs":0,"scanTruncated":true,"propsNotEnumerated":false},"unmounted":false,"noObservedInputChange":0,"compiler":{"memoCacheObserved":false,"evidence":"exact","compilationStatus":"unknown","limitation":"runtime-memo-cache-presence-only"},"source":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"},"sourceAttribution":{"role":"usage-or-definition-fallback","evidence":"inferred"},"sourceProvenance":{"definitionSource":null,"allocationCallsite":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"},"hookDefinitionOwner":null,"hookCallsite":null,"package":null,"sourceMapConfidence":"served","failureReason":null,"usageOrDefinitionFallback":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/board/board-page.tsx","line":28,"column":11,"functionName":null,"sourceMapConfidence":"served","role":"element-callsite"}},"sourceOwnership":"app","isLibrary":false,"wrapperAncestry":[]}],"sourceClassification":{"complete":true,"affects":"result","totalCandidates":5,"evaluated":5,"app":5,"library":0,"unknown":0,"unknownComponents":[],"unknownComponentsOmitted":0},"omittedByLimit":0,"nextCursor":null,"pagination":{"snapshotId":"6f952916-a693-4ab8-915a-6b0ef205cdcc","offset":0,"totalComponents":5,"expiresAt":1795079562761},"comparable":false,"notComparableReasons":["render-input-scan-truncated"],"coverage":{"skippedCommitFibers":0,"droppedUnmountFibers":0,"analysisFailedFibers":0,"pausedCommits":0,"unobservedCommits":0,"refreshCommitsExcluded":0,"truncatedInputFibers":1275,"propsNotEnumeratedFibers":0,"budgetExhaustedCommits":0,"budgetExhaustedSubsystems":[],"incompleteBecause":[{"reason":"inputs-truncated","fibers":1275,"components":["PriorityPicker","FeatureGate","BoardColumn"],"detail":"An input held values Genie compares only in part, such as functions, class instances or objects past the inspected depth; read deepDiff.truncated on these components."}],"complete":false,"inputAttributionComplete":false,"semantics":"lower-bound","coverageDomain":"render-causality"}}
+
+# summary printed by python over that file (key, kind, evidence, reason, deepDiff.changes, selector, changedFields):
+backlog external-store inferred external-store-snapshot-changed [{"kind": "reference-only", "path": ""}] selector=None changedFields=[]
+todo external-store inferred external-store-snapshot-changed [{"kind": "reference-only", "path": ""}] selector=None changedFields=[]
+in_progress external-store inferred external-store-snapshot-changed [{"kind": "reference-only", "path": ""}] selector=None changedFields=[]
+in_review external-store inferred external-store-snapshot-changed [{"kind": "reference-only", "path": ""}] selector=None changedFields=[]
+done external-store inferred external-store-snapshot-changed [{"kind": "reference-only", "path": ""}] selector=None changedFields=[]
+
+
+# report-range-race: redux_actions and inspect on a fresh reproduction
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/reports
+✓ Acme Tracker
+  http://127.0.0.1:5233/reports
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app/url
+status: ok
+selection: {expression:/app/url,matchedPathCount:1,matchedPaths:[/app/url],omittedPathCount:51}
+result: http://127.0.0.1:5233/reports
+[exit 0]
+
+$ agent-browser --session upd-c wait .bar-chart
+✓ Done
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\{\"method\":\"GET\",\"path\":\"/api/reports/throughput\",\"query\":\{\"range\":\"90d\"\},\"latencyMs\":1200\}\]\} --session upd-c
+rules[1]:
+  - {method:GET,path:/api/reports/throughput,query:{range:90d},latencyMs:1200,status:null,times:null,hits:0}
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 90\ days
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 7\ days
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce \{\"idleMs\":800,\"timeoutMs\":10000\} --session upd-c --select /outcome
+status: ok
+selection: {expression:/outcome,matchedPathCount:1,matchedPaths:[/outcome],omittedPathCount:14}
+result: idle
+[exit 0]
+
+$ npx genie-react call redux_actions \{\"typePrefix\":\"reports/\",\"limit\":10\} --session upd-c
+store: {storeId:redux-store:1,name:app}
+records[8]:
+  each: {kind:action,outcome:returned,error:null,rootStateChanged:true,changedSlices:[reports],changedSlicesTruncated:false,unrecordedNestedDispatches:0,mutation:{status:none-detected,notScannedReason:null,findings:[],findingsOmitted:false}}
+  - {sequence:9,actionId:redux-store:1/action:9,type:reports/REQUESTED,label:reports/REQUESTED,parentActionId:redux-store:1/action:8,at:1795079288461,durationMs:0,mutation:{objectsCompared:4,scanTruncated:false}}
+  - {sequence:18,actionId:redux-store:1/action:18,type:reports/REQUESTED,label:reports/REQUESTED,parentActionId:redux-store:1/action:17,at:1795079288462,durationMs:0,mutation:{objectsCompared:4,scanTruncated:false}}
+  - {sequence:27,actionId:redux-store:1/action:27,type:reports/RECEIVED,label:reports/RECEIVED,parentActionId:redux-store:1/action:8,at:1795079288528,durationMs:0.1,mutation:{objectsCompared:4,scanTruncated:false}}
+  - {sequence:111,actionId:redux-store:1/action:111,type:reports/RECEIVED,label:reports/RECEIVED,parentActionId:redux-store:1/action:17,at:1795079288589,durationMs:0,mutation:{objectsCompared:16,scanTruncated:true}}
+  - {sequence:148,actionId:redux-store:1/action:148,type:reports/REQUESTED,label:reports/REQUESTED,parentActionId:redux-store:1/action:147,at:1795079288935,durationMs:0,mutation:{objectsCompared:16,scanTruncated:true}}
+  - {sequence:166,actionId:redux-store:1/action:166,type:reports/REQUESTED,label:reports/REQUESTED,parentActionId:redux-store:1/action:165,at:1795079288966,durationMs:0,mutation:{objectsCompared:16,scanTruncated:true}}
+  - {sequence:183,actionId:redux-store:1/action:183,type:reports/RECEIVED,label:reports/RECEIVED,parentActionId:redux-store:1/action:165,at:1795079289061,durationMs:0.1,mutation:{objectsCompared:16,scanTruncated:true}}
+  - {sequence:200,actionId:redux-store:1/action:200,type:reports/RECEIVED,label:reports/RECEIVED,parentActionId:redux-store:1/action:147,at:1795079290201,durationMs:0.3,mutation:{objectsCompared:18,scanTruncated:true}}
+matched: 8
+omittedBefore: 0
+more: false
+nextAfterSequence: 200
+latestSequence: 216
+coverage:
+  historyLimit: 500
+  evictedRecords: 0
+  unrecordedChanges: 0
+  mutationDetection: true
+  libraryActions:
+    recorded: false
+    counted: 186
+    byType: [{kind:action,type:service/subscriptions/internal_probeSubscription,count:119},{kind:thunk,type:null,count:36},{kind:action,type:service/executeQuery/rejected,count:16},{kind:action,type:service/subscriptions/unsubscribeQueryResult,count:9},{kind:action,type:service/executeQuery/pending,count:2},{kind:unrecorded-change,type:null,count:2},{kind:action,type:service/executeQuery/fulfilled,count:2}]
+    otherTypesCount: 0
+[exit 0]
+
+$ npx genie-react call redux_actions \{\"typePrefix\":\"reports/REQUESTED\",\"view\":\"full\",\"limit\":10\} --session upd-c --fields sequence,actionId,parentActionId,action
+error invalid_input: Tool call failed. Unknown --fields value action. details.fields.available lists the fields the result has. Correct --fields and retry.
+next: $ npx genie-react tools redux_actions --session upd-c
+userActionRequired: true
+errorCode: invalid-input
+details:
+  fields:
+    unknown: [action]
+    available: [actionId,at,changedSlices,changedSlicesTruncated,durationMs,error,genieMs,kind,label,mutation,outcome,parentActionId,payload,reactWorkActive,renderEventIds,rootStateChanged,sequence,type,unrecordedNestedDispatches]
+exit: {code:1,class:failure}
+[exit 1]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\]\} --session upd-c
+rules: []
+[exit 0]
+
+$ npx genie-react call redux_actions \{\"typePrefix\":\"reports/REQUESTED\",\"view\":\"full\",\"limit\":10\} --session upd-c --fields sequence,parentActionId,payload
+[4]:
+  each: {payload:{type:reports/REQUESTED,projectKey:CORE}}
+  - {sequence:9,parentActionId:redux-store:1/action:8,payload:{range:30d}}
+  - {sequence:18,parentActionId:redux-store:1/action:17,payload:{range:30d}}
+  - {sequence:148,parentActionId:redux-store:1/action:147,payload:{range:90d}}
+  - {sequence:166,parentActionId:redux-store:1/action:165,payload:{range:7d}}
+[exit 0]
+
+# title-draft-reset: render causes before the fix
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/issues/CORE-2
+✓ Acme Tracker
+  http://127.0.0.1:5233/issues/CORE-2
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app/url
+status: ok
+selection: {expression:/app/url,matchedPathCount:1,matchedPaths:[/app/url],omittedPathCount:51}
+result: http://127.0.0.1:5233/issues/CORE-2
+[exit 0]
+
+$ agent-browser --session upd-c wait textarea
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c click .issue-title__display
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c fill \[aria-label=\"Issue\ title\"\] Add\ dashboard\ filters\ by\ team
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c fill \[aria-label=\"Add\ a\ comment\"\] Renaming:\ filters\ are\ per\ team\ now
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_clear_renders \{\"component\":\"IssueTitleEditor\"\} --session upd-c --select /ok
+status: ok
+selection: {expression:/ok,matchedPathCount:1,matchedPaths:[/ok],omittedPathCount:15}
+result: true
+[exit 0]
+
+$ agent-browser --session upd-c click .comment-composer\ button\[type=\"submit\"\]
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce \{\"idleMs\":800,\"timeoutMs\":10000\} --fail-on-result-error --session upd-c --select /outcome
+status: ok
+selection: {expression:/outcome,matchedPathCount:1,matchedPaths:[/outcome],omittedPathCount:16}
+result: idle
+[exit 0]
+
+$ agent-browser --session upd-c get value \[aria-label=\"Issue\ title\"\]
+Add dashboard filters
+[exit 0]
+
+$ npx genie-react call react_render_causes '{"component":"IssueTitleEditor","appOnly":false,"view":"full","limit":5}' --json --max-bytes 5000000 --session upd-c
+{"componentMatch":{"component":"IssueTitleEditor","exact":true,"status":"matched","matchedNames":["IssueTitleEditor"],"matchedNameCount":1,"similarNames":[]},"tracking":true,"commits":11,"documentCommitId":36,"observation":{"id":"observation:1","epoch":1,"startedAfterDocumentCommitId":25},"attribution":{"status":"current","startedAtDocumentCommitId":36,"completedAtDocumentCommitId":36,"startedAtAnalysisGeneration":37,"completedAtAnalysisGeneration":37},"view":"full","events":[{"renderEventId":"render:32:355","observationId":"observation:1","commitId":7,"documentCommitId":32,"componentId":5882947567872,"componentName":"IssueTitleEditor","instance":{"fiberId":5882947567872,"mountId":"mount:41","key":null,"siblingIndex":0,"parent":{"fiberId":5882947567726,"name":"Connect(IssueTitleEditor)","key":null},"keyedParent":null,"logicalPath":"AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > IssueDetailPage[index=0] > <article>[index=0] > <div>[index=0] > Connect(IssueTitleEditor)[index=1] > IssueTitleEditor[index=0]","logicalIdentityEvidence":"positional","mountGeneration":1,"mountGenerationEvidence":"exact","hostSelector":null},"causes":[{"kind":"state","evidence":"exact","name":"this.state.draft","before":{"isEditing":true,"draft":"Add dashboard filters by team"},"after":{"isEditing":true,"draft":"Add dashboard filters"},"deepDiff":{"changes":[{"kind":"value","path":"/draft","before":"Add dashboard filters by team","after":"Add dashboard filters"}],"visited":3,"truncated":false},"classUpdates":[{"method":"setState","phase":"lifecycle","evidence":"exact","lifecycle":"componentDidUpdate","component":"IssueTitleEditor","fields":["draft"],"caller":{"functionName":"IssueTitleEditor.componentDidUpdate","file":"@genie-react/realworld-legacy/src/features/issue-detail/issue-title-editor.tsx","line":22,"column":1,"isLibrary":false,"mapping":"mapped"}}]}],"necessity":"necessary","necessityReason":"dom-changed","assessment":{"inputEvidence":"changed","observedInputKinds":["state"],"behaviorEvidence":{"subtreeHostMutations":{"status":"observed","count":1,"pendingSubtrees":0,"omittedByLimit":0,"callbackOnlyUpdates":0,"writes":["input.value"],"callbacks":[]},"scheduledEffects":{"status":"none-observed","count":0},"subtreeScheduledEffects":{"status":"observed","count":1},"unobservedDomains":["focus","url","network","transition","freshness","effect-execution"]},"optimizationSafety":"not-proven-safe","requiredValidation":["dom","aria","focus","url","network","transition"]},"inputCoverage":{"complete":true,"omittedInputs":0,"scanTruncated":false,"propsNotEnumerated":false},"source":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/issue-detail/issue-title-editor.tsx","line":54,"column":7,"functionName":null,"sourceMapConfidence":"served","role":"component-body"},"sourceAttribution":{"role":"usage-or-definition-fallback","evidence":"inferred"},"sourceOwnership":"app","isLibrary":false},{"renderEventId":"render:31:270","observationId":"observation:1","commitId":6,"documentCommitId":31,"componentId":5882947567872,"componentName":"IssueTitleEditor","instance":{"fiberId":5882947567872,"mountId":"mount:41","key":null,"siblingIndex":0,"parent":{"fiberId":5882947567726,"name":"Connect(IssueTitleEditor)","key":null},"keyedParent":null,"logicalPath":"AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > IssueDetailPage[index=0] > <article>[index=0] > <div>[index=0] > Connect(IssueTitleEditor)[index=1] > IssueTitleEditor[index=0]","logicalIdentityEvidence":"positional","mountGeneration":1,"mountGenerationEvidence":"exact","hostSelector":null},"causes":[{"kind":"parent","evidence":"inferred","parentId":5882947567726,"parentName":"Connect(IssueTitleEditor)","reason":"nearest-rendered-ancestor","origin":{"componentId":5882947567717,"componentName":"IssueDetailPage"}},{"kind":"props","evidence":"exact","name":"issue","referenceChanged":true,"referenceOnly":false,"unstable":true,"beforePresent":true,"afterPresent":true,"before":{"id":"iss-2","key":"CORE-2","projectKey":"CORE","title":"Add dashboard filters","description":"Reported by the frontend team. Added logs, waiting for the next occurrence.","status":"in_progress","priority":"high","assigneeId":"u-33","reporterId":"u-15","labels":["frontend"],"estimate":3,"createdAt":"2025-03-25T20:57:13.000Z","updatedAt":"2025-03-27T20:57:13.000Z","completedAt":null,"commentCount":0},"after":{"id":"iss-2","key":"CORE-2","projectKey":"CORE","title":"Add dashboard filters","description":"Reported by the frontend team. Added logs, waiting for the next occurrence.","status":"in_progress","priority":"high","assigneeId":"u-33","reporterId":"u-15","labels":["frontend"],"estimate":3,"createdAt":"2025-03-25T20:57:13.000Z","updatedAt":"2026-11-19T09:11:21.449Z","completedAt":null,"commentCount":1},"deepDiff":{"changes":[{"kind":"value","path":"/updatedAt","before":"2025-03-27T20:57:13.000Z","after":"2026-11-19T09:11:21.449Z"},{"kind":"value","path":"/commentCount","before":0,"after":1}],"visited":16,"truncated":false}}],"necessity":"unknown","necessityReason":"callbacks-changed","assessment":{"inputEvidence":"changed","observedInputKinds":["props"],"behaviorEvidence":{"subtreeHostMutations":{"status":"none-observed","count":0,"pendingSubtrees":0,"omittedByLimit":0,"callbackOnlyUpdates":1,"writes":[],"callbacks":["input.onChange"]},"scheduledEffects":{"status":"none-observed","count":0},"subtreeScheduledEffects":{"status":"observed","count":1},"unobservedDomains":["focus","url","network","transition","freshness","effect-execution"]},"optimizationSafety":"not-proven-safe","requiredValidation":["dom","aria","focus","url","network","transition"]},"inputCoverage":{"complete":true,"omittedInputs":0,"scanTruncated":false,"propsNotEnumerated":false},"wrappedBy":{"componentId":5882947567726,"componentName":"Connect(IssueTitleEditor)","renderEventId":"render:31:304","causes":[{"kind":"props","evidence":"exact","name":"issue"}],"necessity":"unknown","necessityReason":"callbacks-changed"},"source":{"file":"~/.t3/worktrees/genie-react/t3-090de32c-b027366200f6923c/apps/realworld-legacy/src/features/issue-detail/issue-title-editor.tsx","line":54,"column":7,"functionName":null,"sourceMapConfidence":"served","role":"component-body"},"sourceAttribution":{"role":"usage-or-definition-fallback","evidence":"inferred"},"sourceOwnership":"app","isLibrary":false}],"omittedByLimit":0,"sourceClassification":{"complete":true,"affects":"ownership-labels","totalCandidates":2,"evaluated":2,"app":2,"library":0,"unknown":0,"unknownComponents":[],"unknownComponentsOmitted":0},"renderEventRetention":{"evictedEvents":0,"earliestDocumentCommitId":26,"latestDocumentCommitId":36},"coverage":{"skippedCommitFibers":0,"droppedUnmountFibers":0,"analysisFailedFibers":0,"pausedCommits":0,"unobservedCommits":0,"refreshCommitsExcluded":0,"truncatedInputFibers":7,"propsNotEnumeratedFibers":0,"budgetExhaustedCommits":0,"budgetExhaustedSubsystems":[],"incompleteBecause":[{"reason":"inputs-truncated","fibers":7,"components":["IssueDetailPage","CommentThread","ActivityLog"],"detail":"An input held values Genie compares only in part, such as functions, class instances or objects past the inspected depth; read deepDiff.truncated on these components."}],"complete":false,"inputAttributionComplete":false,"semantics":"lower-bound","coverageDomain":"render-causality","droppedRenderEvents":0}}
+[exit 0]
+
+# jq-style summary printed by python over that JSON (commit, kind, evidence, name, classUpdates with the caller file shortened to its base name):
+{"commit":32,"causes":[{"kind":"state","evidence":"exact","name":"this.state.draft","classUpdates":[{"fields":["draft"],"phase":"lifecycle","evidence":"exact","caller":{"functionName":"IssueTitleEditor.componentDidUpdate","file":"issue-title-editor.tsx","line":22}}]}]}
+{"commit":31,"causes":[{"kind":"parent","evidence":"inferred","name":null,"classUpdates":null},{"kind":"props","evidence":"exact","name":"issue","classUpdates":null}]}
+
+
+# report-range-race: request lane on 1.1.0 (summary printed by python over timeline_read JSON)
+
+$ npx genie-react call app_backend_reset \{\} --session upd-c
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ agent-browser --session upd-c open http://127.0.0.1:5233/reports
+✓ Acme Tracker
+  http://127.0.0.1:5233/reports
+[exit 0]
+
+$ npx genie-react status --wait 15000 --session upd-c --select /app/url
+status: ok
+selection: {expression:/app/url,matchedPathCount:1,matchedPaths:[/app/url],omittedPathCount:51}
+result: http://127.0.0.1:5233/reports
+[exit 0]
+
+$ agent-browser --session upd-c wait .bar-chart
+✓ Done
+[exit 0]
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\{\"method\":\"GET\",\"path\":\"/api/reports/throughput\",\"query\":\{\"range\":\"90d\"\},\"latencyMs\":1200\}\]\} --session upd-c
+rules[1]:
+  - {method:GET,path:/api/reports/throughput,query:{range:90d},latencyMs:1200,status:null,times:null,hits:0}
+[exit 0]
+
+$ npx genie-react call timeline_start \{\"name\":\"switch\ 90d\ then\ 7d\",\"queryValues\":\"plain\"\} --session upd-c --select /id
+status: ok
+selection: {expression:/id,matchedPathCount:1,matchedPaths:[/id],omittedPathCount:25}
+result: timeline-c2f65f5f-cd35-4781-9d83-afb2876b4ea2
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 90\ days
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-c find role button click --name Last\ 7\ days
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce \{\"idleMs\":800,\"timeoutMs\":10000\} --session upd-c --select /outcome
+status: ok
+selection: {expression:/outcome,matchedPathCount:1,matchedPaths:[/outcome],omittedPathCount:14}
+result: idle
+[exit 0]
+
+$ npx genie-react call timeline_stop \{\"id\":\"timeline-c2f65f5f-cd35-4781-9d83-afb2876b4ea2\"\} --session upd-c --select /ok
+error invalid_input: Tool call failed. --select /ok matched no paths. details.selection.available lists the result's top-level paths. Correct --select and retry.
+next: $ npx genie-react tools timeline_stop --session upd-c
+userActionRequired: true
+errorCode: invalid-input
+details:
+  selection:
+    expression: /ok
+    available: [/clock,/correlation,/coverage,/durationMs,/eventCount,/genieRequestsExcluded,/id,/maxDurationMs,/maxEvents,/name,/ordering,/queryValues,/state,/stopReason,/truncated]
+exit: {code:1,class:failure}
+[exit 1]
+
+# timeline_stop stopped the timeline; only the --select path was wrong (timeline_read below reports state: stopped, stopReason: manual)
+
+$ npx genie-react call timeline_read '{"id":"timeline-c2f65f5f-cd35-4781-9d83-afb2876b4ea2","limit":500}' --json --max-bytes 20000000 --session upd-c
+{"id":"timeline-c2f65f5f-cd35-4781-9d83-afb2876b4ea2","name":"switch 90d then 7d","state":"stopped","stopReason":"manual","durationMs":6585.6,"maxEvents":1000,"maxDurationMs":30000,"eventCount":19,"truncated":false,"correlation":"temporal-only","clock":"performance.now","ordering":"observation-time-then-sequence","coverage":{"request":{"status":"available","code":"resource-timing-and-fetch"},"query":{"status":"unavailable","code":"no-query-client"},"react":{"status":"available","code":"react-root-commits"},"navigation":{"status":"unavailable","code":"no-tanstack-router"}},"queryValues":"plain","genieRequestsExcluded":29,"events":[{"sequence":1,"domain":"react","type":"commit","atMs":35.1,"details":{"rendererId":1,"renderDurationMs":1.1,"renderDurationUnavailable":null,"documentCommitId":18}},{"sequence":2,"domain":"react","type":"commit","atMs":35.8,"details":{"rendererId":1,"renderDurationMs":0.1,"renderDurationUnavailable":null,"documentCommitId":19}},{"sequence":3,"domain":"react","type":"commit","atMs":67.4,"details":{"rendererId":1,"renderDurationMs":1,"renderDurationUnavailable":null,"documentCommitId":20}},{"sequence":4,"domain":"react","type":"commit","atMs":67.9,"details":{"rendererId":1,"renderDurationMs":0.1,"renderDurationUnavailable":null,"documentCommitId":21}},{"sequence":5,"domain":"request","type":"completed","atMs":95.1,"details":{"url":"http://127.0.0.1:5233/api/reports/cycle-time","query":"?project=CORE&range=90d","initiatorType":"fetch","startMs":31.2,"endMs":94,"durationMs":62.8,"startedBeforeRecording":false,"detailedTimingAvailable":true,"responseStatus":200,"responseReceived":true,"method":"GET","outcome":"response","bodyReadMs":94.9,"overlappingSameEndpoint":1,"finishedAfterNewer":false,"bodyReadLast":false}},{"sequence":6,"domain":"request","type":"completed","atMs":95.1,"details":{"url":"http://127.0.0.1:5233/api/reports/workload","query":"?project=CORE","initiatorType":"fetch","startMs":31.2,"endMs":94.1,"durationMs":62.9,"startedBeforeRecording":false,"detailedTimingAvailable":true,"responseStatus":200,"responseReceived":true,"method":"GET","outcome":"response","bodyReadMs":95.2,"overlappingSameEndpoint":1,"finishedAfterNewer":false,"bodyReadLast":false}},{"sequence":7,"domain":"request","type":"completed","atMs":128.2,"details":{"url":"http://127.0.0.1:5233/api/reports/throughput","query":"?project=CORE&range=7d","initiatorType":"fetch","startMs":64.7,"endMs":127.8,"durationMs":63.1,"startedBeforeRecording":false,"detailedTimingAvailable":true,"responseStatus":200,"responseReceived":true,"method":"GET","outcome":"response","bodyReadMs":128.2,"overlappingSameEndpoint":1,"finishedAfterNewer":false,"bodyReadLast":false}},{"sequence":8,"domain":"request","type":"completed","atMs":128.4,"details":{"url":"http://127.0.0.1:5233/api/reports/cycle-time","query":"?project=CORE&range=7d","initiatorType":"fetch","startMs":64.8,"endMs":128,"durationMs":63.2,"startedBeforeRecording":false,"detailedTimingAvailable":true,"responseStatus":200,"responseReceived":true,"method":"GET","outcome":"response","bodyReadMs":128.4,"overlappingSameEndpoint":1,"finishedAfterNewer":false,"bodyReadLast":true}},{"sequence":9,"domain":"react","type":"commit","atMs":158.2,"details":{"rendererId":1,"renderDurationMs":0.9,"renderDurationUnavailable":null,"documentCommitId":22}},{"sequence":10,"domain":"request","type":"completed","atMs":158.9,"details":{"url":"http://127.0.0.1:5233/api/reports/workload","query":"?project=CORE","initiatorType":"fetch","startMs":64.8,"endMs":154.8,"durationMs":90,"startedBeforeRecording":false,"detailedTimingAvailable":true,"responseStatus":200,"responseReceived":true,"method":"GET","outcome":"response","bodyReadMs":155.2,"overlappingSameEndpoint":1,"finishedAfterNewer":false,"bodyReadLast":true}},{"sequence":11,"domain":"react","type":"commit","atMs":382.9,"details":{"rendererId":1,"renderDurationMs":0.1,"renderDurationUnavailable":null,"documentCommitId":23}},{"sequence":12,"domain":"react","type":"commit","atMs":1295.6,"details":{"rendererId":1,"renderDurationMs":1.1,"renderDurationUnavailable":null,"documentCommitId":24}},{"sequence":13,"domain":"request","type":"completed","atMs":1296.3,"details":{"url":"http://127.0.0.1:5233/api/reports/throughput","query":"?project=CORE&range=90d","initiatorType":"fetch","startMs":31.1,"endMs":1292.1,"durationMs":1261,"startedBeforeRecording":false,"detailedTimingAvailable":true,"responseStatus":200,"responseReceived":true,"method":"GET","outcome":"response","bodyReadMs":1292.5,"overlappingSameEndpoint":1,"finishedAfterNewer":true,"bodyReadLast":true}},{"sequence":14,"domain":"react","type":"commit","atMs":1384.4,"details":{"rendererId":1,"renderDurationMs":0.1,"renderDurationUnavailable":null,"documentCommitId":25}},{"sequence":15,"domain":"react","type":"commit","atMs":2385.9,"details":{"rendererId":1,"renderDurationMs":0.1,"renderDurationUnavailable":null,"documentCommitId":26}},{"sequence":16,"domain":"react","type":"commit","atMs":3383.9,"details":{"rendererId":1,"renderDurationMs":0.2,"renderDurationUnavailable":null,"documentCommitId":27}},{"sequence":17,"domain":"react","type":"commit","atMs":4383.6,"details":{"rendererId":1,"renderDurationMs":0.1,"renderDurationUnavailable":null,"documentCommitId":28}},{"sequence":18,"domain":"react","type":"commit","atMs":5386.2,"details":{"rendererId":1,"renderDurationMs":0.2,"renderDurationUnavailable":null,"documentCommitId":29}},{"sequence":19,"domain":"react","type":"commit","atMs":6385,"details":{"rendererId":1,"renderDurationMs":0.1,"renderDurationUnavailable":null,"documentCommitId":30}}],"matchedEventCount":19,"nextOffset":null}
+
+[exit 0]
+
+# summary printed by python over that JSON, throughput requests only (method, query, responseStatus, startMs, endMs, finishedAfterNewer, bodyReadLast):
+{"method":"GET","query":"?project=CORE&range=7d","responseStatus":200,"startMs":64.7,"endMs":127.8,"finishedAfterNewer":false,"bodyReadLast":false}
+{"method":"GET","query":"?project=CORE&range=90d","responseStatus":200,"startMs":31.1,"endMs":1292.1,"finishedAfterNewer":true,"bodyReadLast":true}
+
+$ npx genie-react call app_backend_faults \{\"rules\":\[\]\} --session upd-c
+rules: []
+[exit 0]
+```

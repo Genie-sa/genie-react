@@ -1,15 +1,15 @@
 ---
 title: We planted 15 bugs in a legacy React and Redux app. Here's what an agent could prove
-description: Genie's evidence proved 11 of 15 seeded bugs and showed only the symptom for 4. verify turned fail into pass for 10 fixes and had no claim for the other 5.
+description: Genie's evidence proved 11 of 15 seeded bugs and showed only the symptom for 4. verify turned fail into pass for 11 fixes and had no claim for the other 4.
 ---
 
-Genie's evidence proved the defect for 11 of the 15 bugs seeded in our legacy React and Redux app, and showed only the symptom for the other 4. `genie-react verify` went from `fail` to `pass` for 10 of the reference fixes. The other 5 bugs live in requests, a Suspense boundary, a class timer or misplaced component state, which no `verify` claim can express, so a repeated tool read proved those fixes instead.
+Genie's evidence proved the defect for 11 of the 15 bugs seeded in our legacy React and Redux app, and showed only the symptom for the other 4. `genie-react verify` went from `fail` to `pass` for 11 of the reference fixes. The other 4 bugs live in requests, a class timer or misplaced component state, which no `verify` claim can express, so a repeated tool read proved those fixes instead.
 
 ## The app and the run
 
 `apps/realworld-legacy` is a project tracker written the way a 2019 codebase looks today. It runs React 18.3 in `StrictMode`, webpack 5 with Babel, Redux Toolkit 1.9 beside hand-written reducers and thunks, `connect()` class components, reselect and RTK Query. Its answer key in `evals/realworld/legacy` lists 15 bugs, each with a user's symptom, the cause, a reference fix, and a grade for what Genie can show. The grade is `full` when Genie's tools prove the defect and `partial` when they show the symptom but not the cause.
 
-Every command ran on 2026-11-19 against commit `6867352`. The dev server ran on port 5211 with its own hub on 15212:
+The first pass ran on 2026-11-19 against commit `6867352` with Genie 1.0.2. The dev server ran on port 5211 with its own hub on 15212:
 
 ```bash
 GENIE_HUB_PORT=15212 npx genie-react hub --port 15212
@@ -26,6 +26,8 @@ domains: [session,react,memory,perf,timeline,redux,app]
 
 For each bug we drove the symptom with [agent-browser](https://github.com/vercel-labs/agent-browser), read Genie's evidence, ran `verify` where a claim fit, applied the answer key's fix, ran it again, and reverted with git. Output below is trimmed to the fields shown, and the full log is in the [evidence file](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/we-planted-15-bugs-in-a-legacy-react-app.md).
 
+Later the same day, we ran the rows that Genie 1.1.0 changes again, against commit `ce408cb` with Genie 1.1.0, on port 5233 with a hub on 15233. Those are `feature-flags-provider-value`, `title-draft-reset`, `report-range-race`, `lazy-route-blank-shell` and `board-column-selector-cache`. The table and the sections below show the 1.1.0 results for them.
+
 ## The scorecard
 
 | Bug | Symptom | Genie evidence that names the cause | Evidence | `verify` before, after |
@@ -34,30 +36,38 @@ For each bug we drove the symptom with [agent-browser](https://github.com/vercel
 | `project-nav-store-updates` | Sidebar project list re-renders while typing in the filter | `props exact projects {referenceOnly:true}`, `necessity:unnecessary`, store action `issues/filtersChanged` | full | fail 5, pass 0 |
 | `feature-flags-provider-value` | Collapsing the sidebar re-renders every board card | `context exact Context(FeatureFlagsProvider)`, changed field `/isEnabled` | full | fail 840 `FeatureGate` and 420 `PriorityPicker` renders, pass 0 |
 | `activity-refetch-on-typing` | Each keystroke in a comment fetches activity | `react_effect_audit` shows the `useActivity` effect re-ran 10 times on a new array with equal contents, plus 10 `GET …/activity` requests | full | fail 10 effect runs, pass 0 |
-| `title-draft-reset` | Unsaved title edit lost after commenting | `this.state.draft` set in `IssueTitleEditor.componentDidUpdate`, line 22, `phase:lifecycle`, exact | full | fail 2 renders, pass 1 |
+| `title-draft-reset` | Unsaved title edit lost after commenting | `this.state.draft` set in `IssueTitleEditor.componentDidUpdate`, line 22, `phase:lifecycle`, exact | full | `only props.issue` fail on a `this.state.draft` render, pass |
 | `report-notes-mutation` | Added notes do not appear | `redux_actions` shows `NOTE_ADDED` with `rootStateChanged:false` and a mutation at `[reports,notes]` | full | fail 0 renders, pass 1 |
 | `cycle-time-empty-range` | A Reports widget is missing for Documentation | `react_error_state` shows `WidgetBoundary` caught a `toFixed` error from `CycleTimeWidget` and renders nothing | full | fail, pass |
 | `comment-edit-follows-index` | Edit box jumps to another comment | `react_inspect_component` shows `isEditing:true` and the typed draft on the new comment `c-new-1` | full | no claim fits |
 | `search-stale-query` | Global search ignores what you type | The request lane shows `GET /api/search` with `query:null` while the box holds "webhook" | full | no claim fits |
-| `report-range-race` | "Last 7 days" selected, 90-day data shown | The request lane marks the `range=90d` request `finishedAfterNewer:true`, and `redux_actions` shows the last `reports/RECEIVED` came from the 90d thunk | full | no claim fits |
-| `lazy-route-blank-shell` | Whole screen blanks while a route loads | `react_suspense` shows the only boundary in `fallback` at `app.tsx:19`, above the shell | full | no claim fits |
+| `report-range-race` | "Last 7 days" selected, 90-day data shown | The request lane marks the `range=90d` request `finishedAfterNewer:true`, `redux_actions` shows the last `reports/RECEIVED` came from the 90d thunk, and `react_inspect_component` shows `ThroughputWidget` holding the 90d report | full | no claim fits |
+| `lazy-route-blank-shell` | Whole screen blanks while a route loads | `react_suspense` shows the only boundary in `fallback` at `app.tsx:19`, above the shell | full | `suspense TopBar hidden max 0` fail 1 hide, pass 0 |
 | `account-menu-selector` | Avatar menu re-renders on every keystroke | `external-store inferred`, equal values before and after, `deepDiff` reference-only, `selector:null` | partial | fail 5, pass 0 |
-| `board-column-selector-cache` | All five board columns redraw on a sidebar toggle | Four columns `external-store inferred` with a reference-only change, one column `unknown` | partial | fail 5, pass 0 |
+| `board-column-selector-cache` | All five board columns redraw on a sidebar toggle | All five columns `external-store inferred` with a reference-only change | partial | fail 5, pass 0 |
 | `issue-table-selector-recompute` | Typing a saved-view name lags | `IssueTable` rendered 4 times for 4 keystrokes, `props exact rows {referenceOnly:true}` | partial | fail 4, pass 0 |
 | `poller-after-sign-out` | 401s from signed-out browsers | The request lane shows 12 `GET /api/notifications` answered 401 within 6 s of `DELETE /api/session`, in pairs | partial | no claim fits |
 
-The `full` and `partial` grades are the answer key's. Our runs matched them.
+The `full` and `partial` grades are the answer key's. Our runs matched them. Three Genie 1.0.2 bugs from the first pass are fixed in 1.1.0: a refused `only` claim on the `connect()`-wrapped title editor, stale props from `react_inspect_component` during the race, and an `instances:200` label on the 840 gates.
 
 ## What full evidence looks like
 
 Full evidence points at a line of code or a specific value. For the lost title draft, `react_render_causes` with `"appOnly":false,"view":"full"` showed the second render and the `setState` that caused it (jq summary of the JSON output):
 
 ```text
-{"commit":33,"causes":[{"kind":"state","evidence":"exact","name":"this.state.draft","classUpdates":[{"fields":["draft"],"phase":"lifecycle","evidence":"exact","caller":{"functionName":"IssueTitleEditor.componentDidUpdate","file":"issue-title-editor.tsx","line":22}}]}]}
-{"commit":32,"causes":[{"kind":"parent","evidence":"inferred","name":null,"classUpdates":null},{"kind":"props","evidence":"exact","name":"issue","classUpdates":null}]}
+{"commit":32,"causes":[{"kind":"state","evidence":"exact","name":"this.state.draft","classUpdates":[{"fields":["draft"],"phase":"lifecycle","evidence":"exact","caller":{"functionName":"IssueTitleEditor.componentDidUpdate","file":"issue-title-editor.tsx","line":22}}]}]}
+{"commit":31,"causes":[{"kind":"parent","evidence":"inferred","name":null,"classUpdates":null},{"kind":"props","evidence":"exact","name":"issue","classUpdates":null}]}
 ```
 
-Commit 32 delivered a refetched `issue` object. Commit 33 overwrote the draft from `componentDidUpdate`. Line 22 is the reset.
+Commit 31 delivered a refetched `issue` object. Commit 32 overwrote the draft from `componentDidUpdate`. Line 22 is the reset.
+
+The claim `render IssueTitleEditor only props.issue` failed on that `this.state.draft` render. After the fix, the one render left had an exact `props.issue` cause and an inferred `parent` cause. The parent is the `Connect(IssueTitleEditor)` wrapper, which rendered only for `props.issue`, so Genie settled that cause and the claim passed:
+
+```text
+pass vfy_38a5cb00-896d-498f-a01a-4005b2859d32 "post a comment while renaming"  9 commits, quiet after 949 ms (react)
+  1 pass render IssueTitleEditor only props.issue  {renders:1,events:1,violatingEvents:0,causes:[parent,props.issue]}
+      deciding: [{kind:render-event,renderEventId:render:31:273,documentCommitId:31,mountId:mount:1,causes:[{cause:parent,evidence:inferred},{cause:props.issue,evidence:exact}],wrappedBy:{component:"Connect(IssueTitleEditor)",causes:[props.issue]}}]
+```
 
 For the missing note, Genie's Redux collector caught a reducer that mutated state and returned the same object:
 
@@ -77,25 +87,30 @@ Partial evidence tells you which component rendered and why it looked unnecessar
 
 That is enough to look for a `useSelector` that builds a new object. It is not the line. The board columns and the issue table stop at the same place, because the waste happens inside a reselect selector during the store notification, before any component renders. The leaked poller is a class `setInterval`, which the effect tools do not observe, so the only trace is the 401 traffic after sign-out.
 
+## A claim for the blank shell
+
+A Suspense fallback hides components without rendering them, so a render count cannot catch the blank shell. The claim `suspense TopBar hidden max 0` can. With the settings chunk delayed by 2.5 seconds, clicking **Settings** in the sidebar failed it:
+
+```text
+fail vfy_3ed777a2-74b7-4cea-8f43-85bc9d7e8892 "open Settings from the sidebar"  12 commits, quiet after 1101 ms (react)
+  1 fail suspense TopBar hidden max 0  {hidden:1,hidesInWindow:1}
+      deciding: [{kind:suspense-hide,hideId:hide:18:1,documentCommitId:18,boundary:Suspense,boundaryId:3555310174220}]
+```
+
+The fix adds a boundary inside `AppShell`, around `<Outlet />`. The same click then passed with `{hidden:0,hidesInWindow:1}`. The one hide in that window came from the new boundary, which replaced the page and left the top bar on screen. The driver agreed: `agent-browser is visible .top-bar` returned `false` during the load before the fix and `true` after.
+
 ## Where verify has no claim
 
-`verify` decides claims about render counts, render causes, effect runs and error boundaries. Five bugs fall outside that. For each one we repeated the same tool read after the fix:
+`verify` decides claims about render counts, render causes, effect runs, error boundaries and Suspense fallbacks. Four bugs fall outside that. For each one we repeated the same tool read after the fix:
 
 - In `comment-edit-follows-index`, `isEditing:true` stayed on `c-CORE-12-3`, the comment the user was editing.
 - In `search-stale-query`, the request carried `?q=webhook`, and the results read "93 matching issues" instead of 3240.
-- In `report-range-race`, the store's throughput range stayed `7d`, and the widget read "9 completed" instead of 33.
-- In `lazy-route-blank-shell`, the boundary in `fallback` moved to `app-shell.tsx:30`, and `agent-browser is visible .top-bar` returned `true` during the load.
+- In `report-range-race`, the store's throughput range stayed `7d`, `react_inspect_component` read `range:"7d"` on `ThroughputWidget`, and the widget read "9 completed" instead of 33.
 - In `poller-after-sign-out`, no request to `/api/notifications` followed `DELETE /api/session`.
 
 These reads are evidence, but no exit code decides them. An agent has to compare them itself.
 
-## What Genie got wrong
-
-Know three things before you trust the table.
-
-- After the title fix, the claim `render IssueTitleEditor only props.issue` was refused with exit 4. The one render had an exact `props.issue` cause and an inferred `parent` cause from its `connect()` wrapper, and the refusal fix said only `change-claim`. We switched to `render IssueTitleEditor max 1`, which failed at 2 renders before the fix and passed at 1 after.
-- In one of two race runs, `react_inspect_component` on `ThroughputWidget` returned `range:"7d"` in four of five reads, while the DOM's `data-range` and the store both said `90d`. We left that tool out of the race evidence and used the request lane and `redux_actions`.
-- On the board, the passing `FeatureGate` claim reported `instances:200` for 840 mounted gates. Before the fix, the same claim counted 840 renders, so the render count is not limited to 200. The `instances` label is still wrong.
+`verify` waits for the app's in-flight requests only when the app registers `requestWatchCollector`. This app lists its Genie collectors by hand without it, so its `verify` windows settle on React alone and do not wait for the slow 90-day request.
 
 ## When this approach does not fit
 
