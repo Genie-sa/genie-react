@@ -146,7 +146,7 @@ describe('commands built from a stored verdict', () => {
     ).toBeUndefined()
   })
 
-  it('adds each refusal its fix and points the evidence command at the first claim that did not pass', () => {
+  it('adds each refusal its fix and points the evidence command at the first claim with the run verdict', () => {
     const document = withNextCommands(verdict(), 'my-agent') as {
       claims: { refusal?: { next?: { argv: string[] } } }[]
       next: { argv: string[] }
@@ -161,6 +161,56 @@ describe('commands built from a stored verdict', () => {
       '1',
       '--session',
       'my-agent',
+    ])
+  })
+
+  it('points the evidence command at the failed claim that decided the verdict, past a refused one', () => {
+    const [refused, passed] = verdict().claims as Record<string, unknown>[]
+    const document = withNextCommands(
+      verdict({
+        verdict: 'fail',
+        exitCode: 1,
+        claims: [
+          { ...passed, index: 1 },
+          { ...refused, index: 2 },
+          { ...passed, index: 3 },
+          { ...passed, index: 4, verdict: 'fail' },
+        ],
+      }),
+      undefined,
+    ) as { next: { argv: string[] } }
+
+    expect(tail(document.next.argv)).toEqual(['verify', 'show', ID, '--claim', '4'])
+  })
+
+  it('adds the begin that repeats a run with the budget a lower-bound count names', () => {
+    const [, passed] = verdict().claims as Record<string, unknown>[]
+    const document = withNextCommands(
+      verdict({
+        verdict: 'fail',
+        exitCode: 1,
+        claims: [
+          {
+            ...passed,
+            verdict: 'fail',
+            observed: {
+              renders: 37,
+              semantics: 'lower-bound',
+              budgetAdvice: {
+                exhaustedLimits: ['targetOperationReserve'],
+                suggestedBudget: { targetOperationReserve: 92000, targetTimeReserveMs: 92 },
+              },
+            },
+          },
+        ],
+      }),
+      'my-agent',
+    ) as { claims: { observed: { budgetAdvice: { next?: { argv: string[] } } } }[] }
+
+    const argv = document.claims[0]?.observed.budgetAdvice.next?.argv ?? []
+    expect(argv.slice(argv.indexOf('--budget'), argv.indexOf('--budget') + 2)).toEqual([
+      '--budget',
+      '{"targetOperationReserve":92000,"targetTimeReserveMs":92}',
     ])
   })
 
@@ -187,6 +237,39 @@ describe('verdict text', () => {
     expect(
       lines.some((line) => line.startsWith('      fix: $ ') && line.includes('--budget')),
     ).toBe(true)
+  })
+
+  it('prints a lower-bound count budget advice and its begin command below the claim', () => {
+    const [, passed] = verdict().claims as Record<string, unknown>[]
+    const lines = renderVerificationText(
+      withNextCommands(
+        verdict({
+          verdict: 'fail',
+          exitCode: 1,
+          claims: [
+            {
+              ...passed,
+              verdict: 'fail',
+              observed: {
+                renders: 37,
+                semantics: 'lower-bound',
+                budgetAdvice: {
+                  exhaustedLimits: ['targetOperationReserve'],
+                  suggestedBudget: { targetOperationReserve: 92000 },
+                },
+              },
+            },
+          ],
+        }),
+        undefined,
+      ),
+    ).split('\n')
+
+    expect(lines.slice(1, 4)).toEqual([
+      '  2 fail render OrdersTable min 1  {renders:37,semantics:lower-bound}',
+      '      budgetAdvice: {exhaustedLimits:[targetOperationReserve],suggestedBudget:{targetOperationReserve:92000}}',
+      expect.stringMatching(/^ {6}exact: \$ .*verify begin .*--budget /),
+    ])
   })
 
   it('marks the claims of a recording window as not decided yet', () => {

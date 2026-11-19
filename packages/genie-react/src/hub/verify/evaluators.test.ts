@@ -89,6 +89,34 @@ describe('renders decision table', () => {
     })
   })
 
+  it('names the budget that would make a decided lower-bound count exact', () => {
+    const budgetAdvice = {
+      exhaustedLimits: ['targetOperationReserve'],
+      suggestedBudget: { targetOperationReserve: 92_000, targetTimeReserveMs: 92 },
+    }
+    const reserveRanOut = withCoverage({
+      complete: false,
+      semantics: 'lower-bound',
+      budgetExhaustedCommits: 1,
+      budgetAdvice,
+    })
+    reserveRanOut.targets = windowEvidence([
+      targetEvidence({ records: [rendered({ renders: 37 })] }),
+    ]).targets
+
+    expect(outcome(badgeMax0, reserveRanOut)).toMatchObject({
+      verdict: 'fail',
+      observed: { renders: 37, semantics: 'lower-bound', budgetAdvice },
+    })
+    expect(outcome(badgeMin1, reserveRanOut)).toMatchObject({
+      verdict: 'pass',
+      observed: { semantics: 'lower-bound', budgetAdvice },
+    })
+    expect(outcome({ ...badgeMax0, max: 40 }, reserveRanOut).observed).not.toHaveProperty(
+      'budgetAdvice',
+    )
+  })
+
   it('fails min N only on an exact count below N', () => {
     expect(verdictOf(badgeMin1, windowEvidence())).toBe('fail')
     expect(

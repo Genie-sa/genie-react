@@ -131,3 +131,20 @@ describe('render budget on a tree larger than the default fiber limit', () => {
     expect(retried.coverage).toMatchObject({ complete: true, skippedCommitFibers: 0 })
   })
 })
+
+describe('render budget when the target reserve runs out', () => {
+  it('names the target reserve and suggests one that counts every targeted row on the next capture', async () => {
+    await call('react_clear_renders', { component: ['Row'], budget: { adaptive: false } })
+
+    const lossy = await rerenderAndReadCauses()
+
+    expect(lossy.coverage.budgetAdvice?.exhaustedLimits).toEqual(['targetOperationReserve'])
+    const suggestedBudget = lossy.coverage.budgetAdvice?.suggestedBudget ?? {}
+    await call('react_clear_renders', {
+      component: ['Row'],
+      budget: { ...suggestedBudget, adaptive: false },
+    })
+    const retried = await rerenderAndReadCauses()
+    expect(retried.coverage).toMatchObject({ complete: true, skippedCommitFibers: 0 })
+  })
+})

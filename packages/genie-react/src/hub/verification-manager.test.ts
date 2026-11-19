@@ -783,6 +783,28 @@ describe('verify on a real React tree', () => {
     })
   })
 
+  it('lists a refusal reason once when several claims refused for it', async () => {
+    const app = await mount(createElement(SearchScreen, { fixed: false }))
+    start()
+    const claims: VerifyClaimInput[] = [
+      { kind: 'renders', target: { component: 'StatusBadgeRenamed' }, max: 0 },
+      { kind: 'renders', target: { component: 'SearchScreenRenamed' }, min: 1 },
+    ]
+    const refused = await begin(claims)
+    await typeTwice(app.container)
+    expect((await end(refused.verificationId)).verdict).toBe('refused')
+    const rerun = await begin(claims)
+    await typeTwice(app.container)
+
+    expect((await end(rerun.verificationId)).ledger.history).toEqual([
+      expect.objectContaining({
+        verificationId: refused.verificationId,
+        verdict: 'refused',
+        reasons: ['target_not_found'],
+      }),
+    ])
+  })
+
   it('records only the reasons behind a run verdict, not another claim refusal', async () => {
     const app = await mount(createElement(SearchScreen, { fixed: false }))
     start()

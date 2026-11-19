@@ -178,9 +178,24 @@ export function withNextCommands(document: unknown, session: string | undefined)
     const next = fixCommand(refusal.fix as VerifyFix, document, session)
     return next ? { ...refusal, next } : refusal
   }
+  const withRerun = (observed: unknown) => {
+    if (!isRecord(observed) || !isRecord(observed.budgetAdvice)) return observed
+    const { suggestedBudget } = observed.budgetAdvice
+    if (!isRecord(suggestedBudget)) return observed
+    const next = beginAgainCommand(document, session, {
+      budget: suggestedBudget as Record<string, number>,
+    })
+    return next ? { ...observed, budgetAdvice: { ...observed.budgetAdvice, next } } : observed
+  }
   const claims = Array.isArray(document.claims)
     ? document.claims.map((claim) =>
-        isRecord(claim) && claim.refusal ? { ...claim, refusal: withFix(claim.refusal) } : claim,
+        isRecord(claim)
+          ? {
+              ...claim,
+              ...(claim.refusal ? { refusal: withFix(claim.refusal) } : {}),
+              ...(claim.observed === undefined ? {} : { observed: withRerun(claim.observed) }),
+            }
+          : claim,
       )
     : document.claims
   const window = isRecord(document.window)
@@ -199,7 +214,7 @@ export function withNextCommands(document: unknown, session: string | undefined)
     document.state === 'recording'
       ? endCommand(id, session)
       : document.state === 'completed'
-        ? showCommand(id, session, firstNotPassing(claims))
+        ? showCommand(id, session, decidingClaim(claims, document.verdict))
         : undefined
   return {
     ...document,
@@ -209,10 +224,11 @@ export function withNextCommands(document: unknown, session: string | undefined)
   }
 }
 
-function firstNotPassing(claims: unknown): number | undefined {
-  if (!Array.isArray(claims)) return undefined
-  const failing = claims.find((claim) => isRecord(claim) && claim.verdict !== 'pass')
-  return isRecord(failing) && typeof failing.index === 'number' ? failing.index : undefined
+/** The first claim whose verdict is the run's: a failed claim outranks a refused one, so it is the evidence worth reading. */
+function decidingClaim(claims: unknown, verdict: unknown): number | undefined {
+  if (!Array.isArray(claims) || verdict === 'pass') return undefined
+  const deciding = claims.find((claim) => isRecord(claim) && claim.verdict === verdict)
+  return isRecord(deciding) && typeof deciding.index === 'number' ? deciding.index : undefined
 }
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
@@ -282,6 +298,16 @@ function reasonLines(reason: Record<string, unknown>, indent: string): string[] 
   ]
 }
 
+/** The budget a lower-bound count names, then the begin that repeats the run with it. */
+function budgetAdviceLines(advice: unknown, indent: string): string[] {
+  if (!isRecord(advice)) return fieldLines('budgetAdvice', advice, 2, indent)
+  const { next, ...rest } = advice
+  return [
+    ...fieldLines('budgetAdvice', rest, 2, indent),
+    ...(next === undefined ? [] : fieldLines('exact', next, 2, indent)),
+  ]
+}
+
 /** One line per claim; a claim the window has not decided yet shows the document state in place of its verdict. */
 function claimLines(claims: unknown, state: unknown): string[] {
   if (!Array.isArray(claims)) return []
@@ -291,7 +317,9 @@ function claimLines(claims: unknown, state: unknown): string[] {
     const index = scalarText(claim.take('index'))
     const verdict = claim.take('verdict')
     const text = proseText(String(claim.take('text') ?? ''))
-    const observed = claim.take('observed')
+    const measured = claim.take('observed')
+    const { budgetAdvice, ...counts } = isRecord(measured) ? measured : {}
+    const observed = budgetAdvice === undefined ? measured : counts
     const reason = [claim.take('refusal'), claim.take('inconclusive')].find(isRecord)
     const detail = reason
       ? `  ${scalarText(reason.reason)}: ${proseText(String(reason.message ?? ''))}`
@@ -303,6 +331,7 @@ function claimLines(claims: unknown, state: unknown): string[] {
       if (observed !== undefined) lines.push(`      observed: ${flowText(observed)}`)
       lines.push(...reasonLines(reason, '      '))
     }
+    if (budgetAdvice !== undefined) lines.push(...budgetAdviceLines(budgetAdvice, '      '))
     const { caveats, ...rest } = claim.rest()
     if (caveats !== undefined && (!Array.isArray(caveats) || caveats.length > 0))
       rest.caveats = caveats
