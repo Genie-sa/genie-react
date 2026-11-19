@@ -1186,7 +1186,9 @@ export async function runTools(
   const { link } = connection
   try {
     const toolsWaitMs = opts.waitMs ?? 12_000
-    const pinned = await targetWithin(connection, toolsWaitMs)
+    const target = await targetWithin(connection, toolsWaitMs)
+    const pinned = target?.sessionId
+    const hintSession = target?.requested ?? pinned
     // The broadcast status only carries the current session's catalog; a pinned session must ask the bridge for its own.
     const status = pinned
       ? await link.invoke(devtoolsStatusContract, { includeTools: true })
@@ -1221,7 +1223,7 @@ export async function runTools(
     }
 
     const detail = (tool: ToolDescriptor) =>
-      toolDetail(tool, opts.outputSchema, toolHelpNext(tool.name, pinned, ['--output-schema']))
+      toolDetail(tool, opts.outputSchema, toolHelpNext(tool.name, hintSession, ['--output-schema']))
 
     if (selector) {
       const selection = resolveToolsSelector(tools, selector)
@@ -1245,8 +1247,8 @@ export async function runTools(
               userActionRequired: true,
               errorCode: 'unknown-tool',
               next:
-                (suggestion && toolHelpNext(suggestion, pinned)) ||
-                withSession(nextCommand('tools'), pinned),
+                (suggestion && toolHelpNext(suggestion, hintSession)) ||
+                withSession(nextCommand('tools'), hintSession),
               ...(suggestions.length > 0 ? { details: { suggestions } } : {}),
             },
           )
@@ -1333,19 +1335,16 @@ function reportAnsweringTab(link: GenieAgentLink, { session, retargeted }: Answe
 }
 
 /** The pinned target, or undefined when the hub has not greeted within `waitMs`; the tools wait that follows reports why. */
-async function targetWithin(connection: Connection, waitMs: number): Promise<string | undefined> {
+async function targetWithin(
+  connection: Connection,
+  waitMs: number,
+): Promise<TabTarget | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const expired = new Promise<undefined>((resolve) => {
     timer = setTimeout(() => resolve(undefined), waitMs)
   })
   try {
-    return await Promise.race([
-      connection.target().then(
-        (target) => target.sessionId,
-        () => undefined,
-      ),
-      expired,
-    ])
+    return await Promise.race([connection.target().catch(() => undefined), expired])
   } finally {
     clearTimeout(timer)
   }
