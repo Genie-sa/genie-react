@@ -1,5 +1,17 @@
 # genie-react
 
+## 1.1.1
+
+### Patch Changes
+
+- 07743df: A bundled client that listed its collectors by hand, as the install guide showed, left out `requestWatchCollector` and `visibilityCollector`, so `verify` could not wait for the app's requests and reported the URL the app connected on instead of the current page. `genie-react/collectors` now exports `defaultAppCollectors({ queryClient, router, reduxStore })`, the same list `<Genie />` registers, and the install guide spreads it into `createGenieClient`, so a hand-built client picks up new default collectors when it upgrades.
+- 1b84d91: `react_render_causes` keeps the newest 1,000 render events, and a busy page could evict the render you asked about even after `react_clear_renders` named that component: one keystroke that re-rendered a 100-row table pushed out `AccountMenu`'s first render. The read reported `complete: false` with no reason. Now the newest 500 events of the components a window names are evicted only after every other component's. Any read that lost events lists a `render-events-evicted` entry in `coverage.incompleteBecause`, saying how many of the evicted events belonged to the components it selects, naming them, and giving the next step.
+- 1b84d91: `react_suspense` stack frames and blocker locations from a Vite app lost their `/src` prefix when the file sat in a short directory such as `src/lib` or `src/api`: a fetch awaited in `src/lib/orders.ts` was reported at `/lib/orders.ts:4`. Genie now keeps the path the dev server serves, as it already did for hook and effect sources.
+- 0e36fbf: When a `verify` run had a refused claim before a failed one, its `evidence:` command pointed at the refused claim, though the failed claim decided the `fail` verdict. The command now opens the first claim whose verdict matches the run's.
+- 0e36fbf: The `verify` rerun history listed a refusal reason once per claim that refused for it, as in `previous refused vfy_… (not_quiescent, not_quiescent)`. Each reason now appears once, in the text line and in `ledger.history[].reasons`.
+- 0e36fbf: A `render` claim that passed or failed on a lower-bound count, because an analysis budget such as the target reserve ran out, gave no way to get the exact count. On a board with 840 instances, `render FeatureGate max 0` reported `renders:37` and did not say which limit to raise. The claim now carries `observed.budgetAdvice` with the limits that ran out and a budget sized from what the window saw, and the CLI prints an `exact: $ verify begin … --budget …` line that repeats the run with it.
+- 07743df: `verify begin --domains` accepted a settle domain the app does not report, such as `network` without `requestWatchCollector`, and `verify end` then refused with "did not settle within the timeout" after a few milliseconds, though no timeout ran out. `verify begin` now refuses every claim at once with `capability_unavailable` (exit 4), naming the missing domain and the collector that adds it. When a settle domain cannot be observed during the window, the refusal and the `! not-settled` caveat say Genie could not observe whether the app settled, the verdict line reads `settle not observed after <n> ms (network unsupported)`, and the fix runs `doctor --live` instead of raising the timeout.
+
 ## 1.1.0
 
 ### Minor Changes

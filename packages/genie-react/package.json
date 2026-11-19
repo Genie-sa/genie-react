@@ -1,6 +1,6 @@
 {
   "name": "genie-react",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "type": "module",
   "description": "Let your coding agent verify and optimize your React and React Native apps: see what rendered and why, and prove each fix worked. This package runs in your app; @genie-react/cli is the command your agent runs.",
   "license": "MIT",
