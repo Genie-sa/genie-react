@@ -1,0 +1,5 @@
+{
+  "title": "Articles",
+  "icon": "Newspaper",
+  "pages": ["genie-vs-agent-react-devtools", "your-agent-cant-read-the-react-profiler"]
+}
