@@ -230,6 +230,9 @@ agent-device confirmed the screen. After the tap, its diff showed the counter ch
 used every domain and waited the full 10 seconds with `The router has not settled on /`.
 `router_get_state` reported `status: pending` with `pendingWork: [navigation-pending]`. The demo
 never renders that router, and limiting the wait to React made the runs settle in under a second.
+The demo at 1.0.2 installed a TanStack Router release that settles a load only once `RouterProvider`
+renders. Later versions of the demo install the release Genie is tested against, which settles
+without rendering, so `verify` with every domain settles too.
 
 ## When this approach does not fit
 
