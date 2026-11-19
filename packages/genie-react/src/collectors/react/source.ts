@@ -113,6 +113,7 @@ export function clearSourceCache(): void {
   settledUnknownByFiber = new WeakMap()
   metroFrameCache.clear()
   rawSourceCache.clear()
+  pageScriptTexts.clear()
   pendingMetroFrame.clear()
   warmupQueue = []
   activeWarmup = null
@@ -506,8 +507,12 @@ function appCompilesElementSources(fiber: Fiber): boolean {
   return false
 }
 
-// bippy returns a map's `sources` entry as written, often relative to the module (`App.jsx` for `/src/App.jsx`).
+const WEBPACK_NAMESPACED_SOURCE_RE = /^webpack:\/\/[^/]*\/\.\//
+
+// bippy returns a map's `sources` entry as written, often relative to the module (`App.jsx` for `/src/App.jsx`). webpack names a module `webpack://<namespace>/./src/a.ts`, relative to the project root as its served URL is.
 function resolveMapSource(source: string, moduleUrl: string): string {
+  if (WEBPACK_NAMESPACED_SOURCE_RE.test(source))
+    return source.replace(WEBPACK_NAMESPACED_SOURCE_RE, '/')
   if (/^[a-z][\w+.-]*:/i.test(source) || source.startsWith('/')) return source
   try {
     return new URL(source, moduleUrl).toString()
@@ -1156,14 +1161,65 @@ function nextServerSourceMapUrl(frameUrl: string): string | null {
   return url.href
 }
 
-/** A server-component frame cannot be fetched, but Next.js serves its map from the page's own origin. It answers as a stub module carrying that map inline, since bippy follows no external map from a module whose URL is not http(s). */
+/** A server-component frame or a webpack eval module cannot be fetched, but its map can be found from the page. It answers as a stub module carrying that map inline, since bippy follows no external map from a module whose URL is not http(s). */
 async function unloadableFrame(url: string): Promise<Response> {
-  const endpoint = nextServerSourceMapUrl(url)
-  if (endpoint === null) return NOT_LOADABLE()
-  const map = await genieFetch(endpoint)
-  if (!map.ok) return NOT_LOADABLE()
-  const inline = `data:application/json;base64,${base64(await map.text())}`
+  const inline = url.startsWith(WEBPACK_EVAL_MODULE_PREFIX)
+    ? await webpackEvalModuleMap(url)
+    : await nextServerSourceMap(url)
+  if (inline === null) return NOT_LOADABLE()
   return new Response(`//# sourceMappingURL=${inline}\n`, { status: 200 })
+}
+
+async function nextServerSourceMap(url: string): Promise<string | null> {
+  const endpoint = nextServerSourceMapUrl(url)
+  if (endpoint === null) return null
+  const map = await genieFetch(endpoint)
+  if (!map.ok) return null
+  return `data:application/json;base64,${base64(await map.text())}`
+}
+
+const WEBPACK_EVAL_MODULE_PREFIX = 'webpack-internal:///'
+const SOURCE_MAPPING_URL_COMMENT = '//# sourceMappingURL='
+const INLINE_JSON_MAP_RE = /^data:application\/json;(?:charset=utf-8;)?base64,[A-Za-z0-9+/]+={0,2}$/
+const pageScriptTexts = new Map<string, Promise<string | null>>()
+
+/** webpack's eval devtools run each module through `eval` with its map inline, so no URL serves the module. Its code sits in a page script as a string literal that ends with that map and then its `sourceURL`. */
+async function webpackEvalModuleMap(url: string): Promise<string | null> {
+  const footer = `\\n//# sourceURL=${url}\\n`
+  for (const script of pageScriptUrls()) {
+    const text = await pageScriptText(script)
+    const end = text?.indexOf(footer) ?? -1
+    if (!text || end === -1) continue
+    const comment = text.lastIndexOf(SOURCE_MAPPING_URL_COMMENT, end)
+    const map = comment === -1 ? '' : text.slice(comment + SOURCE_MAPPING_URL_COMMENT.length, end)
+    return INLINE_JSON_MAP_RE.test(map) ? map : null
+  }
+  return null
+}
+
+/** Same-origin scripts, newest first, so a module's hot update wins over the code it replaced. */
+function pageScriptUrls(): string[] {
+  if (typeof document === 'undefined') return []
+  const loaded = performance
+    .getEntriesByType('resource')
+    .filter((entry) => (entry as PerformanceResourceTiming).initiatorType === 'script')
+    .map((entry) => entry.name)
+    .reverse()
+  const declared = Array.from(document.scripts, (script) => script.src).filter(Boolean)
+  return [...new Set([...loaded, ...declared])].filter(
+    (url) => new URL(url, document.baseURI).origin === location.origin,
+  )
+}
+
+function pageScriptText(url: string): Promise<string | null> {
+  let pending = pageScriptTexts.get(url)
+  if (!pending) {
+    pending = genieFetch(url)
+      .then((response) => (response.ok ? response.text() : null))
+      .catch(() => null)
+    pageScriptTexts.set(url, pending)
+  }
+  return pending
 }
 
 const BASE64_CHUNK = 0x8000
@@ -1198,7 +1254,7 @@ export async function resolveHookCallsite(hook: HookSource | null): Promise<Reso
   return source ? { ...source, role: 'hook-callsite' } : null
 }
 
-// Classification prefers the served URL; the map's original file is trusted only when the served URL is an opaque bundle chunk (Next/Turbopack) AND the original classifies as app source — so a dep bundled into an app chunk stays library. A Metro bundle entry is the sole exception: it names the whole app, so any symbolicated path beats it, library ones included.
+// A map that names the served module itself (Vite serves `/src/a.ts` with a map back to `<root>/src/a.ts`) only translates its lines, so its line and column always win. Otherwise classification prefers the served URL; the map's original file is trusted only when the served URL is an opaque bundle chunk (Next/Turbopack) AND the original classifies as app source — so a dep bundled into an app chunk stays library. A Metro bundle entry is the sole exception: it names the whole app, so any symbolicated path beats it, library ones included.
 async function resolveHookSource(
   hook: HookSource | null,
   generation: number,
@@ -1214,19 +1270,23 @@ async function resolveHookSource(
       generation,
     )
     if (generation !== cacheGeneration) return null
+    const sameModule = original.file !== null && namesSameModule(original.file, served)
+    const position = sameModule
+      ? { file: served, line: original.line, column: original.column }
+      : selectSourcePosition(served, hook.lineNumber ?? null, hook.columnNumber ?? null, original)
     return {
-      ...selectSourcePosition(served, hook.lineNumber ?? null, hook.columnNumber ?? null, original),
+      ...position,
       functionName: hook.functionName ?? null,
-      sourceMapConfidence:
-        original.file !== null &&
-        selectSourcePosition(served, hook.lineNumber ?? null, hook.columnNumber ?? null, original)
-          .file === original.file
-          ? 'mapped'
-          : 'served',
+      sourceMapConfidence: sameModule || position.file === original.file ? 'mapped' : 'served',
     }
   } catch {
     return null
   }
+}
+
+function namesSameModule(originalFile: string, servedFile: string): boolean {
+  const servedPath = servedFile.startsWith('/') ? servedFile : `/${servedFile}`
+  return originalFile === servedFile || originalFile.endsWith(servedPath)
 }
 
 /** File and coordinates are one unit: never pair a rejected source-map file with its line. */
