@@ -26,8 +26,8 @@ import {
   type FiberClassification,
   scheduleClassificationWarmup,
   sourceAttributionForSource,
-  sourceLabel,
   sourceProvenanceForSource,
+  unnamedComponentLabel,
 } from './source'
 
 const SOURCE_CLASSIFY_LIMIT = 120
@@ -247,7 +247,7 @@ async function classifyRecordReports(
           limitation: 'runtime-memo-cache-presence-only',
         },
         instance: rest.instance,
-        name: rest.name === 'Anonymous' ? (sourceLabel(source) ?? rest.name) : rest.name,
+        name: rest.name === 'Anonymous' ? (unnamedComponentLabel(entry) ?? rest.name) : rest.name,
         source,
         sourceAttribution: sourceAttributionForSource(source),
         sourceProvenance: sourceProvenanceForSource(source),
@@ -589,9 +589,10 @@ export async function buildCurrentAggregateMeasurement(
     guard?.isCurrent() === false ? list.map(() => staleRecordSourceEvidence()) : resolvedEvidence
   const aggregates = new Map<string, ComponentAggregate>()
   list.forEach((record, index) => {
-    const { source, libraryOnly } = evidence[index] ?? unknownRecordSourceEvidence()
+    const entry = evidence[index] ?? unknownRecordSourceEvidence()
+    const { source, libraryOnly } = entry
     if (appOnly && libraryOnly) return
-    const displayLabel = sourceLabel(source)
+    const displayLabel = unnamedComponentLabel(entry)
     const canonicalSource = source
       ? `${source.file}:${source.line ?? '?'}:${source.column ?? '?'}`
       : null
@@ -626,7 +627,7 @@ export async function buildCurrentAggregateMeasurement(
     list.map((record, index) => {
       const entry = evidence[index] ?? unknownRecordSourceEvidence()
       const name =
-        record.name === 'Anonymous' ? (sourceLabel(entry.source) ?? record.name) : record.name
+        record.name === 'Anonymous' ? (unnamedComponentLabel(entry) ?? record.name) : record.name
       return { ...entry, name }
     }),
     appOnly,

@@ -112,7 +112,7 @@ const renderHookStateChangeSchema = renderStateChangeBase.extend({
       .int()
       .nullable()
       .describe(
-        "The hook's stateIndex in react_inspect_component, accepted by react_override_hook_state. null for the pending flag React keeps inside useTransition and useActionState, which has no stateIndex.",
+        "The hook's stateIndex in react_inspect_component, accepted by react_override_hook_state. null for the pending flag React keeps inside useTransition and useActionState, and for a useDeferredValue, which have no stateIndex.",
       ),
     kind: z.enum(['state', 'reducer']),
   }),
@@ -537,7 +537,7 @@ export const renderCauseSchema = z.discriminatedUnion('kind', [
         'unclassified-hook-changed',
       ])
       .describe(
-        'no-observable-fiber-input-change: React rendered for an input Genie cannot see, such as forceUpdate. unclassified-hook-changed: a hook Genie cannot classify, such as useDeferredValue, holds a new value.',
+        'no-observable-fiber-input-change: React rendered for an input Genie cannot see, such as forceUpdate. unclassified-hook-changed: a hook Genie cannot classify holds a new value. A useDeferredValue catch-up render is a state cause named useDeferredValue instead, except in production builds of React.',
       ),
     hookIndex: z
       .number()
@@ -698,7 +698,7 @@ export const renderComponentSchema = z.object({
   noObservedInputChange: z
     .number()
     .describe(
-      'Updates with complete input coverage where no input held a new value: the parent rendered without changing props, or state or context only received a new object with equal contents. Updates with no observed trigger, such as forceUpdate or useDeferredValue, are excluded and carry an unknown cause.',
+      'Updates with complete input coverage where no input held a new value: the parent rendered without changing props, or state or context only received a new object with equal contents. Updates with no observed trigger, such as forceUpdate, are excluded and carry an unknown cause.',
     ),
   referenceOnlyPropRenders: z
     .number()
@@ -851,6 +851,17 @@ const renderBudgetLimitSchema = z.enum([
   'targetTimeReserveMs',
 ])
 
+const renderBudgetAdviceSchema = z
+  .object({
+    exhaustedLimits: z.array(renderBudgetLimitSchema),
+    suggestedBudget: z.record(renderBudgetLimitSchema, z.number().positive()),
+    next: z.string(),
+  })
+  .optional()
+  .describe(
+    'Present when a budget limit skipped work in this window: the limits that ran out and a budget estimated to fit the largest lossy commit. Growth inside the window cannot restore skipped commits, so clear with the suggested budget and repeat the step.',
+  )
+
 const sourceClassificationEffectSchema = z
   .enum(['result', 'ownership-labels'])
   .describe(
@@ -912,16 +923,7 @@ export const renderCoverageSchema = z.object({
   budgetExhaustedSubsystems: z.array(
     z.object({ subsystem: z.string(), commits: z.number().int().positive() }),
   ),
-  budgetAdvice: z
-    .object({
-      exhaustedLimits: z.array(renderBudgetLimitSchema),
-      suggestedBudget: z.record(renderBudgetLimitSchema, z.number().positive()),
-      next: z.string(),
-    })
-    .optional()
-    .describe(
-      'Present when a budget limit skipped work in this window: the limits that ran out and a budget estimated to fit the largest lossy commit. Growth inside the window cannot restore skipped commits, so clear with the suggested budget and repeat the step.',
-    ),
+  budgetAdvice: renderBudgetAdviceSchema,
   incompleteBecause: z
     .array(
       z.object({
@@ -1399,6 +1401,7 @@ const cohortReportSchema = z.object({
     budgetExhaustedSubsystems: z.array(
       z.object({ subsystem: z.string(), commits: z.number().int().positive() }),
     ),
+    budgetAdvice: renderBudgetAdviceSchema,
     generationHistoryEvictions: z.number().int().nonnegative(),
   }),
 })
@@ -1571,6 +1574,9 @@ export const reactRendersSinceContract = defineAgentToolContract({
     coverage: z.object({
       complete: z.boolean(),
       semantics: renderCoverageSchema.shape.semantics,
+      budgetAdvice: renderBudgetAdviceSchema.describe(
+        'Present when a commit this span owns ran out of analysis budget: the limits that ran out and a budget estimated to fit the largest lossy commit in the window. Clear with the suggested budget and repeat the step.',
+      ),
     }),
     limitation: z.string(),
   }),

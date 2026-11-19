@@ -72,7 +72,9 @@ const {
   scheduleClassificationWarmup,
   sourceProvenanceForSource,
   sourceLabel,
+  unnamedComponentLabel,
 } = await import('./source')
+const { defaultWorkTags } = await import('./work-tags')
 
 const asFiber = (shape: unknown): Fiber => shape as Fiber
 const at = (fileName: string, lineNumber = 1) => ({
@@ -406,6 +408,59 @@ describe('classifyFiber', () => {
 
     await expect(classifyFiber(grid)).resolves.toMatchObject({
       source: { file: '/src/App.tsx', role: 'element-callsite' },
+      ownership: 'library',
+      ownershipBasis: 'owned-elements',
+    })
+  })
+
+  it("classifies a memo(forwardRef) wrapper by the wrapped component's code, not by the app JSX that created it", async () => {
+    const usage = new Error('link-usage')
+    usage.stack = 'link-usage'
+    const libraryBody = new Error('link-body')
+    libraryBody.stack = 'link-body'
+    const inner = { $$typeof: Symbol.for('react.forward_ref'), render: () => null }
+    const wrapper = { $$typeof: Symbol.for('react.memo'), type: inner, compare: null }
+    const memoFiber = asFiber({
+      tag: defaultWorkTags.MemoComponent,
+      type: wrapper,
+      elementType: wrapper,
+      alternate: null,
+      _debugStack: usage,
+    })
+    const forwardRefFiber = asFiber({
+      tag: defaultWorkTags.ForwardRef,
+      type: inner,
+      elementType: inner,
+      alternate: null,
+      return: memoFiber,
+      _debugOwner: memoFiber,
+      _debugStack: usage,
+      sibling: null,
+    })
+    const anchor = asFiber({
+      tag: 5,
+      _debugOwner: forwardRefFiber,
+      _debugStack: libraryBody,
+      child: null,
+      sibling: null,
+    })
+    Object.assign(memoFiber, { child: forwardRefFiber })
+    Object.assign(forwardRefFiber, { child: anchor })
+    parseStack.mockImplementation((stack) =>
+      stack === 'link-usage'
+        ? [{ fileName: '/src/Nav.tsx', lineNumber: 9, columnNumber: 7, functionName: 'Nav' }]
+        : [
+            {
+              fileName: '/node_modules/.vite/deps/@tanstack_react-router.js',
+              lineNumber: 40,
+              columnNumber: 1,
+              functionName: 'useLinkProps',
+            },
+          ],
+    )
+
+    await expect(classifyFiber(memoFiber)).resolves.toMatchObject({
+      source: { file: '/src/Nav.tsx', role: 'element-callsite' },
       ownership: 'library',
       ownershipBasis: 'owned-elements',
     })
@@ -1301,6 +1356,32 @@ describe('resolveSource caching', () => {
         role: 'element-callsite',
         sourceMapConfidence: 'mapped',
       })
+    })
+
+    it('names a component with no runtime name after the JSX tag its callsite line opens', async () => {
+      vi.stubGlobal('fetch', onDisk(['function App() {', '    <Link to="/" />', '}']))
+      const fiber = frameOf('Summary')
+      Object.assign(fiber, { type: Object.assign(() => null, { displayName: undefined }) })
+
+      const classification = await classifyFiber(fiber)
+
+      expect(classification).toMatchObject({
+        source: { file: '/src/App.jsx', line: 2, column: 5 },
+        elementName: 'Link',
+      })
+      expect(unnamedComponentLabel(classification)).toBe('Link')
+    })
+
+    it('withholds the line of an unnamed component whose mapped column opens no element', async () => {
+      vi.stubGlobal('fetch', onDisk(['function App() {', '    return null', '}']))
+      const fiber = frameOf('Summary')
+      Object.assign(fiber, { type: Object.assign(() => null, { displayName: undefined }) })
+
+      const classification = await classifyFiber(fiber)
+
+      expect(classification.source).toMatchObject({ file: '/src/App.jsx', line: null })
+      expect(classification.elementName).toBeUndefined()
+      expect(unnamedComponentLabel(classification)).toBe('App.jsx')
     })
 
     it('withholds a mapped line the file on disk contradicts', async () => {

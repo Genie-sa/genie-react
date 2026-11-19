@@ -503,11 +503,26 @@ const waitDomainResultSchema = z.object({
   lastObserved: z.unknown().optional(),
 })
 
+export const reactQuiesceRenderWindowSchema = z.object({
+  id: z
+    .string()
+    .describe('Measurement-window ID that react_get_renders reports as observation.id.'),
+  startedAfterDocumentCommitId: z.number().int().nonnegative(),
+  commits: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe(
+      'Commits recorded since the window opened, including those before this call, such as the commits of the action being waited on.',
+    ),
+})
+export type ReactQuiesceRenderWindow = z.infer<typeof reactQuiesceRenderWindowSchema>
+
 export const reactQuiesceContract = defineAgentToolContract({
   name: 'react_quiesce',
   title: 'Wait for React commits to become idle',
   description:
-    'Wait until no React document commit is observed for idleMs and React holds no pending work: no root with an uncommitted or suspended update (a pending transition) and no Suspense boundary showing a fallback. Returns idle, timed-out, or unavailable with elapsed time, commits observed since the first valid sample, and the last pendingWork sample. pendingWork is null when the app runtime cannot report it; idle then covers commits only. Does not establish query, animation-frame, timer, or promise completion outside React. Session changes or counter resets cannot prove idle.',
+    'Wait until no React document commit is observed for idleMs and React holds no pending work: no root with an uncommitted or suspended update (a pending transition) and no Suspense boundary showing a fallback. Returns idle, timed-out, or unavailable with elapsed time, commits observed since the first valid sample, the commits of the open render window (which include an action taken before this call), and the last pendingWork sample. pendingWork is null when the app runtime cannot report it; idle then covers commits only. Does not establish query, animation-frame, timer, or promise completion outside React. Session changes or counter resets cannot prove idle.',
   group: 'react.render',
   input: z
     .object({
@@ -524,7 +539,12 @@ export const reactQuiesceContract = defineAgentToolContract({
       .int()
       .nonnegative()
       .describe(
-        'Document commit counter increases between valid samples in this call; excludes commits before the first sample.',
+        'Document commit counter increases between valid samples in this call; excludes commits before the first sample, so the commits of an action taken just before this call are not counted. renderWindow.commits counts those.',
+      ),
+    renderWindow: reactQuiesceRenderWindowSchema
+      .nullable()
+      .describe(
+        'The render window open at the last valid sample, as react_get_renders reports it. null when no window is open or no sample was read.',
       ),
     documentCommitId: z.number().int().nonnegative().nullable(),
     sessionId: z.string().nullable(),

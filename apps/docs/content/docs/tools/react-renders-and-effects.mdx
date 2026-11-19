@@ -148,8 +148,11 @@ are `unknown`, because the summary may count library work. If unknowns persist a
 metadata or source-map access before comparing app-only measurements.
 
 For `const FriendListRow = memo(() => ...)`, the wrapper does not retain the variable's name.
-Genie uses an explicit wrapper `displayName`, then the inner function's name, and finally source
-information when available. To preserve anonymous memo binding names automatically, add the
+Genie uses an explicit wrapper `displayName`, then the inner function's name, then the JSX tag the
+app wrote at the element's call site (such as `Link` for TanStack Router's
+`memo(forwardRef(...))` link), and finally source information when available. A
+`memo(forwardRef(...))` wrapper is owned by whoever wrote the component it wraps, so a library one
+is hidden by `appOnly:true`. To preserve anonymous memo binding names automatically, add the
 opt-in `genie-react/babel` plugin to your development Babel pipeline.
 
 For Expo, add it to your existing Babel configuration (keep your other presets and plugins):
@@ -256,8 +259,11 @@ with equal contents does not make a render `necessary` and counts toward `noObse
 React renders a component on its own only for an input it saw change, so a render with no observed
 trigger and no rendered parent gets an `unknown` cause instead: `no-observable-fiber-input-change`
 for inputs Genie cannot read, such as `forceUpdate`, or `unclassified-hook-changed` with `hookIndex`
-for a hook it cannot classify, such as `useDeferredValue`. Neither counts toward
-`noObservedInputChange`. With complete coverage, a render of those components whose changed props
+for a hook it cannot classify. Neither counts toward `noObservedInputChange`. The render that catches
+a `useDeferredValue` up to its new value has an exact `state` cause named `useDeferredValue`, with
+the before and after values and `hook.stateIndex: null`. Genie reads which hook owns the slot from
+the record React's development build keeps, so in a production build the render stays
+`unclassified-hook-changed`. With complete coverage, a render of those components whose changed props
 were all reference-only or new functions counts toward `functionIdentityPropRenders` when any function
 changed identity, usually an inline callback, and toward `referenceOnlyPropRenders` otherwise.
 `undeterminedReferencePropRenders` counts renders whose reference changes a partial scan or a
@@ -333,7 +339,10 @@ npx @genie-react/cli call react_render_causes \
 (`view:"full"` adds hook IDs), then change the producer of the exact input. Repeat the interaction if events were evicted or
 coverage is incomplete. When a budget limit skipped work, `coverage.budgetAdvice` names the
 `exhaustedLimits` and gives a `suggestedBudget` estimated to fit the largest lossy commit; pass it to
-`react_clear_renders` and repeat the step. `react_get_renders` reports the same field.
+`react_clear_renders` and repeat the step. `react_get_renders`, `react_component_cohort`, the effect
+reads, `react_profile_report`, `react_profile_snapshot` and `react_renders_diff` (under
+`coverage.current`) report the same field, and `react_renders_since` reports it when a commit its
+span owns ran out.
 
 ```json
 {
@@ -368,7 +377,9 @@ returns every instance with its full descriptor and source provenance.
 `appOnly` defaults to `false`; set it to `true` to hide instances known to be library code.
 Ownership includes mounted instances and cached unmount provenance. Unknown ownership stays visible
 and lowers coverage. `documentCommitId` marks the captured traversal;
-`attribution.status: "stale"` means commits or a clear raced source lookup.
+`attribution.status: "stale"` means commits or a clear raced source lookup. A commit that ran out of
+analysis budget leaves instances `mounted-unknown`; `coverage.budgetAdvice` then gives the budget to
+pass to `react_clear_renders` before you repeat the step.
 
 Each instance also reports its current `renderingState`, independently of recorded updates:
 
@@ -1397,7 +1408,8 @@ The response carries `label`, disjoint `commitIds`, `excludedCommits` owned by n
 lookup. `omittedByLimit` identifies rows outside the selected page; the summary covers all selected
 components. Global clear does not erase span evidence. A span retains at most 500 components and
 1000 commits; hitting the commit cap closes it. Collection and retention losses make coverage
-incomplete. Unresolved source ownership also makes an app-only report incomplete; use
+incomplete. When a commit the span owns ran out of analysis budget, `coverage.budgetAdvice` gives
+the budget to pass to `react_clear_renders` before you repeat the step. Unresolved source ownership also makes an app-only report incomplete; use
 `appOnly:false` to inspect all retained records. `attribution:"temporal-only"` explicitly means
 these counts do not prove which interaction caused a commit.
 
@@ -1420,7 +1432,8 @@ npx @genie-react/cli call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --jso
   "ok": true,
   "outcome": "idle",
   "elapsedMs": 750,
-  "observedCommits": 3,
+  "observedCommits": 0,
+  "renderWindow": { "id": "observation:1", "startedAfterDocumentCommitId": 18, "commits": 3 },
   "documentCommitId": 21,
   "renderCollection": "available",
   "pendingWork": {
@@ -1435,7 +1448,10 @@ npx @genie-react/cli call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --jso
 
 **Agent use:** Clear, drive one UI interaction, quiesce, then read the render report. Outcomes are
 `idle`, `timed-out`, or `unavailable`; `observedCommits` counts increases between valid samples,
-excluding commits before the first sample. A missing collector, changed document, or counter reset
+excluding commits before the first sample, so it is often `0` after a click whose commits landed
+before the call. `renderWindow` reports the window open at the last sample, as `react_get_renders`
+does: its `commits` include the interaction you waited on. It is `null` when no window is open.
+A missing collector, changed document, or counter reset
 cannot prove idle. Historical late-hook degradation remains visible but can establish a new quiet
 interval. Failed samples restart the quiet interval; silent requests respect the overall deadline.
 Tool-catalog refreshes in the same document preserve the wait. Add `--fail-on-result-error` for a

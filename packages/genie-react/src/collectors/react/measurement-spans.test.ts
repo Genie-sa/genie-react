@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   beginMeasurementCommit,
   clearMeasurementSpans,
+  markMeasurementBudgetExhausted,
   markMeasurementIncomplete,
   openMeasurementSpan,
   readMeasurementSpan,
@@ -86,6 +87,35 @@ it('a read freezes counts before asynchronous source lookup while capture contin
   commit(counter)
   expect((await reading).summary.totalUpdates).toBe(1)
   expect((await readMeasurementSpan(a.handle, false, query)).summary.totalUpdates).toBe(2)
+})
+
+it('passes on the budget advice only to a span that owned a commit whose budget ran out', async () => {
+  const advice = {
+    exhaustedLimits: ['operationLimit' as const],
+    suggestedBudget: {
+      fiberLimit: 250,
+      operationLimit: 40_000,
+      timeLimitMs: 16,
+      targetOperationReserve: 4_000,
+      targetTimeReserveMs: 4,
+    },
+    next: 'operationLimit ran out.',
+  }
+  const starved = openMeasurementSpan('starved')
+  commit(component('Counter'))
+  markMeasurementBudgetExhausted()
+  const later = openMeasurementSpan('later')
+  commit(component('Counter'))
+
+  expect((await readMeasurementSpan(starved.handle, true, query, advice)).coverage).toEqual({
+    complete: false,
+    semantics: 'lower-bound',
+    budgetAdvice: advice,
+  })
+  expect((await readMeasurementSpan(later.handle, true, query, advice)).coverage).toEqual({
+    complete: true,
+    semantics: 'exact',
+  })
 })
 
 it('refuses to call incomplete or paused collection exact', async () => {

@@ -4,7 +4,7 @@ import { getDocumentCommitId } from './observation'
 import { emptyCauseCounts } from './render-causes'
 import type { RenderRecord } from './render-model'
 import { buildRendersMeasurementReport, type RenderQuery } from './render-reports'
-import { membershipUnresolved } from './render-snapshots'
+import { membershipUnresolved, type RenderBudgetAdvice } from './render-snapshots'
 import { captureReportEpoch, reportStateMatches } from './report-attribution'
 
 const MAX_SPANS = 20
@@ -22,6 +22,7 @@ interface MeasurementSpan {
   commitIds: number[]
   excludedCommits: number
   incomplete: boolean
+  budgetExhausted: boolean
 }
 
 const spans = new Map<string, MeasurementSpan>()
@@ -67,6 +68,7 @@ export function openMeasurementSpan(label: string) {
     commitIds: [],
     excludedCommits: 0,
     incomplete: false,
+    budgetExhausted: false,
   }
   spans.set(span.handle, span)
   return metadata(span)
@@ -112,6 +114,12 @@ export function markMeasurementCollectionGap(): void {
 
 export function markMeasurementIncomplete(): void {
   if (commitOwner) commitOwner.incomplete = true
+}
+
+export function markMeasurementBudgetExhausted(): void {
+  if (!commitOwner) return
+  commitOwner.incomplete = true
+  commitOwner.budgetExhausted = true
 }
 
 /** Retain deltas from the same successful analysis as the global report, without re-analyzing fibers. */
@@ -172,7 +180,12 @@ export function noteMeasurementUnmount(id: number): void {
 }
 
 /** Freeze the selected span before async source lookup; closing resumes the previous open span. */
-export async function readMeasurementSpan(handle: string, close: boolean, query: RenderQuery) {
+export async function readMeasurementSpan(
+  handle: string,
+  close: boolean,
+  query: RenderQuery,
+  windowBudgetAdvice?: RenderBudgetAdvice,
+) {
   prune()
   const span = spans.get(handle)
   if (!span)
@@ -188,6 +201,7 @@ export async function readMeasurementSpan(handle: string, close: boolean, query:
   const commitIds = [...span.commitIds]
   const excludedCommits = span.excludedCommits
   const incomplete = span.incomplete
+  const budgetAdvice = span.budgetExhausted ? windowBudgetAdvice : undefined
   const epoch = captureReportEpoch()
   const report = await buildRendersMeasurementReport(
     new Map(span.records),
@@ -217,7 +231,7 @@ export async function readMeasurementSpan(handle: string, close: boolean, query:
           : semantics,
       coverageDomain: 'render-measurement' as const,
     },
-    coverage: { complete, semantics },
+    coverage: { complete, semantics, ...(budgetAdvice ? { budgetAdvice } : {}) },
     limitation:
       'Exclusive temporal capture, not causal attribution. Background work can be included; commits owned by newer spans are explicitly excluded.',
   }

@@ -30,8 +30,10 @@ import {
   newId,
   type OwnershipResource,
   type PendingReactWork,
+  type ReactQuiesceRenderWindow,
   reactPendingWorkContract,
   reactQuiesceContract,
+  reactQuiesceRenderWindowSchema,
   requestWatchReadContract,
   type SessionSummary,
   safeDiagnostic,
@@ -261,8 +263,19 @@ interface WaitPollState {
   reactSession: AppSession | null
   reactCommit: number | null
   reactChangedAt: number
+  reactWindow: ReactQuiesceRenderWindow | null
   frameCheck: WaitDomainCheck | null
   latest: Partial<Record<WaitDomain, WaitDomainCheck>>
+}
+
+function renderWindowOf(result: Record<string, unknown> | null): ReactQuiesceRenderWindow | null {
+  const observation = recordOf(result?.observation)
+  const parsed = reactQuiesceRenderWindowSchema.safeParse({
+    id: observation?.id,
+    startedAfterDocumentCommitId: observation?.startedAfterDocumentCommitId,
+    commits: result?.commits,
+  })
+  return parsed.success ? parsed.data : null
 }
 
 function queryIdentity(
@@ -1404,6 +1417,7 @@ export class GenieBridge {
       reactSession: null,
       reactCommit: null,
       reactChangedAt: started,
+      reactWindow: null,
       frameCheck: null,
       latest: {},
     }
@@ -1426,6 +1440,7 @@ export class GenieBridge {
           outcome,
           elapsedMs: Date.now() - started,
           observedCommits,
+          renderWindow: pollState.reactWindow,
           documentCommitId,
           sessionId: session?.sessionId ?? null,
           renderCollection,
@@ -1580,6 +1595,7 @@ export class GenieBridge {
       reactSession: null,
       reactCommit: null,
       reactChangedAt: Date.now(),
+      reactWindow: null,
       frameCheck: null,
       latest: {},
     }
@@ -1836,6 +1852,7 @@ export class GenieBridge {
           lastObserved: { documentCommitId: commit, renderCollection: renderCollection ?? null },
         }
       }
+      pollState.reactWindow = renderWindowOf(result)
       const now = Date.now()
       if (
         pollState.reactSession?.socket !== session.socket ||

@@ -15,6 +15,7 @@ import { type RendererBundle, rendererBundleOf } from './measurement-environment
 import { getActiveObservation, type ObservationWindow } from './observation'
 import type { reactComponentCohortContract } from './render-contract'
 import type { SourceClassificationEffect } from './render-reports'
+import type { RenderBudgetAdvice } from './render-snapshots'
 import { captureReportEpoch, reportAttribution, reportStateMatches } from './report-attribution'
 import {
   classifyFibersWithinBudget,
@@ -93,6 +94,7 @@ export interface RenderCohort {
     propsNotEnumeratedFibers: number
     budgetExhaustedCommits: number
     budgetExhaustedSubsystems: { subsystem: string; commits: number }[]
+    budgetAdvice?: RenderBudgetAdvice
     generationHistoryEvictions: number
   }
 }
@@ -111,6 +113,7 @@ export interface RenderCoverageGaps {
   propsNotEnumeratedFibers?: number
   budgetExhaustedCommits?: number
   budgetExhaustedSubsystems?: { subsystem: string; commits: number }[]
+  budgetAdvice?: RenderBudgetAdvice
   /** Internal live queue depth; intentionally omitted from the public coverage payload. */
   pendingUnmountFibers?: number
 }

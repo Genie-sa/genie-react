@@ -152,9 +152,9 @@ try {
     .events
   assert.ok(
     resultEvents.some((event) =>
-      event.causes.some((cause) => cause.reason === 'unclassified-hook-changed'),
+      event.causes.some((cause) => cause.kind === 'state' && cause.name === 'useDeferredValue'),
     ),
-    'a deferred pass must name its changed hook',
+    'a deferred pass must name its useDeferredValue',
   )
   assert.equal(listReport.renders, typed.commits.SlowList, 'SlowList renders must equal commits')
   assert.ok(

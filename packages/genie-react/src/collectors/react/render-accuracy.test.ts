@@ -528,7 +528,7 @@ describe('render causes match the update that triggered them', () => {
     })
   })
 
-  it('does not grade the deferred pass of useDeferredValue as unnecessary', async () => {
+  it('attributes the deferred pass of useDeferredValue to the value it caught up to', async () => {
     let setText: (text: string) => void = () => {}
     const Results = memo(function Results({ query }: { query: string }): ReactNode {
       const deferred = useDeferredValue(query)
@@ -551,7 +551,16 @@ describe('render causes match the update that triggered them', () => {
     expect(deferred).toMatchObject({
       necessity: 'necessary',
       necessityReason: 'dom-changed',
-      causes: [{ kind: 'unknown', reason: 'unclassified-hook-changed', hookIndex: 0 }],
+      causes: [
+        {
+          kind: 'state',
+          evidence: 'exact',
+          name: 'useDeferredValue',
+          hook: { index: 0, stateIndex: null, kind: 'state' },
+          before: 'a',
+          after: 'b',
+        },
+      ],
       assessment: { inputEvidence: 'changed' },
     })
     expect(await reportFor('Results')).toMatchObject({ renders: 2, noObservedInputChange: 0 })

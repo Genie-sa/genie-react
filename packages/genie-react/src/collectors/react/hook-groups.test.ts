@@ -26,7 +26,7 @@ import { Provider } from 'react-redux'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { MAX_HOOKS } from './contracts'
 import { inspectFiber } from './fiber'
-import { hookSlots } from './hook-groups'
+import { hookSlots, hookTypesBySlot } from './hook-groups'
 
 let unmount: (() => void) | undefined
 
@@ -326,5 +326,26 @@ describe('react_inspect_component with RTK Query', () => {
     expect(result.hooks[0]?.customHooks?.[0]).toBe('useGetIssueQuery')
     expect(result.hooks.at(-1)).toMatchObject({ hook: 'useState', customHooks: ['(anonymous)'] })
     expect(result.customHookGrouping).toBe('partial')
+  })
+})
+
+describe('hookTypesBySlot', () => {
+  it("assigns each slot the hook React's dev build recorded, skipping hooks that allocate none", () => {
+    expect(
+      hookTypesBySlot(
+        ['useContext', 'useState', 'useDebugValue', 'useTransition', 'useDeferredValue'],
+        4,
+      ),
+    ).toEqual(['useState', 'useTransition', 'useTransition', 'useDeferredValue'])
+  })
+
+  it('refuses a record that accounts for a different number of slots', () => {
+    expect(hookTypesBySlot(['useState', 'useDeferredValue'], 3)).toBeNull()
+    expect(hookTypesBySlot(['useState', 'useSyncExternalStore'], 2)).toBeNull()
+  })
+
+  it('refuses a missing or malformed record', () => {
+    expect(hookTypesBySlot(undefined, 1)).toBeNull()
+    expect(hookTypesBySlot([42], 1)).toBeNull()
   })
 })

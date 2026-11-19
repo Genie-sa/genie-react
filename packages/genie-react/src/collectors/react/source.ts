@@ -1,4 +1,10 @@
-import { type Fiber, getDisplayName, getFiberId, getLatestFiber } from 'bippy'
+import {
+  type Fiber,
+  getDisplayName,
+  getFiberId,
+  getLatestFiber,
+  getReactWorkTagsForFiber,
+} from 'bippy'
 import {
   formatOwnerStack,
   getSourceFromSourceMap,
@@ -50,6 +56,8 @@ export interface FiberClassification {
   definition?: ResolvedSource
   /** The evidence ownership rests on; absent when ownership is unknown. */
   ownershipBasis?: OwnershipBasis
+  /** The JSX tag the verified callsite wrote, such as `Link`, kept only for a component React knows no name for. */
+  elementName?: string
 }
 
 export type SourceOwnership = 'app' | 'library' | 'unknown'
@@ -144,17 +152,30 @@ async function lookupClassification(
 ): Promise<ClassificationLookup> {
   // A boundary such as Suspense (a symbol type) has no code of its own: whoever wrote the element owns it.
   if (typeof target.type === 'symbol') {
-    const callsite = await resolveCallsite(target, generation)
-    return { classification: classifyBoundaryElement(callsite), settled: true }
+    const { source } = await resolveCallsite(target, generation)
+    return { classification: classifyBoundaryElement(source), settled: true }
   }
-  const [callsite, definition] = await Promise.all([
+  const [{ source, elementName }, definition] = await Promise.all([
     resolveCallsite(target, generation),
-    definitionOf(target, generation),
+    definitionOf(memoWrappedFiber(target) ?? target, generation),
   ])
   return {
-    classification: combineEvidence(callsite, definition),
+    classification: {
+      ...combineEvidence(source, definition),
+      ...(elementName ? { elementName } : {}),
+    },
     settled: !(definition.ownership === 'unknown' && definition.transient),
   }
+}
+
+/** `memo(forwardRef(...))` renders the component it wraps as its own child fiber, and that child's code is the only code the wrapper has. */
+function memoWrappedFiber(fiber: Fiber): Fiber | null {
+  if (fiber.tag !== getReactWorkTagsForFiber(fiber).MemoComponent || !isRecord(fiber.type)) {
+    return null
+  }
+  const wrapped = dataPropertyValue(fiber.type, 'type')
+  const child = fiber.child
+  return child && wrapped !== undefined && child.elementType === wrapped ? child : null
 }
 
 function classifyBoundaryElement(callsite: ResolvedSource | null): FiberClassification {
@@ -197,11 +218,16 @@ function combineEvidence(
   return { source, ownership: 'unknown', isLibrary: false, ...evidence }
 }
 
-async function resolveCallsite(fiber: Fiber, generation: number): Promise<ResolvedSource | null> {
+interface ResolvedCallsite {
+  source: ResolvedSource | null
+  elementName?: string
+}
+
+async function resolveCallsite(fiber: Fiber, generation: number): Promise<ResolvedCallsite> {
   const source = await safeFiberSource(fiber)
-  if (!source?.fileName || generation !== cacheGeneration) return null
+  if (!source?.fileName || generation !== cacheGeneration) return { source: null }
   const resolved = await resolveCapturedSource(source, generation)
-  if (!resolved || generation !== cacheGeneration) return null
+  if (!resolved || generation !== cacheGeneration) return { source: null }
   return verifyCallsiteLine(resolved, source, fiber)
 }
 
@@ -563,15 +589,24 @@ async function verifyCallsiteLine(
   resolved: ResolvedSource,
   source: SafeFiberSource,
   fiber: Fiber,
-): Promise<ResolvedSource> {
-  if (resolved.role !== 'element-callsite' || resolved.line === null) return resolved
+): Promise<ResolvedCallsite> {
+  if (resolved.role !== 'element-callsite' || resolved.line === null) return { source: resolved }
   const url = rawSourceUrl(resolved, source)
   const lines = url ? await rawSourceLines(url) : null
-  if (!lines) return resolved
+  if (!lines) return { source: resolved }
   const text = lines[resolved.line - 1] ?? ''
-  if (elementNames(fiber).some((name) => text.includes(name))) return resolved
-  return { ...resolved, line: null, column: null }
+  const names = elementNames(fiber)
+  if (names.some((name) => text.includes(name))) return { source: resolved }
+  // A component with no runtime name is verified by the element the line opens at the mapped column, and that tag is the name the app calls it by.
+  const elementName =
+    names.length === 0 && resolved.column !== null
+      ? JSX_ELEMENT_TAG.exec(text.slice(resolved.column - 1))?.[1]
+      : undefined
+  if (elementName) return { source: resolved, elementName }
+  return { source: { ...resolved, line: null, column: null } }
 }
+
+const JSX_ELEMENT_TAG = /^<([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)/
 
 function elementNames(fiber: Fiber): string[] {
   const names = new Set<string>()
@@ -862,6 +897,13 @@ export function sourceLabel(source: ResolvedSource | null): string | null {
   if (!source) return null
   const base = source.file.split('/').pop() || source.file
   return source.line != null ? `${base}:${source.line}` : base
+}
+
+/** The name an otherwise-anonymous fiber is reported under: the JSX tag its callsite wrote, else its source label. */
+export function unnamedComponentLabel(
+  classification: Pick<FiberClassification, 'source' | 'elementName'>,
+): string | null {
+  return classification.elementName ?? sourceLabel(classification.source)
 }
 
 /** Bippy does not expose which source fallback won, so never label this as a definition site. */

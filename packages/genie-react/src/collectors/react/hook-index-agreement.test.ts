@@ -46,6 +46,7 @@ interface HookEntry {
 
 interface StateCause {
   kind: 'state'
+  name: string
   hook?: { index: number; stateIndex: number | null; kind: string }
 }
 interface ExternalStoreCause {
@@ -186,6 +187,18 @@ describe('hook indexes address the same hook in every tool', () => {
       if (cause.kind !== 'state' || !('hook' in cause) || !cause.hook) continue
       expect(cause.hook.stateIndex ?? undefined).toBe(hook?.stateIndex)
     }
+  })
+
+  it('names the useDeferredValue catch-up render on the hook react_inspect_component names', async () => {
+    const id = await mounted()
+    const hooks = await hooksOf(id)
+    const causes = await causesAfter(() => triggers.useState?.())
+
+    const deferred = causes.filter(
+      (cause) => cause.kind === 'state' && 'name' in cause && cause.name === 'useDeferredValue',
+    )
+    expect(deferred.map((cause) => addressedHook(hooks, cause)?.hook)).toEqual(['useDeferredValue'])
+    expect(causes.filter((cause) => cause.kind === 'unknown')).toEqual([])
   })
 
   it('a stateIndex and its hook index pick the same hook for overrides, or are refused alike', async () => {
