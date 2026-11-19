@@ -318,7 +318,10 @@ Compares repeated baseline and candidate capture cohorts with typed statistical 
 unique IDs; the lists cannot overlap. `metrics` is an optional list of 1–10 unique values and
 defaults to all: `react.commits`, `react.renders`, `react.updates`, `react.unnecessary`,
 `react.selfTimeMs`, `effects.hot`, `query.pending`, `memory.usedHeapBytes`,
-`performance.avgFps`, and `performance.droppedFrames`. `minimumRuns` is an optional integer from
+`performance.avgFps`, and `performance.droppedFrames`. `react.selfTimeMs` is the total self time of
+every render in the capture's window: the sum of `cumulativeSelfTime` over the app components the
+capture's `react_get_renders` lists (up to 50; a longer list makes the metric not comparable). It is
+development timing, like every render time. `minimumRuns` is an optional integer from
 1–10 and defaults to 5. `warmupRuns` is an optional integer from 0–3 and defaults to 1.
 `outlierThreshold` is an optional number from 2–10 and defaults to 3.5. `confidenceLevel` is an
 optional number from 0.5–0.999 and defaults to 0.95. `minimumEffectPct` is an optional number from
@@ -378,7 +381,9 @@ npx @genie-react/cli call devtools_capture_compare \
 `observedEffectPct` is an improvement. To claim one, also require the expected direction,
 `confidence.significant:true`, and a useful effect size. For other verdicts, inspect missing and
 outlier IDs, comparability reasons, confidence, and warnings, then collect like-for-like replacement
-runs.
+runs. `call` exits 0 whatever the verdict; add `--fail-on-result-error` to exit 1 when `overall` is
+`fail`, so a CI script can gate on a budget. Other verdicts still exit 0, so a gate that also needs
+proof of a pass reads `overall`.
 
 **Limits:** The default warm-up means six IDs per cohort are needed for five usable runs. Missing
 metrics and small cohorts stay `insufficient-data`; noise or weak effects can stay `inconclusive`.

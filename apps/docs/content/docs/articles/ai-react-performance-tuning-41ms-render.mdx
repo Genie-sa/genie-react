@@ -180,7 +180,7 @@ overall: pass
   react.renders informational {…,baseline:{samples:5,median:756,…},candidate:{samples:5,median:756,…},…}
 ```
 
-Genie drops the first capture of each side as warm-up. `react.selfTimeMs` adds up each component's self time from its latest render, so it measures the page's last keystroke, not the whole sentence. That cost fell from a median of 46.2 ms to 3.7 ms. Swap the two sides and the same budget fails with `candidate median 46.2 exceeds maxValue 8`. That `call` still exits 0, so a script must read `overall`.
+Genie drops the first capture of each side as warm-up. In the release used for this run, `react.selfTimeMs` added up one render per component, so it measured about one keystroke, not the whole sentence. That cost fell from a median of 46.2 ms to 3.7 ms. Genie now totals the self time of every render in the window, so a rerun reports larger numbers for the same typing. Swap the two sides and the same budget fails with `candidate median 46.2 exceeds maxValue 8`. That `call` exits 0 unless you add `--fail-on-result-error`, which exits 1 when `overall` is `fail`.
 
 ## When this approach does not fit
 

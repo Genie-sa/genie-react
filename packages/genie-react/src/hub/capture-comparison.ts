@@ -615,9 +615,16 @@ function captureMetricValue(capture: CaptureArtifact, metric: CaptureMetric): nu
     case 'react.updates':
       return numberAt(toolResult(capture, 'react', 'react_get_renders'), 'summary', 'totalUpdates')
     case 'react.unnecessary':
-      return sumComponentField(toolResult(capture, 'react', 'react_get_renders'), 'unnecessary')
+      return sumComponents(
+        toolResult(capture, 'react', 'react_get_renders'),
+        (component) => component.unnecessary,
+      )
     case 'react.selfTimeMs':
-      return sumComponentField(toolResult(capture, 'react', 'react_get_renders'), 'selfTime')
+      // The summary view omits cumulativeSelfTime when one render makes it equal to selfTime.
+      return sumComponents(
+        toolResult(capture, 'react', 'react_get_renders'),
+        (component) => component.cumulativeSelfTime ?? component.selfTime,
+      )
     case 'effects.hot':
       return hotEffectCount(toolResult(capture, 'effects', 'react_effect_audit'))
     case 'query.pending': {
@@ -648,11 +655,14 @@ function toolResult(
   return result?.status === 'ok' ? result.result : null
 }
 
-function sumComponentField(result: unknown, field: string): number | null {
+function sumComponents(
+  result: unknown,
+  read: (component: Record<string, unknown>) => unknown,
+): number | null {
   if (!isRecord(result) || !Array.isArray(result.components)) return null
   let total = 0
   for (const component of result.components) {
-    const value = isRecord(component) ? component[field] : undefined
+    const value = isRecord(component) ? read(component) : undefined
     if (typeof value !== 'number' || !Number.isFinite(value)) return null
     total += value
   }

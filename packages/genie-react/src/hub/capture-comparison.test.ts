@@ -452,6 +452,34 @@ describe('compareCaptureCohorts', () => {
     )
   })
 
+  it('totals self time over every render in the window, not one render per component', () => {
+    const typed = (id: string, cumulativeSelfTime: number) => {
+      const artifact = capture(id, { renders: 27, unnecessary: 0, selfTimeMs: 2 })
+      const result = artifact.sections.react?.tools.react_get_renders?.result as Record<
+        string,
+        unknown
+      >
+      result.components = [
+        { unnecessary: 0, selfTime: 2, cumulativeSelfTime },
+        { unnecessary: 0, selfTime: 0.5 },
+      ]
+      return artifact
+    }
+
+    const comparison = compare(
+      [40, 41, 42].map((total, index) => typed(`b${index}`, total)),
+      [4, 5, 6].map((total, index) => typed(`c${index}`, total)),
+      ['react.selfTimeMs'],
+      [{ metric: 'react.selfTimeMs', maxValue: 8 }],
+    )
+
+    expect(comparison.metrics[0]).toMatchObject({
+      baseline: { median: 41.5 },
+      candidate: { median: 5.5 },
+      verdict: 'pass',
+    })
+  })
+
   it('compares render counts and timings when only render-cause attribution is incomplete', () => {
     const partialAttribution = (id: string, renders: number) => {
       const artifact = capture(id, { renders, unnecessary: 0, selfTimeMs: renders })
