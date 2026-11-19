@@ -99,6 +99,8 @@ function createContext({ spec, cli, page, errors, defects, log, started, session
       'react_suspense.id': (own) => own?.boundaries?.[0]?.id,
       'timeline_read.id': () => produced.timeline_start?.id,
       'timeline_stop.id': () => produced.timeline_start?.id,
+      'request_watch_read.watchId': () => produced.request_watch_start?.watchId,
+      'request_watch_stop.watchId': () => produced.request_watch_start?.watchId,
       'mutation_get.mutationId': () => produced.query_list_mutations?.mutations?.[0]?.mutationId,
       'devtools_capture_read.captureId': () =>
         produced.devtools_capture_list?.captures?.[0]?.captureId,
