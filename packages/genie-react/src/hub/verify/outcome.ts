@@ -108,13 +108,25 @@ export function coverageRefusal(evidence: VerificationEvidence): Refusal | null 
   return null
 }
 
+/** A failed settle ended before its timeout because a domain could not be observed, so a longer timeout would not help. */
+export function unsettledReason(
+  settle: Pick<VerificationEvidence['window']['settle'], 'outcome' | 'reason'>,
+): string {
+  const detail = settle.reason ? ` (${settle.reason})` : ''
+  return settle.outcome === 'failed'
+    ? `Genie could not observe whether the app settled${detail}`
+    : `The app did not settle within the timeout${detail}`
+}
+
 export function settleRefusal(evidence: VerificationEvidence): Refusal | null {
   const { settle } = evidence.window
   if (settle.outcome === 'met') return null
   return refuse(
     'not_quiescent',
-    `The app did not settle within the timeout${settle.reason ? ` (${settle.reason})` : ''}, so later work could still change the answer.`,
+    `${unsettledReason(settle)}, so later work could still change the answer.`,
     { settle: settle.outcome, waitedMs: settle.waitedMs, timeoutMs: settle.timeoutMs },
-    { action: 'begin-again', settle: { timeoutMs: Math.min(60_000, settle.timeoutMs * 2) } },
+    settle.outcome === 'failed'
+      ? { action: 'check-setup' }
+      : { action: 'begin-again', settle: { timeoutMs: Math.min(60_000, settle.timeoutMs * 2) } },
   )
 }

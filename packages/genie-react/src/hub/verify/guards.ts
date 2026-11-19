@@ -1,5 +1,6 @@
 import type { RefusalReason, VerifyGuard, VerifyGuardName } from '../../protocol'
 import type { RendererBundle, RenderProbe, VisibilityRead } from './evidence'
+import { unsettledReason } from './outcome'
 
 /** What the window looked like at `begin` and at `end`; every guard is decided from these raw values alone. */
 export interface GuardInputs {
@@ -189,7 +190,7 @@ export function evaluateGuards(input: GuardInputs): VerifyGuard[] {
           guard: 'settled',
           status: 'caveat',
           reason: 'not_quiescent',
-          message: `The app did not settle within the timeout${input.settle.reason ? ` (${input.settle.reason})` : ''}; upper-bound claims refuse, lower-bound claims can still pass.`,
+          message: `${unsettledReason(input.settle)}; upper-bound claims refuse, lower-bound claims can still pass.`,
           raw: { ...input.settle },
         },
   ]

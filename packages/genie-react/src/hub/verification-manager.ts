@@ -317,7 +317,10 @@ export class VerificationManager<TSession extends VerificationSession> {
       [...resolutions.values()].map((resolution) => (resolution.listed ? resolution.begin : null)),
     )
     const url = pageUrl(snapshot, session)
-    const refusals = beginRefusals(input, missing, snapshot, resolutions)
+    const advertised = advertisedDomains(session, (domain) =>
+      this.options.advertisedBefore?.(session, domain),
+    )
+    const refusals = beginRefusals(input, missing, snapshot, resolutions, advertised)
     if (refusals.some((refusal) => refusal !== null)) {
       return this.refuseAtBegin({
         verificationId,
@@ -353,9 +356,7 @@ export class VerificationManager<TSession extends VerificationSession> {
         errorCode: 'not-connected',
       }
     }
-    const domains =
-      input.settle.domains ??
-      advertisedDomains(session, (domain) => this.options.advertisedBefore?.(session, domain))
+    const domains = input.settle.domains ?? advertised
     let requestWatchId: string | undefined
     if (domains.includes('network') && hasTool(session, requestWatchStartContract.name)) {
       const started = await capture(requestWatchStartContract.name, {
@@ -1101,6 +1102,7 @@ function beginRefusals(
   missing: ReadonlySet<string>,
   snapshot: Snapshot,
   resolutions: Map<string, TargetResolution>,
+  advertised: readonly VerifySettleDomain[],
 ): (VerifyRefusal | null)[] {
   const environmentMessage = environmentProblem(snapshot)
   const environment =
@@ -1126,6 +1128,18 @@ function beginRefusals(
               { action: 'check-setup' },
             )
           : null
+  const unsupportedDomains = (input.settle.domains ?? []).filter(
+    (domain) => !advertised.includes(domain),
+  )
+  const domains =
+    unsupportedDomains.length > 0
+      ? refuse(
+          'capability_unavailable',
+          unsupportedDomainsMessage(unsupportedDomains),
+          { unsupportedDomains, advertisedDomains: advertised },
+          { action: 'check-setup' },
+        )
+      : null
   const overrides =
     !input.allowOverrides &&
     ((snapshot.overrides?.total ?? 0) > 0 || (snapshot.simulatedQueries?.length ?? 0) > 0)
@@ -1150,6 +1164,7 @@ function beginRefusals(
       )
     }
     if (environment) return environment
+    if (domains) return domains
     if (overrides) return overrides
     if (claim.kind === 'render-causes') {
       const inferred = claim.allow.filter((cause) => ALWAYS_INFERRED_CAUSE_KINDS.has(cause.kind))
@@ -1226,6 +1241,21 @@ function distinctTargets(claims: readonly VerifyClaim[]): VerifyTarget[] {
     if (target) seen.set(verifyTargetKey(target), target)
   }
   return [...seen.values()]
+}
+
+const SETTLE_DOMAIN_COLLECTORS: Record<VerifySettleDomain, string> = {
+  react: 'reactCollector()',
+  query: 'queryCollector(queryClient)',
+  router: 'routerCollector(router)',
+  network: 'requestWatchCollector()',
+}
+
+const listFormat = new Intl.ListFormat('en', { type: 'conjunction' })
+
+function unsupportedDomainsMessage(domains: readonly VerifySettleDomain[]): string {
+  const names = listFormat.format(domains)
+  const collectors = listFormat.format(domains.map((domain) => SETTLE_DOMAIN_COLLECTORS[domain]))
+  return `The app does not report the ${names} settle ${domains.length === 1 ? 'domain' : 'domains'} that --domains asks for. Add ${collectors} to its Genie collectors, or leave ${names} out of --domains.`
 }
 
 function advertisedDomains(

@@ -217,6 +217,50 @@ describe('verdict text', () => {
     expect(text.split('\n')[0]).toContain('attempt 4: 2 earlier runs failed on the same code')
   })
 
+  it('blames the timeout only when the settle wait ran out', () => {
+    const text = renderVerificationText(
+      verdict({
+        window: {
+          commits: 6,
+          settle: {
+            outcome: 'timed-out',
+            waitedMs: 10_000,
+            domains: { react: 'met', network: 'pending' },
+          },
+        },
+        caveats: ['not-settled'],
+      }),
+    ).split('\n')
+
+    expect(text[0]).toBe(
+      `refused ${ID} "edit order 412 quantity"  6 commits, not quiet after 10000 ms (react, network)`,
+    )
+    expect(text).toContain('! not-settled: the app did not settle within the timeout')
+  })
+
+  it('names the domain Genie could not observe when settle failed before the timeout', () => {
+    const text = renderVerificationText(
+      verdict({
+        window: {
+          commits: 6,
+          settle: {
+            outcome: 'failed',
+            reason: 'Generic network quiet is not instrumented by this app.',
+            waitedMs: 21,
+            domains: { react: 'pending', network: 'unsupported' },
+          },
+        },
+        caveats: ['not-settled'],
+      }),
+    ).split('\n')
+
+    expect(text[0]).toBe(
+      `refused ${ID} "edit order 412 quantity"  6 commits, settle not observed after 21 ms (network unsupported)`,
+    )
+    expect(text).toContain('! not-settled: Genie could not observe whether the app settled')
+    expect(text.join('\n')).not.toContain('within the timeout')
+  })
+
   it('prints a caveat code it does not know as data, not as a sentence', () => {
     const text = renderVerificationText(
       verdict({ caveats: ['ui-outcome-not-observed', 'new-caveat'] }),
