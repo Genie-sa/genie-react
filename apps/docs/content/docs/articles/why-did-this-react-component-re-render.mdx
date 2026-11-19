@@ -1,6 +1,6 @@
 ---
 title: "Why did this React component re-render? Get the exact prop, hook, or context"
-description: One sidebar click re-rendered 41 components in a React 19 dashboard. Genie named the hook, prop, context and parent behind each render, and verify proved the fix.
+description: One sidebar click re-rendered 35 components in a React 19 dashboard. Genie named the hook, prop, context and parent behind each render, and verify proved the fix.
 ---
 
 Open a Genie window, do the interaction once, and run `react_render_causes`. It lists every render
@@ -9,23 +9,23 @@ render, and grades each cause `exact`, `inferred` or `unknown`.
 
 This page follows one real bug in `apps/realworld-dashboard`, a Vite and React 19 app in this repo
 with seeded bugs. Your agent drives the page with agent-browser and asks Genie what React did. Every
-output below comes from one run on November 19, 2026, trimmed to selected fields. The full log is in
-the [evidence file](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/why-did-this-react-component-re-render.md).
+output below comes from one run of Genie 1.1.0 on November 19, 2026, trimmed to selected fields. The
+full log is in the [evidence file](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/why-did-this-react-component-re-render.md).
 
 ## Collapsing the sidebar re-renders the stat cards
 
 On the dashboard, click **Collapse sidebar**. Only the sidebar changes on screen. Genie sees more.
-The output is trimmed to 9 of its 40 rows:
+The output is trimmed to 9 of its 35 rows:
 
 ```bash
-npx genie-react call react_clear_renders '{}' --session art-m5
-agent-browser --session art-m5 find role button click --name 'Collapse sidebar'
-npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session art-m5
-npx genie-react call react_get_renders '{"limit":40}' --session art-m5 --fields name,renders,necessity,necessityReason
+npx genie-react call react_clear_renders '{}' --session upd-e
+agent-browser --session upd-e find role button click --name 'Collapse sidebar'
+npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-e
+npx genie-react call react_get_renders '{"limit":40}' --session upd-e --fields name,renders,necessity,necessityReason
 ```
 
 ```text
-[40]:
+[35]:
   each: {renders:1}
   - {name:AppShell,necessity:necessary,necessityReason:dom-changed}
   - {name:PreferencesProvider,necessity:necessary,necessityReason:dom-changed}
@@ -38,29 +38,31 @@ npx genie-react call react_get_renders '{"limit":40}' --session art-m5 --fields 
   - {name:StatCard,necessity:unnecessary,necessityReason:output-unchanged}
 ```
 
-The same read with `"limit":200` returned 41 rows. One click rendered 41 components. The four
-`StatCard` components are wrapped in `memo` and show revenue and order numbers that did not change.
+The same read with `"limit":200` also returned 35 rows. One click rendered 35 app components. The
+four `StatCard` components are wrapped in `memo` and show revenue and order numbers that did not
+change. Genie 1.0.2 also listed the sidebar's six TanStack Router `Link` elements under the name
+`sidebar-nav.tsx`, for 41 rows, and 1.1.0 hides them as library code.
 
 ## One read names four kinds of cause
 
 ```bash
-npx genie-react call react_render_causes '{"limit":100}' --session art-m5
+npx genie-react call react_render_causes '{"limit":100}' --session upd-e
 ```
 
-Trimmed to five of the 41 events:
+Trimmed to five of the 35 events:
 
 ```text
-  AppShell #14696656666673 {…,necessity:necessary,necessityReason:dom-changed,…,source:{location:/src/routes/_app.tsx:21:9,ownership:app}}
+  AppShell #7787564236851 {…,necessity:necessary,necessityReason:dom-changed,…,source:{location:/src/routes/_app.tsx:21:9,ownership:app}}
     ← state exact "state[0]"
-  PreferencesProvider #14696656666674 {…,source:{location:/src/layout/app-shell.tsx:36:5,ownership:app}}
+  PreferencesProvider #7787564236852 {…,source:{location:/src/layout/app-shell.tsx:36:5,ownership:app}}
     ← parent inferred AppShell
     ← children exact
-  SidebarNav #14696656666677 {…,source:{location:/src/layout/app-shell.tsx:38:9,ownership:app}}
+  SidebarNav #7787564236855 {…,source:{location:/src/layout/app-shell.tsx:38:9,ownership:app}}
     ← parent inferred PreferencesProvider {origin:AppShell}
     ← props exact collapsed
-  TopBar #14696656666679 {…,necessity:unnecessary,necessityReason:inputs-unchanged,…}
+  TopBar #7787564236857 {…,necessity:unnecessary,necessityReason:inputs-unchanged,…}
     ← parent inferred PreferencesProvider {origin:AppShell}
-  StatCard #14696656666854 {…,necessity:unnecessary,necessityReason:output-unchanged,…,source:{location:/src/features/dashboard/dashboard-page.tsx:55:9,ownership:app}}
+  StatCard #7787564237028 {…,necessity:unnecessary,necessityReason:output-unchanged,…,source:{location:/src/features/dashboard/dashboard-page.tsx:55:9,ownership:app}}
     ← context exact "Context(PreferencesProvider)" {contextIndex:0}
 ```
 
@@ -78,11 +80,11 @@ The `StatCard` line is the bug. It rendered because the value of the context tha
 The full view shows what changed inside the context value:
 
 ```bash
-npx genie-react call react_render_causes '{"component":"StatCard","limit":1,"view":"full"}' --session art-m5
+npx genie-react call react_render_causes '{"component":"StatCard","limit":1,"view":"full"}' --session upd-e
 ```
 
 ```text
-    ← context exact "Context(PreferencesProvider)" {contextIndex:0,contextId:context:1,provider:{componentId:14696656666674,componentName:PreferencesProvider},…,deepDiff:{changes:[{kind:identity-changed-uninspected,path:/setTheme},{kind:identity-changed-uninspected,path:/setLocale}],visited:13,truncated:true}}
+    ← context exact "Context(PreferencesProvider)" {contextIndex:0,contextId:context:1,provider:{componentId:7787564236852,componentName:PreferencesProvider},…,deepDiff:{changes:[{kind:identity-changed-uninspected,path:/setTheme},{kind:identity-changed-uninspected,path:/setLocale}],visited:13,truncated:true}}
 ```
 
 Theme, locale and the formatters kept their values. Only `setTheme` and `setLocale` are new
@@ -150,16 +152,16 @@ The import line also gains `useCallback`.
 `SidebarNav` must render at least once, so a click that missed the app fails:
 
 ```bash
-npx genie-react verify begin --session art-m5 --name 'collapse the sidebar' \
+npx genie-react verify begin --session upd-e --name 'collapse the sidebar' \
   --claim 'render StatCard max 0' --claim 'render SidebarNav min 1'
-agent-browser --session art-m5 find role button click --name 'Collapse sidebar'
-npx genie-react verify end vfy_71b10ec6-0771-4d52-b276-c2dba5320078 --session art-m5
+agent-browser --session upd-e find role button click --name 'Collapse sidebar'
+npx genie-react verify end vfy_0114ae9d-1582-4057-99ea-f8ee11707ed8 --session upd-e
 ```
 
 Before the fix, trimmed to the verdict and claim lines. The command exited with code 1:
 
 ```text
-fail vfy_71b10ec6-0771-4d52-b276-c2dba5320078 "collapse the sidebar"  1 commit, quiet after 729 ms (react, query, router)
+fail vfy_0114ae9d-1582-4057-99ea-f8ee11707ed8 "collapse the sidebar"  1 commit, quiet after 1850 ms (react, query, router, network)
   1 fail render StatCard max 0  {renders:4,mounts:0,updates:4,remounts:0,semantics:exact,instances:4,activeInstances:4}
   2 pass render SidebarNav min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
 ```
@@ -167,17 +169,14 @@ fail vfy_71b10ec6-0771-4d52-b276-c2dba5320078 "collapse the sidebar"  1 commit, 
 After the fix, the same claims and the same click. The command exited with code 0:
 
 ```text
-pass vfy_c211e1b5-26e0-409a-a2e9-e69597aad74f "collapse the sidebar"  1 commit, quiet after 723 ms (react, query, router)
+pass vfy_ffa99a24-d409-4586-bdbd-33356400cf85 "collapse the sidebar"  1 commit, quiet after 871 ms (react, query, router, network)
   1 pass render StatCard max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:4,activeInstances:4}
   2 pass render SidebarNav min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
 ```
 
-A fresh `react_get_renders` capture of the same click after the fix listed 16 renders instead of
-41, and its coverage reported `complete: true`.
-
-The first "before" run also had `--claim 'boundaries clean'`. It failed on a different seeded bug.
-The carrier card's error boundary held `Cannot read properties of null (reading 'toFixed')`. That
-claim would fail after this fix too, so the runs above leave it out to compare like with like.
+A fresh `react_get_renders` capture of the same click after the fix listed 10 renders instead of
+35. Its only coverage gap was one component with unresolved ownership, and the same read with
+`"appOnly":false` reported `complete: true` with `semantics: exact`.
 
 ## What exact, inferred and unknown mean in practice
 
@@ -185,41 +184,52 @@ claim would fail after this fix too, so the runs above leave it out to compare l
 `collapsed` prop change and the context value change, and it named the provider. Act on an `exact`
 cause.
 
+A deferred render is `exact` too. Typing one character into **Filter orders** rendered `OrdersPage`
+twice:
+
+```text
+  OrdersPage #8002295824437 {renderEventId:render:19:34,…,necessity:necessary,necessityReason:dom-changed,…}
+    ← state exact useDeferredValue
+  OrdersPage #8002295824437 {renderEventId:render:18:2,…,necessity:necessary,necessityReason:dom-changed,…}
+    ← state exact "state[0]"
+```
+
+The earlier render, `render:18:2`, came from the `term` state. The second is React's deferred
+render for `useDeferredValue(term)`. The full view gives its values and its hook:
+
+```text
+    ← state exact useDeferredValue {before:"",after:x,…,hook:{index:10,stateIndex:null,kind:state}}
+```
+
+Genie 1.0.2 graded this deferred render `unknown` with `unclassified-hook-changed`. Genie needs a
+React development build to name the hook.
+
 `inferred` means the link is likely but not proven. The `parent` causes above are inferred. Here is
 a second kind. On the Orders page, ticking one order's checkbox also rendered `SidebarNav`:
 
 ```text
-  SidebarNav #3080045199402 {…,necessity:unnecessary,necessityReason:output-unchanged,inputEvidence:none-observed,…}
-    ← external-store inferred anonymous-external-store
+  SidebarNav #7017070592042 {…,necessity:unnecessary,necessityReason:output-unchanged,inputEvidence:none-observed,…}
+    ← external-store inferred anonymous-external-store {changedFields:[selectedOrderIds]}
 ```
 
-The full view adds `subscriptionFired:true`, `selector:null` and `changedFields:[selectedOrderIds]`.
-`SidebarNav` does not show the selection, so confirm the lead in the code.
+The default view names the store field that changed. The full view adds `subscriptionFired:true`
+and `selector:null`. `SidebarNav` does not show the selection, so confirm the lead in the code.
 `src/layout/sidebar-nav.tsx` calls `useWorkspaceStore()` without a selector, so it subscribes to the
 whole zustand store. That is another seeded bug in the same app.
 
-`unknown` means Genie saw a render but cannot name its cause. Typing one character into
-**Filter orders** rendered `OrdersPage` twice:
-
-```text
-  OrdersPage #12145244766261 {renderEventId:render:18:55,…,necessity:necessary,necessityReason:dom-changed,…}
-    ← unknown unknown {reason:unclassified-hook-changed}
-  OrdersPage #12145244766261 {renderEventId:render:17:23,…,necessity:necessary,necessityReason:dom-changed,…}
-    ← state exact "state[0]"
-```
-
-The earlier render, `render:17:23`, came from the `term` state. The full view of the
-second gives `hookIndex:10`, and `react_inspect_component` lists that hook as
-`{index:10,kind:other,hook:useDeferredValue,stateful:false,value:x}`. It is React's deferred render
-for `useDeferredValue(term)`. Coverage for this capture was `complete: true`, so the `unknown`
-reflects a hook kind Genie does not classify, not missing data. Genie says so instead of guessing.
+`unknown` means Genie saw a render but cannot name its cause. This run had none. Every render in the
+sidebar, checkbox and filter captures carried an `exact` or `inferred` cause. When you do see one,
+read the cause's `reason` and the capture's `coverage` before you guess.
 
 ## When this approach does not fit
 
 Read `coverage` before you trust a missing cause. The sidebar capture reported `complete: false`
 with `inputs-truncated` on 9 fibers, because Genie compares functions by identity and does not look
 inside them. Causes it did report were still graded, but an absent cause proves nothing until
-coverage is complete. [Read evidence](/docs/reference/evidence) lists every gap and its fix.
+coverage is complete. A budget that runs out drops renders from the read entirely. The same click in
+a window with `fiberLimit:50`, `operationLimit:1000` and `adaptive:false` listed 3 events instead of
+35, with `skippedCommitFibers: 67`, `semantics: lower-bound` and a `budgetAdvice` to clear with.
+[Read evidence](/docs/reference/evidence) lists every gap and its fix.
 
 `necessity` is not permission to delete a render. The full `StatCard` event says
 `optimizationSafety: not-proven-safe`, so check the screen with your driver after any change.
