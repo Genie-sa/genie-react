@@ -7,7 +7,7 @@ You clicked **Last 90 days**, then **Last 7 days**, and the chart drew 90 days o
 
 Genie shows both facts. The timeline request lane shows the order the requests finished in. The Redux log shows which thunk's result the store applied. Genie's `verify` check then grades the fix, and it waits for the slow request before it decides.
 
-Everything below ran on 2026-11-19 with Genie 1.1.0 against `apps/realworld-legacy`, a React 18 app in this repo with webpack and hand-written Redux thunks. The [raw evidence](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/clicked-7-days-got-90-days.md) has every command and its full output.
+Everything below ran on 2026-11-19 with Genie 1.1.0, and the missing-collector refusal with Genie 1.1.1, against `apps/realworld-legacy`, a React 18 app in this repo with webpack and hand-written Redux thunks. The [raw evidence](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/clicked-7-days-got-90-days.md) has every command and its full output.
 
 ## Make the race happen every time
 
@@ -142,7 +142,25 @@ The race still happens. The 90-day request still runs and still arrives last, an
      reduxCollector(store, { name: 'app' }),
 ```
 
-Without it, the verdict line lists only `(react)` and `verify` does not see pending requests. Asking for the domain with `--domains react,network` then refuses every claim a late response could change, with `not_quiescent` and `network:unsupported`. Every verdict below ran with the collector added, unless it says otherwise.
+On 1.1.1 you can instead replace the collectors after `reactCollector()` with `...defaultAppCollectors({ reduxStore: store })` from `genie-react/collectors`, the same list `<Genie />` registers.
+
+Without `requestWatchCollector`, the verdict line lists only `(react)` and `verify` does not see pending requests. Asking for the domain with `--domains react,network` makes `verify begin` refuse every claim at once with exit code 4, before you click anything. Trimmed to the first claim:
+
+```bash
+npx genie-react verify begin --session upd-domains --name 'switch 90d then 7d' --domains react,network \
+  --claim 'render ThroughputWidget max 3' --claim 'render ReportRangePicker min 1' --claim 'boundaries clean'
+```
+
+```text
+refused vfy_85facbbe-3967-4e6f-a3ad-e2bdf66dc77f "switch 90d then 7d"
+  url "http://127.0.0.1:5251/reports"
+  1 refused render ThroughputWidget max 3  capability_unavailable: The app does not report the network settle domain that --domains asks for. Add requestWatchCollector() to its Genie collectors, or leave network out of --domains.
+      observed: {}
+      evidence:{unsupportedDomains:[network],advertisedDomains:[react]},fix:{action:check-setup}
+      fix: $ npx genie-react doctor --live --session upd-domains
+```
+
+Genie 1.1.0 accepted the domain and refused at `verify end` with `not_quiescent`. Every verdict below ran with the collector added, unless it says otherwise.
 
 ## What verify can prove here
 

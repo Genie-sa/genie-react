@@ -2243,3 +2243,174 @@ $ npx genie-react call app_backend_faults '{"rules":[]}' --session upd-a
 rules: []
 [exit 0]
 ```
+
+## Re-run on Genie 1.1.1
+
+- Date: 2026-11-19 (UTC times appear in the log)
+- Commit: `bedae1a635ad3b156a7e0225ab5e35a1b7d54255` (`git rev-parse HEAD`), app source unmodified
+- App: `apps/realworld-legacy` (Acme Tracker) as shipped, without `requestWatchCollector`, URL http://127.0.0.1:5251/reports
+- Genie CLI and hub: 1.1.1 (workspace build, `node_modules/.bin/genie-react --version` in the app prints `1.1.1`), hub on port 15251, session `upd-domains`, driver agent-browser
+
+### Setup
+
+```bash
+pnpm install && pnpm build && pnpm install   # the second install links the freshly built genie-react bin into the apps
+cd apps/realworld-legacy
+GENIE_HUB_PORT=15251 pnpm hub
+PORT=5251 GENIE_HUB_PORT=15251 pnpm dev
+```
+
+Every command below ran from `apps/realworld-legacy`. Each block is the command, its full output, and its exit code. Lines starting with `##` are notes added between commands. The home directory is shown as `~`.
+
+This re-run checks the 1.1.1 change to `verify begin --domains`: on an app that does not report a settle domain, `begin` now refuses every claim with `capability_unavailable` instead of letting `verify end` refuse with `not_quiescent`. The 90-day latency is 5000 ms, as in the 1.1.0 run of the same case.
+
+Not reproduced here: between the `--domains` refusal and the default-domains run, a `verify begin` piped through `jq` printed only its ID, `vfy_f1de3664-9a2e-43e2-8b2a-4b5e76bff0d3`. The page reload that followed ended that window, and the next run's ledger lists it as `refused` with `session_changed`.
+
+### Log
+
+```text
+$ date -u +%Y-%m-%dT%H:%M:%SZ; git rev-parse HEAD; git status --short; node_modules/.bin/genie-react --version
+2026-11-19T10:04:08Z
+bedae1a635ad3b156a7e0225ab5e35a1b7d54255
+## ali/articles-update-domains...origin/main
+1.1.1
+[exit 0]
+
+$ agent-browser --session upd-domains open http://127.0.0.1:5251/login
+[agent-browser] launched browser
+✓ Acme Tracker
+  http://127.0.0.1:5251/login
+[exit 0]
+
+$ npx genie-react status --session upd-domains --wait 15000 --select /ready
+status: ok
+selection: {expression:/ready,matchedPathCount:1,matchedPaths:[/ready],omittedPathCount:50}
+result: true
+[exit 0]
+
+$ npx genie-react call app_sign_in '{"email":"dana@acme.test"}' --session upd-domains
+user: {id:u-1,name:"Dana Whitfield",email:dana@acme.test,title:Designer,team:Infra}
+[exit 0]
+
+$ agent-browser --session upd-domains open http://127.0.0.1:5251/reports
+✓ Acme Tracker
+  http://127.0.0.1:5251/reports
+[exit 0]
+
+$ agent-browser --session upd-domains wait .bar-chart
+✓ Done
+[exit 0]
+
+$ npx genie-react call app_backend_faults '{"rules":[{"method":"GET","path":"/api/reports/throughput","query":{"range":"90d"},"latencyMs":5000}]}' --session upd-domains
+rules[1]:
+  - {method:GET,path:/api/reports/throughput,query:{range:90d},latencyMs:5000,status:null,times:null,hits:0}
+[exit 0]
+
+$ npx genie-react verify begin --session upd-domains --name 'switch 90d then 7d' --domains react,network --claim 'render ThroughputWidget max 3' --claim 'render ReportRangePicker min 1' --claim 'boundaries clean'
+refused vfy_85facbbe-3967-4e6f-a3ad-e2bdf66dc77f "switch 90d then 7d"
+  url "http://127.0.0.1:5251/reports"
+  1 refused render ThroughputWidget max 3  capability_unavailable: The app does not report the network settle domain that --domains asks for. Add requestWatchCollector() to its Genie collectors, or leave network out of --domains.
+      observed: {}
+      evidence:{unsupportedDomains:[network],advertisedDomains:[react]},fix:{action:check-setup}
+      fix: $ npx genie-react doctor --live --session upd-domains
+      claim: {kind:renders,target:{component:ThroughputWidget},max:3,counting:renders,allowRemount:false}
+      deciding: []
+  2 refused render ReportRangePicker min 1  capability_unavailable: The app does not report the network settle domain that --domains asks for. Add requestWatchCollector() to its Genie collectors, or leave network out of --domains.
+      observed: {}
+      evidence:{unsupportedDomains:[network],advertisedDomains:[react]},fix:{action:check-setup}
+      fix: $ npx genie-react doctor --live --session upd-domains
+      claim: {kind:renders,target:{component:ReportRangePicker},min:1,counting:renders,allowRemount:false}
+      deciding: []
+  3 refused boundaries clean  capability_unavailable: The app does not report the network settle domain that --domains asks for. Add requestWatchCollector() to its Genie collectors, or leave network out of --domains.
+      observed: {}
+      evidence:{unsupportedDomains:[network],advertisedDomains:[react]},fix:{action:check-setup}
+      fix: $ npx genie-react doctor --live --session upd-domains
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: []
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_85facbbe-3967-4e6f-a3ad-e2bdf66dc77f --claim 1 --session upd-domains
+session: {sessionId:ad405b5f-b2ed-4eba-b13e-a0304b631cad,logicalSessionId:9685670b-476c-4637-bdbc-caea9e203cde,documentGeneration:2}
+schemaVersion: "1.0"
+exitCode: 4
+stage: begin
+ledger: {fingerprint:cf_37c1a0be21cc,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:false,tools:[]}
+startedAt: 2026-11-19T10:04:22.996Z
+endedAt: 2026-11-19T10:04:23.015Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000,domains:[react,network]},maxDurationMs:300000,allowOverrides:false}
+[exit 4]
+
+## same app as shipped, default --domains, to check the article line about the shipped client
+
+$ agent-browser --session upd-domains open http://127.0.0.1:5251/reports
+✓ Acme Tracker
+  http://127.0.0.1:5251/reports
+[exit 0]
+
+$ agent-browser --session upd-domains wait .bar-chart
+✓ Done
+[exit 0]
+
+$ npx genie-react verify begin --session upd-domains --name 'switch 90d then 7d' --claim 'render ThroughputWidget max 3' --claim 'render ReportRangePicker min 1' --claim 'boundaries clean'
+recording vfy_b0dc46a1-468a-4791-87fd-ff90bcd77187 "switch 90d then 7d"
+  url "http://127.0.0.1:5251/reports"
+  1 recording render ThroughputWidget max 3
+  2 recording render ReportRangePicker min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:17,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_b0dc46a1-468a-4791-87fd-ff90bcd77187 --session upd-domains
+session: {sessionId:1bc2dc17-c77f-4d46-97e8-58fa0a392cb4,logicalSessionId:9685670b-476c-4637-bdbc-caea9e203cde,documentGeneration:4}
+schemaVersion: "1.0"
+targets: [{target:{component:ThroughputWidget},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-5f89256e-abd18ead5fdb3c4d/apps/realworld-legacy/src/features/reports/reports-page.tsx},{target:{component:ReportRangePicker},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-5f89256e-abd18ead5fdb3c4d/apps/realworld-legacy/src/features/reports/report-range-picker.tsx}]
+startedAt: 2026-11-19T10:04:39.754Z
+expiresAt: 2026-11-19T10:09:39.766Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-domains find role button click --name 'Last 90 days' && agent-browser --session upd-domains find role button click --name 'Last 7 days'
+✓ Done
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_b0dc46a1-468a-4791-87fd-ff90bcd77187 --session upd-domains
+pass vfy_b0dc46a1-468a-4791-87fd-ff90bcd77187 "switch 90d then 7d"  11 commits, quiet after 811 ms (react)
+  url "http://127.0.0.1:5251/reports"
+  1 pass render ThroughputWidget max 3  {renders:3,mounts:0,updates:3,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:ThroughputWidget},max:3,counting:renders,allowRemount:false}
+      deciding: [{kind:coverage,complete:true,targetedComplete:true,semantics:exact},{kind:instance,mountId:mount:1,renderingState:mounted-rendering,source:~/.t3/worktrees/genie-react/t3-5f89256e-abd18ead5fdb3c4d/apps/realworld-legacy/src/features/reports/reports-page.tsx:59:32}]
+  2 pass render ReportRangePicker min 1  {renders:2,mounts:0,updates:2,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:ReportRangePicker},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:2,renders:2,mounts:0,updates:2,mountGeneration:1,latestDocumentCommitId:25,source:~/.t3/worktrees/genie-react/t3-5f89256e-abd18ead5fdb3c4d/apps/realworld-legacy/src/features/reports/report-range-picker.tsx:23:7}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:17}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:17,settledDocumentCommitId:27,frozenDocumentCommitId:28,commits:11,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:811,domains:{react:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 3 for these claims on this tab; previous refused vfy_f1de3664-9a2e-43e2-8b2a-4b5e76bff0d3 (session_changed); document reloaded since
+evidence: $ npx genie-react verify show vfy_b0dc46a1-468a-4791-87fd-ff90bcd77187 --session upd-domains
+session: {sessionId:1bc2dc17-c77f-4d46-97e8-58fa0a392cb4,logicalSessionId:9685670b-476c-4637-bdbc-caea9e203cde,documentGeneration:4}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_37c1a0be21cc,scope:logical-session,storage:memory,attempt:3,history:[{verificationId:vfy_85facbbe-3967-4e6f-a3ad-e2bdf66dc77f,verdict:refused,reasons:[capability_unavailable],endedAt:2026-11-19T10:04:23.015Z},{verificationId:vfy_f1de3664-9a2e-43e2-8b2a-4b5e76bff0d3,verdict:refused,reasons:[session_changed],endedAt:2026-11-19T10:04:39.754Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T10:04:39.754Z
+endedAt: 2026-11-19T10:04:45.768Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-domains eval "JSON.stringify({pressed: document.querySelector('[aria-label=\"Date range\"] [aria-pressed=true]').textContent, chartRange: document.querySelector('.bar-chart').dataset.range, bars: document.querySelectorAll('.bar-chart__bar').length})"
+"{\"pressed\":\"Last 7 days\",\"chartRange\":\"7d\",\"bars\":7}"
+[exit 0]
+
+$ agent-browser --session upd-domains wait 6000
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-domains eval "JSON.stringify({pressed: document.querySelector('[aria-label=\"Date range\"] [aria-pressed=true]').textContent, chartRange: document.querySelector('.bar-chart').dataset.range, bars: document.querySelectorAll('.bar-chart__bar').length})"
+"{\"pressed\":\"Last 7 days\",\"chartRange\":\"90d\",\"bars\":13}"
+[exit 0]
+```
