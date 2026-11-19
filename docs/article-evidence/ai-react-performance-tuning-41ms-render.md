@@ -1599,3 +1599,862 @@ warnings: ["Ownership of create-order-page.tsx (/src/features/orders/create-orde
 
 ### FIX REVERTED (git checkout -- src/features/orders/)
 ```
+
+## Re-run on Genie 1.1.0
+
+- Date: 2026-11-19
+- Commit: `ce408cb205c0e798cb04c35512772b7454283141` (`git rev-parse HEAD`). App source unmodified except for the temporary fixes shown in the log, each reverted with `git checkout`.
+- App: `apps/realworld-dashboard` (Meridian Ops), React 19.3.1 in StrictMode, Vite 8 dev server, **development bundle**
+- URL: http://127.0.0.1:5242/orders/new (dev server started with `DASHBOARD_PORT=5242 pnpm exec vite --port 5242 --strictPort` from `apps/realworld-dashboard`)
+- Genie CLI, hub and runtime: 1.1.0 (workspace build), session `upd-f`, driver agent-browser 0.43.0
+- Seeded bug: `evals/realworld/dashboard/new-order-notes-typing-lag.json`
+- One dev server session, which had served the `test-every-loading-empty-and-error-state` re-run just before. The first read, both `verify` runs, the six-and-six capture comparison and the swapped comparison all ran in it. Renders are read after `devtools_wait` with `settled` and `"domains":["react","query","router"]`, as the 1.1.0 skill says.
+- Fix 2 was applied with `git apply` from the fix 2 diff recorded in the original log above, after fix 1 was reverted.
+
+Every command below ran in this order from `apps/realworld-dashboard`. Output is complete and untrimmed. A `jq` filter inside a command is part of that command. Two calls, `agent-browser snapshot -i` and the first `react_get_renders`, piped their printed output through `grep` or `head` in the terminal. The log below keeps their full output. Lines starting with `###` are notes added while recording. `[exit N]` is the command's exit code.
+
+```text
+
+$ git rev-parse HEAD
+ce408cb205c0e798cb04c35512772b7454283141
+[exit 0]
+
+$ node_modules/.bin/genie-react --version
+1.1.0
+[exit 0]
+
+$ agent-browser --session upd-f open http://127.0.0.1:5242/login
+✓ Meridian Ops
+  http://127.0.0.1:5242/
+[exit 0]
+
+$ node_modules/.bin/genie-react status --session upd-f --wait 15000 --json | jq -c "{ready,app:.app.name,url:.app.url,react:.app.reactVersion,runtime:.sessions[0].runtimeVersion,hub:.hub.version}"
+{"ready":true,"app":"Meridian Ops","url":"http://127.0.0.1:5242/","react":"19.3.1","runtime":"1.1.0","hub":"1.1.0"}
+[exit 0]
+
+$ node_modules/.bin/genie-react call app_login_as '{"role":"manager"}' --session upd-f
+changed: false
+role: manager
+userId: u-manager
+[exit 0]
+
+$ agent-browser --session upd-f open http://127.0.0.1:5242/orders/new
+✓ Meridian Ops
+  http://127.0.0.1:5242/orders/new
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:928}
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -i
+- generic "MMeridian OpsDashboardOrdersCustomersInventoryReportsSettingsRecently viewedQuarry RetailSearch orde" [ref=e827] clickable [onclick]
+  - link "Dashboard" [ref=e831]
+  - link "Orders" [ref=e832]
+  - link "Customers" [ref=e833]
+  - link "Inventory" [ref=e834]
+  - link "Reports" [ref=e835]
+  - link "Settings" [ref=e836]
+  - link "Quarry Retail" [ref=e837]
+  - button "Collapse sidebar" [ref=e828]
+  - button "Search orders, customers, products… ⌘K" [ref=e829]
+  - button "Notifications, 4 unread" [ref=e830]
+  - button "Account menu" [expanded=false, ref=e838]
+  - link "All orders" [ref=e839]
+  - heading "New order" [level=1, ref=e840]
+  - heading "Customer and fulfillment" [level=2, ref=e846]
+  - combobox "Customer" [expanded=false, ref=e847]
+  - combobox "Warehouse" [expanded=false, ref=e841]: Select a warehouse
+    - option "Select a warehouse" [selected, ref=e851]
+    - option "Reno DC (NA)" [ref=e852]
+    - option "Columbus DC (NA)" [ref=e853]
+    - option "Rotterdam Hub (EMEA)" [ref=e854]
+    - option "Leipzig Hub (EMEA)" [ref=e855]
+    - option "Singapore Hub (APAC)" [ref=e856]
+    - option "São Paulo DC (LATAM)" [ref=e857]
+  - combobox "Priority" [expanded=false, ref=e842]: standard
+    - option "standard" [selected, ref=e858]
+    - option "expedited" [ref=e859]
+    - option "critical" [ref=e860]
+  - textbox "Shipping address" [ref=e843]
+  - heading "Products" [level=2, ref=e848]
+  - textbox "Find a product" [ref=e844]
+  - heading "Notes" [level=2, ref=e849]
+  - textbox "Notes for the warehouse team" [ref=e845]
+  - heading "Summary" [level=2, ref=e861]
+  - button "Create order" [ref=e850]
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_clear_renders '{"component":"ProductPicker"}' --session upd-f
+ok: true
+tracking: true
+documentCommitId: 9
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:9}
+observationConfig:
+  adaptive: true
+  adaptiveScale: 1
+  fiberLimit: 250
+  operationLimit: 30000
+  timeLimitMs: 12
+  targetOperationReserve: 4000
+  targetTimeReserveMs: 4
+  lifecycleBufferLimit: 1000
+  lifecycleTargetReserve: 100
+strictMode: on
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:723}
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_get_renders '{"sort":"selfTime","limit":5}' --session upd-f
+tracking: true
+renderCollection: available
+bundle: development
+timingsBundleDependent: true
+countsScope: observed-run
+commits: 27
+documentCommitId: 36
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:9}
+attribution:
+  status: current
+  startedAtDocumentCommitId: 36
+  completedAtDocumentCommitId: 36
+  startedAtAnalysisGeneration: 37
+  completedAtAnalysisGeneration: 37
+view: summary
+summary:
+  commits: 27
+  trackedComponents: 27
+  totalRenders: 729
+  totalUpdates: 729
+  referenceOnlyPropComponents: 0
+  noObservedInputChangeComponents: 6
+  topReferenceOnlyProps: [{name:selectedIds,count:1}]
+  semantics: exact
+  coverageDomain: render-measurement
+components[5] (name #id {fields}, then ← kind evidence name {fields} per cause):
+  each: {renders:27,updates:27,latestDocumentCommitId:36,inputEvidence:changed,source:{ownership:app}}
+  ProductPicker #5267106300044 {mountId:mount:1,selfTime:27.1,totalTime:27.1,cumulativeSelfTime:698.5,cumulativeTotalTime:699,causeCounts:{props:54,parent:27},necessity:unknown,necessityReason:callbacks-changed,source:{location:/src/features/orders/create-order-page.tsx:172:15,role:element-callsite}}
+    ← parent inferred CardBody {origin:CreateOrderPage}
+    ← props exact selectedIds {referenceOnly:true}
+    ← props exact onPick
+  CreateOrderPage #5267106299957 {mountId:mount:2,noObservedInputChange:27,selfTime:0.8,totalTime:28.4,cumulativeSelfTime:14,cumulativeTotalTime:733.4,causeCounts:{state:27},necessity:unnecessary,necessityReason:inputs-unchanged,source:{location:/src/features/orders/create-order-page.tsx:100:5,role:component-body}}
+    ← state exact "state[3]"
+  CustomerCombobox #5267106299982 {mountId:mount:11,selfTime:0.2,totalTime:0.2,cumulativeSelfTime:1.1,cumulativeTotalTime:1.4,causeCounts:{props:27,parent:27},necessity:unknown,necessityReason:callbacks-changed,source:{location:/src/features/orders/create-order-page.tsx:116:19,role:element-callsite}}
+    ← parent inferred Field {origin:CreateOrderPage}
+    ← props exact onChange
+  Field #5267106299986 {mountId:mount:13,selfTime:0.2,totalTime:0.2,cumulativeSelfTime:2.5,cumulativeTotalTime:3.2,causeCounts:{children:27,parent:27},necessity:unknown,necessityReason:callbacks-changed,source:{location:/src/features/orders/create-order-page.tsx:128:15,role:element-callsite}}
+    ← parent inferred CardBody {origin:CreateOrderPage}
+    ← children exact
+  Field #5267106300023 {mountId:mount:15,selfTime:0.2,totalTime:0.2,cumulativeSelfTime:1.7,cumulativeTotalTime:2.1,causeCounts:{children:27,parent:27},necessity:unknown,necessityReason:callbacks-changed,source:{location:/src/features/orders/create-order-page.tsx:144:15,role:element-callsite}}
+    ← parent inferred CardBody {origin:CreateOrderPage}
+    ← children exact
+sourceClassification:
+  complete: true
+  affects: result
+  totalCandidates: 31
+  evaluated: 31
+  app: 27
+  library: 4
+  unknown: 0
+  unknownComponents: []
+  unknownComponentsOmitted: 0
+omittedByLimit: 22
+nextCursor: 3c0d518f-4ada-4f78-98bc-d82ec55126d2:5
+pagination:
+  snapshotId: 3c0d518f-4ada-4f78-98bc-d82ec55126d2
+  offset: 0
+  totalComponents: 27
+  expiresAt: 1795079061919
+comparable: true
+notComparableReasons: []
+coverage:
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 0
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  complete: true
+  inputAttributionComplete: true
+  semantics: exact
+  coverageDomain: render-causality
+filteredNote: "5 components shown; 4 library components hidden — set appOnly:false to include them"
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_get_renders '{"component":"ProductPicker","appOnly":false}' --session upd-f --fields bundle,components,coverage
+[1]:
+  - {bundle:development,components:[{id:5267106300044,name:ProductPicker,mountId:mount:1,renders:27,updates:27,selfTime:27.1,totalTime:27.1,cumulativeSelfTime:698.5,cumulativeTotalTime:699,latestDocumentCommitId:36,causeCounts:{props:54,parent:27},causes:[{kind:parent,evidence:inferred,name:CardBody,origin:CreateOrderPage},{kind:props,evidence:exact,name:selectedIds,referenceOnly:true},{kind:props,evidence:exact,name:onPick}],necessity:unknown,necessityReason:callbacks-changed,inputEvidence:changed,source:{location:/src/features/orders/create-order-page.tsx:172:15,role:element-callsite,ownership:app}}],coverage:{skippedCommitFibers:0,droppedUnmountFibers:0,analysisFailedFibers:0,pausedCommits:0,unobservedCommits:0,refreshCommitsExcluded:0,truncatedInputFibers:0,propsNotEnumeratedFibers:0,budgetExhaustedCommits:0,budgetExhaustedSubsystems:[],complete:true,inputAttributionComplete:true,semantics:exact,coverageDomain:render-causality}}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'textarea[name="notes"]' ''
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react verify begin --session upd-f --name 'type warehouse notes' --claim 'render ProductPicker max 0' --claim 'render CreateOrderPage min 1' --claim 'boundaries clean'
+recording vfy_d19d4b18-bdbc-4c60-af4d-bb914300d9ee "type warehouse notes"
+  url "http://127.0.0.1:5242/orders/new"
+  1 recording render ProductPicker max 0
+  2 recording render CreateOrderPage min 1
+  3 recording boundaries clean
+window: {observationId:observation:2,startDocumentCommitId:36,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ pnpm exec genie-react verify end vfy_d19d4b18-bdbc-4c60-af4d-bb914300d9ee --session upd-f
+session: {sessionId:58f4965a-0c9a-4c41-8eb4-2ac31ff2dd6d,logicalSessionId:e7ac44c4-a84a-4786-85e2-cbf0eb72cb57,documentGeneration:12}
+schemaVersion: "1.0"
+targets: [{target:{component:ProductPicker},status:resolved,instances:1,source:/src/features/orders/create-order-page.tsx},{target:{component:CreateOrderPage},status:resolved,instances:1,source:/src/features/orders/create-order-page.tsx}]
+startedAt: 2026-11-19T08:59:28.907Z
+expiresAt: 2026-11-19T09:04:28.911Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react verify end vfy_d19d4b18-bdbc-4c60-af4d-bb914300d9ee --session upd-f
+fail vfy_d19d4b18-bdbc-4c60-af4d-bb914300d9ee "type warehouse notes"  27 commits, quiet after 714 ms (react, query, router, network)
+  url "http://127.0.0.1:5242/orders/new"
+  1 fail render ProductPicker max 0  {renders:27,mounts:0,updates:27,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:ProductPicker},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,renders:27,mounts:0,updates:27,mountGeneration:1,latestDocumentCommitId:63,source:/src/features/orders/create-order-page.tsx:172:15}]
+  2 pass render CreateOrderPage min 1  {renders:27,mounts:0,updates:27,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:CreateOrderPage},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:2,renders:27,mounts:0,updates:27,mountGeneration:1,latestDocumentCommitId:63,source:/src/features/orders/create-order-page.tsx:100:5}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:36}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:2,startDocumentCommitId:36,settledDocumentCommitId:63,frozenDocumentCommitId:63,commits:27,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:714,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:0},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 1 for these claims on this tab
+evidence: $ pnpm exec genie-react verify show vfy_d19d4b18-bdbc-4c60-af4d-bb914300d9ee --claim 1 --session upd-f
+session: {sessionId:58f4965a-0c9a-4c41-8eb4-2ac31ff2dd6d,logicalSessionId:e7ac44c4-a84a-4786-85e2-cbf0eb72cb57,documentGeneration:12}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_579fe54da677,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T08:59:28.907Z
+endedAt: 2026-11-19T08:59:31.028Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+$ agent-browser --session upd-f get value 'textarea[name="notes"]'
+Leave at dock 4, call ahead
+[exit 0]
+
+$ agent-browser --session upd-f fill 'textarea[name="notes"]' ''
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_clear_renders '{}' --session upd-f --fields ok,observation
+[1]:
+  - {ok:true,observation:{id:observation:3,epoch:3,startedAfterDocumentCommitId:63}}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:717}
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_capture_create '{"name":"before","include":["react"]}' --session upd-f --json
+{"schemaVersion":"1.0","captureId":"cap_c8804f0c-e8c2-48f9-8d17-f3687bd515e2","name":"before","createdAt":"2026-11-19T08:59:42.745Z","session":{"sessionId":"58f4965a-0c9a-4c41-8eb4-2ac31ff2dd6d","logicalSessionId":"e7ac44c4-a84a-4786-85e2-cbf0eb72cb57","documentGeneration":12,"app":{"name":"Meridian Ops","url":"http://127.0.0.1:5242/orders/new","reactVersion":"19.3.1","reactMounted":true}},"include":["react"],"consistency":{"kind":"react-commit-stable","attempts":1,"reactCommit":90,"reason":"React document commit markers matched before, during, and after all captured sections."},"complete":true,"sizeBytes":268189,"pinned":false,"summary":{"sectionStatus":{"react":"ok"},"metrics":{"react.commits":27,"react.renders":729,"query.pending":null,"memory.usedHeapBytes":null,"performance.avgFps":null},"warningCount":0},"integrity":{"algorithm":"sha256","scope":"capture-content-v1","digest":"3e6ae1a18917481a2b3225861f1b87db730bcefce92c95e2397f4419eb2395d3"},"warnings":[],"availableSections":["react"],"renders":{"comparable":true,"notComparableReasons":[],"coverage":{"complete":true,"semantics":"exact"}}}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'textarea[name="notes"]' ''
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_clear_renders '{}' --session upd-f --fields ok,observation
+[1]:
+  - {ok:true,observation:{id:observation:4,epoch:4,startedAfterDocumentCommitId:90}}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:709}
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_capture_create '{"name":"before","include":["react"]}' --session upd-f --json
+{"schemaVersion":"1.0","captureId":"cap_d0bd3a7e-5170-410f-8a3b-63930e1e33fd","name":"before","createdAt":"2026-11-19T08:59:44.595Z","session":{"sessionId":"58f4965a-0c9a-4c41-8eb4-2ac31ff2dd6d","logicalSessionId":"e7ac44c4-a84a-4786-85e2-cbf0eb72cb57","documentGeneration":12,"app":{"name":"Meridian Ops","url":"http://127.0.0.1:5242/orders/new","reactVersion":"19.3.1","reactMounted":true}},"include":["react"],"consistency":{"kind":"react-commit-stable","attempts":1,"reactCommit":117,"reason":"React document commit markers matched before, during, and after all captured sections."},"complete":true,"sizeBytes":268314,"pinned":false,"summary":{"sectionStatus":{"react":"ok"},"metrics":{"react.commits":27,"react.renders":729,"query.pending":null,"memory.usedHeapBytes":null,"performance.avgFps":null},"warningCount":0},"integrity":{"algorithm":"sha256","scope":"capture-content-v1","digest":"63529c1336fe1e0141afc8e925ecf13678cf8249f33fbfe5734de46b4dd822a6"},"warnings":[],"availableSections":["react"],"renders":{"comparable":true,"notComparableReasons":[],"coverage":{"complete":true,"semantics":"exact"}}}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'textarea[name="notes"]' ''
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_clear_renders '{}' --session upd-f --fields ok,observation
+[1]:
+  - {ok:true,observation:{id:observation:5,epoch:5,startedAfterDocumentCommitId:117}}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:706}
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_capture_create '{"name":"before","include":["react"]}' --session upd-f --json
+{"schemaVersion":"1.0","captureId":"cap_f4589e49-a2fc-4197-b9d4-ad88ca8e6b87","name":"before","createdAt":"2026-11-19T08:59:46.453Z","session":{"sessionId":"58f4965a-0c9a-4c41-8eb4-2ac31ff2dd6d","logicalSessionId":"e7ac44c4-a84a-4786-85e2-cbf0eb72cb57","documentGeneration":12,"app":{"name":"Meridian Ops","url":"http://127.0.0.1:5242/orders/new","reactVersion":"19.3.1","reactMounted":true}},"include":["react"],"consistency":{"kind":"react-commit-stable","attempts":1,"reactCommit":144,"reason":"React document commit markers matched before, during, and after all captured sections."},"complete":true,"sizeBytes":268327,"pinned":false,"summary":{"sectionStatus":{"react":"ok"},"metrics":{"react.commits":27,"react.renders":729,"query.pending":null,"memory.usedHeapBytes":null,"performance.avgFps":null},"warningCount":0},"integrity":{"algorithm":"sha256","scope":"capture-content-v1","digest":"6e09b8427bd3a406fe0c18156f4699f27a92717f364559b6fb8e4a67c61e26af"},"warnings":[],"availableSections":["react"],"renders":{"comparable":true,"notComparableReasons":[],"coverage":{"complete":true,"semantics":"exact"}}}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'textarea[name="notes"]' ''
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_clear_renders '{}' --session upd-f --fields ok,observation
+[1]:
+  - {ok:true,observation:{id:observation:6,epoch:6,startedAfterDocumentCommitId:144}}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:707}
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_capture_create '{"name":"before","include":["react"]}' --session upd-f --json
+{"schemaVersion":"1.0","captureId":"cap_b708a9cd-a426-4183-a485-5feb2b11b56f","name":"before","createdAt":"2026-11-19T08:59:48.348Z","session":{"sessionId":"58f4965a-0c9a-4c41-8eb4-2ac31ff2dd6d","logicalSessionId":"e7ac44c4-a84a-4786-85e2-cbf0eb72cb57","documentGeneration":12,"app":{"name":"Meridian Ops","url":"http://127.0.0.1:5242/orders/new","reactVersion":"19.3.1","reactMounted":true}},"include":["react"],"consistency":{"kind":"react-commit-stable","attempts":1,"reactCommit":171,"reason":"React document commit markers matched before, during, and after all captured sections."},"complete":true,"sizeBytes":268331,"pinned":false,"summary":{"sectionStatus":{"react":"ok"},"metrics":{"react.commits":27,"react.renders":729,"query.pending":null,"memory.usedHeapBytes":null,"performance.avgFps":null},"warningCount":0},"integrity":{"algorithm":"sha256","scope":"capture-content-v1","digest":"6acf8bdc8851b96723d4006875832d376eb81220f420017e907535bfa2f7e13f"},"warnings":[],"availableSections":["react"],"renders":{"comparable":true,"notComparableReasons":[],"coverage":{"complete":true,"semantics":"exact"}}}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'textarea[name="notes"]' ''
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_clear_renders '{}' --session upd-f --fields ok,observation
+[1]:
+  - {ok:true,observation:{id:observation:7,epoch:7,startedAfterDocumentCommitId:171}}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:715}
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_capture_create '{"name":"before","include":["react"]}' --session upd-f --json
+{"schemaVersion":"1.0","captureId":"cap_2e520d3f-eebe-46df-87b6-59d52e709853","name":"before","createdAt":"2026-11-19T08:59:50.396Z","session":{"sessionId":"58f4965a-0c9a-4c41-8eb4-2ac31ff2dd6d","logicalSessionId":"e7ac44c4-a84a-4786-85e2-cbf0eb72cb57","documentGeneration":12,"app":{"name":"Meridian Ops","url":"http://127.0.0.1:5242/orders/new","reactVersion":"19.3.1","reactMounted":true}},"include":["react"],"consistency":{"kind":"react-commit-stable","attempts":1,"reactCommit":198,"reason":"React document commit markers matched before, during, and after all captured sections."},"complete":true,"sizeBytes":268349,"pinned":false,"summary":{"sectionStatus":{"react":"ok"},"metrics":{"react.commits":27,"react.renders":729,"query.pending":null,"memory.usedHeapBytes":null,"performance.avgFps":null},"warningCount":0},"integrity":{"algorithm":"sha256","scope":"capture-content-v1","digest":"f44b9cc2bc7ab4b63c3f7c4e067fe7044d8db987324849b66b6473300cf9e3c3"},"warnings":[],"availableSections":["react"],"renders":{"comparable":true,"notComparableReasons":[],"coverage":{"complete":true,"semantics":"exact"}}}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'textarea[name="notes"]' ''
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_clear_renders '{}' --session upd-f --fields ok,observation
+[1]:
+  - {ok:true,observation:{id:observation:8,epoch:8,startedAfterDocumentCommitId:198}}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:711}
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_capture_create '{"name":"before","include":["react"]}' --session upd-f --json
+{"schemaVersion":"1.0","captureId":"cap_7a2fe787-6772-4139-9cf0-b451746d0dc7","name":"before","createdAt":"2026-11-19T08:59:52.263Z","session":{"sessionId":"58f4965a-0c9a-4c41-8eb4-2ac31ff2dd6d","logicalSessionId":"e7ac44c4-a84a-4786-85e2-cbf0eb72cb57","documentGeneration":12,"app":{"name":"Meridian Ops","url":"http://127.0.0.1:5242/orders/new","reactVersion":"19.3.1","reactMounted":true}},"include":["react"],"consistency":{"kind":"react-commit-stable","attempts":1,"reactCommit":225,"reason":"React document commit markers matched before, during, and after all captured sections."},"complete":true,"sizeBytes":268333,"pinned":false,"summary":{"sectionStatus":{"react":"ok"},"metrics":{"react.commits":27,"react.renders":729,"query.pending":null,"memory.usedHeapBytes":null,"performance.avgFps":null},"warningCount":0},"integrity":{"algorithm":"sha256","scope":"capture-content-v1","digest":"73cdc0f1a9d70042be96d3db488ece25e24ebdec75d876ed12a168cea0ef675d"},"warnings":[],"availableSections":["react"],"renders":{"comparable":true,"notComparableReasons":[],"coverage":{"complete":true,"semantics":"exact"}}}
+[exit 0]
+
+### FIX 1 APPLIED (useMemo index)
+$ git diff
+diff --git a/apps/realworld-dashboard/src/features/orders/product-picker.tsx b/apps/realworld-dashboard/src/features/orders/product-picker.tsx
+index 30294a2..93906fe 100644
+--- a/apps/realworld-dashboard/src/features/orders/product-picker.tsx
++++ b/apps/realworld-dashboard/src/features/orders/product-picker.tsx
+@@ -1,5 +1,5 @@
+ import { Plus } from 'lucide-react'
+-import { useState } from 'react'
++import { useMemo, useState } from 'react'
+ import type { Product } from '../../api/types'
+ import { usePreferences } from '../../app/preferences'
+ import { Input } from '../../components/ui/form-controls'
+@@ -19,7 +19,7 @@ export function ProductPicker({
+ }) {
+   const { formatMoney } = usePreferences()
+   const [term, setTerm] = useState('')
+-  const index = buildProductIndex(products)
++  const index = useMemo(() => buildProductIndex(products), [products])
+   const matches = term.trim().length < MIN_TERM_LENGTH ? [] : index.search(term, RESULT_LIMIT)
+ 
+   return (
+
+$ agent-browser --session upd-f open http://127.0.0.1:5242/orders/new
+✓ Meridian Ops
+  http://127.0.0.1:5242/orders/new
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:920}
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_clear_renders '{"component":"ProductPicker"}' --session upd-f --fields ok,observation
+[1]:
+  - {ok:true,observation:{id:observation:1,epoch:1,startedAfterDocumentCommitId:9}}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:715}
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_get_renders '{"component":"ProductPicker","appOnly":false}' --session upd-f --fields bundle,components,coverage
+[1]:
+  - {bundle:development,components:[{id:1484901056652,name:ProductPicker,mountId:mount:1,renders:27,updates:27,selfTime:0.1,totalTime:0.1,cumulativeSelfTime:0.6,cumulativeTotalTime:1.1,latestDocumentCommitId:36,causeCounts:{props:54,parent:27},causes:[{kind:parent,evidence:inferred,name:CardBody,origin:CreateOrderPage},{kind:props,evidence:exact,name:selectedIds,referenceOnly:true},{kind:props,evidence:exact,name:onPick}],necessity:unknown,necessityReason:callbacks-changed,inputEvidence:changed,source:{location:/src/features/orders/create-order-page.tsx:172:15,role:element-callsite,ownership:app}}],coverage:{skippedCommitFibers:0,droppedUnmountFibers:0,analysisFailedFibers:0,pausedCommits:0,unobservedCommits:0,refreshCommitsExcluded:0,truncatedInputFibers:0,propsNotEnumeratedFibers:0,budgetExhaustedCommits:0,budgetExhaustedSubsystems:[],complete:true,inputAttributionComplete:true,semantics:exact,coverageDomain:render-causality}}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'textarea[name="notes"]' ''
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_clear_renders '{}' --session upd-f --fields ok,observation
+[1]:
+  - {ok:true,observation:{id:observation:2,epoch:2,startedAfterDocumentCommitId:36}}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:804}
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_capture_create '{"name":"after-usememo","include":["react"]}' --session upd-f --json
+{"schemaVersion":"1.0","captureId":"cap_e30005ad-89cb-4d98-b6c0-9b90808a9903","name":"after-usememo","createdAt":"2026-11-19T09:00:16.670Z","session":{"sessionId":"5ebd9dc2-b8a7-42b2-8f67-ec5dca1b4bdd","logicalSessionId":"e7ac44c4-a84a-4786-85e2-cbf0eb72cb57","documentGeneration":14,"app":{"name":"Meridian Ops","url":"http://127.0.0.1:5242/orders/new","reactVersion":"19.3.1","reactMounted":true}},"include":["react"],"consistency":{"kind":"react-commit-stable","attempts":1,"reactCommit":63,"reason":"React document commit markers matched before, during, and after all captured sections."},"complete":true,"sizeBytes":268179,"pinned":false,"summary":{"sectionStatus":{"react":"ok"},"metrics":{"react.commits":27,"react.renders":729,"query.pending":null,"memory.usedHeapBytes":null,"performance.avgFps":null},"warningCount":0},"integrity":{"algorithm":"sha256","scope":"capture-content-v1","digest":"ab78d008a2bed69fe8b4b358ee61bc4428b19bd9d4380f881f4db707a9b942f9"},"warnings":[],"availableSections":["react"],"renders":{"comparable":true,"notComparableReasons":[],"coverage":{"complete":true,"semantics":"exact"}}}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'textarea[name="notes"]' ''
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_clear_renders '{}' --session upd-f --fields ok,observation
+[1]:
+  - {ok:true,observation:{id:observation:3,epoch:3,startedAfterDocumentCommitId:63}}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:780}
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_capture_create '{"name":"after-usememo","include":["react"]}' --session upd-f --json
+{"schemaVersion":"1.0","captureId":"cap_3f5e6671-5dec-48da-8c91-55178b590bcc","name":"after-usememo","createdAt":"2026-11-19T09:00:18.408Z","session":{"sessionId":"5ebd9dc2-b8a7-42b2-8f67-ec5dca1b4bdd","logicalSessionId":"e7ac44c4-a84a-4786-85e2-cbf0eb72cb57","documentGeneration":14,"app":{"name":"Meridian Ops","url":"http://127.0.0.1:5242/orders/new","reactVersion":"19.3.1","reactMounted":true}},"include":["react"],"consistency":{"kind":"react-commit-stable","attempts":1,"reactCommit":90,"reason":"React document commit markers matched before, during, and after all captured sections."},"complete":true,"sizeBytes":268186,"pinned":false,"summary":{"sectionStatus":{"react":"ok"},"metrics":{"react.commits":27,"react.renders":729,"query.pending":null,"memory.usedHeapBytes":null,"performance.avgFps":null},"warningCount":0},"integrity":{"algorithm":"sha256","scope":"capture-content-v1","digest":"8e4cfcb9cb87b8eb665d65dff32593835c3d6a6ece058965a7159e0ba6f31695"},"warnings":[],"availableSections":["react"],"renders":{"comparable":true,"notComparableReasons":[],"coverage":{"complete":true,"semantics":"exact"}}}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'textarea[name="notes"]' ''
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_clear_renders '{}' --session upd-f --fields ok,observation
+[1]:
+  - {ok:true,observation:{id:observation:4,epoch:4,startedAfterDocumentCommitId:90}}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:844}
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_capture_create '{"name":"after-usememo","include":["react"]}' --session upd-f --json
+{"schemaVersion":"1.0","captureId":"cap_916fc6cd-898f-47bf-8dad-5200a55e08f8","name":"after-usememo","createdAt":"2026-11-19T09:00:20.525Z","session":{"sessionId":"5ebd9dc2-b8a7-42b2-8f67-ec5dca1b4bdd","logicalSessionId":"e7ac44c4-a84a-4786-85e2-cbf0eb72cb57","documentGeneration":14,"app":{"name":"Meridian Ops","url":"http://127.0.0.1:5242/orders/new","reactVersion":"19.3.1","reactMounted":true}},"include":["react"],"consistency":{"kind":"react-commit-stable","attempts":1,"reactCommit":117,"reason":"React document commit markers matched before, during, and after all captured sections."},"complete":true,"sizeBytes":268339,"pinned":false,"summary":{"sectionStatus":{"react":"ok"},"metrics":{"react.commits":27,"react.renders":729,"query.pending":null,"memory.usedHeapBytes":null,"performance.avgFps":null},"warningCount":0},"integrity":{"algorithm":"sha256","scope":"capture-content-v1","digest":"5f704c670ac4ebff57c28900df6ee36e4c1e1d64a446bc7339d8e77d4ee46280"},"warnings":[],"availableSections":["react"],"renders":{"comparable":true,"notComparableReasons":[],"coverage":{"complete":true,"semantics":"exact"}}}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'textarea[name="notes"]' ''
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_clear_renders '{}' --session upd-f --fields ok,observation
+[1]:
+  - {ok:true,observation:{id:observation:5,epoch:5,startedAfterDocumentCommitId:117}}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:866}
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_capture_create '{"name":"after-usememo","include":["react"]}' --session upd-f --json
+{"schemaVersion":"1.0","captureId":"cap_1c8d00b9-4648-4fc3-99b7-bed90d00ced4","name":"after-usememo","createdAt":"2026-11-19T09:00:22.481Z","session":{"sessionId":"5ebd9dc2-b8a7-42b2-8f67-ec5dca1b4bdd","logicalSessionId":"e7ac44c4-a84a-4786-85e2-cbf0eb72cb57","documentGeneration":14,"app":{"name":"Meridian Ops","url":"http://127.0.0.1:5242/orders/new","reactVersion":"19.3.1","reactMounted":true}},"include":["react"],"consistency":{"kind":"react-commit-stable","attempts":1,"reactCommit":144,"reason":"React document commit markers matched before, during, and after all captured sections."},"complete":true,"sizeBytes":268337,"pinned":false,"summary":{"sectionStatus":{"react":"ok"},"metrics":{"react.commits":27,"react.renders":729,"query.pending":null,"memory.usedHeapBytes":null,"performance.avgFps":null},"warningCount":0},"integrity":{"algorithm":"sha256","scope":"capture-content-v1","digest":"d824c21e34020db6011a46c8002d429ae647a59bbf5d729bd6e0c30874df02b9"},"warnings":[],"availableSections":["react"],"renders":{"comparable":true,"notComparableReasons":[],"coverage":{"complete":true,"semantics":"exact"}}}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'textarea[name="notes"]' ''
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_clear_renders '{}' --session upd-f --fields ok,observation
+[1]:
+  - {ok:true,observation:{id:observation:6,epoch:6,startedAfterDocumentCommitId:144}}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:846}
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_capture_create '{"name":"after-usememo","include":["react"]}' --session upd-f --json
+{"schemaVersion":"1.0","captureId":"cap_a812841a-8bea-4a38-8613-cba9c39d51ed","name":"after-usememo","createdAt":"2026-11-19T09:00:24.481Z","session":{"sessionId":"5ebd9dc2-b8a7-42b2-8f67-ec5dca1b4bdd","logicalSessionId":"e7ac44c4-a84a-4786-85e2-cbf0eb72cb57","documentGeneration":14,"app":{"name":"Meridian Ops","url":"http://127.0.0.1:5242/orders/new","reactVersion":"19.3.1","reactMounted":true}},"include":["react"],"consistency":{"kind":"react-commit-stable","attempts":1,"reactCommit":171,"reason":"React document commit markers matched before, during, and after all captured sections."},"complete":true,"sizeBytes":268331,"pinned":false,"summary":{"sectionStatus":{"react":"ok"},"metrics":{"react.commits":27,"react.renders":729,"query.pending":null,"memory.usedHeapBytes":null,"performance.avgFps":null},"warningCount":0},"integrity":{"algorithm":"sha256","scope":"capture-content-v1","digest":"474590c7b7a0738b60a791318556b424f242de9032b874ac22f883600920513e"},"warnings":[],"availableSections":["react"],"renders":{"comparable":true,"notComparableReasons":[],"coverage":{"complete":true,"semantics":"exact"}}}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'textarea[name="notes"]' ''
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call react_clear_renders '{}' --session upd-f --fields ok,observation
+[1]:
+  - {ok:true,observation:{id:observation:7,epoch:7,startedAfterDocumentCommitId:171}}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:758}
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_capture_create '{"name":"after-usememo","include":["react"]}' --session upd-f --json
+{"schemaVersion":"1.0","captureId":"cap_e80affbc-cb15-4ca8-afc8-d24269d217bd","name":"after-usememo","createdAt":"2026-11-19T09:00:26.543Z","session":{"sessionId":"5ebd9dc2-b8a7-42b2-8f67-ec5dca1b4bdd","logicalSessionId":"e7ac44c4-a84a-4786-85e2-cbf0eb72cb57","documentGeneration":14,"app":{"name":"Meridian Ops","url":"http://127.0.0.1:5242/orders/new","reactVersion":"19.3.1","reactMounted":true}},"include":["react"],"consistency":{"kind":"react-commit-stable","attempts":1,"reactCommit":198,"reason":"React document commit markers matched before, during, and after all captured sections."},"complete":true,"sizeBytes":268332,"pinned":false,"summary":{"sectionStatus":{"react":"ok"},"metrics":{"react.commits":27,"react.renders":729,"query.pending":null,"memory.usedHeapBytes":null,"performance.avgFps":null},"warningCount":0},"integrity":{"algorithm":"sha256","scope":"capture-content-v1","digest":"877f35f077a7a0b55373cab00c07d0fea62b4a4cb69b1c0c8e63fe5f7252473d"},"warnings":[],"availableSections":["react"],"renders":{"comparable":true,"notComparableReasons":[],"coverage":{"complete":true,"semantics":"exact"}}}
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_capture_compare '{"baselineCaptureIds":["cap_c8804f0c-e8c2-48f9-8d17-f3687bd515e2","cap_d0bd3a7e-5170-410f-8a3b-63930e1e33fd","cap_f4589e49-a2fc-4197-b9d4-ad88ca8e6b87","cap_b708a9cd-a426-4183-a485-5feb2b11b56f","cap_2e520d3f-eebe-46df-87b6-59d52e709853","cap_7a2fe787-6772-4139-9cf0-b451746d0dc7"],"candidateCaptureIds":["cap_e30005ad-89cb-4d98-b6c0-9b90808a9903","cap_3f5e6671-5dec-48da-8c91-55178b590bcc","cap_916fc6cd-898f-47bf-8dad-5200a55e08f8","cap_1c8d00b9-4648-4fc3-99b7-bed90d00ced4","cap_a812841a-8bea-4a38-8613-cba9c39d51ed","cap_e80affbc-cb15-4ca8-afc8-d24269d217bd"],"metrics":["react.selfTimeMs","react.renders"],"budgets":[{"metric":"react.selfTimeMs","maxValue":8}]}' --fail-on-result-error --session upd-f
+schemaVersion: "1.0"
+kind: capture-comparison
+comparisonId: cmp_80ebaccc-0603-498c-a127-f45e7ef99397
+createdAt: 2026-11-19T09:00:38.028Z
+minimumRuns: 5
+policy: {warmupRuns:1,outlierThreshold:3.5,confidenceLevel:0.95,minimumEffectPct:5}
+excluded:
+  warmupBaselineCaptureIds: [cap_c8804f0c-e8c2-48f9-8d17-f3687bd515e2]
+  warmupCandidateCaptureIds: [cap_e30005ad-89cb-4d98-b6c0-9b90808a9903]
+baselineCaptureIds: [cap_c8804f0c-e8c2-48f9-8d17-f3687bd515e2,cap_d0bd3a7e-5170-410f-8a3b-63930e1e33fd,cap_f4589e49-a2fc-4197-b9d4-ad88ca8e6b87,cap_b708a9cd-a426-4183-a485-5feb2b11b56f,cap_2e520d3f-eebe-46df-87b6-59d52e709853,cap_7a2fe787-6772-4139-9cf0-b451746d0dc7]
+candidateCaptureIds: [cap_e30005ad-89cb-4d98-b6c0-9b90808a9903,cap_3f5e6671-5dec-48da-8c91-55178b590bcc,cap_916fc6cd-898f-47bf-8dad-5200a55e08f8,cap_1c8d00b9-4648-4fc3-99b7-bed90d00ced4,cap_a812841a-8bea-4a38-8613-cba9c39d51ed,cap_e80affbc-cb15-4ca8-afc8-d24269d217bd]
+overall: fail
+notComparableReasons: []
+metrics[2] (metric verdict {fields}, then one line per reason):
+  react.selfTimeMs fail {direction:lower-is-better,baseline:{samples:5,median:749.8,p95:893.8,mad:14.8,min:730.7,max:926.1},candidate:{samples:5,median:67.3,p95:73.74,mad:3.6,min:61.3,max:75.3},missingBaselineCaptureIds:[],missingCandidateCaptureIds:[],excludedCaptureIds:{},outlierBaselineCaptureIds:[],outlierCandidateCaptureIds:[],comparable:true,notComparableReasons:[],delta:{median:-682.5,regressionPct:-91.0243},budget:{metric:react.selfTimeMs,maxValue:8},confidence:{level:0.95,pValue:0.0079,achieved:0.9921,significant:true,minimumEffectPct:5,observedEffectPct:-91.0243,noiseFloorPct:2.9264}}
+    reason: "candidate median 67.3 exceeds maxValue 8"
+  react.renders informational {direction:lower-is-better,baseline:{samples:5,median:729,p95:729,mad:0,min:729,max:729},candidate:{samples:5,median:729,p95:729,mad:0,min:729,max:729},missingBaselineCaptureIds:[],missingCandidateCaptureIds:[],excludedCaptureIds:{},outlierBaselineCaptureIds:[],outlierCandidateCaptureIds:[],comparable:true,notComparableReasons:[],delta:{median:0,regressionPct:0},confidence:{level:0.95,pValue:1,achieved:0,significant:false,minimumEffectPct:5,observedEffectPct:0,noiseFloorPct:0}}
+    reason: "no significant change (0%, p=1); pass budgets to gate on it"
+violations: [{metric:react.selfTimeMs,reasons:["candidate median 67.3 exceeds maxValue 8"]}]
+warnings: []
+[exit 1]
+
+$ node_modules/.bin/genie-react call devtools_capture_compare '{"baselineCaptureIds":["cap_c8804f0c-e8c2-48f9-8d17-f3687bd515e2","cap_d0bd3a7e-5170-410f-8a3b-63930e1e33fd","cap_f4589e49-a2fc-4197-b9d4-ad88ca8e6b87","cap_b708a9cd-a426-4183-a485-5feb2b11b56f","cap_2e520d3f-eebe-46df-87b6-59d52e709853","cap_7a2fe787-6772-4139-9cf0-b451746d0dc7"],"candidateCaptureIds":["cap_e30005ad-89cb-4d98-b6c0-9b90808a9903","cap_3f5e6671-5dec-48da-8c91-55178b590bcc","cap_916fc6cd-898f-47bf-8dad-5200a55e08f8","cap_1c8d00b9-4648-4fc3-99b7-bed90d00ced4","cap_a812841a-8bea-4a38-8613-cba9c39d51ed","cap_e80affbc-cb15-4ca8-afc8-d24269d217bd"],"metrics":["react.selfTimeMs","react.renders"],"budgets":[{"metric":"react.selfTimeMs","maxValue":100}]}' --fail-on-result-error --session upd-f
+schemaVersion: "1.0"
+kind: capture-comparison
+comparisonId: cmp_cfae14de-8174-447e-b67e-7bdc57412b9a
+createdAt: 2026-11-19T09:00:48.808Z
+minimumRuns: 5
+policy: {warmupRuns:1,outlierThreshold:3.5,confidenceLevel:0.95,minimumEffectPct:5}
+excluded:
+  warmupBaselineCaptureIds: [cap_c8804f0c-e8c2-48f9-8d17-f3687bd515e2]
+  warmupCandidateCaptureIds: [cap_e30005ad-89cb-4d98-b6c0-9b90808a9903]
+baselineCaptureIds: [cap_c8804f0c-e8c2-48f9-8d17-f3687bd515e2,cap_d0bd3a7e-5170-410f-8a3b-63930e1e33fd,cap_f4589e49-a2fc-4197-b9d4-ad88ca8e6b87,cap_b708a9cd-a426-4183-a485-5feb2b11b56f,cap_2e520d3f-eebe-46df-87b6-59d52e709853,cap_7a2fe787-6772-4139-9cf0-b451746d0dc7]
+candidateCaptureIds: [cap_e30005ad-89cb-4d98-b6c0-9b90808a9903,cap_3f5e6671-5dec-48da-8c91-55178b590bcc,cap_916fc6cd-898f-47bf-8dad-5200a55e08f8,cap_1c8d00b9-4648-4fc3-99b7-bed90d00ced4,cap_a812841a-8bea-4a38-8613-cba9c39d51ed,cap_e80affbc-cb15-4ca8-afc8-d24269d217bd]
+overall: pass
+notComparableReasons: []
+metrics[2] (metric verdict {fields}, then one line per reason):
+  react.selfTimeMs pass {direction:lower-is-better,baseline:{samples:5,median:749.8,p95:893.8,mad:14.8,min:730.7,max:926.1},candidate:{samples:5,median:67.3,p95:73.74,mad:3.6,min:61.3,max:75.3},missingBaselineCaptureIds:[],missingCandidateCaptureIds:[],excludedCaptureIds:{},outlierBaselineCaptureIds:[],outlierCandidateCaptureIds:[],comparable:true,notComparableReasons:[],delta:{median:-682.5,regressionPct:-91.0243},budget:{metric:react.selfTimeMs,maxValue:100},confidence:{level:0.95,pValue:0.0079,achieved:0.9921,significant:true,minimumEffectPct:5,observedEffectPct:-91.0243,noiseFloorPct:2.9264}}
+    reasons: []
+  react.renders informational {direction:lower-is-better,baseline:{samples:5,median:729,p95:729,mad:0,min:729,max:729},candidate:{samples:5,median:729,p95:729,mad:0,min:729,max:729},missingBaselineCaptureIds:[],missingCandidateCaptureIds:[],excludedCaptureIds:{},outlierBaselineCaptureIds:[],outlierCandidateCaptureIds:[],comparable:true,notComparableReasons:[],delta:{median:0,regressionPct:0},confidence:{level:0.95,pValue:1,achieved:0,significant:false,minimumEffectPct:5,observedEffectPct:0,noiseFloorPct:0}}
+    reason: "no significant change (0%, p=1); pass budgets to gate on it"
+violations: []
+warnings: []
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_capture_compare '{"baselineCaptureIds":["cap_e30005ad-89cb-4d98-b6c0-9b90808a9903","cap_3f5e6671-5dec-48da-8c91-55178b590bcc","cap_916fc6cd-898f-47bf-8dad-5200a55e08f8","cap_1c8d00b9-4648-4fc3-99b7-bed90d00ced4","cap_a812841a-8bea-4a38-8613-cba9c39d51ed","cap_e80affbc-cb15-4ca8-afc8-d24269d217bd"],"candidateCaptureIds":["cap_c8804f0c-e8c2-48f9-8d17-f3687bd515e2","cap_d0bd3a7e-5170-410f-8a3b-63930e1e33fd","cap_f4589e49-a2fc-4197-b9d4-ad88ca8e6b87","cap_b708a9cd-a426-4183-a485-5feb2b11b56f","cap_2e520d3f-eebe-46df-87b6-59d52e709853","cap_7a2fe787-6772-4139-9cf0-b451746d0dc7"],"metrics":["react.selfTimeMs"],"budgets":[{"metric":"react.selfTimeMs","maxValue":100}]}' --fail-on-result-error --session upd-f
+schemaVersion: "1.0"
+kind: capture-comparison
+comparisonId: cmp_f40a9035-823c-4669-a748-5cbcbc43a79d
+createdAt: 2026-11-19T09:00:49.261Z
+minimumRuns: 5
+policy: {warmupRuns:1,outlierThreshold:3.5,confidenceLevel:0.95,minimumEffectPct:5}
+excluded:
+  warmupBaselineCaptureIds: [cap_e30005ad-89cb-4d98-b6c0-9b90808a9903]
+  warmupCandidateCaptureIds: [cap_c8804f0c-e8c2-48f9-8d17-f3687bd515e2]
+baselineCaptureIds: [cap_e30005ad-89cb-4d98-b6c0-9b90808a9903,cap_3f5e6671-5dec-48da-8c91-55178b590bcc,cap_916fc6cd-898f-47bf-8dad-5200a55e08f8,cap_1c8d00b9-4648-4fc3-99b7-bed90d00ced4,cap_a812841a-8bea-4a38-8613-cba9c39d51ed,cap_e80affbc-cb15-4ca8-afc8-d24269d217bd]
+candidateCaptureIds: [cap_c8804f0c-e8c2-48f9-8d17-f3687bd515e2,cap_d0bd3a7e-5170-410f-8a3b-63930e1e33fd,cap_f4589e49-a2fc-4197-b9d4-ad88ca8e6b87,cap_b708a9cd-a426-4183-a485-5feb2b11b56f,cap_2e520d3f-eebe-46df-87b6-59d52e709853,cap_7a2fe787-6772-4139-9cf0-b451746d0dc7]
+overall: fail
+notComparableReasons: []
+metrics[1] (metric verdict {fields}, then one line per reason):
+  react.selfTimeMs fail {direction:lower-is-better,baseline:{samples:5,median:67.3,p95:73.74,mad:3.6,min:61.3,max:75.3},candidate:{samples:5,median:749.8,p95:893.8,mad:14.8,min:730.7,max:926.1},missingBaselineCaptureIds:[],missingCandidateCaptureIds:[],excludedCaptureIds:{},outlierBaselineCaptureIds:[],outlierCandidateCaptureIds:[],comparable:true,notComparableReasons:[],delta:{median:682.5,regressionPct:1014.1159},budget:{metric:react.selfTimeMs,maxValue:100},confidence:{level:0.95,pValue:0.0079,achieved:0.9921,significant:true,minimumEffectPct:5,observedEffectPct:1014.1159,noiseFloorPct:32.604}}
+    reason: "candidate median 749.8 exceeds maxValue 100"
+violations: [{metric:react.selfTimeMs,reasons:["candidate median 749.8 exceeds maxValue 100"]}]
+warnings: []
+[exit 1]
+
+$ node_modules/.bin/genie-react call devtools_capture_compare '{"baselineCaptureIds":["cap_e30005ad-89cb-4d98-b6c0-9b90808a9903","cap_3f5e6671-5dec-48da-8c91-55178b590bcc","cap_916fc6cd-898f-47bf-8dad-5200a55e08f8","cap_1c8d00b9-4648-4fc3-99b7-bed90d00ced4","cap_a812841a-8bea-4a38-8613-cba9c39d51ed","cap_e80affbc-cb15-4ca8-afc8-d24269d217bd"],"candidateCaptureIds":["cap_c8804f0c-e8c2-48f9-8d17-f3687bd515e2","cap_d0bd3a7e-5170-410f-8a3b-63930e1e33fd","cap_f4589e49-a2fc-4197-b9d4-ad88ca8e6b87","cap_b708a9cd-a426-4183-a485-5feb2b11b56f","cap_2e520d3f-eebe-46df-87b6-59d52e709853","cap_7a2fe787-6772-4139-9cf0-b451746d0dc7"],"metrics":["react.selfTimeMs"],"budgets":[{"metric":"react.selfTimeMs","maxValue":100}]}' --session upd-f
+schemaVersion: "1.0"
+kind: capture-comparison
+comparisonId: cmp_afec6c3c-28c0-47f9-a09f-a0ff0b4dcab2
+createdAt: 2026-11-19T09:00:49.733Z
+minimumRuns: 5
+policy: {warmupRuns:1,outlierThreshold:3.5,confidenceLevel:0.95,minimumEffectPct:5}
+excluded:
+  warmupBaselineCaptureIds: [cap_e30005ad-89cb-4d98-b6c0-9b90808a9903]
+  warmupCandidateCaptureIds: [cap_c8804f0c-e8c2-48f9-8d17-f3687bd515e2]
+baselineCaptureIds: [cap_e30005ad-89cb-4d98-b6c0-9b90808a9903,cap_3f5e6671-5dec-48da-8c91-55178b590bcc,cap_916fc6cd-898f-47bf-8dad-5200a55e08f8,cap_1c8d00b9-4648-4fc3-99b7-bed90d00ced4,cap_a812841a-8bea-4a38-8613-cba9c39d51ed,cap_e80affbc-cb15-4ca8-afc8-d24269d217bd]
+candidateCaptureIds: [cap_c8804f0c-e8c2-48f9-8d17-f3687bd515e2,cap_d0bd3a7e-5170-410f-8a3b-63930e1e33fd,cap_f4589e49-a2fc-4197-b9d4-ad88ca8e6b87,cap_b708a9cd-a426-4183-a485-5feb2b11b56f,cap_2e520d3f-eebe-46df-87b6-59d52e709853,cap_7a2fe787-6772-4139-9cf0-b451746d0dc7]
+overall: fail
+notComparableReasons: []
+metrics[1] (metric verdict {fields}, then one line per reason):
+  react.selfTimeMs fail {direction:lower-is-better,baseline:{samples:5,median:67.3,p95:73.74,mad:3.6,min:61.3,max:75.3},candidate:{samples:5,median:749.8,p95:893.8,mad:14.8,min:730.7,max:926.1},missingBaselineCaptureIds:[],missingCandidateCaptureIds:[],excludedCaptureIds:{},outlierBaselineCaptureIds:[],outlierCandidateCaptureIds:[],comparable:true,notComparableReasons:[],delta:{median:682.5,regressionPct:1014.1159},budget:{metric:react.selfTimeMs,maxValue:100},confidence:{level:0.95,pValue:0.0079,achieved:0.9921,significant:true,minimumEffectPct:5,observedEffectPct:1014.1159,noiseFloorPct:32.604}}
+    reason: "candidate median 749.8 exceeds maxValue 100"
+violations: [{metric:react.selfTimeMs,reasons:["candidate median 749.8 exceeds maxValue 100"]}]
+warnings: []
+[exit 0]
+
+### FIX 1 REVERTED, FIX 2 APPLIED (memo ProductPicker, useMemo index, stable selectedIds and onPick)
+$ git diff
+diff --git a/apps/realworld-dashboard/src/features/orders/create-order-page.tsx b/apps/realworld-dashboard/src/features/orders/create-order-page.tsx
+index 0ff38dc..1b71325 100644
+--- a/apps/realworld-dashboard/src/features/orders/create-order-page.tsx
++++ b/apps/realworld-dashboard/src/features/orders/create-order-page.tsx
+@@ -2,10 +2,11 @@ import { zodResolver } from '@hookform/resolvers/zod'
+ import { useQuery } from '@tanstack/react-query'
+ import { Link, useNavigate } from '@tanstack/react-router'
+ import { ArrowLeft, Trash2 } from 'lucide-react'
++import { useCallback, useMemo } from 'react'
+ import { useFieldArray, useForm } from 'react-hook-form'
+ import { z } from 'zod'
+ import { api } from '../../api/endpoints'
+-import { ORDER_PRIORITIES, type OrderPriority } from '../../api/types'
++import { ORDER_PRIORITIES, type OrderPriority, type Product } from '../../api/types'
+ import { usePreferences } from '../../app/preferences'
+ import { referenceDataOptions } from '../../app/query-client'
+ import { Button } from '../../components/ui/button'
+@@ -68,6 +69,18 @@ export function CreateOrderPage() {
+   })
+   const lines = useFieldArray({ control: form.control, name: 'lines' })
+   const values = form.watch()
++  const appendLine = lines.append
++  const selectedIds = useMemo(() => lines.fields.map((line) => line.productId), [lines.fields])
++  const addProduct = useCallback(
++    (product: Product) =>
++      appendLine({
++        productId: product.id,
++        name: product.name,
++        unitPrice: product.unitPrice,
++        quantity: 1,
++      }),
++    [appendLine],
++  )
+   const { errors } = form.formState
+ 
+   const subtotal = values.lines.reduce(
+@@ -171,15 +184,8 @@ export function CreateOrderPage() {
+             <CardBody className="space-y-4">
+               <ProductPicker
+                 products={products.data ?? []}
+-                selectedIds={values.lines.map((line) => line.productId)}
+-                onPick={(product) =>
+-                  lines.append({
+-                    productId: product.id,
+-                    name: product.name,
+-                    unitPrice: product.unitPrice,
+-                    quantity: 1,
+-                  })
+-                }
++                selectedIds={selectedIds}
++                onPick={addProduct}
+               />
+               {lines.fields.length > 0 && (
+                 <table className="w-full text-sm">
+diff --git a/apps/realworld-dashboard/src/features/orders/product-picker.tsx b/apps/realworld-dashboard/src/features/orders/product-picker.tsx
+index 30294a2..18b8f06 100644
+--- a/apps/realworld-dashboard/src/features/orders/product-picker.tsx
++++ b/apps/realworld-dashboard/src/features/orders/product-picker.tsx
+@@ -1,5 +1,5 @@
+ import { Plus } from 'lucide-react'
+-import { useState } from 'react'
++import { memo, useMemo, useState } from 'react'
+ import type { Product } from '../../api/types'
+ import { usePreferences } from '../../app/preferences'
+ import { Input } from '../../components/ui/form-controls'
+@@ -8,7 +8,7 @@ import { buildProductIndex } from './product-index'
+ const RESULT_LIMIT = 8
+ const MIN_TERM_LENGTH = 2
+ 
+-export function ProductPicker({
++export const ProductPicker = memo(function ProductPicker({
+   products,
+   selectedIds,
+   onPick,
+@@ -19,7 +19,7 @@ export function ProductPicker({
+ }) {
+   const { formatMoney } = usePreferences()
+   const [term, setTerm] = useState('')
+-  const index = buildProductIndex(products)
++  const index = useMemo(() => buildProductIndex(products), [products])
+   const matches = term.trim().length < MIN_TERM_LENGTH ? [] : index.search(term, RESULT_LIMIT)
+ 
+   return (
+@@ -64,4 +64,4 @@ export function ProductPicker({
+       )}
+     </div>
+   )
+-}
++})
+
+$ agent-browser --session upd-f open http://127.0.0.1:5242/orders/new
+✓ Meridian Ops
+  http://127.0.0.1:5242/orders/new
+[exit 0]
+
+$ node_modules/.bin/genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-f --fields ok,waitedMs
+[1]:
+  - {ok:true,waitedMs:927}
+[exit 0]
+
+$ agent-browser --session upd-f fill 'textarea[name="notes"]' ''
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react verify begin --session upd-f --name 'type warehouse notes' --claim 'render ProductPicker max 0' --claim 'render CreateOrderPage min 1' --claim 'boundaries clean'
+recording vfy_cf41b9e8-50da-48da-a5d0-631dfbdfad64 "type warehouse notes"
+  url "http://127.0.0.1:5242/orders/new"
+  1 recording render ProductPicker max 0
+  2 recording render CreateOrderPage min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:9,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ pnpm exec genie-react verify end vfy_cf41b9e8-50da-48da-a5d0-631dfbdfad64 --session upd-f
+session: {sessionId:08cf98c5-341c-4491-9286-1f536ad4b306,logicalSessionId:e7ac44c4-a84a-4786-85e2-cbf0eb72cb57,documentGeneration:16}
+schemaVersion: "1.0"
+targets: [{target:{component:ProductPicker},status:resolved,instances:1,source:/src/features/orders/create-order-page.tsx},{target:{component:CreateOrderPage},status:resolved,instances:1,source:/src/features/orders/create-order-page.tsx}]
+startedAt: 2026-11-19T09:01:08.189Z
+expiresAt: 2026-11-19T09:06:08.218Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-f type 'textarea[name="notes"]' 'Leave at dock 4, call ahead'
+✓ Done
+[exit 0]
+
+$ node_modules/.bin/genie-react verify end vfy_cf41b9e8-50da-48da-a5d0-631dfbdfad64 --session upd-f
+pass vfy_cf41b9e8-50da-48da-a5d0-631dfbdfad64 "type warehouse notes"  27 commits, quiet after 744 ms (react, query, router, network)
+  url "http://127.0.0.1:5242/orders/new"
+  1 pass render ProductPicker max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:ProductPicker},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:coverage,complete:true,targetedComplete:true,semantics:exact},{kind:instance,mountId:mount:1,renderingState:mounted-rendering,source:/src/features/orders/create-order-page.tsx:185:15}]
+  2 pass render CreateOrderPage min 1  {renders:27,mounts:0,updates:27,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:CreateOrderPage},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:2,renders:27,mounts:0,updates:27,mountGeneration:1,latestDocumentCommitId:36,source:/src/features/orders/create-order-page.tsx:113:5}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:9}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:9,settledDocumentCommitId:36,frozenDocumentCommitId:36,commits:27,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:744,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:0},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 2 for these claims on this tab; previous fail vfy_d19d4b18-bdbc-4c60-af4d-bb914300d9ee; document reloaded since
+evidence: $ pnpm exec genie-react verify show vfy_cf41b9e8-50da-48da-a5d0-631dfbdfad64 --session upd-f
+session: {sessionId:08cf98c5-341c-4491-9286-1f536ad4b306,logicalSessionId:e7ac44c4-a84a-4786-85e2-cbf0eb72cb57,documentGeneration:16}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_579fe54da677,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_d19d4b18-bdbc-4c60-af4d-bb914300d9ee,verdict:fail,reasons:[],endedAt:2026-11-19T08:59:31.028Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T09:01:08.189Z
+endedAt: 2026-11-19T09:01:09.700Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-f get value 'textarea[name="notes"]'
+Leave at dock 4, call ahead
+[exit 0]
+
+$ agent-browser --session upd-f type 'input[aria-label="Find a product"]' 'pallet'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -i -s 'ul[aria-label="Product matches"]'
+- button "Pallet Wrap XLPAC-01126 $239.45" [ref=e896]
+- button "Pallet Wrap ProPAC-01679 $84.25" [ref=e897]
+- button "Pallet Wrap XLPAC-01840 $360.44" [ref=e898]
+- button "Pallet Wrap LitePAC-02155 $439.22" [ref=e899]
+- button "Pallet Wrap Heavy DutyPAC-02218 $447.87" [ref=e900]
+- button "Pallet Wrap LitePAC-03023 $103.38" [ref=e901]
+- button "Pallet Wrap XLPAC-03037 $228.93" [ref=e902]
+- button "Pallet Wrap StandardPAC-03128 $470.12" [ref=e903]
+[exit 0]
+
+$ agent-browser --session upd-f click @e896
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-f type 'input[aria-label="Find a product"]' 'pallet'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-f snapshot -i -s 'ul[aria-label="Product matches"]'
+- button "Pallet Wrap XLPAC-01126 $239.45" [disabled, ref=e905]
+- button "Pallet Wrap ProPAC-01679 $84.25" [ref=e906]
+- button "Pallet Wrap XLPAC-01840 $360.44" [ref=e907]
+- button "Pallet Wrap LitePAC-02155 $439.22" [ref=e908]
+- button "Pallet Wrap Heavy DutyPAC-02218 $447.87" [ref=e909]
+- button "Pallet Wrap LitePAC-03023 $103.38" [ref=e910]
+- button "Pallet Wrap XLPAC-03037 $228.93" [ref=e911]
+- button "Pallet Wrap StandardPAC-03128 $470.12" [ref=e912]
+[exit 0]
+
+$ agent-browser --session upd-f get text 'table'
+Pallet Wrap XL	
+	$239.45	
+[exit 0]
+
+### FIXES REVERTED
+$ git checkout -- src/features/orders/
+```

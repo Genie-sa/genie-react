@@ -7,7 +7,7 @@ You force each state with one Genie call, read it with your driver's snapshot, a
 `query_restore_state` or `react_reset_overrides`. On the customer screens of the dashboard demo, this
 found one real bug. The loading state of the **Recent orders** tab is an empty page.
 
-Every command and output below comes from one run on 2026-11-19 against
+Every command and output below comes from one run of Genie 1.1.0 on 2026-11-19 against
 [`apps/realworld-dashboard`](https://github.com/Genie-sa/genie-react/tree/main/apps/realworld-dashboard).
 Snapshots are trimmed to the changed region. The
 [raw evidence](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/test-every-loading-empty-and-error-state.md)
@@ -18,10 +18,10 @@ has every command in order with untrimmed output.
 The app registers its own Genie tools, so you sign in without the form:
 
 ```bash
-agent-browser --session art-m4 open "http://[::1]:5224/login"
-npx genie-react call app_login_as --session art-m4 '{"role":"manager"}'
-agent-browser --session art-m4 open "http://[::1]:5224/customers"
-npx genie-react call query_list --session art-m4 '{}' --fields queryHash,status,observerCount
+agent-browser --session upd-f open "http://127.0.0.1:5242/login"
+npx genie-react call app_login_as --session upd-f '{"role":"manager"}'
+agent-browser --session upd-f open "http://127.0.0.1:5242/customers"
+npx genie-react call query_list --session upd-f '{}' --fields queryHash,status,observerCount
 ```
 
 ```text
@@ -30,86 +30,109 @@ npx genie-react call query_list --session art-m4 '{}' --fields queryHash,status,
   - {queryHash:"[\"notifications\"]",status:success,observerCount:1}
 ```
 
-The Customers page reads the first query. Its header says `1,200 accounts` and the table shows 25 rows.
+The Customers page reads the first query. Its header says `1,200 accounts` and `Updated 8 seconds ago`,
+and the table shows 25 rows.
 
 ## Loading
 
 Hold the list query in `pending`:
 
 ```bash
-npx genie-react call query_simulate_state --session art-m4 \
+npx genie-react call query_simulate_state --session upd-f \
   '{"queryKey":["customers","list",{"page":1,"pageSize":25,"q":""}],"state":"pending"}'
-agent-browser --session art-m4 snapshot -c -s main
+agent-browser --session upd-f snapshot -c -s main
 ```
 
 ```text
 - main
   - sectionheader
-    - heading "Customers" [level=1, ref=e25]
+    - heading "Customers" [level=1, ref=e13]
     - paragraph
       - StaticText "Loading accounts…"
-    - StaticText "Updated 12 seconds ago"
-    - button "Refresh customers" [ref=e26]
+    - StaticText "Not synced yet"
+    - button "Refresh customers" [ref=e14]
   …
   - status "Loading page"
 ```
 
-The table is gone and a spinner with the label "Loading page" replaces it. The header line reads
-"Updated 12 seconds ago" next to "Loading accounts…". That pairing comes from the simulation.
-`query_get` shows Genie kept the real `dataUpdatedAt` while it dropped the data:
+The table is gone and a spinner with the label "Loading page" replaces it. The header reads
+"Loading accounts…" and "Not synced yet", as on a real first load. `query_get` shows why:
 
 ```text
-  - {status:pending,fetchStatus:fetching,dataUpdatedAt:1795060598694,simulatedState:pending}
+  - {status:pending,fetchStatus:fetching,dataUpdatedAt:0,dataUpdateCount:0,simulatedState:pending}
 ```
 
-`SyncStatus` prints "Not synced yet" only when `updatedAt === 0`, so a query that never loaded
-would not show "Updated 12 seconds ago". Judge the spinner from this state, and ignore the sync label.
-Releases after 1.0.2 set `dataUpdatedAt` to 0 for a simulated `pending` or `error`, so the header
-reads "Not synced yet" as on a real first load.
+`SyncStatus` prints "Not synced yet" when `updatedAt === 0`, and the simulation sets
+`dataUpdatedAt` to 0. Genie 1.0.2 kept the real `dataUpdatedAt`, so this header read "Updated 12
+seconds ago" beside the spinner, and 1.1.0 fixed that.
 
 ## Error
 
 Switch the same query to `error` with a message of your choice:
 
 ```bash
-npx genie-react call query_simulate_state --session art-m4 \
+npx genie-react call query_simulate_state --session upd-f \
   '{"queryKey":["customers","list",{"page":1,"pageSize":25,"q":""}],"state":"error","errorMessage":"GET /api/customers failed with 503"}'
-agent-browser --session art-m4 snapshot -c -s main
+agent-browser --session upd-f snapshot -c -s main
 ```
 
 ```text
     - paragraph
       - StaticText "Loading accounts…"
+    - StaticText "Not synced yet"
   …
   - alert
     - paragraph
       - StaticText "Customers could not be loaded"
     - paragraph
       - StaticText "GET /api/customers failed with 503"
-    - button "Retry" [ref=e242]
+    - button "Retry" [ref=e230]
 ```
 
-The error panel renders your message and a **Retry** button. The header still says "Loading
-accounts…", because the page builds that line from `customers.data` alone. That looks like a bug.
-Check it against a real failure before you file it.
+The error panel renders your message and a **Retry** button. The default `error` simulates a failed
+first load, so the query has no data (`"hasData":false` in `query_get`). The header says "Loading
+accounts…", because the page builds that line from `customers.data` alone.
 
-The app's `app_inject_fault` tool makes the mock backend return 503:
+A failed refresh is different. The cached data stays, and only the request fails. Add
+`"keepData":true` to simulate that:
 
 ```bash
-npx genie-react call app_inject_fault --session art-m4 \
-  '{"path":"/api/customers","method":"GET","status":503}' --fields faults
-agent-browser --session art-m4 open "http://[::1]:5224/customers"
+npx genie-react call query_simulate_state --session upd-f \
+  '{"queryKey":["customers","list",{"page":1,"pageSize":25,"q":""}],"state":"error","keepData":true,"errorMessage":"GET /api/customers failed with 503"}'
+agent-browser --session upd-f snapshot -c -s main -d 4
 ```
-
-A fault on the first load never reaches this panel. The route loader fails first, and the router's
-`RouteError` page shows "This page could not be loaded". Load the page without the fault, inject it
-again, and click **Refresh customers** with
-`agent-browser --session art-m4 find label 'Refresh customers' click`. Now the request fails inside
-the page. The panel appears, and the header keeps the cached count:
 
 ```text
     - paragraph
       - StaticText "1,200 accounts"
+    - StaticText "Updated 17 seconds ago"
+  …
+  - alert
+    - paragraph
+      - StaticText "Customers could not be loaded"
+    - paragraph
+      - StaticText "GET /api/customers failed with 503"
+```
+
+`query_get` now reports `"hasData":true`, the original `dataUpdatedAt`, and `isRefetchError: true` on
+the page's observer. The header keeps the cached count above the error panel.
+
+Which of the two do your users reach? Check each against a real failure. The app's
+`app_inject_fault` tool makes the mock backend return 503. Run `query_restore_state` with
+`{"all":true}` first, then inject the fault and click **Refresh customers**:
+
+```bash
+npx genie-react call app_inject_fault --session upd-f \
+  '{"path":"/api/customers","method":"GET","status":503}' --fields faults
+agent-browser --session upd-f find label 'Refresh customers' click
+agent-browser --session upd-f wait --text 'Customers could not be loaded'
+agent-browser --session upd-f snapshot -c -s main -d 4
+```
+
+```text
+    - paragraph
+      - StaticText "1,200 accounts"
+    - StaticText "Updated 31 seconds ago"
   …
   - alert
     - paragraph
@@ -118,8 +141,12 @@ the page. The panel appears, and the header keeps the cached count:
       - StaticText "Injected 503 for GET /api/customers"
 ```
 
-The simulated error has no data (`"hasData":false` in `query_get`). A real failed refresh keeps its
-data. Neither real path put "Loading accounts…" beside the error panel, so there is nothing to file.
+The real failed refresh looks like the `keepData` simulation. The header keeps the cached count and
+the sync time, and the error panel sits below it. `query_get` reports the same `hasData:true` and
+`isRefetchError:true`. A fault on the first load never reaches this panel.
+Reload `/customers` with the fault in place, and the route loader fails first. The router's
+`RouteError` page shows "This page could not be loaded" instead. So the "Loading accounts…" header
+beside the panel is a state no user reaches on this route, and there is nothing to file.
 
 ## Empty
 
@@ -127,8 +154,8 @@ The list is empty only when a search matches nothing. You can reach that through
 instead of the cache. Find the page and its stateful hooks:
 
 ```bash
-npx genie-react call react_find_components --session art-m4 '{"query":"CustomersPage","exact":true}'
-npx genie-react call react_inspect_component --session art-m4 '{"id":520949334170}'
+npx genie-react call react_find_components --session upd-f '{"query":"CustomersPage","exact":true}'
+npx genie-react call react_inspect_component --session upd-f '{"id":2418486018335}'
 ```
 
 ```text
@@ -138,16 +165,16 @@ npx genie-react call react_inspect_component --session art-m4 '{"id":52094933417
 `stateIndex` 0 is the search box's `term`. Set it to a term no account contains:
 
 ```bash
-npx genie-react call react_override_hook_state --session art-m4 \
-  '{"id":520949334170,"stateIndex":0,"value":"zzqx"}'
-agent-browser --session art-m4 snapshot -c -s main
+npx genie-react call react_override_hook_state --session upd-f \
+  '{"id":2418486018335,"stateIndex":0,"value":"zzqx"}'
+agent-browser --session upd-f snapshot -c -s main
 ```
 
 ```text
     - paragraph
       - StaticText "0 accounts"
   …
-  - textbox "Search customers" [ref=e27]: zzqx
+  - textbox "Search customers" [ref=e15]: zzqx
   …
   - paragraph
     - StaticText "No customers match"
@@ -159,7 +186,7 @@ The page debounced the term, moved the URL to `?page=1&q=zzqx` and ran a real se
 state came from the server, so the header and the body agree. Undo it:
 
 ```bash
-npx genie-react call react_reset_overrides --session art-m4 '{}'
+npx genie-react call react_reset_overrides --session upd-f '{}'
 ```
 
 ```text
@@ -178,15 +205,15 @@ Open `/customers/c-0042`, click the tab once so the panel mounts, then hold its 
 boundary in the fallback:
 
 ```bash
-npx genie-react call react_find_components --session art-m4 '{"query":"CustomerOrdersPanel","exact":true}' \
+npx genie-react call react_find_components --session upd-f '{"query":"CustomerOrdersPanel","exact":true}' \
   --json | jq -c '.matches[] | {id,name,path}'
-npx genie-react call react_toggle_suspense_fallback --session art-m4 '{"id":3902246223903,"showFallback":true}'
-agent-browser --session art-m4 snapshot -c -s main
+npx genie-react call react_toggle_suspense_fallback --session upd-f '{"id":11958380134513,"showFallback":true}'
+agent-browser --session upd-f snapshot -c -s main
 ```
 
 ```text
 ok: true
-boundaryId: 3902246223904
+boundaryId: 11958380134450
 showingFallback: true
 activeOverrides: 1
 (empty page)
@@ -196,7 +223,7 @@ The customer name, the **Edit account** button and the tabs all vanished. `main`
 content and no spinner. The sidebar and top bar stay. `react_suspense` names the boundary:
 
 ```text
-  - {id:3902246223904,parentBoundaryId:3902246223906,state:fallback,forced:true,…,source:{file:/node_modules/.pnpm/@tanstack+react-router@1.170.41_…/node_modules/@tanstack/react-router/dist/esm/Match.js,line:70,column:48,functionName:MatchView},sourceOwnership:library}
+  - {id:11958380134450,parentBoundaryId:11958380134436,state:fallback,forced:true,…,source:{file:/node_modules/.pnpm/@tanstack+react-router@1.170.41_…/node_modules/@tanstack/react-router/dist/esm/Match.js,line:70,column:48,functionName:MatchView},sourceOwnership:library}
 ```
 
 The nearest boundary belongs to TanStack Router's `MatchView`, above the whole page. The page
@@ -206,10 +233,10 @@ A forced state shows what could happen. To prove it does happen, reload the page
 request with the app's `app_set_latency` tool, and click the tab for real:
 
 ```bash
-npx genie-react call app_set_latency --session art-m4 \
+npx genie-react call app_set_latency --session upd-f \
   '{"rules":[{"path":"/api/customers/c-0042/orders","ms":3000}]}'
-agent-browser --session art-m4 find role tab click --name 'Recent orders'
-agent-browser --session art-m4 snapshot -c -s main
+agent-browser --session upd-f find role tab click --name 'Recent orders'
+agent-browser --session upd-f snapshot -c -s main
 ```
 
 ```text
@@ -220,6 +247,32 @@ A user who clicks **Recent orders** sees a blank page for as long as the orders 
 [Suspense reference](https://react.dev/reference/react/Suspense#preventing-already-revealed-content-from-hiding)
 describes this. When content that is already shown suspends again outside a transition, the
 closest boundary shows its fallback again.
+
+## Turn the blank page into a failing check
+
+That real click ran inside `verify`. The claim `suspense CustomerDetailPage hidden max 0` fails
+when any Suspense boundary above the page replaces it with a fallback during the window:
+
+```bash
+npx genie-react verify begin --session upd-f --name 'open Recent orders' \
+  --claim 'render CustomerOrdersPanel min 1' --claim 'boundaries clean' \
+  --claim 'suspense CustomerDetailPage hidden max 0'
+agent-browser --session upd-f find role tab click --name 'Recent orders'
+npx genie-react verify end vfy_b7e44950-b3a7-4c52-b0c2-ca4806ff231c --session upd-f
+```
+
+Trimmed to the verdict and claim lines, it exits 1:
+
+```text
+fail vfy_b7e44950-b3a7-4c52-b0c2-ca4806ff231c "open Recent orders"  4 commits, quiet after 3506 ms (react, query, router, network)
+  1 pass render CustomerOrdersPanel min 1  {renders:2,mounts:1,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  2 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+  3 fail suspense CustomerDetailPage hidden max 0  {hidden:1,hidesInWindow:1}
+```
+
+The panel rendered and no boundary caught an error, so claims 1 and 2 pass. Claim 3 catches the
+blank page. Genie 1.0.2 had no `suspense` claim, and the same click passed `verify` there. Claim 1
+stays as the control that proves the click reached the app.
 
 ## The fix
 
@@ -244,46 +297,44 @@ After the fix, the same real click with the same 3,000 ms delay shows the page d
 
 ```text
 - main
-  - link "All customers" [ref=e812]
+  - link "All customers" [ref=e801]
   - sectionheader
-    - heading "Quarry Retail" [level=1, ref=e821]
+    - heading "Quarry Retail" [level=1, ref=e810]
     …
-    - button "Edit account" [ref=e822]
+    - button "Edit account" [ref=e811]
   - tablist "Customer sections"
-    - tab "Profile" [ref=e823]
-    - tab "Recent orders" [selected, ref=e824]
+    - tab "Profile" [ref=e812]
+    - tab "Recent orders" [selected, ref=e813]
+```
+
+The same three claims pass, and the command exits 0:
+
+```text
+pass vfy_7c6d1cff-15f4-438c-9b22-af86ef34ed1e "open Recent orders"  3 commits, quiet after 3377 ms (react, query, router, network)
+  1 pass render CustomerOrdersPanel min 1  {renders:1,mounts:1,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  2 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+  3 pass suspense CustomerDetailPage hidden max 0  {hidden:0,hidesInWindow:0}
+attempt 2 for these claims on this tab; previous fail vfy_b7e44950-b3a7-4c52-b0c2-ca4806ff231c; document reloaded since
 ```
 
 Forcing the fallback again now holds a boundary that the page owns:
 
 ```text
-{"id":10761174777973,"state":"fallback","forced":true,"source":"CustomerDetailPage","file":"/src/features/customers/customer-detail-page.tsx"}
+{"id":5353374744693,"state":"fallback","forced":true,"source":"CustomerDetailPage","file":"/src/features/customers/customer-detail-page.tsx"}
 ```
 
-## What verify could and could not prove
-
-Both real clicks ran inside `verify` with `render CustomerOrdersPanel min 1` and `boundaries clean`.
-Both passed with exit code 0:
-
-```text
-pass vfy_9f5cbc14-131a-4dde-97f4-34c00055966a "open Recent orders"  4 commits, quiet after 3530 ms (react, query, router)
-pass vfy_5a963876-274f-46a1-b006-6a0ad4d02520 "open Recent orders"  3 commits, quiet after 3246 ms (react, query, router)
-```
-
-The first verdict came from the broken page. Verify decides renders, effects and error boundaries. A blank
-page that still renders the right components and catches no error passes. Each run also printed
-`ui-outcome-not-observed`. Here the driver snapshot is the proof, and the verdict only confirms the
-click reached the app.
+Both runs also printed `ui-outcome-not-observed`. `verify` proves that no Suspense fallback hid the
+page. The driver snapshot proves what the user saw.
 
 ## Put everything back
 
 Release every override and simulation, clear the backend rules, and check the result:
 
 ```bash
-npx genie-react call app_set_latency --session art-m4 '{}' --fields latency
-npx genie-react call app_clear_faults --session art-m4 '{}' --fields faults
-npx genie-react call query_restore_state --session art-m4 '{"all":true}'
-npx genie-react call react_reset_overrides --session art-m4 '{}'
+npx genie-react call app_set_latency --session upd-f '{}' --fields latency
+npx genie-react call app_clear_faults --session upd-f '{}' --fields faults
+npx genie-react call query_restore_state --session upd-f '{"all":true}'
+npx genie-react call react_reset_overrides --session upd-f '{}'
 ```
 
 Require `remaining: 0` from `react_reset_overrides`. `query_restore_state` reports `restored` for
@@ -291,15 +342,16 @@ each query it put back.
 
 ## When forcing states misleads you
 
-- A simulated query has no data, like a first load. Pages that also read `dataUpdatedAt` or cached
-  data can show pairs your users never see, as the Customers header did twice. After 1.0.2,
-  `dataUpdatedAt` is 0 during a simulation, and `"keepData":true` with `"state":"error"` simulates a
-  failed refresh that keeps the cached data.
+- A simulated `pending` or `error` looks like a query that never loaded, with no data and
+  `dataUpdatedAt` at 0. Pages that read cached data can show a pair your users never see, as the
+  Customers header did beside the error panel. Use `"keepData":true` with `"state":"error"` when the
+  state you care about is a failed refresh.
 - Forcing tells you what a state looks like, not whether users reach it. Confirm a suspected bug
   with a real fault or delay through the app's own tools, as above.
 - A hook override lasts until the component's own next `setState`. Component IDs change after a
   reload, so find them again.
-- `verify` does not read the screen. For visual states, the driver snapshot is the evidence.
+- `verify` does not read the screen. A `suspense` claim proves React did not hide a component. For
+  everything else the user sees, the driver snapshot is the evidence.
 
 The [Validate UI states](/docs/guides/validate-ui-states) guide covers the same tools on the Vite
 demo, and [Verify a fix](/docs/guides/verify-a-fix) lists the claims verify can decide.
