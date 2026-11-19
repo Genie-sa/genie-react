@@ -330,8 +330,8 @@ try {
   const missingTool = (await run(['call', '--url', url], { code: 1 })).value
   assert.deepEqual(
     missingTool.exit,
-    { code: 2, class: 'usage' },
-    'failures report the code the command will use',
+    { code: 1, class: 'failure' },
+    'failures report the code the process exits with',
   )
 
   const hubDir = join(fixture, 'hub')

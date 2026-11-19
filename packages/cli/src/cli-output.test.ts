@@ -68,7 +68,7 @@ describe('failures', () => {
       'userActionRequired: true',
       'errorCode: invalid-args',
       'details: {didYouMean:{limt:limit},issues:[{path:/limt,message:"line\\nbreak"}]}',
-      'exit: {code:2,class:usage}',
+      'exit: {code:1,class:failure}',
     ])
   })
 

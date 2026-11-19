@@ -55,10 +55,11 @@ function fail(
   message: string,
   options: FailureOptions = {},
 ): number {
+  const exit = failureExit(reason)
   process.stdout.write(
-    `${renderFailure(agentFailure(reason, message, options), opts.maxBytes ?? DEFAULT_MAX_BYTES)}\n`,
+    `${renderFailure(agentFailure(reason, message, options, exit), opts.maxBytes ?? DEFAULT_MAX_BYTES)}\n`,
   )
-  return failureExit(reason).code
+  return exit.code
 }
 
 function usage(opts: AgentOptions, message: string, action?: VerifyAction): number {

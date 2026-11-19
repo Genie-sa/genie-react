@@ -18,7 +18,7 @@ import {
   writeDiagnostic,
   writeOutput,
 } from './cli-output'
-import { EXIT_CODES } from './exit-codes'
+import { type ExitStatus, exitStatus } from './exit-codes'
 import { agentFailure } from './failure-format'
 import { FEEDBACK_HINT, feedbackSuggestion } from './feedback-options'
 import { isRecord } from './guards'
@@ -44,20 +44,27 @@ function unsupportedOption(command: string, values: ParsedValues): string | null
   return null
 }
 
-/** `verify` uses the exit-code taxonomy from its first release; other commands keep exiting 1 until every command switches. */
-function usageExit(command: string | undefined): number {
-  return command === 'verify' ? EXIT_CODES.usage : 1
+/** `verify` uses the exit-code taxonomy from its first release; other commands exit 1. */
+function usageExit(command: string | undefined): ExitStatus {
+  return exitStatus(command === 'verify' ? 'usage' : 'failure')
 }
 
-function writeCliFailure(message: string, command?: string): void {
+/** Prints the failure with the exit status the caller returns, so the two always agree. */
+function writeCliFailure(message: string, exit: ExitStatus, helpCommand?: string): number {
   process.stdout.write(
     `${renderFailure(
-      agentFailure('invalid_input', message, {
-        userActionRequired: true,
-        next: genieCommand([...(command ? [command] : []), '--help']),
-      }),
+      agentFailure(
+        'invalid_input',
+        message,
+        {
+          userActionRequired: true,
+          next: genieCommand([...(helpCommand ? [helpCommand] : []), '--help']),
+        },
+        exit,
+      ),
     )}\n`,
   )
+  return exit.code
 }
 
 /** Runs before argument parsing so a rejected command line still answers in the format the caller asked for. */
@@ -102,8 +109,10 @@ function readVersion(): string {
 async function main(): Promise<number> {
   markPhase('cli:start')
   if (!selectOutputFormat(process.argv.slice(2))) {
-    writeCliFailure(`${OUTPUT_FORMAT_ENV} must be text or json. Unset it for text output.`)
-    return 1
+    return writeCliFailure(
+      `${OUTPUT_FORMAT_ENV} must be text or json. Unset it for text output.`,
+      exitStatus('failure'),
+    )
   }
   const { values, positionals } = parseArgs({
     args: process.argv.slice(2),
@@ -119,33 +128,34 @@ async function main(): Promise<number> {
 
   const command = positionals[0]
   if (command !== undefined && !Object.hasOwn(COMMANDS, command)) {
-    writeCliFailure(
+    return writeCliFailure(
       `Unknown command. Run ${genieCommand(['--help']).command} for accepted commands.`,
+      usageExit(command),
     )
-    return usageExit(command)
   }
   if (!command) {
     const unsupported = Object.keys(values).some(
       (key) => !['help', 'version', 'json', 'max-bytes'].includes(key),
     )
     if (unsupported) {
-      writeCliFailure('Provide a command before using command-specific options.')
-      return usageExit(command)
+      return writeCliFailure(
+        'Provide a command before using command-specific options.',
+        usageExit(command),
+      )
     }
   }
   const operation = command ?? 'help'
   setOutputContext({ operation })
   const optionError = unsupportedOption(operation, values)
   if (optionError) {
-    writeCliFailure(optionError)
-    return usageExit(command)
+    return writeCliFailure(optionError, usageExit(command))
   }
   const positionalLimit = POSITIONAL_LIMITS[operation]
   if (positionalLimit !== undefined && positionals.length > positionalLimit) {
-    writeCliFailure(
+    return writeCliFailure(
       `Too many arguments for ${command}. Run ${genieCommand([operation, '--help']).command}.`,
+      usageExit(command),
     )
-    return usageExit(command)
   }
 
   if (
@@ -154,15 +164,19 @@ async function main(): Promise<number> {
       Number(values['connect-timeout']) < 100 ||
       Number(values['connect-timeout']) > 120_000)
   ) {
-    writeCliFailure('--connect-timeout must be a number from 100 to 120000 milliseconds.')
-    return usageExit(command)
+    return writeCliFailure(
+      '--connect-timeout must be a number from 100 to 120000 milliseconds.',
+      usageExit(command),
+    )
   }
   if (
     values.timeout !== undefined &&
     (!Number.isFinite(Number(values.timeout)) || Number(values.timeout) <= 0)
   ) {
-    writeCliFailure('--timeout must be a positive number of milliseconds.')
-    return usageExit(command)
+    return writeCliFailure(
+      '--timeout must be a positive number of milliseconds.',
+      usageExit(command),
+    )
   }
   if (
     values.wait !== undefined &&
@@ -170,24 +184,28 @@ async function main(): Promise<number> {
       Number(values.wait) < 1 ||
       Number(values.wait) > 120_000)
   ) {
-    writeCliFailure('--wait must be a number from 1 to 120000 milliseconds.')
-    return usageExit(command)
+    return writeCliFailure(
+      '--wait must be a number from 1 to 120000 milliseconds.',
+      usageExit(command),
+    )
   }
   if (values.fields !== undefined && parseFields(values.fields) === undefined) {
-    writeCliFailure('--fields requires at least one comma-separated field name.')
-    return usageExit(command)
+    return writeCliFailure(
+      '--fields requires at least one comma-separated field name.',
+      usageExit(command),
+    )
   }
   if (values.select !== undefined && values.select.trim() === '') {
-    writeCliFailure('--select requires a non-empty JSON Pointer or dotted path.')
-    return usageExit(command)
+    return writeCliFailure(
+      '--select requires a non-empty JSON Pointer or dotted path.',
+      usageExit(command),
+    )
   }
   if (values.session !== undefined && command === 'doctor' && !values.live) {
-    writeCliFailure('--session applies to doctor --live only.', 'doctor')
-    return usageExit(command)
+    return writeCliFailure('--session applies to doctor --live only.', usageExit(command), 'doctor')
   }
   if (values.fields !== undefined && values.select !== undefined) {
-    writeCliFailure('Choose either --fields or --select, not both.')
-    return usageExit(command)
+    return writeCliFailure('Choose either --fields or --select, not both.', usageExit(command))
   }
   if (
     values['max-bytes'] !== undefined &&
@@ -195,8 +213,10 @@ async function main(): Promise<number> {
       Number(values['max-bytes']) < 512 ||
       Number(values['max-bytes']) > 50_000_000)
   ) {
-    writeCliFailure('--max-bytes must be an integer from 512 to 50000000.')
-    return usageExit(command)
+    return writeCliFailure(
+      '--max-bytes must be an integer from 512 to 50000000.',
+      usageExit(command),
+    )
   }
   if (
     values.marker !== undefined &&
@@ -204,12 +224,13 @@ async function main(): Promise<number> {
       values.marker.length > 80 ||
       [...values.marker].some((character) => (character.codePointAt(0) ?? 0) <= 31))
   ) {
-    writeCliFailure('--marker must be 1–80 characters without control characters.')
-    return usageExit(command)
+    return writeCliFailure(
+      '--marker must be 1–80 characters without control characters.',
+      usageExit(command),
+    )
   }
   if (command === 'batch' && values.json === true && values.ndjson === true) {
-    writeCliFailure('Choose either --json or --ndjson, not both.')
-    return usageExit(command)
+    return writeCliFailure('Choose either --json or --ndjson, not both.', usageExit(command))
   }
   const maxBytes = values['max-bytes'] ? Number(values['max-bytes']) : undefined
   markPhase('cli:parsed')
@@ -274,8 +295,7 @@ async function main(): Promise<number> {
     case 'hub': {
       const port = values.port ? Number(values.port) : undefined
       if (port !== undefined && (!Number.isInteger(port) || port <= 0 || port > 65_535)) {
-        writeCliFailure('--port must be an integer from 1 to 65535.')
-        return 1
+        return writeCliFailure('--port must be an integer from 1 to 65535.', usageExit(command))
       }
       const { runHub } = await import('./hub-command')
       return runHub({ port, maxBytes })
@@ -302,15 +322,19 @@ async function main(): Promise<number> {
     }
     case 'capture': {
       if (positionals[1] !== 'export') {
-        writeCliFailure('Capture currently requires the `export` subcommand.')
-        return 1
+        return writeCliFailure(
+          'Capture currently requires the `export` subcommand.',
+          usageExit(command),
+        )
       }
       let sections: CaptureDomain[] | undefined
       try {
         sections = parseCaptureSections(values.section)
       } catch (error) {
-        writeCliFailure(error instanceof Error ? error.message : String(error))
-        return 1
+        return writeCliFailure(
+          error instanceof Error ? error.message : String(error),
+          usageExit(command),
+        )
       }
       const { runCaptureExport } = await import('./agent')
       return runCaptureExport(positionals[2], {
@@ -370,8 +394,11 @@ main()
       error.code.startsWith('ERR_PARSE_ARGS_')
     if (argumentError) {
       const command = process.argv.slice(2).find((arg) => Object.hasOwn(COMMANDS, arg))
-      writeCliFailure(parseArgsFailureMessage(error, command), command)
-      process.exitCode = usageExit(command)
+      process.exitCode = writeCliFailure(
+        parseArgsFailureMessage(error, command),
+        usageExit(command),
+        command,
+      )
       return
     }
     process.stdout.write(

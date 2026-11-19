@@ -497,7 +497,7 @@ describe('agent failure output', () => {
         command: 'pnpm exec genie-react status',
         argv: ['pnpm', 'exec', 'genie-react', 'status'],
       },
-      exit: { code: 69, class: 'unreachable' },
+      exit: { code: 1, class: 'failure' },
     })
     expect(text).not.toContain(String.fromCharCode(27))
   })
