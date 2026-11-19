@@ -69,8 +69,10 @@ npx @genie-react/cli call query_invalidations '{"method":"invalidateQueries"}' -
 
 Matches are computed when the call is made, with TanStack Query's own `findAll` and the same filter,
 so `matchedCount: 0` is exact: the call reached no cached query. Each match says whether it was
-active, since `invalidateQueries` refetches only active queries by default. `nearMisses` lists cached
-keys that share the filter's first segment. Only the outermost call is recorded:
+active, since `invalidateQueries` refetches only active queries by default. When nothing matched,
+`nearMisses` lists up to five cached keys the filter almost reached: first keys where one string
+segment differs only by a plural ending (`task` and `tasks`, `category` and `categories`) or a small
+typo (`projcts`), then keys that share the filter's first segment. Only the outermost call is recorded:
 `invalidateQueries` and `resetQueries` call `refetchQueries` themselves. `byGenie` marks calls made by
 Genie tools such as `query_invalidate`. `stack` is not source-mapped. Calls made before the collector
 started, or through a method reference the app saved before then, are not recorded.

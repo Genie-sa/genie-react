@@ -56,7 +56,7 @@ export const queryFilterCallsContract = defineAgentToolContract({
   name: 'query_invalidations',
   title: 'Invalidations and other filter calls',
   description:
-    "List the app's recent invalidateQueries, refetchQueries, resetQueries and removeQueries calls, newest first, with the filter each passed and the queries it matched at that moment, including none. Matching uses TanStack Query's own findAll with the same filter, so matchedCount 0 is exact: the call reached no cached query. nearMisses lists cached keys that share the filter's first key segment. Answers \"I invalidated but the list did not refresh\": compare the filter with the keys the list reads.",
+    "List the app's recent invalidateQueries, refetchQueries, resetQueries and removeQueries calls, newest first, with the filter each passed and the queries it matched at that moment, including none. Matching uses TanStack Query's own findAll with the same filter, so matchedCount 0 is exact: the call reached no cached query. nearMisses lists up to 5 cached keys the filter almost reached: first keys where one string segment differs only by a plural ending (task/tasks, category/categories) or a small typo, then keys that share the filter's first segment. Answers \"I invalidated but the list did not refresh\": compare the filter with the keys the list reads.",
   group: 'query',
   input: z.object({
     method: z.enum(FILTER_METHODS).optional(),
@@ -116,14 +116,66 @@ function callerFrames(): string[] {
     .slice(0, STACK_FRAME_LIMIT)
 }
 
-function nearMisses(queries: CachedQuery[], queryKey: unknown): string[] {
-  const head = Array.isArray(queryKey) ? queryKey[0] : undefined
-  if (head === undefined) return []
-  const prefix = JSON.stringify([head]).slice(0, -1)
-  return queries
-    .map((query) => query.queryHash)
-    .filter((hash) => hash.startsWith(prefix))
-    .slice(0, NEAR_MISS_LIMIT)
+function pluralForms(word: string): string[] {
+  const forms = [`${word}s`, `${word}es`]
+  if (word.endsWith('y')) forms.push(`${word.slice(0, -1)}ies`)
+  return forms
+}
+
+function isPluralPair(a: string, b: string): boolean {
+  return pluralForms(a).includes(b) || pluralForms(b).includes(a)
+}
+
+function editDistanceWithin(a: string, b: string, limit: number): boolean {
+  if (Math.abs(a.length - b.length) > limit) return false
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index)
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i]
+    for (let j = 1; j <= b.length; j += 1) {
+      const substitution = (previous[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1)
+      current[j] = Math.min((previous[j] ?? 0) + 1, (current[j - 1] ?? 0) + 1, substitution)
+    }
+    previous = current
+  }
+  return (previous[b.length] ?? 0) <= limit
+}
+
+/** Short words differ by one letter too often to call it a typo, so edits count only on longer words. */
+function isCloseSegment(filter: unknown, cached: unknown): boolean {
+  if (typeof filter !== 'string' || typeof cached !== 'string' || filter === cached) return false
+  if (isPluralPair(filter, cached)) return true
+  const shorter = Math.min(filter.length, cached.length)
+  const allowedEdits = shorter >= 8 ? 2 : shorter >= 4 ? 1 : 0
+  return allowedEdits > 0 && editDistanceWithin(filter, cached, allowedEdits)
+}
+
+/** The filter would match this key if exactly one string segment lost a typo or a plural ending. */
+function differsByOneCloseSegment(
+  filterKey: unknown[],
+  cachedKey: unknown,
+  exact: boolean,
+): boolean {
+  if (!Array.isArray(cachedKey) || cachedKey.length < filterKey.length) return false
+  if (exact && cachedKey.length !== filterKey.length) return false
+  let closeSegments = 0
+  for (const [index, segment] of filterKey.entries()) {
+    const cached: unknown = cachedKey[index]
+    if (JSON.stringify(segment) === JSON.stringify(cached)) continue
+    if (!isCloseSegment(segment, cached)) return false
+    closeSegments += 1
+  }
+  return closeSegments === 1
+}
+
+function nearMisses(queries: CachedQuery[], queryKey: unknown, exact: boolean): string[] {
+  if (!Array.isArray(queryKey) || queryKey.length === 0) return []
+  const prefix = JSON.stringify([queryKey[0]]).slice(0, -1)
+  const close = queries.filter((query) => differsByOneCloseSegment(queryKey, query.queryKey, exact))
+  const sameHead = queries.filter((query) => query.queryHash.startsWith(prefix))
+  return [...new Set([...close, ...sameHead].map((query) => query.queryHash))].slice(
+    0,
+    NEAR_MISS_LIMIT,
+  )
 }
 
 /** Records the app's filter calls on one QueryClient until the returned function runs, and lets Genie's own tools mark the calls they make. Only the outermost call is recorded: invalidateQueries and resetQueries call refetchQueries themselves. */
@@ -148,6 +200,7 @@ export function observeFilterCalls(queryClient: QueryClient): {
     const all = cache.getAll()
     const matches = cache.findAll((filters ?? {}) as Parameters<typeof cache.findAll>[0])
     const queryKey = ownValue(filters, 'queryKey')
+    const exact = ownValue(filters, 'exact') === true
     sequence += 1
     calls.push({
       sequence,
@@ -156,7 +209,7 @@ export function observeFilterCalls(queryClient: QueryClient): {
       byGenie: genieDepth > 0,
       filters: {
         queryKey: dehydrate(queryKey, { depth: 3 }),
-        exact: ownValue(filters, 'exact') === true,
+        exact,
         type: ownString(filters, 'type'),
         refetchType: ownString(filters, 'refetchType'),
         predicate: typeof ownValue(filters, 'predicate') === 'function',
@@ -168,7 +221,7 @@ export function observeFilterCalls(queryClient: QueryClient): {
         isActive: query.isActive(),
         observerCount: query.getObserversCount(),
       })),
-      nearMisses: matches.length === 0 ? nearMisses(all, queryKey) : [],
+      nearMisses: matches.length === 0 ? nearMisses(all, queryKey, exact) : [],
       stack: genieDepth > 0 ? [] : callerFrames(),
     })
     if (calls.length > CALL_LIMIT) calls.shift()
