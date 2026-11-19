@@ -4,6 +4,8 @@
   "pages": [
     "prove-your-agents-react-fix",
     "the-fix-that-passed-and-changed-nothing",
+    "we-planted-15-bugs-in-a-legacy-react-app",
+    "one-click-redraws-100-rows",
     "one-context-value-froze-the-board",
     "useselector-new-object-rerenders",
     "effect-fetches-on-every-keystroke",
