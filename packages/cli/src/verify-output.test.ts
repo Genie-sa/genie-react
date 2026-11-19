@@ -146,7 +146,7 @@ describe('commands built from a stored verdict', () => {
     ).toBeUndefined()
   })
 
-  it('adds each refusal its fix and points the evidence command at the first claim that did not pass', () => {
+  it('adds each refusal its fix and points the evidence command at the first claim with the run verdict', () => {
     const document = withNextCommands(verdict(), 'my-agent') as {
       claims: { refusal?: { next?: { argv: string[] } } }[]
       next: { argv: string[] }
@@ -162,6 +162,25 @@ describe('commands built from a stored verdict', () => {
       '--session',
       'my-agent',
     ])
+  })
+
+  it('points the evidence command at the failed claim that decided the verdict, past a refused one', () => {
+    const [refused, passed] = verdict().claims as Record<string, unknown>[]
+    const document = withNextCommands(
+      verdict({
+        verdict: 'fail',
+        exitCode: 1,
+        claims: [
+          { ...passed, index: 1 },
+          { ...refused, index: 2 },
+          { ...passed, index: 3 },
+          { ...passed, index: 4, verdict: 'fail' },
+        ],
+      }),
+      undefined,
+    ) as { next: { argv: string[] } }
+
+    expect(tail(document.next.argv)).toEqual(['verify', 'show', ID, '--claim', '4'])
   })
 
   it('points a recording window at verify end', () => {

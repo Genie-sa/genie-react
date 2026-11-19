@@ -199,7 +199,7 @@ export function withNextCommands(document: unknown, session: string | undefined)
     document.state === 'recording'
       ? endCommand(id, session)
       : document.state === 'completed'
-        ? showCommand(id, session, firstNotPassing(claims))
+        ? showCommand(id, session, decidingClaim(claims, document.verdict))
         : undefined
   return {
     ...document,
@@ -209,10 +209,11 @@ export function withNextCommands(document: unknown, session: string | undefined)
   }
 }
 
-function firstNotPassing(claims: unknown): number | undefined {
-  if (!Array.isArray(claims)) return undefined
-  const failing = claims.find((claim) => isRecord(claim) && claim.verdict !== 'pass')
-  return isRecord(failing) && typeof failing.index === 'number' ? failing.index : undefined
+/** The first claim whose verdict is the run's: a failed claim outranks a refused one, so it is the evidence worth reading. */
+function decidingClaim(claims: unknown, verdict: unknown): number | undefined {
+  if (!Array.isArray(claims) || verdict === 'pass') return undefined
+  const deciding = claims.find((claim) => isRecord(claim) && claim.verdict === verdict)
+  return isRecord(deciding) && typeof deciding.index === 'number' ? deciding.index : undefined
 }
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
