@@ -10,7 +10,9 @@ import {
   useState,
 } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { reactCollector } from '../collectors/react'
+import { reactComponentCohortContract } from '../collectors/react/render-contract'
 import {
   devtoolsVerifyReadContract,
   type VerifyClaimInput,
@@ -558,6 +560,48 @@ describe('verify on a real React tree', () => {
     expect(verdict.claims[0]?.refusal?.reason).toBe('evidence_inferred')
   })
 
+  it('passes render-causes on a class inside a connect() wrapper that rendered for the allowed prop', async () => {
+    interface Issue {
+      title: string
+    }
+    class TitleEditor extends Component<{ issue: Issue }> {
+      override render(): ReactNode {
+        return createElement('span', null, this.props.issue.title)
+      }
+    }
+    function ConnectFunction(props: { issue: Issue }): ReactNode {
+      return createElement(TitleEditor, props)
+    }
+    const Connected = memo(ConnectFunction)
+    ConnectFunction.displayName = 'Connect(TitleEditor)'
+    Connected.displayName = 'Connect(TitleEditor)'
+    function IssuePage(): ReactNode {
+      const [title, setTitle] = useState('Add filters')
+      return createElement(
+        'main',
+        null,
+        createElement('button', { type: 'button', onClick: () => setTitle(`${title}!`) }, 'type'),
+        createElement(Connected, { issue: { title } }),
+      )
+    }
+    const app = await mount(createElement(IssuePage))
+    start()
+    const began = await begin([
+      {
+        kind: 'render-causes',
+        target: { component: 'TitleEditor' },
+        allow: [{ kind: 'props', name: 'issue' }],
+      },
+    ])
+    await typeTwice(app.container)
+    const verdict = await end(began.verificationId)
+
+    expect(verdict.claims[0]).toMatchObject({
+      verdict: 'pass',
+      observed: { renders: 2, causes: ['parent', 'props.issue'] },
+    })
+  })
+
   it('refuses a renamed or missing target instead of passing an absence', async () => {
     const app = await mount(createElement(SearchScreen, { fixed: true }))
     start()
@@ -945,4 +989,82 @@ describe('verify a lazy route whose Suspense boundary can hide the app shell', (
       })
     },
   )
+})
+
+describe('verify on a list longer than the cohort limit of older apps', () => {
+  const ROWS = 250
+  const LEGACY_COHORT_LIMIT = 200
+  const claims: VerifyClaimInput[] = [
+    { kind: 'renders', target: { component: 'Row' }, max: 0 },
+    { kind: 'renders', target: { component: 'Board' }, min: 1 },
+  ]
+  const Row = memo(function Row({ index }: { index: number }): ReactNode {
+    return createElement('li', null, index)
+  })
+
+  function Board(): ReactNode {
+    const [open, setOpen] = useState(true)
+    return createElement(
+      'main',
+      null,
+      createElement('button', { type: 'button', onClick: () => setOpen(!open) }, 'type'),
+      createElement('output', null, open ? 'open' : 'closed'),
+      createElement(
+        'ul',
+        null,
+        Array.from({ length: ROWS }, (_, index) => createElement(Row, { key: index, index })),
+      ),
+    )
+  }
+
+  it('lists every mounted instance and passes an exact absence over all of them', async () => {
+    const app = await mount(createElement(Board))
+    start()
+    const began = await begin(claims)
+
+    expect(began).toMatchObject({
+      targets: [{ target: { component: 'Row' }, instances: ROWS }, { instances: 1 }],
+    })
+    await typeTwice(app.container)
+    const verdict = await end(began.verificationId)
+
+    expect(verdict.claims[0]).toMatchObject({
+      verdict: 'pass',
+      observed: { renders: 0, semantics: 'exact', instances: ROWS, activeInstances: ROWS },
+    })
+  })
+
+  it('reads an older app up to its limit and refuses the absence instead of passing it exact', async () => {
+    const app = await mount(createElement(Board))
+    const collector = reactCollector()
+    const cohort = collector.tools?.find((tool) => tool.contract.name === 'react_component_cohort')
+    if (!cohort) throw new Error('react_component_cohort is not registered')
+    cohort.contract = {
+      ...cohort.contract,
+      input: reactComponentCohortContract.input.extend({
+        limit: z.number().int().min(1).max(LEGACY_COHORT_LIMIT).default(50),
+      }),
+    }
+    harness = verifyHarness([collector])
+    const began = await begin(claims)
+
+    expect(began).toMatchObject({
+      targets: [
+        { instances: LEGACY_COHORT_LIMIT, omittedInstances: ROWS - LEGACY_COHORT_LIMIT },
+        { instances: 1 },
+      ],
+    })
+    await typeTwice(app.container)
+    const verdict = await end(began.verificationId)
+
+    expect(verdict.claims[0]).toMatchObject({
+      verdict: 'refused',
+      observed: {
+        renders: 0,
+        semantics: 'lower-bound',
+        omittedInstances: ROWS - LEGACY_COHORT_LIMIT,
+      },
+      refusal: { reason: 'evidence_truncated', fix: { action: 'change-claim' } },
+    })
+  })
 })

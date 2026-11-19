@@ -16,7 +16,7 @@ import {
   targetEvidence,
   windowEvidence,
 } from '../../test-support/verify-evidence'
-import type { TargetEvidence, VerificationEvidence } from './evidence'
+import type { RenderCause, TargetEvidence, VerificationEvidence } from './evidence'
 import { evaluateGuards } from './guards'
 import { combine, decide, evaluateClaim } from './verdict'
 
@@ -234,6 +234,35 @@ describe('renders decision table', () => {
     ).toBe('target_ambiguous')
   })
 
+  describe('when a cohort read left instances of the name out past its limit', () => {
+    const truncated = (records = [rendered({ renders: 0 })]) =>
+      windowEvidence([targetEvidence({ records, cohortOmittedByLimit: 640 })])
+
+    it('refuses max N instead of passing on the instances it listed, and counts the rest', () => {
+      expect(outcome(badgeMax0, truncated())).toMatchObject({
+        verdict: 'refused',
+        observed: { semantics: 'lower-bound', instances: 1, omittedInstances: 640 },
+        refusal: { reason: 'evidence_truncated', evidence: { omittedInstances: 640 } },
+      })
+    })
+
+    it('still fails max N on renders past N', () => {
+      expect(verdictOf(badgeMax0, truncated([rendered({ renders: 3 })]))).toBe('fail')
+    })
+
+    it('passes min N only as a lower bound', () => {
+      expect(outcome(badgeMin1, truncated([rendered({ renders: 2 })]))).toMatchObject({
+        verdict: 'pass',
+        observed: { semantics: 'lower-bound', omittedInstances: 640 },
+        caveats: ['count-is-a-lower-bound'],
+      })
+    })
+
+    it('refuses min N with the truncation, not a fail', () => {
+      expect(reasonOf(badgeMin1, truncated())).toBe('evidence_truncated')
+    })
+  })
+
   it('refuses when instances of the name come from two source files during the window', () => {
     const twoFiles = windowEvidence([
       targetEvidence({
@@ -314,6 +343,64 @@ describe('render-causes decision table', () => {
     ],
   ] as const)('refuses with %s', (reason, evidence) => {
     expect(reasonOf(onlyState, evidence)).toBe(reason)
+  })
+
+  describe('on a class inside a connect() wrapper, which re-renders whenever the wrapper does', () => {
+    const onlyIssue: VerifyClaimInput = {
+      ...onlyState,
+      allow: [{ kind: 'props', name: 'issue' }],
+    }
+    const wrapped = (wrapperCause: RenderCause, parentId = 41) =>
+      withEvents([
+        renderEvent({
+          causes: [
+            {
+              kind: 'parent',
+              evidence: 'inferred',
+              name: null,
+              reason: 'nearest-rendered-ancestor',
+              parentId,
+            },
+            { kind: 'props', evidence: 'exact', name: 'issue', reason: null },
+          ],
+          wrappedBy: {
+            componentId: 41,
+            componentName: 'Connect(StatusBadge)',
+            causes: [wrapperCause],
+          },
+        }),
+      ])
+    const issueChanged: RenderCause = {
+      kind: 'props',
+      evidence: 'exact',
+      name: 'issue',
+      reason: null,
+    }
+
+    it('passes when the parent is the wrapper and it rendered for an exact allowed cause', () => {
+      expect(outcome(onlyIssue, wrapped(issueChanged))).toMatchObject({
+        verdict: 'pass',
+        deciding: [
+          {
+            wrappedBy: { component: 'Connect(StatusBadge)', causes: ['props.issue'] },
+          },
+        ],
+      })
+    })
+
+    it.each([
+      [
+        'the wrapper rendered for an inferred store cause',
+        wrapped({ kind: 'external-store', evidence: 'inferred', name: null, reason: null }),
+      ],
+      [
+        'the wrapper rendered for a cause the claim does not allow',
+        wrapped({ ...issueChanged, name: 'theme' }),
+      ],
+      ['the rendered parent is not the wrapper', wrapped(issueChanged, 7)],
+    ])('still refuses when %s', (_, evidence) => {
+      expect(reasonOf(onlyIssue, evidence)).toBe('evidence_inferred')
+    })
   })
 
   it('labels observed causes the way a claim names them', () => {

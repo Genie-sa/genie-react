@@ -62,6 +62,14 @@ claim `suspense TopBar hidden max 0`. It counts every fallback above `TopBar` th
 already on screen, including fallbacks that resolved before `end`. A boundary that mounts in its
 fallback hid nothing and does not count.
 
+A class component without `shouldComponentUpdate` renders whenever its parent does, so each of its
+renders also carries an inferred `parent` cause. `only` can still pass on a class wrapped in
+`connect()` or `memo()`: when the parent is that wrapper and the wrapper rendered only for exact
+causes you listed, such as `props.issue`, Genie counts the parent cause as settled.
+
+`verify` lists up to 2,000 mounted instances of each target. With more, it refuses to pass the claim
+(`evidence_truncated`) instead of judging only the instances it listed.
+
 ## Read the verdict
 
 | Verdict | Exit | Meaning |

@@ -1481,7 +1481,7 @@ export const reactComponentCohortContract = defineAgentToolContract({
         'Component display name; matched exactly by default, or as a substring with exact:false.',
       ),
     exact: z.boolean().default(true),
-    limit: z.number().int().min(1).max(200).default(50),
+    limit: z.number().int().min(1).max(2_000).default(50),
     view: outputViewSchema(
       'every instance with its full descriptor, logicalPath and source provenance',
     ),

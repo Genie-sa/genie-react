@@ -8,7 +8,13 @@ import {
   refused,
   settleRefusal,
 } from '../outcome'
-import { describeTarget, type MatchedTarget, matchTarget, targetRefusal } from '../target'
+import {
+  cohortRefusal,
+  describeTarget,
+  type MatchedTarget,
+  matchTarget,
+  targetRefusal,
+} from '../target'
 
 type RendersClaim = Extract<VerifyClaim, { kind: 'renders' }>
 
@@ -48,7 +54,7 @@ export function targetEvidenceRefusal(
   target: TargetEvidence,
   matched: MatchedTarget,
 ): Refusal | null {
-  const identity = targetRefusal(target, matched, 'identity')
+  const identity = targetRefusal(target, matched, 'identity') ?? cohortRefusal(target, matched)
   if (identity) return identity
   const coverage = coverageRefusal(evidence)
   if (coverage) return coverage
@@ -84,12 +90,14 @@ function tailRenders(evidence: VerificationEvidence, records: InstanceRecord[]):
   )
 }
 
-/** Exact only when the window's render analysis was complete and the report was consistent; otherwise a lower bound. */
+/** Exact only when the window's render analysis was complete, the report was consistent and every mounted instance was listed; otherwise a lower bound. */
 function countSemantics(
   evidence: VerificationEvidence,
   target: TargetEvidence,
+  matched: MatchedTarget,
 ): 'exact' | 'lower-bound' {
   return coverageRefusal(evidence) === null &&
+    matched.omittedInstances === 0 &&
     target.renders !== null &&
     target.renders.omittedByLimit === 0 &&
     !target.renders.attributionStale
@@ -130,7 +138,7 @@ export function evaluateRenders(
   const counted = claim.counting === 'updates' ? updates : renders
   const remounts = remountedInstances(matched)
   const guardsRemounts = claim.counting === 'updates' && !claim.allowRemount
-  const semantics = countSemantics(evidence, target)
+  const semantics = countSemantics(evidence, target, matched)
   const observed = {
     renders,
     mounts: total((record) => record.mounts),
@@ -138,6 +146,7 @@ export function evaluateRenders(
     remounts: remounts.length,
     semantics,
     instances: matched.mountIds.size,
+    ...(matched.omittedInstances > 0 ? { omittedInstances: matched.omittedInstances } : {}),
     activeInstances: activeInstances(matched).length,
   }
   const busiest = [...records]
@@ -214,6 +223,7 @@ export function evaluateRenders(
           { action: 'check-setup' },
         )
       : null) ??
+    cohortRefusal(target, matched) ??
     (semantics === 'exact'
       ? null
       : refuse('coverage_incomplete', 'The render report was incomplete.')) ??
