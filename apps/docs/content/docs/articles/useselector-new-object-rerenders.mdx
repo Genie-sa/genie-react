@@ -1,0 +1,228 @@
+---
+title: useSelector returned a new object, so the avatar menu re-rendered on every action
+description: Typing five letters in the issue filter re-rendered the avatar menu nine times with identical data. Genie tied the render to the Redux action, and verify proved a two-line fix.
+---
+
+The avatar menu re-rendered after every store change because its `useSelector` call built a new
+`{ user, savedViewCount }` object each time, and `useSelector` compares results with `===`. Typing
+`cache` into the issue filter re-rendered the menu nine times, while the user and the saved-view count
+stayed the same.
+
+Every command and output below comes from runs against `apps/realworld-legacy` in this repository, a
+React 18.3 tracker with Redux Toolkit 1.9, react-redux 8 and RTK Query. The
+[raw evidence](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/useselector-new-object-rerenders.md)
+has every command with its full output, including the attempts that did not work.
+
+## The symptom
+
+`AccountMenu` sits in the top bar and shows the signed-in user's avatar. Typing in the issue filter
+should not touch it. Open a render window, type, and count:
+
+```bash
+npx genie-react call react_clear_renders '{"component":"AccountMenu"}' --session art-l2 --select /ok
+agent-browser --session art-l2 type 'input[aria-label="Filter issues"]' cache
+npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session art-l2 --select /outcome
+npx genie-react call react_get_renders '{"component":"AccountMenu","appOnly":false}' --session art-l2 \
+  --fields name,renders,updates,causeCounts,necessity,necessityReason
+```
+
+```text
+[1]:
+  - {name:AccountMenu,renders:9,updates:9,causeCounts:{external-store:9},necessity:unnecessary,necessityReason:inputs-unchanged}
+```
+
+Nine renders for five keystrokes, all from an external store, all `unnecessary` because the inputs
+did not change.
+
+## Link the render to the Redux action
+
+The Genie skill's recipe for "which Redux action caused this render" is `react_render_causes` with
+`"view":"full"`, then `redux_actions`. Read both in one `batch` right after the interaction, so they
+describe the same moment:
+
+```bash
+npx genie-react call react_clear_renders '{}' --session art-l2 --select /ok
+agent-browser --session art-l2 type 'input[aria-label="View name"]' Sp
+npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session art-l2 --select /outcome
+npx genie-react batch '[{"tool":"react_render_causes","args":{"component":"AccountMenu","view":"full"}},{"tool":"redux_actions","args":{"typePrefix":"savedViews/","view":"full"}}]' \
+  --session art-l2 --json > chain.json
+```
+
+This run types into the saved-view name box instead of the filter. The
+[last section](#when-this-approach-does-not-fit) explains why. The render cause, projected with `jq`,
+trimmed with `…` and reflowed:
+
+```text
+{
+  "renderEventId": "render:27:735",
+  "necessity": "unnecessary",
+  "necessityReason": "inputs-unchanged",
+  "cause": {
+    "kind": "external-store",
+    "evidence": "inferred",
+    "equality": "object-is",
+    "selectionEqual": false,
+    "changedFields": [],
+    "before": { "user": { "id": "u-1", "name": "Dana Whitfield", … }, "savedViewCount": 0 },
+    "after": { "user": { "id": "u-1", "name": "Dana Whitfield", … }, "savedViewCount": 0 },
+    "deepDiff": { "changes": [ { "kind": "reference-only", "path": "" } ], "visited": 3, "truncated": false },
+    "redux": {
+      "evidence": "exact",
+      "reason": "dispatched-between-renders",
+      "actions": [ { "sequence": 2561, "type": "savedViews/draftNameChanged", "changedSlices": [ "savedViews" ] } ]
+    }
+  }
+}
+```
+
+Read it from the bottom up. One action, `savedViews/draftNameChanged`, was dispatched between this
+render and the menu's previous one, so Genie grades the Redux link `exact`. The selector's result
+before and after holds the same user and the same count of 0. `deepDiff` finds one change, at the
+root path `""`, and it is `reference-only`. The comparison is `object-is`, so `selectionEqual` is
+false and the menu renders.
+
+The external-store cause itself stays `inferred`, because Genie sees the hook's result, not the
+selector function. That is enough here. Equal values with a new root reference point straight at a
+selector that builds a new object.
+
+The same batch's `redux_actions` result, projected to a few fields and reflowed:
+
+```text
+{
+  "sequence": 2561,
+  "type": "savedViews/draftNameChanged",
+  "changedSlices": [ "savedViews" ],
+  "payload": "Sp",
+  "renderEventIds": [ "render:27:735", "render:27:740", "render:27:759", "render:27:763" ]
+}
+```
+
+The action lists the menu's render, `render:27:735`, among the renders that named it as exact. It
+changed `savedViews.draftName`. The menu reads `savedViews.views.length`, which did not change.
+
+Type two characters, not one. In a separate one-keystroke run, the menu's only render had no earlier
+render in the window, and Genie graded the link `inferred` with reason `previous-render-unavailable`.
+It listed three candidate actions, two of them notification fetches from the page load.
+
+## The cause
+
+```tsx title="src/layout/account-menu.tsx"
+const { user, savedViewCount } = useAppSelector((state) => ({
+  user: state.session.user,
+  savedViewCount: state.savedViews.views.length,
+}))
+```
+
+react-redux runs every mounted selector after each dispatch and re-renders when the result is not
+`===` to the last one. This selector returns a new object literal every time, so every store change
+re-renders the menu. The react-redux docs describe this exact case under
+[Equality Comparisons and Updates](https://redux.js.org/react-redux/api/hooks#equality-comparisons-and-updates).
+
+## The fix
+
+Select each value on its own, so each result is a stable reference or a primitive:
+
+```diff
+-  const { user, savedViewCount } = useAppSelector((state) => ({
+-    user: state.session.user,
+-    savedViewCount: state.savedViews.views.length,
+-  }))
++  const user = useAppSelector((state) => state.session.user)
++  const savedViewCount = useAppSelector((state) => state.savedViews.views.length)
+```
+
+Passing `shallowEqual` as the second argument also works. `IssueTableToolbar` in the same app does
+that for its own object selector.
+
+## The proof
+
+`render IssueTableToolbar min 1` is the positive control. The toolbar must render while you type, so
+a run that missed the input fails.
+
+```bash
+npx genie-react verify begin --session art-l2 --name 'type cache in the issue filter' \
+  --claim 'render AccountMenu max 0' --claim 'render IssueTableToolbar min 1' --claim 'boundaries clean' \
+  --budget '{"adaptive":false,"fiberLimit":20000,"operationLimit":2000000,"timeLimitMs":500}'
+agent-browser --session art-l2 type 'input[aria-label="Filter issues"]' cache
+npx genie-react verify end vfy_c6ed20f8-1978-46fd-9434-db0b87c5327c --session art-l2
+```
+
+Before the fix, trimmed to the verdict, the claim lines and the exit code:
+
+```text
+fail vfy_c6ed20f8-1978-46fd-9434-db0b87c5327c "type cache in the issue filter"  11 commits, quiet after 657 ms (react)
+  1 fail render AccountMenu max 0  {renders:9,mounts:0,updates:9,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  2 pass render IssueTableToolbar min 1  {renders:5,mounts:0,updates:5,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+exitCode: 1
+```
+
+With the fix applied and the page reloaded, the same begin, type and end, with the new ID, printed:
+
+```text
+pass vfy_4cdb6b26-c1e3-4d80-8ada-77290a66f81c "type cache in the issue filter"  11 commits, quiet after 651 ms (react)
+  1 pass render AccountMenu max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  2 pass render IssueTableToolbar min 1  {renders:5,mounts:0,updates:5,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+exitCode: 0
+```
+
+The toolbar still renders five times, once per keystroke. The menu went from nine renders to zero.
+
+## Two more selectors with the same shape
+
+The same app has two reselect selectors that hand components a new reference after unrelated
+actions. Each row below is one verification before and one after that fix, with only that fix applied.
+
+| Interaction | Claim | Before | After |
+| --- | --- | --- | --- |
+| Toggle the sidebar on the board | `render BoardColumn max 0` | fail, `renders:5`, exit 1 | pass, `renders:0`, exit 0 |
+| Type `Sprint triage` as a view name | `render IssueTable max 0` | fail, `renders:13`, exit 1 | pass, `renders:0`, exit 0 |
+
+`selectCardsForColumn` is one `createSelector` shared by five columns, each passing its own `status`.
+Reselect caches one result, so each column overwrites the last one's entry and every column gets a
+new array. The fix gives each column its own selector instance through a `makeSelectCardsForColumn`
+factory and `useMemo`. Genie reports each column render as
+`external-store inferred anonymous-external-store`, with `ui/sidebarToggled` among the candidate
+actions. It cannot show the cache misses.
+
+`selectVisibleIssues` takes an input selector that returns a new `{ filters, sort }` object, so it
+recomputes on every action. The fix splits it into two input selectors. Genie reports the class
+`IssueTable` render as `props exact rows` with a `reference-only` diff (`visited:101`). It shows the
+new `rows` array, not the work that built it.
+
+In both cases Genie names the component, the changed reference and the action. You read the selector
+to find out why the reference changed.
+
+## When this approach does not fit
+
+`redux_actions` keeps the last 500 records, and this app fills them fast. Each issue row renders a
+`UserName` that calls an RTK Query hook. A filter keystroke that changes the visible rows remounts
+those hooks, and RTK Query dispatches its own actions for each one. After one keystroke on a freshly
+loaded page, the newest 500 records were RTK Query actions and thunks plus one unrecorded state
+change, and the `issues/` filter action was already gone. In the saved-view name box, the two
+`draftNameChanged` actions were 201 sequence numbers apart, so both stayed in the history.
+
+The app also polls notifications every 15 seconds. At rest, the sequence number jumped by 406 between
+two reads a few seconds apart. The linking run above first slowed the poll with the app's own tool:
+
+```bash
+npx genie-react call app_backend_reset '{"notificationPollMs":120000}' --session art-l2
+```
+
+If your app dispatches hundreds of actions per interaction, read `react_render_causes` and
+`redux_actions` in one `batch` right after the action, and pick an interaction that dispatches less.
+
+react-redux 8.1 and later also catch this bug in development, with a
+[selector stability check](https://redux.js.org/react-redux/api/hooks#development-mode-checks) that
+runs a selector twice on its first call. On this page the browser console showed:
+
+```text
+[warning] Selector unknown returned a different result when called with the same parameters. This can lead to unnecessary rerenders.
+```
+
+The warning comes from react-redux, not Genie, and Genie does not surface console messages. It does
+not name the component, and by default it runs only on a selector's first call. Genie names the
+component, counts its renders, links each one to an action, and proves the fix with
+[verify](/docs/guides/verify-a-fix). The [Redux tools](/docs/tools/redux) page lists every
+`redux_actions` field.
