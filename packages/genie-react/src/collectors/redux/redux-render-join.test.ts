@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import '../react/hook'
-import { Component, createElement, type ReactNode, useEffect, useLayoutEffect } from 'react'
+import {
+  Component,
+  createElement,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useState,
+} from 'react'
 import { connect, Provider, useDispatch, useSelector } from 'react-redux'
 import {
   Provider as Provider9,
@@ -108,6 +115,25 @@ function AddButtons(): ReactNode {
     ),
   )
 }
+
+// NoteSummary's selector returns a new object on every dispatch, and connect() nests its subscription under ShellView's.
+function NoteSummary(): ReactNode {
+  const summary = useSelector((state: State) => ({ count: state.notes.length }), {
+    stabilityCheck: 'never',
+  })
+  return createElement('output', null, `summary ${summary.count}`)
+}
+
+function Ticker(): ReactNode {
+  const [ticks, setTicks] = useState(0)
+  return createElement('button', { type: 'button', onClick: () => setTicks(ticks + 1) }, 'tick')
+}
+
+function ShellView(): ReactNode {
+  return createElement('div', null, createElement(NoteSummary), createElement(Ticker))
+}
+
+const Shell = connect((state: State) => ({ filter: state.filter }))(ShellView)
 
 describe('a render names the Redux action that changed its snapshot', () => {
   it('names the clicked action as exact for a useSelector subscriber', async () => {
@@ -315,6 +341,67 @@ describe('a render names the Redux action that changed its snapshot', () => {
       evidence: 'inferred',
       reason: 'previous-render-unavailable',
     })
+  })
+
+  it('bounds the first render in a window by the window start once React was idle', async () => {
+    const store = makeStore()
+    reduxCollector(store)
+    const app = await mount(createElement(Provider, { store } as never, createElement(Shell)))
+    await act(() => {
+      store.dispatch({ type: 'notes/added', id: 'before-window' })
+    })
+    // The sibling update clones NoteSummary without rendering it, so its alternate holds no render.
+    await click(byText(app.container, 'tick'))
+    observe()
+
+    await act(() => {
+      store.dispatch({ type: 'notes/added', id: 'in-window' })
+    })
+
+    const [causes] = await storeCausesOf('NoteSummary')
+    expect(causes?.[0]?.redux).toMatchObject({
+      evidence: 'exact',
+      reason: 'dispatched-between-renders',
+      actions: [{ sequence: 2, type: 'notes/added' }],
+    })
+  })
+
+  it('keeps the first render inferred when the window opened before React rendered an earlier dispatch', async () => {
+    const store = makeStore()
+    reduxCollector(store)
+    const app = await mount(createElement(Provider, { store } as never, createElement(Shell)))
+    await click(byText(app.container, 'tick'))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    store.dispatch({ type: 'notes/added', id: 'still-rendering' })
+    observe()
+    await act(async () => {})
+    consoleError.mockRestore()
+
+    const [causes] = await storeCausesOf('NoteSummary')
+    expect(causes?.[0]?.redux).toMatchObject({
+      evidence: 'inferred',
+      reason: 'previous-render-unavailable',
+    })
+  })
+
+  it('never lists an action from before the window as a candidate', async () => {
+    const store = makeStore()
+    reduxCollector(store)
+    const app = await mount(createElement(Provider, { store } as never, createElement(Shell)))
+    await act(() => {
+      store.dispatch({ type: 'notes/added', id: 'before-window' })
+    })
+    observe()
+
+    await click(byText(app.container, 'tick'))
+    await act(() => {
+      store.dispatch({ type: 'notes/added', id: 'in-window' })
+    })
+
+    const [causes] = await storeCausesOf('NoteSummary')
+    expect(causes?.[0]?.redux?.reason).toBe('previous-render-unavailable')
+    expect(causes?.[0]?.redux?.actions.map((action) => action.sequence)).toEqual([2])
   })
 
   it('names the action for react-redux 9 hooks', async () => {

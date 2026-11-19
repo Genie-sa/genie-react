@@ -17,6 +17,7 @@ import {
   registerQuerySubscriber,
   setExternalStoreObservation,
 } from '../causal/external-store-registry'
+import { noteRenderWindowStart } from '../causal/redux-store-registry'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 import { safeStructuredClone } from '../structured-clone'
 import { getTimings } from './bippy-compat'
@@ -48,7 +49,13 @@ import {
   recordBoundaryCommit,
   recordErrorState,
 } from './error-tracker'
-import { findAllCommittedRootFibers, nameOf, noteCommit, noteCommittedRoot } from './fiber'
+import {
+  findAllCommittedRootFibers,
+  isReactWorkScheduled,
+  nameOf,
+  noteCommit,
+  noteCommittedRoot,
+} from './fiber'
 import {
   beginInstanceObservation,
   discardExcludedInstanceUnmount,
@@ -555,6 +562,7 @@ export function disposeRenderTracking(): void {
   unmountRendererVerdicts.clear()
   uncertainTraversalRoots = new WeakMap()
   traversedRoots = new WeakSet()
+  noteRenderWindowStart(null)
 }
 
 /** Pause commit recording without uninstalling instrumentation; isTracking() reports false until startRenderTracking() resumes. */
@@ -705,6 +713,10 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   instrumentMountedClasses()
   const observation = beginObservation()
   setExternalStoreObservation(observation)
+  const openedAt = globalThis.performance?.now?.()
+  noteRenderWindowStart(
+    openedAt === undefined ? null : { at: openedAt, settled: !isReactWorkScheduled() },
+  )
   beginInstanceObservation(observation.id)
   return observation
 }

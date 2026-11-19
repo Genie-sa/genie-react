@@ -1,4 +1,5 @@
 import {
+  _fiberRoots,
   type ContextDependency,
   type Fiber,
   type FiberRoot,
@@ -169,6 +170,16 @@ export interface CommittedRootScope {
   rootLimit: number
   /** At least one additional unique committed root exists outside this scope. */
   truncated: boolean
+}
+
+export function pendingLanesOf(root: unknown): number {
+  const lanes = (root as { pendingLanes?: unknown }).pendingLanes
+  return typeof lanes === 'number' ? lanes : 0
+}
+
+/** Whether any React root has an update scheduled or suspended that it has not committed yet. */
+export function isReactWorkScheduled(): boolean {
+  return [..._fiberRoots].some((root) => pendingLanesOf(root) !== 0)
 }
 
 // DevTools semantics: a commit whose current has no child is that root unmounting, so it stops being a candidate (and stops being retained).

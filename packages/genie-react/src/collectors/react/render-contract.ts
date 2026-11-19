@@ -181,7 +181,7 @@ const reduxRenderLinkSchema = z
     evidence: z
       .enum(['exact', 'inferred'])
       .describe(
-        'exact: these are every recorded state change that finished after this component last rendered and before this render began, measured on React’s own render clock. inferred: a lead; reason says what is unproven.',
+        'exact: these are every recorded state change that finished after this component last rendered, or after the render window opened with no React work pending if it has not rendered since, and before this render began, measured on React’s own render clock. inferred: a lead; reason says what is unproven, and no listed action predates the render window.',
       ),
     reason: z.enum([
       'dispatched-between-renders',

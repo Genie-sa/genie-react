@@ -77,6 +77,20 @@ const PERFORMED_WORK_FLAG = 1
 
 let taps: WeakRef<ReduxStoreTapView>[] = []
 
+export interface RenderWindowStart {
+  /** When the window opened, on the clock React stamps fibers with. */
+  at: number
+  /** No React root had uncommitted work, so every subscriber had already handled each earlier dispatch. */
+  settled: boolean
+}
+
+let renderWindowStart: RenderWindowStart | null = null
+
+/** Pass null when no render window is open. */
+export function noteRenderWindowStart(start: RenderWindowStart | null): void {
+  renderWindowStart = start
+}
+
 export function registerReduxStoreTap(tap: ReduxStoreTapView): void {
   taps = [...liveTaps(), tap].map((live) => new WeakRef(live))
 }
@@ -239,7 +253,8 @@ function renderWindow(
 ): RenderWindow {
   const current = tap.reactClock ? renderTiming(fiber) : null
   if (!current) return { kind: 'unbounded', reason: 'render-timing-unavailable' }
-  const previous = previousVisit(fiber, notifiedSynchronously)
+  const previous =
+    previousVisit(fiber, notifiedSynchronously) ?? settledWindowStartAfterVisit(fiber)
   if (!previous || previous.startedAt >= current.startedAt) {
     return { kind: 'unbounded-previous', current, reason: 'previous-render-unavailable' }
   }
@@ -260,6 +275,14 @@ function previousVisit(fiber: Fiber, notifiedSynchronously: boolean): RenderTimi
   const flags = ownNumber(alternate, 'flags')
   const performedWork = flags !== null && (flags & PERFORMED_WORK_FLAG) !== 0
   return performedWork || notifiedSynchronously ? renderTiming(alternate) : null
+}
+
+/** A clone visit made before a window that opened with no React work pending read a selection every earlier dispatch had already been checked against, and the clone's render pass flushed the mount's subscribe effect first. */
+function settledWindowStartAfterVisit(fiber: Fiber): RenderTiming | null {
+  if (!renderWindowStart?.settled || !fiber.alternate) return null
+  const visit = renderTiming(fiber.alternate)
+  if (!visit || visit.startedAt >= renderWindowStart.at) return null
+  return { startedAt: renderWindowStart.at, readUntil: renderWindowStart.at }
 }
 
 /** React's profiler timer stamps each fiber when its work begins; development builds run it whenever DevTools is installed. */
@@ -327,15 +350,21 @@ function actionsBetweenRenders(
   return { entries: between, reason }
 }
 
-/** Without a previous render to bound the window, the latest state changes this render could have seen are leads, not proof. */
+/** Without a previous render to bound the window, the latest state changes this render could have seen since the render window opened are leads, not proof. */
 function fallbackActions(
   tap: ReduxStoreTapView,
   current: RenderTiming | null,
 ): ReduxTimelineEntry[] {
+  const windowStart = renderWindowStart
+    ? { startedAt: renderWindowStart.at, readUntil: renderWindowStart.at }
+    : null
   return tap
     .entries()
     .filter(
-      (entry) => changesState(entry) && (!current || visibilityAt(entry, current) !== 'unseen'),
+      (entry) =>
+        changesState(entry) &&
+        (!current || visibilityAt(entry, current) !== 'unseen') &&
+        (!windowStart || visibilityAt(entry, windowStart) !== 'seen'),
     )
     .slice(-FALLBACK_ACTION_LIMIT)
 }
@@ -353,4 +382,5 @@ function ownNumber(value: unknown, key: string): number | null {
 
 export function resetReduxStoreRegistryForTests(): void {
   taps = []
+  renderWindowStart = null
 }

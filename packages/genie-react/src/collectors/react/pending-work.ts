@@ -1,6 +1,6 @@
 import { _fiberRoots, getFiberId } from 'bippy'
 import { MAX_PENDING_WORK_BOUNDARIES, type PendingReactWork } from '../../protocol'
-import { getTreeGeneration, nameOf } from './fiber'
+import { getTreeGeneration, nameOf, pendingLanesOf } from './fiber'
 import { getDocumentCommitId } from './observation'
 import { forcedSuspenseBoundaries } from './overrides'
 import { isRenderTrackingInstalled } from './render-tracker'
@@ -19,11 +19,6 @@ interface BoundaryScan {
 }
 
 let scan: BoundaryScan | null = null
-
-function pendingLanesOf(root: unknown): number {
-  const lanes = (root as { pendingLanes?: unknown }).pendingLanes
-  return typeof lanes === 'number' ? lanes : 0
-}
 
 function sameIds(left: ReadonlySet<number>, right: ReadonlySet<number>): boolean {
   return left.size === right.size && [...left].every((id) => right.has(id))
