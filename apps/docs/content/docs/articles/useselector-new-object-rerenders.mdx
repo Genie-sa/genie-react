@@ -19,10 +19,10 @@ has every command with its full output, including the attempts that did not work
 should not touch it. Open a render window, type, and count:
 
 ```bash
-npx genie-react call react_clear_renders '{"component":"AccountMenu"}' --session art-l2 --select /ok
-agent-browser --session art-l2 type 'input[aria-label="Filter issues"]' cache
-npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session art-l2 --select /outcome
-npx genie-react call react_get_renders '{"component":"AccountMenu","appOnly":false}' --session art-l2 \
+npx genie-react call react_clear_renders '{"component":"AccountMenu"}' --session upd-d --select /ok
+agent-browser --session upd-d type 'input[aria-label="Filter issues"]' cache
+npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session upd-d --select /outcome
+npx genie-react call react_get_renders '{"component":"AccountMenu","appOnly":false}' --session upd-d \
   --fields name,renders,updates,causeCounts,necessity,necessityReason
 ```
 
@@ -41,20 +41,20 @@ The Genie skill's recipe for "which Redux action caused this render" is `react_r
 describe the same moment:
 
 ```bash
-npx genie-react call react_clear_renders '{}' --session art-l2 --select /ok
-agent-browser --session art-l2 type 'input[aria-label="View name"]' Sp
-npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session art-l2 --select /outcome
+npx genie-react call react_clear_renders '{}' --session upd-d --select /ok
+agent-browser --session upd-d type 'input[aria-label="View name"]' S
+npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session upd-d --select /outcome
 npx genie-react batch '[{"tool":"react_render_causes","args":{"component":"AccountMenu","view":"full"}},{"tool":"redux_actions","args":{"typePrefix":"savedViews/","view":"full"}}]' \
-  --session art-l2 --json > chain.json
+  --session upd-d --json > chain.json
 ```
 
-This run types into the saved-view name box instead of the filter. The
+This run types one character into the saved-view name box instead of the filter. The
 [last section](#when-this-approach-does-not-fit) explains why. The render cause, projected with `jq`,
 trimmed with `…` and reflowed:
 
 ```text
 {
-  "renderEventId": "render:27:735",
+  "renderEventId": "render:17:2",
   "necessity": "unnecessary",
   "necessityReason": "inputs-unchanged",
   "cause": {
@@ -69,17 +69,21 @@ trimmed with `…` and reflowed:
     "redux": {
       "evidence": "exact",
       "reason": "dispatched-between-renders",
-      "actions": [ { "sequence": 2561, "type": "savedViews/draftNameChanged", "changedSlices": [ "savedViews" ] } ]
+      "actions": [ { "sequence": 1960, "type": "savedViews/draftNameChanged", "changedSlices": [ "savedViews" ] } ]
     }
   }
 }
 ```
 
-Read it from the bottom up. One action, `savedViews/draftNameChanged`, was dispatched between this
-render and the menu's previous one, so Genie grades the Redux link `exact`. The selector's result
+Read it from the bottom up. One action, `savedViews/draftNameChanged`, was dispatched between the
+window opening and this render, so Genie grades the Redux link `exact`. The selector's result
 before and after holds the same user and the same count of 0. `deepDiff` finds one change, at the
 root path `""`, and it is `reference-only`. The comparison is `object-is`, so `selectionEqual` is
 false and the menu renders.
+
+This is the menu's first render in the window, with no earlier render to compare with. Genie still
+grades the link `exact` because React had no pending work when the window opened. Genie 1.0.2
+graded such a first render `inferred` with actions from before the window, and 1.1.0 fixed it.
 
 The external-store cause itself stays `inferred`, because Genie sees the hook's result, not the
 selector function. That is enough here. Equal values with a new root reference point straight at a
@@ -89,20 +93,16 @@ The same batch's `redux_actions` result, projected to a few fields and reflowed:
 
 ```text
 {
-  "sequence": 2561,
+  "sequence": 1960,
   "type": "savedViews/draftNameChanged",
   "changedSlices": [ "savedViews" ],
-  "payload": "Sp",
-  "renderEventIds": [ "render:27:735", "render:27:740", "render:27:759", "render:27:763" ]
+  "payload": "S",
+  "renderEventIds": [ "render:17:2", "render:17:7", "render:17:26", "render:17:30" ]
 }
 ```
 
-The action lists the menu's render, `render:27:735`, among the renders that named it as exact. It
+The action lists the menu's render, `render:17:2`, among the renders that named it as exact. It
 changed `savedViews.draftName`. The menu reads `savedViews.views.length`, which did not change.
-
-Type two characters, not one. In a separate one-keystroke run, the menu's only render had no earlier
-render in the window, and Genie graded the link `inferred` with reason `previous-render-unavailable`.
-It listed three candidate actions, two of them notification fetches from the page load.
 
 ## The cause
 
@@ -140,17 +140,17 @@ that for its own object selector.
 a run that missed the input fails.
 
 ```bash
-npx genie-react verify begin --session art-l2 --name 'type cache in the issue filter' \
+npx genie-react verify begin --session upd-d --name 'type cache in the issue filter' \
   --claim 'render AccountMenu max 0' --claim 'render IssueTableToolbar min 1' --claim 'boundaries clean' \
   --budget '{"adaptive":false,"fiberLimit":20000,"operationLimit":2000000,"timeLimitMs":500}'
-agent-browser --session art-l2 type 'input[aria-label="Filter issues"]' cache
-npx genie-react verify end vfy_c6ed20f8-1978-46fd-9434-db0b87c5327c --session art-l2
+agent-browser --session upd-d type 'input[aria-label="Filter issues"]' cache
+npx genie-react verify end vfy_893fe945-b083-4b3a-af4d-d2dbef163247 --session upd-d
 ```
 
 Before the fix, trimmed to the verdict, the claim lines and the exit code:
 
 ```text
-fail vfy_c6ed20f8-1978-46fd-9434-db0b87c5327c "type cache in the issue filter"  11 commits, quiet after 657 ms (react)
+fail vfy_893fe945-b083-4b3a-af4d-d2dbef163247 "type cache in the issue filter"  11 commits, quiet after 814 ms (react)
   1 fail render AccountMenu max 0  {renders:9,mounts:0,updates:9,remounts:0,semantics:exact,instances:1,activeInstances:1}
   2 pass render IssueTableToolbar min 1  {renders:5,mounts:0,updates:5,remounts:0,semantics:exact,instances:1,activeInstances:1}
   3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
@@ -160,7 +160,7 @@ exitCode: 1
 With the fix applied and the page reloaded, the same begin, type and end, with the new ID, printed:
 
 ```text
-pass vfy_4cdb6b26-c1e3-4d80-8ada-77290a66f81c "type cache in the issue filter"  11 commits, quiet after 651 ms (react)
+pass vfy_c9a9cc76-b1fd-489e-ba81-baf26b7ee0a1 "type cache in the issue filter"  11 commits, quiet after 817 ms (react)
   1 pass render AccountMenu max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
   2 pass render IssueTableToolbar min 1  {renders:5,mounts:0,updates:5,remounts:0,semantics:exact,instances:1,activeInstances:1}
   3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
@@ -183,8 +183,8 @@ actions. Each row below is one verification before and one after that fix, with 
 Reselect caches one result, so each column overwrites the last one's entry and every column gets a
 new array. The fix gives each column its own selector instance through a `makeSelectCardsForColumn`
 factory and `useMemo`. Genie reports each column render as
-`external-store inferred anonymous-external-store`, with `ui/sidebarToggled` among the candidate
-actions. It cannot show the cache misses.
+`external-store inferred anonymous-external-store`, with `ui/sidebarToggled` as the only candidate
+action. It cannot show the cache misses.
 
 `selectVisibleIssues` takes an input selector that returns a new `{ filters, sort }` object, so it
 recomputes on every action. The fix splits it into two input selectors. Genie reports the class
@@ -196,25 +196,22 @@ to find out why the reference changed.
 
 ## When this approach does not fit
 
-`redux_actions` keeps the last 500 records, and this app fills them fast. Each issue row renders a
-`UserName` that calls an RTK Query hook. A filter keystroke that changes the visible rows remounts
-those hooks, and RTK Query dispatches its own actions for each one. After one keystroke on a freshly
-loaded page, the newest 500 records were RTK Query actions and thunks plus one unrecorded state
-change, and the `issues/` filter action was already gone. In the saved-view name box, the two
-`draftNameChanged` actions were 201 sequence numbers apart, so both stayed in the history.
+Genie keeps a bounded number of render events per window, and a busy page can push the one you want
+out. A filter keystroke in this app changes which rows show, and each new row mounts a `UserName`
+with its own RTK Query hook. In a one-keystroke filter run the menu rendered twice, and the window
+had already dropped 39 render events (`renderEventRetention.evictedEvents`), including the menu's
+first render. The render it kept came from an RTK Query cache update, linked `inferred` to an
+unrecorded change in the `service` slice. The one-keystroke View name run above dropped none.
 
-The app also polls notifications every 15 seconds. At rest, the sequence number jumped by 406 between
-two reads a few seconds apart. The linking run above first slowed the poll with the app's own tool:
+The Redux history is not the limit. In a five-keystroke filter run, `redux_actions` still held all
+five `issues/filtersChanged` actions. It counted 4,949 RTK Query actions, thunks and cache updates
+in `coverage.libraryActions` instead of keeping them as records. Genie 1.0.2 kept them in the
+500-record history, where they pushed out the filter action, and 1.1.0 fixed it.
 
-```bash
-npx genie-react call app_backend_reset '{"notificationPollMs":120000}' --session art-l2
-```
-
-If your app dispatches hundreds of actions per interaction, read `react_render_causes` and
-`redux_actions` in one `batch` right after the action, and pick an interaction that dispatches less.
-Genie releases after 1.0.2 count RTK Query's own actions in `coverage.libraryActions` instead of
-keeping them in the history, and `reduxCollector` accepts a `historyLimit` of up to 5000; see the
-[Redux tools](/docs/tools/redux).
+Read the cause on the smallest interaction that shows the bug, and check
+`renderEventRetention.evictedEvents` before you treat a missing render event as proof of anything.
+If your own actions overflow the history, `coverage.evictedRecords` grows. Pass a larger
+`historyLimit` (up to 5000) to `reduxCollector` to keep more.
 
 react-redux 8.1 and later also catch this bug in development, with a
 [selector stability check](https://redux.js.org/react-redux/api/hooks#development-mode-checks) that
