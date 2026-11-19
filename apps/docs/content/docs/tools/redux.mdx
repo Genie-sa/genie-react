@@ -8,7 +8,9 @@ The JSON examples below show selected fields from the full response.
 
 These tools exist when the app registers the [Redux collector](/docs/getting-started/install#redux).
 To find the action behind a render, read the `external-store` cause from `react_render_causes`: its
-`redux` field names the actions and grades the link. The history keeps the last 500 records.
+`redux` field names the actions and grades the link. The history keeps the last 500 records by
+default; pass `historyLimit` (1 to 5000) to `reduxCollector` to keep more. Each record holds a
+depth-bounded copy of its action, so a larger history costs memory in the page.
 When a component's first render in a window has no earlier render to compare with, Genie still
 grades it `exact` if React had no pending work when the window opened: the window start then
 bounds the actions. An `inferred` link never lists an action from before the window.
@@ -18,6 +20,17 @@ render join. It does not record dispatches that bypass the wrapped `dispatch`, s
 and the RTK listener middleware; their state changes appear as `unrecorded-change`. The mutation check
 compares plain objects and arrays only, and skips frozen state. Pass `{ detectMutations: false }` to
 `reduxCollector` to turn the check off.
+
+RTK Query dispatches its own actions for every query a component subscribes to, often hundreds per
+interaction. The history leaves them out so they cannot evict the app's actions, and counts them in
+`coverage.libraryActions` instead. This covers actions whose type starts with an RTK Query
+`reducerPath`, the anonymous thunks that dispatch only those, and unrecorded changes that touch only
+RTK Query slices. Render causes still name these actions. Pass `{ recordLibraryActions: true }` to
+`reduxCollector` to keep them as records.
+
+```ts
+reduxCollector(store, { name: 'app', historyLimit: 2000, recordLibraryActions: true })
+```
 
 ## `redux_actions`
 
@@ -79,7 +92,18 @@ npx @genie-react/cli call redux_actions '{"typePrefix":"reports/","view":"full"}
     "historyLimit": 500,
     "evictedRecords": 0,
     "unrecordedChanges": 0,
-    "mutationDetection": true
+    "mutationDetection": true,
+    "libraryActions": {
+      "recorded": false,
+      "counted": 412,
+      "byType": [
+        { "kind": "action", "type": "service/subscriptions/internal_probeSubscription", "count": 200 },
+        { "kind": "thunk", "type": null, "count": 106 },
+        { "kind": "action", "type": "service/executeQuery/rejected", "count": 53 },
+        { "kind": "action", "type": "service/subscriptions/unsubscribeQueryResult", "count": 53 }
+      ],
+      "otherTypesCount": 0
+    }
   }
 }
 ```
@@ -92,7 +116,8 @@ returns the same state; fix the reducer at the reported path. A thunk's actions 
 
 `none-detected` covers only the objects the bounded scan compared; `scanTruncated: true` says some
 were not. An `unrecorded-change` is a state change no recorded dispatch explains, such as middleware
-dispatching on its own; `coverage.unrecordedChanges` counts them.
+dispatching on its own; `coverage.unrecordedChanges` counts them. `coverage.evictedRecords` counts
+records the bounded history dropped; when it grows during one interaction, raise `historyLimit`.
 
 ## `redux_state`
 

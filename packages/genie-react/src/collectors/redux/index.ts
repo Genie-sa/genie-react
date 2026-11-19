@@ -12,7 +12,6 @@ import {
 import { reduxStoreTaps } from '../causal/redux-store-registry'
 import { selectEntries, selectionSchema, whereSchema } from '../value-selection'
 import {
-  HISTORY_LIMIT,
   instrumentReduxStore,
   type ReduxCollectorOptions,
   type ReduxDispatchRecord,
@@ -199,6 +198,38 @@ const reduxActionsContract = defineAgentToolContract({
           'Retained state changes with no recorded dispatch: middleware dispatching on its own, or components holding the dispatch from before Genie wrapped it.',
         ),
       mutationDetection: z.boolean(),
+      libraryActions: z
+        .object({
+          recorded: z
+            .boolean()
+            .describe(
+              'true: RTK Query actions are kept as records (recordLibraryActions). false: they are counted here and absent from records.',
+            ),
+          counted: z
+            .number()
+            .int()
+            .nonnegative()
+            .describe(
+              'Dispatches counted instead of recorded since the store was instrumented: RTK Query actions, the anonymous thunks that dispatch only those, and state changes touching only RTK Query slices.',
+            ),
+          byType: z
+            .array(
+              z.object({
+                kind: z.enum(['action', 'thunk', 'unrecorded-change']),
+                type: z.string().nullable(),
+                count: z.number().int().positive(),
+              }),
+            )
+            .describe('Counts per kind and type, most frequent first; the first 50 types seen.'),
+          otherTypesCount: z
+            .number()
+            .int()
+            .nonnegative()
+            .describe('Counted dispatches whose type arrived after the first 50.'),
+        })
+        .describe(
+          'RTK Query keeps its own actions out of the history so they cannot evict the app actions.',
+        ),
     }),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
@@ -321,10 +352,11 @@ function listActions(tap: ReduxStoreTap, input: ActionsInput): ActionsOutput {
     nextAfterSequence: last?.sequence ?? after ?? null,
     latestSequence: tap.latestSequence(),
     coverage: {
-      historyLimit: HISTORY_LIMIT,
+      historyLimit: tap.historyLimit,
       evictedRecords: tap.evictedRecords(),
       unrecordedChanges: records.filter((record) => record.kind === 'unrecorded-change').length,
       mutationDetection: tap.detectMutations,
+      libraryActions: tap.libraryActions(),
     },
   }
 }

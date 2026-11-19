@@ -27,6 +27,23 @@ export interface ReduxCollectorOptions {
   name?: string
   /** Compare state objects before and after each action to catch in-place mutation. Defaults to true. */
   detectMutations?: boolean
+  /** Records kept in the history, from 1 to 5000. Defaults to 500. Each record holds a depth-bounded copy of its action. */
+  historyLimit?: number
+  /** Keep RTK Query's own actions, and the anonymous thunks that dispatch only those, as full records. Defaults to false: they are counted by type instead, so a burst of them cannot evict the app's actions. */
+  recordLibraryActions?: boolean
+}
+
+export interface ReduxLibraryActionCount {
+  kind: 'action' | 'thunk' | 'unrecorded-change'
+  type: string | null
+  count: number
+}
+
+export interface ReduxLibraryActionSummary {
+  recorded: boolean
+  counted: number
+  byType: ReduxLibraryActionCount[]
+  otherTypesCount: number
 }
 
 export interface ReduxMutationReport {
@@ -61,14 +78,19 @@ export interface ReduxStoreTap extends ReduxStoreTapView {
   records: () => readonly ReduxDispatchRecord[]
   evictedRecords: () => number
   latestSequence: () => number
+  libraryActions: () => ReduxLibraryActionSummary
   readState: () => unknown
   detectMutations: boolean
+  historyLimit: number
   dispose: () => void
 }
 
 export type ReduxInstallResult = { ok: true; tap: ReduxStoreTap } | { ok: false; reason: string }
 
-export const HISTORY_LIMIT = 500
+export const DEFAULT_HISTORY_LIMIT = 500
+export const MAX_HISTORY_LIMIT = 5000
+const LIBRARY_TYPE_LIMIT = 50
+const ANONYMOUS_THUNK = 'anonymous thunk'
 const SLICE_LIMIT = 100
 const FINDING_LIMIT = 10
 const PAYLOAD_LIMITS = { depth: 3, maxEntries: 25, maxStringLength: 200 }
@@ -102,6 +124,8 @@ export function instrumentReduxStore(
   const subscribe = store.subscribe
   const getState = (): unknown => store.getState()
   const detectMutations = options.detectMutations !== false
+  const historyLimit = resolveHistoryLimit(options.historyLimit)
+  const recordLibraryActions = options.recordLibraryActions === true
   const records: ReduxDispatchRecord[] = []
   const stateChanges: ReduxDispatchRecord[] = []
   let sequence = 0
@@ -112,6 +136,14 @@ export function instrumentReduxStore(
   let lastKnownState = readState()
   let retained: StateSnapshot | null = null
   const plainStack: { record: ReduxDispatchRecord; listenerCalls: number; nested: number }[] = []
+  const thunkStack: {
+    record: ReduxDispatchRecord
+    appChildren: number
+    libraryChildren: number
+  }[] = []
+  const libraryCounts = new Map<string, ReduxLibraryActionCount>()
+  let libraryCounted = 0
+  let libraryOtherTypes = 0
 
   function readState(): unknown {
     try {
@@ -121,13 +153,13 @@ export function instrumentReduxStore(
     }
   }
 
-  function push(
+  function createRecord(
     fields: Pick<ReduxDispatchRecord, 'kind' | 'type' | 'label' | 'parentActionId'> &
       Partial<ReduxDispatchRecord>,
   ): ReduxDispatchRecord {
     sequence += 1
     const startedAt = now()
-    const record: ReduxDispatchRecord = {
+    return {
       actionId: `${storeId}/action:${sequence}`,
       sequence,
       startedAt,
@@ -147,12 +179,42 @@ export function instrumentReduxStore(
       genieMs: 0,
       ...fields,
     }
+  }
+
+  function keep(record: ReduxDispatchRecord, library: boolean): void {
+    if (library && !recordLibraryActions) {
+      countLibraryRecord(record)
+      return
+    }
     records.push(record)
-    if (records.length > HISTORY_LIMIT) {
+    trimHistory()
+  }
+
+  /** Thunks still running are classified when they return, so they do not count against the limit until then. */
+  function trimHistory(): void {
+    while (records.length - thunkStack.length > historyLimit) {
       records.shift()
       evicted += 1
     }
-    return record
+  }
+
+  function countLibraryRecord(record: ReduxDispatchRecord): void {
+    libraryCounted += 1
+    const kind = record.kind as ReduxLibraryActionCount['kind']
+    const key = `${kind}:${record.type ?? ''}`
+    const existing = libraryCounts.get(key)
+    if (existing) existing.count += 1
+    else if (libraryCounts.size < LIBRARY_TYPE_LIMIT) {
+      libraryCounts.set(key, { kind, type: record.type, count: 1 })
+    } else libraryOtherTypes += 1
+  }
+
+  function noteChild(parentActionId: string | null, library: boolean): void {
+    if (parentActionId === null) return
+    const parent = thunkStack.findLast((frame) => frame.record.actionId === parentActionId)
+    if (!parent) return
+    if (library) parent.libraryChildren += 1
+    else parent.appChildren += 1
   }
 
   function onStoreChange(): void {
@@ -164,7 +226,7 @@ export function instrumentReduxStore(
     if (innermost) {
       innermost.record.stateSeenAt ??= now()
     } else {
-      const record = push({
+      const record = createRecord({
         kind: 'unrecorded-change',
         type: null,
         label: 'state changed without a recorded dispatch',
@@ -174,6 +236,7 @@ export function instrumentReduxStore(
       record.endedAt = record.startedAt
       record.stateSeenAt = record.startedAt
       describeChange(record, lastKnownState, state)
+      keep(record, touchesOnlyLibrarySlices(record, state))
     }
     lastKnownState = state
   }
@@ -196,12 +259,15 @@ export function instrumentReduxStore(
     parentActionId: string | null,
   ): unknown {
     const thunk = args[0] as (...thunkArgs: unknown[]) => unknown
-    const record = push({
+    const record = createRecord({
       kind: 'thunk',
       type: null,
       label: thunkName(thunk),
       parentActionId,
     })
+    const frame = { record, appChildren: 0, libraryChildren: 0 }
+    thunkStack.push(frame)
+    keep(record, false)
     const traced = new Proxy(thunk, {
       apply(callee, receiver, thunkArgs: unknown[]) {
         const [inner, ...rest] = thunkArgs
@@ -212,7 +278,20 @@ export function instrumentReduxStore(
         return Reflect.apply(callee, receiver, forwarded)
       },
     })
-    return settle(record, () => target.apply(thisArg, [traced, ...args.slice(1)]))
+    try {
+      return settle(record, () => target.apply(thisArg, [traced, ...args.slice(1)]))
+    } finally {
+      thunkStack.pop()
+      const library =
+        record.label === ANONYMOUS_THUNK && frame.appChildren === 0 && frame.libraryChildren > 0
+      noteChild(parentActionId, library)
+      if (library && !recordLibraryActions) {
+        const index = records.lastIndexOf(record)
+        if (index >= 0) records.splice(index, 1)
+        countLibraryRecord(record)
+      }
+      trimHistory()
+    }
   }
 
   function dispatchAction(
@@ -229,13 +308,16 @@ export function instrumentReduxStore(
     const outside = nested ? null : scanOutsideDispatch(before)
     const parent = plainStack.at(-1)
     if (parent) parent.nested += 1
-    const record = push({
+    const record = createRecord({
       kind: 'action',
       type,
       label: type ?? 'non-action value',
       parentActionId: parentActionId ?? parent?.record.actionId ?? null,
       payload: dehydrate(action, PAYLOAD_LIMITS),
     })
+    const library = isLibraryActionType(type, before)
+    keep(record, library)
+    noteChild(record.parentActionId, library)
     const frame = { record, listenerCalls, nested: 0 }
     plainStack.push(frame)
     let threw = false
@@ -287,13 +369,14 @@ export function instrumentReduxStore(
     if (retained) {
       const comparison = compareState(retained, FINDING_LIMIT + 1)
       if (comparison.findings.length > 0) {
-        const record = push({
+        const record = createRecord({
           kind: 'mutation-outside-dispatch',
           type: null,
           label: 'state changed in place outside any dispatch',
           parentActionId: null,
           outcome: 'detected',
         })
+        keep(record, false)
         record.endedAt = record.startedAt
         record.rootStateChanged = false
         record.mutation = mutationReport(comparison, retained)
@@ -330,7 +413,7 @@ export function instrumentReduxStore(
     record.changedSlicesTruncated = changed.truncated
     if (!record.rootStateChanged) return
     stateChanges.push(record)
-    if (stateChanges.length > HISTORY_LIMIT) {
+    if (stateChanges.length > historyLimit) {
       stateChanges.shift()
       evictedStateChanges += 1
     }
@@ -352,11 +435,20 @@ export function instrumentReduxStore(
     reactClock,
     installedAt: now(),
     detectMutations,
+    historyLimit,
     entries: () => stateChanges,
     evictedEntries: () => evictedStateChanges,
     records: () => records,
     evictedRecords: () => evicted,
     latestSequence: () => sequence,
+    libraryActions: () => ({
+      recorded: recordLibraryActions,
+      counted: libraryCounted,
+      byType: [...libraryCounts.values()]
+        .map((entry) => ({ ...entry }))
+        .sort((left, right) => right.count - left.count),
+      otherTypesCount: libraryOtherTypes,
+    }),
     readState,
     dispose() {
       active = false
@@ -370,6 +462,42 @@ export function instrumentReduxStore(
   }
   registerReduxStoreTap(tap)
   return { ok: true, tap }
+}
+
+function resolveHistoryLimit(requested: number | undefined): number {
+  if (requested === undefined) return DEFAULT_HISTORY_LIMIT
+  const limit = Number.isFinite(requested)
+    ? Math.min(MAX_HISTORY_LIMIT, Math.max(1, Math.floor(requested)))
+    : DEFAULT_HISTORY_LIMIT
+  if (limit !== requested) {
+    console.warn(
+      `[genie] Redux historyLimit ${requested} must be an integer from 1 to ${MAX_HISTORY_LIMIT}; using ${limit}.`,
+    )
+  }
+  return limit
+}
+
+function isLibraryActionType(type: string | null, state: unknown): boolean {
+  if (type === null) return false
+  const slash = type.indexOf('/')
+  return slash > 0 && isRtkQuerySlice(state, type.slice(0, slash))
+}
+
+function touchesOnlyLibrarySlices(record: ReduxDispatchRecord, state: unknown): boolean {
+  return (
+    record.changedSlices.length > 0 &&
+    !record.changedSlicesTruncated &&
+    record.changedSlices.every((slice) => isRtkQuerySlice(state, slice))
+  )
+}
+
+/** RTK Query keeps its reducerPath in its slice's config and owns every action type under `${reducerPath}/`. */
+function isRtkQuerySlice(state: unknown, key: string): boolean {
+  if (!isRecord(state)) return false
+  const slice = ownValue(state, key)
+  if (!isRecord(slice)) return false
+  const config = ownValue(slice, 'config')
+  return isRecord(config) && ownValue(config, 'reducerPath') === key
 }
 
 function mutationReport(
@@ -411,7 +539,7 @@ function actionType(action: unknown): string | null {
 function thunkName(thunk: (...args: unknown[]) => unknown): string {
   const descriptor = safeOwnPropertyDescriptor(thunk, 'name')
   const name = isDataDescriptor(descriptor) ? descriptor.value : ''
-  return typeof name === 'string' && name ? `thunk ${name.slice(0, 100)}` : 'anonymous thunk'
+  return typeof name === 'string' && name ? `thunk ${name.slice(0, 100)}` : ANONYMOUS_THUNK
 }
 
 function changedSlices(before: unknown, after: unknown): { slices: string[]; truncated: boolean } {

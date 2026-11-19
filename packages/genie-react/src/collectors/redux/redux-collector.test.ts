@@ -1,4 +1,5 @@
 import { configureStore as configureStore1, createSlice as createSlice1 } from '@reduxjs/toolkit'
+import { createApi as createApi1 } from '@reduxjs/toolkit/query'
 import {
   applyMiddleware as applyMiddleware4,
   combineReducers as combineReducers4,
@@ -47,7 +48,17 @@ interface ActionsResult {
   omittedBefore: number
   more: boolean
   nextAfterSequence: number | null
-  coverage: { evictedRecords: number; unrecordedChanges: number }
+  coverage: {
+    historyLimit: number
+    evictedRecords: number
+    unrecordedChanges: number
+    libraryActions: {
+      recorded: boolean
+      counted: number
+      byType: { kind: string; type: string | null; count: number }[]
+      otherTypesCount: number
+    }
+  }
 }
 
 const context: CollectorContext = {
@@ -523,5 +534,124 @@ describe('redux_actions and redux_state', () => {
     const auth = await actions(collector, { storeId })
     expect(auth.store.name).toBe('auth')
     expect(auth.records.map((record) => record.type)).toEqual(['session/refresh'])
+  })
+})
+
+describe('history bounds', () => {
+  function issueTracker(options: Parameters<typeof reduxCollector>[1] = {}) {
+    const api = createApi1({
+      reducerPath: 'service',
+      baseQuery: async () => ({ data: null }),
+      endpoints: (build) => ({
+        issue: build.query<{ id: number }, number>({ queryFn: (id) => ({ data: { id } }) }),
+      }),
+    })
+    const issues = createSlice1({
+      name: 'issues',
+      initialState: { text: '' },
+      reducers: {
+        filtersChanged: (state, action: { payload: string }) => {
+          state.text = action.payload
+        },
+      },
+    })
+    const store = configureStore1({
+      reducer: { issues: issues.reducer, [api.reducerPath]: api.reducer },
+      middleware: (getDefault) =>
+        getDefault({ serializableCheck: false, immutableCheck: false }).concat(api.middleware),
+    })
+    const collector = reduxCollector(store, options)
+    return { api, store, collector, filtersChanged: issues.actions.filtersChanged }
+  }
+
+  it("keeps the app's action when RTK Query dispatches more than the history holds", async () => {
+    const { api, store, collector, filtersChanged } = issueTracker()
+
+    store.dispatch(filtersChanged('cache'))
+    await Promise.all(
+      Array.from({ length: 200 }, (_, id) => store.dispatch(api.endpoints.issue.initiate(id))),
+    )
+
+    const result = await actions(collector, { limit: 200 })
+    expect(result.records.map((record) => record.type)).toEqual(['issues/filtersChanged'])
+    expect(result.coverage.evictedRecords).toBe(0)
+    const { libraryActions } = result.coverage
+    expect(libraryActions.recorded).toBe(false)
+    expect(libraryActions.counted).toBe(
+      libraryActions.byType.reduce((total, entry) => total + entry.count, 0),
+    )
+    expect(libraryActions.byType).toEqual(
+      expect.arrayContaining([
+        { kind: 'thunk', type: null, count: 400 },
+        { kind: 'action', type: 'service/executeQuery/pending', count: 200 },
+        { kind: 'action', type: 'service/executeQuery/fulfilled', count: 200 },
+      ]),
+    )
+  })
+
+  it("records a named app thunk that starts an RTK Query request, without the library's own records", async () => {
+    const { api, store, collector } = issueTracker()
+
+    await store.dispatch(function loadIssue(dispatch: Dispatch) {
+      return dispatch(api.endpoints.issue.initiate(1) as never)
+    })
+
+    const { records } = await actions(collector)
+    expect(records.map((record) => [record.kind, record.label])).toEqual([
+      ['thunk', 'thunk loadIssue'],
+    ])
+  })
+
+  it('records RTK Query actions in full when recordLibraryActions is set', async () => {
+    const { api, store, collector } = issueTracker({ recordLibraryActions: true })
+
+    await store.dispatch(api.endpoints.issue.initiate(1))
+
+    const result = await actions(collector)
+    expect(result.records.map((record) => [record.kind, record.type])).toEqual([
+      ['thunk', null],
+      ['thunk', null],
+      ['action', 'service/executeQuery/pending'],
+      ['action', 'service/subscriptions/internal_probeSubscription'],
+      ['unrecorded-change', null],
+      ['action', 'service/executeQuery/fulfilled'],
+    ])
+    expect(result.coverage.libraryActions).toEqual({
+      recorded: true,
+      counted: 0,
+      byType: [],
+      otherTypesCount: 0,
+    })
+  })
+
+  it('keeps the configured number of records and state changes', async () => {
+    const store = createStore4(combineReducers4({ reports: immutableReports }))
+    const collector = reduxCollector(store, { historyLimit: 3 })
+    for (let index = 0; index < 5; index += 1) {
+      store.dispatch({ type: 'reports/RANGE_SET', range: `${index}d` })
+    }
+
+    const result = await actions(collector)
+    expect(result.records.map((record) => record.sequence)).toEqual([3, 4, 5])
+    expect(result.coverage).toMatchObject({ historyLimit: 3, evictedRecords: 2 })
+    const [tap] = reduxStoreTaps() as ReduxStoreTap[]
+    expect(tap?.entries().map((entry) => entry.sequence)).toEqual([3, 4, 5])
+  })
+
+  it('clamps a history limit outside 1 to 5000 and says so', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const large = reduxCollector(createStore4(combineReducers4({ session })), {
+      historyLimit: 1_000_000,
+    })
+    const small = reduxCollector(createStore5(combineReducers5({ session })), {
+      historyLimit: 0,
+    })
+
+    const storeIds = (reduxStoreTaps() as ReduxStoreTap[]).map((tap) => tap.storeId)
+    expect((await actions(large, { storeId: storeIds[0] })).coverage.historyLimit).toBe(5000)
+    expect((await actions(small, { storeId: storeIds[1] })).coverage.historyLimit).toBe(1)
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/historyLimit 1000000 .*5000/))
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/historyLimit 0 .*1/))
+    warn.mockRestore()
   })
 })
