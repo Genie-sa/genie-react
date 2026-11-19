@@ -12,7 +12,8 @@ an agent can read once you change one option.
 
 I ran six of these tools on the same bug in this repo and kept every command and output in the
 [evidence file](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/best-tools-for-ai-agents-debugging-react-2026.md).
-I did not run Playwright MCP or the React DevTools extension. Their rows come from their docs.
+I did not run Playwright MCP or the React DevTools extension. Their rows come from their docs. The
+Genie steps were re-run on Genie 1.1.0, and the Genie output below comes from that re-run.
 
 ## One bug, one click, six tools
 
@@ -43,13 +44,24 @@ Genie counted 13 mounted rows, all 13 updated, and 29 `OrderRow` renders in tota
 
 ## What each tool told the agent
 
-**Genie** answers on the command line. `react_render_causes` names the prop for each row and grades
-the evidence (trimmed to two of 29 events):
+**Genie** answers on the command line. The agent opens a render window, runs the interaction, and
+waits until React, Query and Router are all settled, so the refetch after the mutation lands before
+the read:
+
+```bash
+npx genie-react call react_clear_renders '{"component":"OrderRow"}' --session upd-g
+# Run the three agent-browser commands above, with --session upd-g.
+npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g
+npx genie-react call react_render_causes '{"component":"OrderRow","limit":3}' --session upd-g
+```
+
+`react_render_causes` names the prop for each row and grades the evidence (trimmed to two of 29
+events):
 
 ```text
-  OrderRow #15349961457853 {renderEventId:render:30:241,mountId:mount:6,key:o-105915}
+  OrderRow #13713092378813 {renderEventId:render:17:241,mountId:mount:6,key:o-105915}
     ← props exact onStatusChange
-  OrderRow #15349961457819 {renderEventId:render:30:240,mountId:mount:5,key:o-105917}
+  OrderRow #13713092378779 {renderEventId:render:17:240,mountId:mount:5,key:o-105917}
     ← props exact onStatusChange
 ```
 
@@ -96,16 +108,16 @@ after it. The claim allows `mount` because three rows below the fold mounted dur
 mount is not the bug:
 
 ```bash
-npx genie-react verify begin --session art-m1 --name 'put one order on hold' \
+npx genie-react verify begin --session upd-g --name 'put one order on hold' \
   --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
-# Run the three agent-browser commands above.
-npx genie-react verify end <id> --session art-m1
+# Run the three agent-browser commands above, with --session upd-g.
+npx genie-react verify end <id> --session upd-g
 ```
 
 Before the fix, trimmed to the verdict and first claim (exit code 1):
 
 ```text
-fail vfy_0a79aa28-a975-4339-8957-83e3514b70b1 "put one order on hold"  10 commits, quiet after 900 ms (react, query, router)
+fail vfy_673952a4-e627-4f4c-b938-f894742abd3a "put one order on hold"  10 commits, quiet after 830 ms (react, query, router, network)
   1 fail render OrderRow only props.order,mount  {renders:29,events:29,violatingEvents:26,causes:[mount,props.onStatusChange,props.order]}
 ```
 
@@ -128,7 +140,7 @@ depends on `rows`:
 the fix, the same claims passed with exit code 0:
 
 ```text
-pass vfy_c3e39be0-5592-464c-9331-778ab36dba6d "put one order on hold"  10 commits, quiet after 1045 ms (react, query, router)
+pass vfy_dd4ac4d4-d0e2-4ab7-aa00-2dbaf890c7fa "put one order on hold"  10 commits, quiet after 2015 ms (react, query, router, network)
   1 pass render OrderRow only props.order,mount  {renders:5,events:5,violatingEvents:0,causes:[mount,props.order]}
 ```
 

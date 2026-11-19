@@ -645,3 +645,380 @@ request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperat
 [teardown] stopped the dev server on 5222 and closed agent-browser session art-m2
 
 ```
+
+## Re-run on Genie 1.1.0
+
+- Date: 2026-11-19 (log timestamps are local time, UTC+3)
+- Commit: `ce408cb205c0e798cb04c35512772b7454283141`
+- App: `apps/realworld-dashboard` (Meridian Ops, React 19.3.1 in StrictMode), unchanged, dev server `DASHBOARD_PORT=5243 pnpm exec vite --port 5243 --strictPort`, URL `http://127.0.0.1:5243/`
+- Genie: workspace build of `genie-react` and `@genie-react/cli` 1.1.0 at that commit (`pnpm install && pnpm build`). `node_modules/.bin/genie-react --version` in the app printed `1.1.0`.
+- Browser driver: agent-browser 0.43.0, session `upd-g`, headless. The Genie session is the same name.
+- Only Genie was re-run. The other tools' sections above are unchanged.
+
+Every command ran through a wrapper that appended the command, its combined stdout and stderr, and its exit code to the log. A `| head` inside a command line is part of the command that ran. Lines starting with `=====` or `##` are notes written at the time. The home directory is shown as `~`. Nothing else is edited.
+
+The React DevTools Profiler was not re-run, so this run used the unchanged app without the DevTools script tag. The reference fix from `evals/realworld/dashboard/dashboard-sidebar-rerenders-cards.json` was applied with `/tmp/upd-g/applyfix.mjs` (it replaces each `referenceFix` `find` string once) and reverted with `git checkout`. The first `open` after the fix raced the hot update and showed the app's error screen (`usePreferences must be used inside PreferencesProvider`, logged below). A `reload` loaded the fixed page, and the verify run started after it.
+
+````text
+# HEAD: ce408cb205c0e798cb04c35512772b7454283141
+
+[11:59:06] $ npx genie-react --version
+1.1.0
+[exit 0]
+
+[11:59:06] $ agent-browser --session upd-g open http://127.0.0.1:5243/
+✓ Meridian Ops
+  http://127.0.0.1:5243/
+[exit 0]
+
+[11:59:06] $ npx genie-react status --session upd-g --wait 15000 | grep -E '^(ready|app):'
+ready: true
+app: {name:"Meridian Ops",url:http://127.0.0.1:5243/,reactVersion:19.3.1,reactMounted:true}
+[exit 0]
+
+[11:59:06] $ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g | head -3
+ok: true
+condition: settled
+waitedMs: 620
+[exit 0]
+
+[11:59:07] $ agent-browser --session upd-g snapshot -i | grep -i sidebar
+  - button "Collapse sidebar" [ref=e177]
+[exit 0]
+
+[11:59:14] $ npx genie-react call react_clear_renders '{}' --session upd-g
+ok: true
+tracking: true
+documentCommitId: 12
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:12}
+observationConfig:
+  adaptive: true
+  adaptiveScale: 1
+  fiberLimit: 250
+  operationLimit: 30000
+  timeLimitMs: 12
+  targetOperationReserve: 4000
+  targetTimeReserveMs: 4
+  lifecycleBufferLimit: 1000
+  lifecycleTargetReserve: 100
+strictMode: on
+[exit 0]
+
+[11:59:14] $ agent-browser --session upd-g click @e177
+✓ Done
+[exit 0]
+
+[11:59:14] $ npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session upd-g
+ok: true
+outcome: idle
+elapsedMs: 742
+observedCommits: 0
+renderWindow: {id:observation:1,startedAfterDocumentCommitId:12,commits:1}
+documentCommitId: 13
+sessionId: ca3470a1-bc25-47ce-8103-6e492e8229e1
+renderCollection: available
+pendingWork:
+  documentCommitId: 13
+  scheduledRoots: 0
+  suspendedBoundaries: 0
+  dehydratedBoundaries: 0
+  boundaries: []
+  scanTruncated: false
+  scannedFibers: 463
+[exit 0]
+
+[11:59:15] $ npx genie-react call react_get_renders '{"sort":"renders","limit":80,"appOnly":true}' --session upd-g --fields name,renders,necessity,necessityReason
+[35]:
+  each: {renders:1}
+  - {name:AppShell,necessity:necessary,necessityReason:dom-changed}
+  - {name:PreferencesProvider,necessity:necessary,necessityReason:dom-changed}
+  - {name:SidebarNav,necessity:necessary,necessityReason:dom-changed}
+  - {name:TopBar,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:NotificationBell,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:NotificationsDrawer,necessity:unknown,necessityReason:effects-scheduled}
+  - {name:Drawer,necessity:unknown,necessityReason:effects-scheduled}
+  - {name:OverlayFrame,necessity:unknown,necessityReason:effects-scheduled}
+  - {name:UserMenu,necessity:unknown,necessityReason:callbacks-changed}
+  - {name:Avatar,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:StatCard,necessity:unnecessary,necessityReason:output-unchanged}
+  - {name:StatCard,necessity:unnecessary,necessityReason:output-unchanged}
+  - {name:StatCard,necessity:unnecessary,necessityReason:output-unchanged}
+  - {name:StatCard,necessity:unnecessary,necessityReason:output-unchanged}
+  - {name:OrdersTrendCard,necessity:unknown,necessityReason:callbacks-changed}
+  - {name:Card,necessity:unknown,necessityReason:callbacks-changed}
+  - {name:CardHeader,necessity:unknown,necessityReason:callbacks-changed}
+  - {name:Select,necessity:unknown,necessityReason:callbacks-changed}
+  - {name:CardBody,necessity:unnecessary,necessityReason:output-unchanged}
+  - {name:LineChart,necessity:unnecessary,necessityReason:output-unchanged}
+  - {name:RevenueByRegionCard,necessity:unknown,necessityReason:effects-scheduled}
+  - {name:Card,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:CardHeader,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:CardBody,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:BarList,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:RecentActivityCard,necessity:unknown,necessityReason:effects-scheduled}
+  - {name:Card,necessity:unnecessary,necessityReason:output-unchanged}
+  - {name:CardHeader,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:CardBody,necessity:unnecessary,necessityReason:output-unchanged}
+  - {name:Avatar,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:Avatar,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:Avatar,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:Avatar,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:Avatar,necessity:unnecessary,necessityReason:inputs-unchanged}
+  - {name:Avatar,necessity:unnecessary,necessityReason:inputs-unchanged}
+[exit 0]
+
+[11:59:21] $ npx genie-react call react_render_causes '{"component":"StatCard","limit":1}' --session upd-g
+componentMatch:
+  component: StatCard
+  exact: true
+  status: matched
+  matchedNames: [StatCard]
+  matchedNameCount: 1
+  similarNames: []
+tracking: true
+commits: 1
+documentCommitId: 13
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:12}
+attribution:
+  status: current
+  startedAtDocumentCommitId: 13
+  completedAtDocumentCommitId: 13
+  startedAtAnalysisGeneration: 14
+  completedAtAnalysisGeneration: 14
+view: summary
+events[1] (componentName #componentId {fields}, then ← kind evidence name {fields} per cause):
+  StatCard #813913080036 {renderEventId:render:13:53,documentCommitId:13,mountId:mount:52,necessity:unnecessary,necessityReason:output-unchanged,inputEvidence:incomplete,inputCoverage:{complete:false,scanTruncated:true},source:{location:/src/features/dashboard/dashboard-page.tsx:55:9,role:element-callsite,ownership:app}}
+    ← context exact "Context(PreferencesProvider)" {contextIndex:0}
+omittedByLimit: 3
+sourceClassification:
+  complete: true
+  affects: result
+  totalCandidates: 4
+  evaluated: 4
+  app: 4
+  library: 0
+  unknown: 0
+  unknownComponents: []
+  unknownComponentsOmitted: 0
+renderEventRetention: {evictedEvents:0,earliestDocumentCommitId:13,latestDocumentCommitId:13}
+coverage:
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 9
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  incompleteBecause[1]:
+    - {reason:inputs-truncated,fibers:9,components:[NotificationsDrawer,UserMenu,StatCard,OrdersTrendCard,RevenueByRegionCard,RecentActivityCard],detail:"An input held values Genie compares only in part, such as functions, class instances or objects past the inspected depth; read deepDiff.truncated on these components."}
+  complete: false
+  inputAttributionComplete: false
+  semantics: lower-bound
+  coverageDomain: render-causality
+  droppedRenderEvents: 0
+[exit 0]
+
+[11:59:22] $ npx genie-react call react_render_causes '{"component":"PreferencesProvider","limit":1}' --session upd-g --select /events
+status: ok
+selection: {expression:/events,matchedPathCount:1,matchedPaths:[/events],omittedPathCount:57}
+result[1]:
+  - {renderEventId:render:13:2,documentCommitId:13,componentId:813913079858,componentName:PreferencesProvider,mountId:mount:4,causes:[{kind:parent,evidence:inferred,name:AppShell},{kind:children,evidence:exact}],necessity:necessary,necessityReason:dom-changed,inputEvidence:changed,source:{location:/src/layout/app-shell.tsx:36:5,role:element-callsite,ownership:app}}
+[exit 0]
+
+[11:59:22] $ npx genie-react call react_render_causes '{"component":"StatCard","limit":1,"view":"full"}' --session upd-g --json | jq -c '.events[0].causes'
+[{"kind":"context","evidence":"exact","contextIndex":0,"contextId":"context:1","name":"Context(PreferencesProvider)","provider":{"componentId":813913079858,"componentName":"PreferencesProvider"},"before":{"formatMoney":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ formatMoney()","path":["formatMoney"]},"formatCompactMoney":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ formatCompactMoney()","path":["formatCompactMoney"]},"formatNumber":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ formatNumber()","path":["formatNumber"]},"formatPercent":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ formatPercent()","path":["formatPercent"]},"formatDate":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ formatDate()","path":["formatDate"]},"formatDateTime":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ formatDateTime()","path":["formatDateTime"]},"formatRelative":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ formatRelative()","path":["formatRelative"]},"theme":"light","resolvedTheme":"light","locale":"en-US","setTheme":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ setTheme()","path":["setTheme"]},"setLocale":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ setLocale()","path":["setLocale"]}},"after":{"formatMoney":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ formatMoney()","path":["formatMoney"]},"formatCompactMoney":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ formatCompactMoney()","path":["formatCompactMoney"]},"formatNumber":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ formatNumber()","path":["formatNumber"]},"formatPercent":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ formatPercent()","path":["formatPercent"]},"formatDate":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ formatDate()","path":["formatDate"]},"formatDateTime":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ formatDateTime()","path":["formatDateTime"]},"formatRelative":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ formatRelative()","path":["formatRelative"]},"theme":"light","resolvedTheme":"light","locale":"en-US","setTheme":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ setTheme()","path":["setTheme"]},"setLocale":{"__genie_dehydrated__":true,"kind":"function","preview":"ƒ setLocale()","path":["setLocale"]}},"deepDiff":{"changes":[{"kind":"identity-changed-uninspected","path":"/setTheme"},{"kind":"identity-changed-uninspected","path":"/setLocale"}],"visited":13,"truncated":true}}]
+[exit 0]
+
+[11:59:28] $ npx genie-react call react_render_causes '{"component":"StatCard","limit":1,"view":"full"}' --session upd-g --json | jq -c '.events[0].causes[0].deepDiff'
+{"changes":[{"kind":"identity-changed-uninspected","path":"/setTheme"},{"kind":"identity-changed-uninspected","path":"/setLocale"}],"visited":13,"truncated":true}
+[exit 0]
+
+===== verify before the fix (unchanged app) =====
+
+[11:59:28] $ agent-browser --session upd-g snapshot -i | grep -i sidebar
+  - button "Expand sidebar" [ref=e177]
+[exit 0]
+
+[11:59:33] $ agent-browser --session upd-g open http://127.0.0.1:5243/
+✓ Meridian Ops
+  http://127.0.0.1:5243/
+[exit 0]
+
+[11:59:34] $ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g | head -3
+ok: true
+condition: settled
+waitedMs: 921
+[exit 0]
+
+[11:59:35] $ agent-browser --session upd-g snapshot -i | grep -i sidebar
+  - button "Expand sidebar" [ref=e198]
+[exit 0]
+
+[11:59:40] $ agent-browser --session upd-g click @e198
+✓ Done
+[exit 0]
+
+[11:59:40] $ agent-browser --session upd-g snapshot -i | grep -i sidebar
+  - button "Collapse sidebar" [ref=e198]
+[exit 0]
+
+[11:59:40] $ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g | head -3
+ok: true
+condition: settled
+waitedMs: 615
+[exit 0]
+
+[11:59:45] $ npx genie-react verify begin --session upd-g --name "collapse sidebar" --claim 'render StatCard max 0' --claim 'render SidebarNav min 1'
+recording vfy_97e052d8-87d3-4d33-b298-f4c3ca50ece7 "collapse sidebar"
+  url "http://127.0.0.1:5243/"
+  1 recording render StatCard max 0
+  2 recording render SidebarNav min 1
+window: {observationId:observation:1,startDocumentCommitId:13,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_97e052d8-87d3-4d33-b298-f4c3ca50ece7 --session upd-g
+session: {sessionId:ff775977-9b92-457f-ae5e-812805c2318d,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:9}
+schemaVersion: "1.0"
+targets: [{target:{component:StatCard},status:resolved,instances:4,source:/src/features/dashboard/dashboard-page.tsx},{target:{component:SidebarNav},status:resolved,instances:1,source:/src/layout/app-shell.tsx}]
+startedAt: 2026-11-19T08:59:46.213Z
+expiresAt: 2026-11-19T09:04:46.225Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+[11:59:46] $ agent-browser --session upd-g click @e198
+✓ Done
+[exit 0]
+
+[11:59:46] $ npx genie-react verify end vfy_97e052d8-87d3-4d33-b298-f4c3ca50ece7 --session upd-g
+fail vfy_97e052d8-87d3-4d33-b298-f4c3ca50ece7 "collapse sidebar"  1 commit, quiet after 752 ms (react, query, router, network)
+  url "http://127.0.0.1:5243/"
+  1 fail render StatCard max 0  {renders:4,mounts:0,updates:4,remounts:0,semantics:exact,instances:4,activeInstances:4}
+      claim: {kind:renders,target:{component:StatCard},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:14,source:/src/features/dashboard/dashboard-page.tsx:35:9},{kind:instance,mountId:mount:2,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:14,source:/src/features/dashboard/dashboard-page.tsx:42:9},{kind:instance,mountId:mount:3,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:14,source:/src/features/dashboard/dashboard-page.tsx:49:9}]
+  2 pass render SidebarNav min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:SidebarNav},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:5,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:14,source:/src/layout/app-shell.tsx:38:9}]
+window: {observationId:observation:1,startDocumentCommitId:13,settledDocumentCommitId:14,frozenDocumentCommitId:14,commits:1,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:752,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:0},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_97e052d8-87d3-4d33-b298-f4c3ca50ece7 --claim 1 --session upd-g
+session: {sessionId:ff775977-9b92-457f-ae5e-812805c2318d,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:9}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_f6b23fe09b91,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop]}
+startedAt: 2026-11-19T08:59:46.213Z
+endedAt: 2026-11-19T08:59:47.804Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+===== reference fix applied temporarily =====
+
+[12:00:01] $ node /tmp/upd-g/applyfix.mjs ../../evals/realworld/dashboard/dashboard-sidebar-rerenders-cards.json .
+patched src/app/preferences.tsx
+patched src/app/preferences.tsx
+[exit 0]
+
+[12:00:01] $ git diff --stat src/app/preferences.tsx
+ apps/realworld-dashboard/src/app/preferences.tsx | 22 +++++++++-------------
+ 1 file changed, 9 insertions(+), 13 deletions(-)
+[exit 0]
+
+[12:00:01] $ agent-browser --session upd-g open http://127.0.0.1:5243/
+✓ Meridian Ops
+  http://127.0.0.1:5243/
+[exit 0]
+
+[12:00:01] $ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g | head -3
+ok: true
+condition: settled
+waitedMs: 621
+[exit 0]
+
+[12:00:02] $ agent-browser --session upd-g snapshot -i | grep -i sidebar
+
+[exit 1]
+
+[12:00:07] $ agent-browser --session upd-g snapshot -i | head -20
+- generic "This page could not be loadedusePreferences must be used inside PreferencesProviderRetry" [ref=e218] clickable [onclick]
+  - button "Retry" [ref=e219]
+[exit 0]
+
+[12:00:14] $ agent-browser --session upd-g reload
+http://127.0.0.1:5243/
+[exit 0]
+
+[12:00:14] $ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g | head -3
+ok: true
+condition: settled
+waitedMs: 619
+[exit 0]
+
+[12:00:16] $ agent-browser --session upd-g snapshot -i | grep -i -E 'sidebar|could not'
+  - button "Expand sidebar" [ref=e221]
+[exit 0]
+
+[12:00:29] $ agent-browser --session upd-g click @e221
+✓ Done
+[exit 0]
+
+[12:00:30] $ agent-browser --session upd-g snapshot -i | grep -i sidebar
+  - button "Collapse sidebar" [ref=e221]
+[exit 0]
+
+[12:00:30] $ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g | head -3
+ok: true
+condition: settled
+waitedMs: 622
+[exit 0]
+
+[12:00:32] $ npx genie-react verify begin --session upd-g --name "collapse sidebar" --claim 'render StatCard max 0' --claim 'render SidebarNav min 1'
+recording vfy_08be3534-53d2-44a9-bd18-09a5ccddc0cf "collapse sidebar"
+  url "http://127.0.0.1:5243/"
+  1 recording render StatCard max 0
+  2 recording render SidebarNav min 1
+window: {observationId:observation:1,startDocumentCommitId:13,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_08be3534-53d2-44a9-bd18-09a5ccddc0cf --session upd-g
+session: {sessionId:7a8d9fa9-3550-4a9b-acc8-0aec01c059fd,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:11}
+schemaVersion: "1.0"
+targets: [{target:{component:StatCard},status:resolved,instances:4,source:/src/features/dashboard/dashboard-page.tsx},{target:{component:SidebarNav},status:resolved,instances:1,source:/src/layout/app-shell.tsx}]
+startedAt: 2026-11-19T09:00:33.280Z
+expiresAt: 2026-11-19T09:05:33.305Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+[12:00:33] $ agent-browser --session upd-g click @e221
+✓ Done
+[exit 0]
+
+[12:00:33] $ npx genie-react verify end vfy_08be3534-53d2-44a9-bd18-09a5ccddc0cf --session upd-g
+pass vfy_08be3534-53d2-44a9-bd18-09a5ccddc0cf "collapse sidebar"  1 commit, quiet after 2314 ms (react, query, router, network)
+  url "http://127.0.0.1:5243/"
+  1 pass render StatCard max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:4,activeInstances:4}
+      claim: {kind:renders,target:{component:StatCard},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:coverage,complete:true,targetedComplete:true,semantics:exact},{kind:instance,mountId:mount:1,renderingState:mounted-rendering,source:/src/features/dashboard/dashboard-page.tsx:35:9},{kind:instance,mountId:mount:2,renderingState:mounted-rendering,source:/src/features/dashboard/dashboard-page.tsx:42:9}]
+  2 pass render SidebarNav min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:SidebarNav},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:5,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:14,source:/src/layout/app-shell.tsx:38:9}]
+window: {observationId:observation:1,startDocumentCommitId:13,settledDocumentCommitId:14,frozenDocumentCommitId:14,commits:1,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:2314,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:0},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 2 for these claims on this tab; previous fail vfy_97e052d8-87d3-4d33-b298-f4c3ca50ece7; document reloaded since
+evidence: $ npx genie-react verify show vfy_08be3534-53d2-44a9-bd18-09a5ccddc0cf --session upd-g
+session: {sessionId:7a8d9fa9-3550-4a9b-acc8-0aec01c059fd,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:11}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_f6b23fe09b91,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_97e052d8-87d3-4d33-b298-f4c3ca50ece7,verdict:fail,reasons:[],endedAt:2026-11-19T08:59:47.804Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop]}
+startedAt: 2026-11-19T09:00:33.280Z
+endedAt: 2026-11-19T09:00:36.849Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+[12:00:41] $ git checkout -- src/app/preferences.tsx && git status --short
+
+[exit 0]
+[teardown] stopped the dev server on 5243 and closed agent-browser session upd-g
+````

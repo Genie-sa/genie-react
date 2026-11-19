@@ -1956,3 +1956,820 @@ $ agent-browser --session art-m3 profiler stop /tmp/art-m3/a1-click-after.cpupro
 [exit 0]
 $ git checkout -- apps/realworld-legacy   # fix reverted
 ~~~~
+
+## Re-run on Genie 1.1.0
+
+- Date: 2026-11-19 (log timestamps are local time, UTC+3)
+- Commit: `ce408cb205c0e798cb04c35512772b7454283141`
+- App: `apps/realworld-legacy` (Acme Tracker, React 18.3.1), dev server `http://127.0.0.1:5243`, standalone Genie hub `ws://127.0.0.1:15243/__genie/ws`, signed in as `dana@acme.test`
+
+Servers were started from `apps/realworld-legacy` with:
+
+```bash
+GENIE_HUB_PORT=15243 pnpm hub
+PORT=5243 GENIE_HUB_PORT=15243 pnpm exec webpack serve --mode development --port 5243
+```
+
+- Genie: workspace build of `genie-react` and `@genie-react/cli` 1.1.0 at that commit (`pnpm install && pnpm build`). `node_modules/.bin/genie-react --version` in the app printed `1.1.0`.
+- Browser driver: agent-browser 0.43.0, session `upd-g`, headless. The Genie session is the same name.
+- Only Genie was re-run. The other tools' sections above are unchanged.
+
+Every command ran through a wrapper that appended the command, its combined stdout and stderr, and its exit code to the log. A `| head` inside a command line is part of the command that ran. Lines starting with `=====` or `##` are notes written at the time. The home directory is shown as `~`. Nothing else is edited.
+
+The driver-only steps, Playwright MCP and the CPU profiles were not re-run. The reference fix from `evals/realworld/legacy/issue-row-inline-handler.json` was applied with `/tmp/upd-g/applyfix.mjs` (it replaces each `referenceFix` `find` string once) and reverted with `git checkout`. Absolute paths into this checkout are shown with `~` for the home directory.
+
+````text
+# HEAD: ce408cb205c0e798cb04c35512772b7454283141
+## shipped code (seeded bug issue-row-inline-handler present)
+
+[12:02:27] $ npx genie-react --version
+1.1.0
+[exit 0]
+
+[12:02:27] $ agent-browser --session upd-g open http://127.0.0.1:5243/issues
+✓ Acme Tracker
+  http://127.0.0.1:5243/issues
+[exit 0]
+
+[12:02:28] $ npx genie-react status --session upd-g --wait 15000
+selectedBridgeUrl: ws://127.0.0.1:15243/__genie/ws
+sessionSelector:
+  requested: upd-g
+  source: flag
+  resolvedSessionId: 9bbdbb56-023b-46a7-8e32-35989f2d8c68
+  implicit: false
+  agentBrowser: {session:upd-g,via:selector,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184}
+connected: true
+ready: true
+sessionId: 9bbdbb56-023b-46a7-8e32-35989f2d8c68
+app: {name:"Acme Tracker",url:http://127.0.0.1:5243/issues,reactVersion:18.3.1,reactMounted:true}
+domains: [session,react,memory,perf,timeline,redux,app]
+toolCount: 61
+sessions[1] (sessionId {fields}):
+  9bbdbb56-023b-46a7-8e32-35989f2d8c68 {logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:17,logicalSessionCollision:false,collisionWithSessionIds:[],app:{name:"Acme Tracker",url:http://127.0.0.1:5243/issues,reactVersion:18.3.1,reactMounted:true},domains:[session,react,memory,perf,timeline,redux,app],toolCount:61,connectedAt:1795078948156,ready:true,readyAt:1795078948157,current:true,origin:http://127.0.0.1:5243,originUnverified:true,runtimeVersion:1.1.0}
+warnings: []
+hub: {version:1.1.0,protocol:1}
+[exit 0]
+
+## default budget check
+
+[12:02:36] $ npx genie-react call app_backend_reset '{}' --session upd-g
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+[12:02:36] $ npx genie-react call app_sign_in '{}' --session upd-g
+user: {id:u-1,name:"Dana Whitfield",email:dana@acme.test,title:Designer,team:Infra}
+[exit 0]
+
+[12:02:36] $ agent-browser --session upd-g open http://127.0.0.1:5243/issues
+✓ Acme Tracker
+  http://127.0.0.1:5243/issues
+[exit 0]
+
+[12:02:36] $ agent-browser --session upd-g wait '.issue-row'
+✓ Done
+[exit 0]
+
+[12:02:37] $ npx genie-react call react_clear_renders '{"component":"IssueRow"}' --session upd-g
+ok: true
+tracking: true
+documentCommitId: 17
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:17}
+observationConfig:
+  adaptive: true
+  adaptiveScale: 3
+  fiberLimit: 750
+  operationLimit: 90000
+  timeLimitMs: 36
+  targetOperationReserve: 4000
+  targetTimeReserveMs: 4
+  lifecycleBufferLimit: 1000
+  lifecycleTargetReserve: 100
+strictMode: on
+[exit 0]
+
+[12:02:37] $ agent-browser --session upd-g click '.issue-row:nth-child(4) input[type=checkbox]'
+✓ Done
+[exit 0]
+
+[12:02:37] $ npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --session upd-g
+ok: true
+outcome: idle
+elapsedMs: 984
+observedCommits: 1
+renderWindow: {id:observation:1,startedAfterDocumentCommitId:17,commits:2}
+documentCommitId: 19
+sessionId: 2a6bc694-15f6-48d0-8985-745e724f844f
+renderCollection: available
+pendingWork:
+  documentCommitId: 19
+  scheduledRoots: 0
+  suspendedBoundaries: 0
+  dehydratedBoundaries: 0
+  boundaries: []
+  scanTruncated: false
+  scannedFibers: 2258
+[exit 0]
+
+[12:02:38] $ npx genie-react call react_component_cohort '{"component":"IssueRow","limit":1}' --session upd-g
+attribution:
+  status: current
+  startedAtDocumentCommitId: 19
+  completedAtDocumentCommitId: 19
+  startedAtAnalysisGeneration: 20
+  completedAtAnalysisGeneration: 20
+documentCommitId: 19
+ownershipCoverage:
+  complete: true
+  totalCandidates: 100
+  app: 100
+  library: 0
+  unknown: 0
+  affects: ownership-labels
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:17}
+query: {component:IssueRow,exact:true}
+componentMatch:
+  component: IssueRow
+  exact: true
+  status: matched
+  matchedNames: [IssueRow]
+  matchedNameCount: 1
+  similarNames: []
+status: mixed
+matched: 100
+mountedUpdated: 34
+mountedIdle: 0
+mountedUnknown: 66
+unmounted: 0
+returned: 1
+omittedByLimit: 99
+rendererBundle: development
+coverage:
+  complete: false
+  freezeDetection: disabled
+  scannedFibers: 2258
+  scanLimit: 20000
+  scanTruncated: false
+  rootAvailable: true
+  rootCount: 1
+  scannedRootCount: 1
+  rootLimit: 100
+  rootScope: committed
+  rootScopeComplete: true
+  rootScopeTruncated: false
+  inputAttributionComplete: false
+  skippedCommitFibers: 66
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 1
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 1
+  budgetExhaustedSubsystems[5]:
+    each: {commits:1}
+    - {subsystem:target:input-equivalence}
+    - {subsystem:target:instance-ancestry}
+    - {subsystem:target:instance-siblings}
+    - {subsystem:target:target-error-state}
+    - {subsystem:target:target-fibers}
+  budgetAdvice:
+    exhaustedLimits: [targetOperationReserve]
+    suggestedBudget: {fiberLimit:750,operationLimit:90000,timeLimitMs:36,targetOperationReserve:12000,targetTimeReserveMs:12}
+    next: "targetOperationReserve ran out. Run react_clear_renders with {\"budget\":{\"fiberLimit\":750,\"operationLimit\":90000,\"timeLimitMs\":36,\"targetOperationReserve\":12000,\"targetTimeReserveMs\":12}}, repeat the step, and read again."
+  generationHistoryEvictions: 0
+view: summary
+shared:
+  logicalPathPrefix: "AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > IssuesPage[index=0] > <div>[index=0] > withRouter(Connect(IssueTable))[index=3] > Connect(IssueTable)[index=0] > IssueTable[index=0] > <div>[index=0] > <table>[index=0] > <tbody>[index=1]"
+  componentName: IssueRow
+  sourceOwnership: app
+  source: ~/.t3/worktrees/genie-react/ali-articles-update-g-4f7fb78e201e7bac/apps/realworld-legacy/src/features/issues/issue-table.tsx:48:15
+  parent: {fiberId:10357615624376,name:IssueTable,key:null}
+  keyedParent: null
+  logicalIdentityEvidence: keyed
+  mountGenerationEvidence: exact
+  renderingState: mounted-rendering
+  reactVisibility: not-hidden
+instances[1]:
+  - {status:mounted-updated,mountId:mount:1,fiberId:10357615624401,key:iss-1,siblingIndex:0,logicalPath:"IssueRow[key=\"iss-1\"]",mountGeneration:1,hostSelector:tr.issue-row}
+[exit 0]
+
+## follow budgetAdvice once (uncheck CORE-40 is avoided: reload to the same starting state)
+
+[12:02:47] $ npx genie-react call app_backend_reset '{}' --session upd-g
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+[12:02:47] $ agent-browser --session upd-g open http://127.0.0.1:5243/issues
+✓ Acme Tracker
+  http://127.0.0.1:5243/issues
+[exit 0]
+
+[12:02:48] $ agent-browser --session upd-g wait '.issue-row'
+✓ Done
+[exit 0]
+
+[12:02:48] $ npx genie-react call react_clear_renders '{"component":"IssueRow","budget":{"fiberLimit":750,"operationLimit":90000,"timeLimitMs":36,"targetOperationReserve":12000,"targetTimeReserveMs":12}}' --session upd-g
+ok: true
+tracking: true
+documentCommitId: 17
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:17}
+observationConfig:
+  adaptive: true
+  adaptiveScale: 1
+  fiberLimit: 750
+  operationLimit: 90000
+  timeLimitMs: 36
+  targetOperationReserve: 12000
+  targetTimeReserveMs: 12
+  lifecycleBufferLimit: 1000
+  lifecycleTargetReserve: 100
+strictMode: on
+[exit 0]
+
+[12:02:48] $ agent-browser --session upd-g click '.issue-row:nth-child(4) input[type=checkbox]'
+✓ Done
+[exit 0]
+
+[12:02:48] $ npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --session upd-g
+ok: true
+outcome: idle
+elapsedMs: 980
+observedCommits: 1
+renderWindow: {id:observation:1,startedAfterDocumentCommitId:17,commits:2}
+documentCommitId: 19
+sessionId: 92ada4d2-257b-48b7-b4ed-a4932c6d2101
+renderCollection: available
+pendingWork:
+  documentCommitId: 19
+  scheduledRoots: 0
+  suspendedBoundaries: 0
+  dehydratedBoundaries: 0
+  boundaries: []
+  scanTruncated: false
+  scannedFibers: 2258
+[exit 0]
+
+[12:02:49] $ npx genie-react call react_component_cohort '{"component":"IssueRow","limit":1}' --session upd-g
+attribution:
+  status: current
+  startedAtDocumentCommitId: 20
+  completedAtDocumentCommitId: 20
+  startedAtAnalysisGeneration: 21
+  completedAtAnalysisGeneration: 21
+documentCommitId: 20
+ownershipCoverage:
+  complete: true
+  totalCandidates: 100
+  app: 100
+  library: 0
+  unknown: 0
+  affects: ownership-labels
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:17}
+query: {component:IssueRow,exact:true}
+componentMatch:
+  component: IssueRow
+  exact: true
+  status: matched
+  matchedNames: [IssueRow]
+  matchedNameCount: 1
+  similarNames: []
+status: updated
+matched: 100
+mountedUpdated: 100
+mountedIdle: 0
+mountedUnknown: 0
+unmounted: 0
+returned: 1
+omittedByLimit: 99
+rendererBundle: development
+coverage:
+  complete: true
+  freezeDetection: disabled
+  scannedFibers: 2258
+  scanLimit: 20000
+  scanTruncated: false
+  rootAvailable: true
+  rootCount: 1
+  scannedRootCount: 1
+  rootLimit: 100
+  rootScope: committed
+  rootScopeComplete: true
+  rootScopeTruncated: false
+  inputAttributionComplete: false
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 1
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  generationHistoryEvictions: 0
+view: summary
+shared:
+  logicalPathPrefix: "AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > IssuesPage[index=0] > <div>[index=0] > withRouter(Connect(IssueTable))[index=3] > Connect(IssueTable)[index=0] > IssueTable[index=0] > <div>[index=0] > <table>[index=0] > <tbody>[index=1]"
+  componentName: IssueRow
+  sourceOwnership: app
+  source: ~/.t3/worktrees/genie-react/ali-articles-update-g-4f7fb78e201e7bac/apps/realworld-legacy/src/features/issues/issue-table.tsx:48:15
+  parent: {fiberId:5181743825080,name:IssueTable,key:null}
+  keyedParent: null
+  logicalIdentityEvidence: keyed
+  mountGenerationEvidence: exact
+  renderingState: mounted-rendering
+  reactVisibility: not-hidden
+instances[1]:
+  - {status:mounted-updated,mountId:mount:1,fiberId:5181743825105,key:iss-1,siblingIndex:0,logicalPath:"IssueRow[key=\"iss-1\"]",mountGeneration:1,hostSelector:tr.issue-row}
+[exit 0]
+
+## genie (raised budget, as in the article)
+
+[12:03:02] $ npx genie-react call app_backend_reset '{}' --session upd-g
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+[12:03:02] $ agent-browser --session upd-g open http://127.0.0.1:5243/issues
+✓ Acme Tracker
+  http://127.0.0.1:5243/issues
+[exit 0]
+
+[12:03:02] $ agent-browser --session upd-g wait '.issue-row'
+✓ Done
+[exit 0]
+
+[12:03:02] $ npx genie-react call react_clear_renders '{"component":["IssueRow","IssueTable"],"budget":{"adaptive":false,"fiberLimit":20000,"operationLimit":2000000,"timeLimitMs":500,"targetOperationReserve":100000,"targetTimeReserveMs":100}}' --session upd-g
+ok: true
+tracking: true
+documentCommitId: 16
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:16}
+observationConfig:
+  adaptive: false
+  adaptiveScale: 1
+  fiberLimit: 20000
+  operationLimit: 2000000
+  timeLimitMs: 500
+  targetOperationReserve: 100000
+  targetTimeReserveMs: 100
+  lifecycleBufferLimit: 1000
+  lifecycleTargetReserve: 100
+strictMode: on
+[exit 0]
+
+[12:03:03] $ agent-browser --session upd-g click '.issue-row:nth-child(4) input[type=checkbox]'
+✓ Done
+[exit 0]
+
+[12:03:03] $ npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --session upd-g
+ok: true
+outcome: idle
+elapsedMs: 985
+observedCommits: 1
+renderWindow: {id:observation:1,startedAfterDocumentCommitId:16,commits:2}
+documentCommitId: 18
+sessionId: 3cfc5bc9-d096-47ac-b705-25cd44f767d4
+renderCollection: available
+pendingWork:
+  documentCommitId: 18
+  scheduledRoots: 0
+  suspendedBoundaries: 0
+  dehydratedBoundaries: 0
+  boundaries: []
+  scanTruncated: false
+  scannedFibers: 2258
+[exit 0]
+
+[12:03:04] $ npx genie-react call react_component_cohort '{"component":"IssueRow","limit":1}' --session upd-g
+attribution:
+  status: current
+  startedAtDocumentCommitId: 18
+  completedAtDocumentCommitId: 18
+  startedAtAnalysisGeneration: 19
+  completedAtAnalysisGeneration: 19
+documentCommitId: 18
+ownershipCoverage:
+  complete: true
+  totalCandidates: 100
+  app: 100
+  library: 0
+  unknown: 0
+  affects: ownership-labels
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:16}
+query: {component:IssueRow,exact:true}
+componentMatch:
+  component: IssueRow
+  exact: true
+  status: matched
+  matchedNames: [IssueRow]
+  matchedNameCount: 1
+  similarNames: []
+status: updated
+matched: 100
+mountedUpdated: 100
+mountedIdle: 0
+mountedUnknown: 0
+unmounted: 0
+returned: 1
+omittedByLimit: 99
+rendererBundle: development
+coverage:
+  complete: true
+  freezeDetection: disabled
+  scannedFibers: 2258
+  scanLimit: 20000
+  scanTruncated: false
+  rootAvailable: true
+  rootCount: 1
+  scannedRootCount: 1
+  rootLimit: 100
+  rootScope: committed
+  rootScopeComplete: true
+  rootScopeTruncated: false
+  inputAttributionComplete: false
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 1
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  generationHistoryEvictions: 0
+view: summary
+shared:
+  logicalPathPrefix: "AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > IssuesPage[index=0] > <div>[index=0] > withRouter(Connect(IssueTable))[index=3] > Connect(IssueTable)[index=0] > IssueTable[index=0] > <div>[index=0] > <table>[index=0] > <tbody>[index=1]"
+  componentName: IssueRow
+  sourceOwnership: app
+  source: ~/.t3/worktrees/genie-react/ali-articles-update-g-4f7fb78e201e7bac/apps/realworld-legacy/src/features/issues/issue-table.tsx:48:15
+  parent: {fiberId:2868266401976,name:IssueTable,key:null}
+  keyedParent: null
+  logicalIdentityEvidence: keyed
+  mountGenerationEvidence: exact
+  renderingState: mounted-rendering
+  reactVisibility: not-hidden
+instances[1]:
+  - {status:mounted-updated,mountId:mount:2,fiberId:2868266402001,key:iss-1,siblingIndex:0,logicalPath:"IssueRow[key=\"iss-1\"]",mountGeneration:1,hostSelector:tr.issue-row}
+[exit 0]
+
+[12:03:04] $ npx genie-react call react_render_causes '{"component":"IssueRow","limit":2}' --session upd-g
+componentMatch:
+  component: IssueRow
+  exact: true
+  status: matched
+  matchedNames: [IssueRow]
+  matchedNameCount: 1
+  similarNames: []
+tracking: true
+commits: 3
+documentCommitId: 19
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:16}
+attribution:
+  status: current
+  startedAtDocumentCommitId: 19
+  completedAtDocumentCommitId: 19
+  startedAtAnalysisGeneration: 20
+  completedAtAnalysisGeneration: 20
+view: summary
+events[2] (componentName #componentId {fields}, then ← kind evidence name {fields} per cause):
+  IssueRow #2868266403964 {renderEventId:render:17:101,documentCommitId:17,mountId:mount:101,key:iss-1754,necessity:unknown,necessityReason:callbacks-changed,inputEvidence:changed,source:{location:~/.t3/worktrees/genie-react/ali-articles-update-g-4f7fb78e201e7bac/apps/realworld-legacy/src/features/issues/issue-table.tsx:48:15,role:element-callsite,ownership:app}}
+    ← props exact onToggle
+  IssueRow #2868266403945 {renderEventId:render:17:100,documentCommitId:17,mountId:mount:100,key:iss-1700,necessity:unknown,necessityReason:callbacks-changed,inputEvidence:changed,source:{location:~/.t3/worktrees/genie-react/ali-articles-update-g-4f7fb78e201e7bac/apps/realworld-legacy/src/features/issues/issue-table.tsx:48:15,role:element-callsite,ownership:app}}
+    ← props exact onToggle
+omittedByLimit: 98
+sourceClassification:
+  complete: true
+  affects: result
+  totalCandidates: 100
+  evaluated: 100
+  app: 100
+  library: 0
+  unknown: 0
+  unknownComponents: []
+  unknownComponentsOmitted: 0
+renderEventRetention: {evictedEvents:0,earliestDocumentCommitId:17,latestDocumentCommitId:19}
+coverage:
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 1
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  incompleteBecause[1]:
+    - {reason:inputs-truncated,fibers:1,components:[IssueTableToolbar],detail:"An input held values Genie compares only in part, such as functions, class instances or objects past the inspected depth; read deepDiff.truncated on these components."}
+  complete: false
+  inputAttributionComplete: false
+  semantics: lower-bound
+  coverageDomain: render-causality
+  droppedRenderEvents: 0
+[exit 0]
+
+## redux history after page load and the click (RTK Query app)
+
+[12:03:17] $ npx genie-react call redux_actions '{"limit":10}' --session upd-g
+store: {storeId:redux-store:1,name:app}
+records[10]:
+  each: {outcome:returned,error:null,changedSlicesTruncated:false,unrecordedNestedDispatches:0,mutation:{findings:[],findingsOmitted:false}}
+  - {sequence:38,actionId:redux-store:1/action:38,kind:action,type:projects/fetch/fulfilled,label:projects/fetch/fulfilled,parentActionId:redux-store:1/action:19,at:1795078982897,durationMs:0.1,rootStateChanged:true,changedSlices:[projects],mutation:{status:none-detected,notScannedReason:null,objectsCompared:4,scanTruncated:false}}
+  - {sequence:44,actionId:redux-store:1/action:44,kind:action,type:issues/fetchAll/fulfilled,label:issues/fetchAll/fulfilled,parentActionId:redux-store:1/action:12,at:1795078982904,durationMs:4,rootStateChanged:true,changedSlices:[issues],mutation:{status:none-detected,notScannedReason:null,objectsCompared:4,scanTruncated:true}}
+  - {sequence:1151,actionId:redux-store:1/action:1151,kind:thunk,type:null,label:"anonymous thunk",parentActionId:null,at:1795078982944,durationMs:0.3,rootStateChanged:null,changedSlices:[],mutation:{status:not-scanned,notScannedReason:not-a-plain-action,objectsCompared:0,scanTruncated:false}}
+  - {sequence:1152,actionId:redux-store:1/action:1152,kind:action,type:notifications/fetch/pending,label:notifications/fetch/pending,parentActionId:redux-store:1/action:1151,at:1795078982944,durationMs:0,rootStateChanged:false,changedSlices:[],mutation:{status:none-detected,notScannedReason:null,objectsCompared:4,scanTruncated:true}}
+  - {sequence:1153,actionId:redux-store:1/action:1153,kind:thunk,type:null,label:"anonymous thunk",parentActionId:null,at:1795078982945,durationMs:0.1,rootStateChanged:null,changedSlices:[],mutation:{status:not-scanned,notScannedReason:not-a-plain-action,objectsCompared:0,scanTruncated:false}}
+  - {sequence:1154,actionId:redux-store:1/action:1154,kind:action,type:notifications/fetch/pending,label:notifications/fetch/pending,parentActionId:redux-store:1/action:1153,at:1795078982945,durationMs:0,rootStateChanged:false,changedSlices:[],mutation:{status:none-detected,notScannedReason:null,objectsCompared:4,scanTruncated:true}}
+  - {sequence:1157,actionId:redux-store:1/action:1157,kind:action,type:issues/fetchAll/fulfilled,label:issues/fetchAll/fulfilled,parentActionId:redux-store:1/action:24,at:1795078982945,durationMs:3.4,rootStateChanged:true,changedSlices:[issues],mutation:{status:none-detected,notScannedReason:null,objectsCompared:4,scanTruncated:true}}
+  - {sequence:1358,actionId:redux-store:1/action:1358,kind:action,type:notifications/fetch/fulfilled,label:notifications/fetch/fulfilled,parentActionId:redux-store:1/action:1151,at:1795078983006,durationMs:0.9,rootStateChanged:true,changedSlices:[notifications],mutation:{status:none-detected,notScannedReason:null,objectsCompared:4,scanTruncated:true}}
+  - {sequence:1559,actionId:redux-store:1/action:1559,kind:action,type:notifications/fetch/fulfilled,label:notifications/fetch/fulfilled,parentActionId:redux-store:1/action:1153,at:1795078983016,durationMs:0.7,rootStateChanged:true,changedSlices:[notifications],mutation:{status:none-detected,notScannedReason:null,objectsCompared:4,scanTruncated:true}}
+  - {sequence:1760,actionId:redux-store:1/action:1760,kind:action,type:issues/selectionToggled,label:issues/selectionToggled,parentActionId:null,at:1795078983256,durationMs:0.8,rootStateChanged:true,changedSlices:[issues],mutation:{status:none-detected,notScannedReason:null,objectsCompared:4,scanTruncated:true}}
+matched: 25
+omittedBefore: 15
+more: false
+nextAfterSequence: 1760
+latestSequence: 1962
+coverage:
+  historyLimit: 500
+  evictedRecords: 0
+  unrecordedChanges: 0
+  mutationDetection: true
+  libraryActions:
+    recorded: false
+    counted: 1937
+    byType: [{kind:action,type:service/subscriptions/internal_probeSubscription,count:1219},{kind:thunk,type:null,count:408},{kind:action,type:service/executeQuery/rejected,count:202},{kind:action,type:service/subscriptions/unsubscribeQueryResult,count:102},{kind:action,type:service/executeQuery/pending,count:2},{kind:unrecorded-change,type:null,count:2},{kind:action,type:service/executeQuery/fulfilled,count:2}]
+    otherTypesCount: 0
+[exit 0]
+
+## verify (shipped code)
+
+[12:03:25] $ npx genie-react call app_backend_reset '{}' --session upd-g
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+[12:03:25] $ agent-browser --session upd-g open http://127.0.0.1:5243/issues
+✓ Acme Tracker
+  http://127.0.0.1:5243/issues
+[exit 0]
+
+[12:03:26] $ agent-browser --session upd-g wait '.issue-row'
+✓ Done
+[exit 0]
+
+[12:03:26] $ npx genie-react verify begin --session upd-g --name 'select one row' --budget '{"adaptive":false,"fiberLimit":20000,"operationLimit":2000000,"timeLimitMs":500,"targetOperationReserve":100000,"targetTimeReserveMs":100}' --claim 'render IssueRow only props.selected' --claim 'render IssueTable min 1' --claim 'boundaries clean'
+recording vfy_dd9856b5-1dc3-4224-8498-c7095869bfe2 "select one row"
+  url "http://127.0.0.1:5243/issues"
+  1 recording render IssueRow only props.selected
+  2 recording render IssueTable min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:17,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_dd9856b5-1dc3-4224-8498-c7095869bfe2 --session upd-g
+session: {sessionId:a358b045-0cee-418d-8d54-c61217414d3e,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:21}
+schemaVersion: "1.0"
+targets: [{target:{component:IssueRow},status:resolved,instances:100,source:~/.t3/worktrees/genie-react/ali-articles-update-g-4f7fb78e201e7bac/apps/realworld-legacy/src/features/issues/issue-table.tsx},{target:{component:IssueTable},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/ali-articles-update-g-4f7fb78e201e7bac/apps/realworld-legacy/src/features/issues/issue-table.tsx}]
+startedAt: 2026-11-19T09:03:26.464Z
+expiresAt: 2026-11-19T09:08:26.482Z
+request: {budget:{fiberLimit:20000,operationLimit:2000000,timeLimitMs:500,targetOperationReserve:100000,targetTimeReserveMs:100,adaptive:false},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+[12:03:26] $ agent-browser --session upd-g click '.issue-row:nth-child(4) input[type=checkbox]'
+✓ Done
+[exit 0]
+
+[12:03:26] $ npx genie-react verify end vfy_dd9856b5-1dc3-4224-8498-c7095869bfe2 --session upd-g; echo "exit code: $?"
+fail vfy_dd9856b5-1dc3-4224-8498-c7095869bfe2 "select one row"  3 commits, quiet after 958 ms (react)
+  url "http://127.0.0.1:5243/issues"
+  1 fail render IssueRow only props.selected  {renders:100,events:100,violatingEvents:100,causes:[props.onToggle,props.selected]}
+      claim: {kind:render-causes,target:{component:IssueRow},allow:[{kind:props,name:selected}]}
+      deciding: [{kind:render-event,renderEventId:render:18:110,documentCommitId:18,mountId:mount:100,causes:[{cause:props.onToggle,evidence:exact}]},{kind:render-event,renderEventId:render:18:109,documentCommitId:18,mountId:mount:99,causes:[{cause:props.onToggle,evidence:exact}]},{kind:render-event,renderEventId:render:18:108,documentCommitId:18,mountId:mount:98,causes:[{cause:props.onToggle,evidence:exact}]}]
+  2 pass render IssueTable min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:IssueTable},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:101,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:18,source:~/.t3/worktrees/genie-react/ali-articles-update-g-4f7fb78e201e7bac/apps/realworld-legacy/src/features/issues/issue-table.tsx:43:7}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:17}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:17,settledDocumentCommitId:19,frozenDocumentCommitId:20,commits:3,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:958,domains:{react:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_dd9856b5-1dc3-4224-8498-c7095869bfe2 --claim 1 --session upd-g
+session: {sessionId:a358b045-0cee-418d-8d54-c61217414d3e,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:21}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_5dced6a73b6c,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,react_profile_stop,react_render_causes,react_error_state]}
+startedAt: 2026-11-19T09:03:26.464Z
+endedAt: 2026-11-19T09:03:28.337Z
+request: {budget:{fiberLimit:20000,operationLimit:2000000,timeLimitMs:500,targetOperationReserve:100000,targetTimeReserveMs:100,adaptive:false},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+exit code: 1
+[exit 0]
+
+## reference fix applied temporarily
+
+[12:03:34] $ node /tmp/upd-g/applyfix.mjs ../../evals/realworld/legacy/issue-row-inline-handler.json .
+patched src/features/issues/issue-table.tsx
+patched src/features/issues/issue-row.tsx
+patched src/features/issues/issue-row.tsx
+[exit 0]
+
+[12:03:34] $ git diff src
+diff --git a/apps/realworld-legacy/src/features/issues/issue-row.tsx b/apps/realworld-legacy/src/features/issues/issue-row.tsx
+index b790cc6..636ec0c 100644
+--- a/apps/realworld-legacy/src/features/issues/issue-row.tsx
++++ b/apps/realworld-legacy/src/features/issues/issue-row.tsx
+@@ -7,7 +7,7 @@ import { UserName } from '../../components/user-name'
+ interface IssueRowProps {
+   issue: Issue
+   selected: boolean
+-  onToggle: () => void
++  onToggle: (id: string) => void
+   onOpen: (key: string) => void
+ }
+ 
+@@ -24,7 +24,7 @@ export class IssueRow extends PureComponent<IssueRowProps> {
+             type="checkbox"
+             aria-label={`Select ${issue.key}`}
+             checked={selected}
+-            onChange={onToggle}
++            onChange={() => onToggle(issue.id)}
+           />
+         </td>
+         <td className="issue-key">{issue.key}</td>
+diff --git a/apps/realworld-legacy/src/features/issues/issue-table.tsx b/apps/realworld-legacy/src/features/issues/issue-table.tsx
+index 8c2a87d..7d1c61a 100644
+--- a/apps/realworld-legacy/src/features/issues/issue-table.tsx
++++ b/apps/realworld-legacy/src/features/issues/issue-table.tsx
+@@ -49,7 +49,7 @@ class IssueTable extends Component<IssueTableProps> {
+                 key={issue.id}
+                 issue={issue}
+                 selected={selectedIds.includes(issue.id)}
+-                onToggle={() => this.props.selectionToggled(issue.id)}
++                onToggle={this.props.selectionToggled}
+                 onOpen={this.openIssue}
+               />
+             ))}
+[exit 0]
+
+## verify (reference fix applied)
+
+[12:03:45] $ npx genie-react call app_backend_reset '{}' --session upd-g
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+[12:03:45] $ agent-browser --session upd-g open http://127.0.0.1:5243/issues
+✓ Acme Tracker
+  http://127.0.0.1:5243/issues
+[exit 0]
+
+[12:03:46] $ agent-browser --session upd-g wait '.issue-row'
+✓ Done
+[exit 0]
+
+[12:03:46] $ npx genie-react verify begin --session upd-g --name 'select one row' --budget '{"adaptive":false,"fiberLimit":20000,"operationLimit":2000000,"timeLimitMs":500,"targetOperationReserve":100000,"targetTimeReserveMs":100}' --claim 'render IssueRow only props.selected' --claim 'render IssueTable min 1' --claim 'boundaries clean'
+recording vfy_31125f33-e12a-4234-98d1-28782d185a13 "select one row"
+  url "http://127.0.0.1:5243/issues"
+  1 recording render IssueRow only props.selected
+  2 recording render IssueTable min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:17,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_31125f33-e12a-4234-98d1-28782d185a13 --session upd-g
+session: {sessionId:76beafbe-65a1-428d-b414-65b410ef3d79,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:22}
+schemaVersion: "1.0"
+targets: [{target:{component:IssueRow},status:resolved,instances:100,source:~/.t3/worktrees/genie-react/ali-articles-update-g-4f7fb78e201e7bac/apps/realworld-legacy/src/features/issues/issue-table.tsx},{target:{component:IssueTable},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/ali-articles-update-g-4f7fb78e201e7bac/apps/realworld-legacy/src/features/issues/issue-table.tsx}]
+startedAt: 2026-11-19T09:03:46.729Z
+expiresAt: 2026-11-19T09:08:46.751Z
+request: {budget:{fiberLimit:20000,operationLimit:2000000,timeLimitMs:500,targetOperationReserve:100000,targetTimeReserveMs:100,adaptive:false},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+[12:03:46] $ agent-browser --session upd-g click '.issue-row:nth-child(4) input[type=checkbox]'
+✓ Done
+[exit 0]
+
+[12:03:46] $ npx genie-react verify end vfy_31125f33-e12a-4234-98d1-28782d185a13 --session upd-g; echo "exit code: $?"
+pass vfy_31125f33-e12a-4234-98d1-28782d185a13 "select one row"  3 commits, quiet after 949 ms (react)
+  url "http://127.0.0.1:5243/issues"
+  1 pass render IssueRow only props.selected  {renders:1,events:1,violatingEvents:0,causes:[props.selected]}
+      claim: {kind:render-causes,target:{component:IssueRow},allow:[{kind:props,name:selected}]}
+      deciding: [{kind:render-event,renderEventId:render:18:11,documentCommitId:18,mountId:mount:4,causes:[{cause:props.selected,evidence:exact}]}]
+  2 pass render IssueTable min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:IssueTable},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:101,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:18,source:~/.t3/worktrees/genie-react/ali-articles-update-g-4f7fb78e201e7bac/apps/realworld-legacy/src/features/issues/issue-table.tsx:43:7}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:17}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:17,settledDocumentCommitId:19,frozenDocumentCommitId:20,commits:3,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:949,domains:{react:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 2 for these claims on this tab; previous fail vfy_dd9856b5-1dc3-4224-8498-c7095869bfe2; document reloaded since
+evidence: $ npx genie-react verify show vfy_31125f33-e12a-4234-98d1-28782d185a13 --session upd-g
+session: {sessionId:76beafbe-65a1-428d-b414-65b410ef3d79,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:22}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_5dced6a73b6c,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_dd9856b5-1dc3-4224-8498-c7095869bfe2,verdict:fail,reasons:[],endedAt:2026-11-19T09:03:28.337Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,react_profile_stop,react_render_causes,react_error_state]}
+startedAt: 2026-11-19T09:03:46.729Z
+endedAt: 2026-11-19T09:03:48.502Z
+request: {budget:{fiberLimit:20000,operationLimit:2000000,timeLimitMs:500,targetOperationReserve:100000,targetTimeReserveMs:100,adaptive:false},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+exit code: 0
+[exit 0]
+
+[12:03:48] $ npx genie-react call react_component_cohort '{"component":"IssueRow","limit":1}' --session upd-g
+attribution:
+  status: current
+  startedAtDocumentCommitId: 20
+  completedAtDocumentCommitId: 20
+  startedAtAnalysisGeneration: 21
+  completedAtAnalysisGeneration: 21
+documentCommitId: 20
+ownershipCoverage:
+  complete: true
+  totalCandidates: 100
+  app: 100
+  library: 0
+  unknown: 0
+  affects: ownership-labels
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:17}
+query: {component:IssueRow,exact:true}
+componentMatch:
+  component: IssueRow
+  exact: true
+  status: matched
+  matchedNames: [IssueRow]
+  matchedNameCount: 1
+  similarNames: []
+status: mixed
+matched: 100
+mountedUpdated: 1
+mountedIdle: 99
+mountedUnknown: 0
+unmounted: 0
+returned: 1
+omittedByLimit: 99
+rendererBundle: development
+coverage:
+  complete: true
+  freezeDetection: disabled
+  scannedFibers: 2258
+  scanLimit: 20000
+  scanTruncated: false
+  rootAvailable: true
+  rootCount: 1
+  scannedRootCount: 1
+  rootLimit: 100
+  rootScope: committed
+  rootScopeComplete: true
+  rootScopeTruncated: false
+  inputAttributionComplete: false
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 1
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  generationHistoryEvictions: 0
+view: summary
+shared:
+  logicalPathPrefix: "AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > IssuesPage[index=0] > <div>[index=0] > withRouter(Connect(IssueTable))[index=3] > Connect(IssueTable)[index=0] > IssueTable[index=0] > <div>[index=0] > <table>[index=0] > <tbody>[index=1]"
+  componentName: IssueRow
+  sourceOwnership: app
+  source: ~/.t3/worktrees/genie-react/ali-articles-update-g-4f7fb78e201e7bac/apps/realworld-legacy/src/features/issues/issue-table.tsx:48:15
+  parent: {fiberId:4953556910105,name:IssueTable,key:null}
+  keyedParent: null
+  logicalIdentityEvidence: keyed
+  mountGenerationEvidence: exact
+  renderingState: mounted-rendering
+  reactVisibility: not-hidden
+instances[1]:
+  - {status:mounted-idle,mountId:mount:1,fiberId:4953556910104,key:iss-1,siblingIndex:0,logicalPath:"IssueRow[key=\"iss-1\"]",mountGeneration:1,hostSelector:tr.issue-row}
+[exit 0]
+
+[12:03:48] $ agent-browser --session upd-g is checked '.issue-row:nth-child(4) input[type=checkbox]'
+true
+[exit 0]
+
+[12:03:54] $ git checkout -- src && git status --short .
+
+[exit 0]
+[teardown] stopped the hub on 15243 and the dev server on 5243, and closed agent-browser session upd-g
+````

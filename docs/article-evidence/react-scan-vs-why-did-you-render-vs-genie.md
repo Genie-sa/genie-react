@@ -3479,3 +3479,477 @@ $ agent-browser --session art-m1 console
 [endGroup] console.groupEnd
 [exit 0]
 ````
+
+## Re-run on Genie 1.1.0
+
+- Date: 2026-11-19 (log timestamps are local time, UTC+3)
+- Commit: `ce408cb205c0e798cb04c35512772b7454283141`
+- App: `apps/realworld-dashboard` (Meridian Ops, React 19.3.1 in StrictMode), dev server `DASHBOARD_PORT=5243 pnpm exec vite --port 5243 --strictPort`, URL `http://127.0.0.1:5243/orders?status=processing`
+- Genie: workspace build of `genie-react` and `@genie-react/cli` 1.1.0 at that commit (`pnpm install && pnpm build`). `node_modules/.bin/genie-react --version` in the app printed `1.1.0`.
+- Browser driver: agent-browser 0.43.0, session `upd-g`, headless. The Genie session is the same name.
+- Only Genie was re-run. The other tools' sections above are unchanged.
+
+Every command ran through a wrapper that appended the command, its combined stdout and stderr, and its exit code to the log. A `| head` inside a command line is part of the command that ran. Lines starting with `=====` or `##` are notes written at the time. The home directory is shown as `~`. Nothing else is edited.
+
+The interaction is `/tmp/upd-g/hold.sh`, the same three agent-browser commands as above with session `upd-g` (printed in the log). Reads after the interaction wait with `devtools_wait` condition `settled` and `"domains":["react","query","router"]`, as the 1.1.0 skill says, instead of `react_quiesce`. The reference fix from `evals/realworld/dashboard/order-hold-rerenders-all-rows.json` was applied with `/tmp/upd-g/applyfix.mjs` (it replaces each `referenceFix` `find` string once) and reverted with `git checkout`.
+
+````text
+# HEAD: ce408cb205c0e798cb04c35512772b7454283141
+## Genie: diagnose. Put SO-105979 on hold (shipped code)
+
+[12:00:52] $ npx genie-react --version
+1.1.0
+[exit 0]
+
+[12:00:53] $ cat /tmp/upd-g/hold.sh
+agent-browser --session upd-g find role button click --name 'Actions for SO-105979'
+agent-browser --session upd-g find role menuitem click --name 'Put on hold'
+agent-browser --session upd-g wait --text 'SO-105979 updated'
+[exit 0]
+
+[12:00:53] $ npx genie-react call app_reset_backend '{}' --session upd-g --fields seed
+[1]:
+  - {seed:20260302}
+[exit 0]
+
+[12:00:54] $ agent-browser --session upd-g open 'http://127.0.0.1:5243/orders?status=processing'
+✓ Meridian Ops
+  http://127.0.0.1:5243/orders?status=processing&sort=placedAt&dir=desc
+[exit 0]
+
+[12:00:54] $ agent-browser --session upd-g wait --text 'SO-105979'
+SO-105979
+[exit 0]
+
+[12:00:54] $ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g | head -3
+ok: true
+condition: settled
+waitedMs: 1081
+[exit 0]
+
+[12:00:56] $ npx genie-react call react_clear_renders '{"component":"OrderRow"}' --session upd-g
+ok: true
+tracking: true
+documentCommitId: 9
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:9}
+observationConfig:
+  adaptive: true
+  adaptiveScale: 1
+  fiberLimit: 250
+  operationLimit: 30000
+  timeLimitMs: 12
+  targetOperationReserve: 4000
+  targetTimeReserveMs: 4
+  lifecycleBufferLimit: 1000
+  lifecycleTargetReserve: 100
+strictMode: on
+[exit 0]
+
+[12:00:56] $ bash /tmp/upd-g/hold.sh
+✓ Done
+✓ Done
+SO-105979 updated
+[exit 0]
+
+[12:00:57] $ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g
+ok: true
+condition: settled
+waitedMs: 796
+validConditions: [connected,ready,component,query-settled,navigation,react-quiet,settled]
+lastObserved:
+  react:
+    documentCommitId: 18
+    renderCollection: available
+    quietForMs: 616
+    requiredQuietMs: 500
+    pendingWork: {documentCommitId:18,scheduledRoots:0,suspendedBoundaries:0,dehydratedBoundaries:0,boundaries:[],scanTruncated:false,scannedFibers:729}
+  query: {fetching:0,mutating:0}
+  router: {pathname:/orders,isLoading:false,settled:true,pendingWork:[],settlement:router-settled}
+domains:
+  react:
+    status: met
+    lastObserved: {documentCommitId:18,renderCollection:available,quietForMs:616,requiredQuietMs:500,pendingWork:{documentCommitId:18,scheduledRoots:0,suspendedBoundaries:0,dehydratedBoundaries:0,boundaries:[],scanTruncated:false,scannedFibers:729}}
+  query: {status:met,lastObserved:{fetching:0,mutating:0}}
+  router:
+    status: met
+    lastObserved: {pathname:/orders,isLoading:false,settled:true,pendingWork:[],settlement:router-settled}
+[exit 0]
+
+[12:01:04] $ npx genie-react call react_component_cohort '{"component":"OrderRow"}' --session upd-g
+attribution:
+  status: current
+  startedAtDocumentCommitId: 25
+  completedAtDocumentCommitId: 25
+  startedAtAnalysisGeneration: 26
+  completedAtAnalysisGeneration: 26
+documentCommitId: 25
+ownershipCoverage:
+  complete: true
+  totalCandidates: 13
+  app: 13
+  library: 0
+  unknown: 0
+  affects: ownership-labels
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:9}
+query: {component:OrderRow,exact:true}
+componentMatch:
+  component: OrderRow
+  exact: true
+  status: matched
+  matchedNames: [OrderRow]
+  matchedNameCount: 1
+  similarNames: []
+status: updated
+matched: 13
+mountedUpdated: 13
+mountedIdle: 0
+mountedUnknown: 0
+unmounted: 0
+returned: 13
+omittedByLimit: 0
+rendererBundle: development
+coverage:
+  complete: true
+  freezeDetection: disabled
+  scannedFibers: 715
+  scanLimit: 20000
+  scanTruncated: false
+  rootAvailable: true
+  rootCount: 1
+  scannedRootCount: 1
+  rootLimit: 100
+  rootScope: committed
+  rootScopeComplete: true
+  rootScopeTruncated: false
+  inputAttributionComplete: true
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 0
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  generationHistoryEvictions: 0
+view: summary
+shared:
+  logicalPathPrefix: "QueryClientProvider[index=0] > AuthProvider[index=0] > App[index=0] > RouterProvider[index=0] > RouterContextProvider[index=0] > Matches[index=0] > MatchesInner[index=0] > CatchBoundary[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > CatchNotFound[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > RootLayout[index=0] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > AuthenticatedLayout[index=0] > PermissionsProvider[index=0] > AppShell[index=0] > PreferencesProvider[index=0] > <div>[index=0] > <div>[index=1] > <main>[index=1] > OutletImpl[index=0] > MatchImpl[index=0] > MatchView[index=0] > CatchBoundary[index=0] > MatchInnerImpl[index=0] > Lazy[index=0] > OrdersPage[index=0] > <div>[index=0] > OrdersTable[index=3] > <div>[index=0] > <div>[index=1] > <div>[index=0]"
+  componentName: OrderRow
+  sourceOwnership: app
+  source: /src/features/orders/orders-table.tsx:121:17
+  parent: {fiberId:13713092378682,name:OrdersTable,key:null}
+  keyedParent: null
+  logicalIdentityEvidence: keyed
+  mountGenerationEvidence: exact
+  renderingState: mounted-rendering
+  reactVisibility: not-hidden
+instances[13]:
+  each: {status:mounted-updated,mountGeneration:1,hostSelector:div.absolute.inset-x-0.flex}
+  - {mountId:mount:38,fiberId:13713092378687,key:o-105999,siblingIndex:0,logicalPath:"OrderRow[key=\"o-105999\"]"}
+  - {mountId:mount:39,fiberId:13713092378688,key:o-105998,siblingIndex:1,logicalPath:"OrderRow[key=\"o-105998\"]"}
+  - {mountId:mount:40,fiberId:13713092378689,key:o-105990,siblingIndex:2,logicalPath:"OrderRow[key=\"o-105990\"]"}
+  - {mountId:mount:41,fiberId:13713092378690,key:o-105979,siblingIndex:3,logicalPath:"OrderRow[key=\"o-105979\"]"}
+  - {mountId:mount:42,fiberId:13713092378708,key:o-105973,siblingIndex:4,logicalPath:"OrderRow[key=\"o-105973\"]"}
+  - {mountId:mount:43,fiberId:13713092378709,key:o-105968,siblingIndex:5,logicalPath:"OrderRow[key=\"o-105968\"]"}
+  - {mountId:mount:44,fiberId:13713092378710,key:o-105958,siblingIndex:6,logicalPath:"OrderRow[key=\"o-105958\"]"}
+  - {mountId:mount:45,fiberId:13713092378711,key:o-105957,siblingIndex:7,logicalPath:"OrderRow[key=\"o-105957\"]"}
+  - {mountId:mount:46,fiberId:13713092378712,key:o-105956,siblingIndex:8,logicalPath:"OrderRow[key=\"o-105956\"]"}
+  - {mountId:mount:47,fiberId:13713092378713,key:o-105944,siblingIndex:9,logicalPath:"OrderRow[key=\"o-105944\"]"}
+  - {mountId:mount:4,fiberId:13713092378745,key:o-105918,siblingIndex:10,logicalPath:"OrderRow[key=\"o-105918\"]"}
+  - {mountId:mount:5,fiberId:13713092378779,key:o-105917,siblingIndex:11,logicalPath:"OrderRow[key=\"o-105917\"]"}
+  - {mountId:mount:6,fiberId:13713092378813,key:o-105915,siblingIndex:12,logicalPath:"OrderRow[key=\"o-105915\"]"}
+[exit 0]
+
+[12:01:04] $ npx genie-react call react_render_causes '{"component":"OrderRow","limit":3}' --session upd-g
+componentMatch:
+  component: OrderRow
+  exact: true
+  status: matched
+  matchedNames: [OrderRow]
+  matchedNameCount: 1
+  similarNames: []
+tracking: true
+commits: 17
+documentCommitId: 26
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:9}
+attribution:
+  status: current
+  startedAtDocumentCommitId: 26
+  completedAtDocumentCommitId: 26
+  startedAtAnalysisGeneration: 27
+  completedAtAnalysisGeneration: 27
+view: summary
+events[3] (componentName #componentId {fields}, then ← kind evidence name {fields} per cause):
+  each: {documentCommitId:17,necessity:unknown,necessityReason:callbacks-changed,inputEvidence:changed,source:{location:/src/features/orders/orders-table.tsx:121:17,role:element-callsite,ownership:app}}
+  OrderRow #13713092378813 {renderEventId:render:17:241,mountId:mount:6,key:o-105915}
+    ← props exact onStatusChange
+  OrderRow #13713092378779 {renderEventId:render:17:240,mountId:mount:5,key:o-105917}
+    ← props exact onStatusChange
+  OrderRow #13713092378745 {renderEventId:render:17:239,mountId:mount:4,key:o-105918}
+    ← props exact onStatusChange
+omittedByLimit: 26
+sourceClassification:
+  complete: true
+  affects: result
+  totalCandidates: 29
+  evaluated: 29
+  app: 29
+  library: 0
+  unknown: 0
+  unknownComponents: []
+  unknownComponentsOmitted: 0
+renderEventRetention: {evictedEvents:0,earliestDocumentCommitId:10,latestDocumentCommitId:26}
+coverage:
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 0
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  complete: true
+  inputAttributionComplete: true
+  semantics: exact
+  coverageDomain: render-causality
+  droppedRenderEvents: 0
+[exit 0]
+
+## Genie: verify BEFORE the fix (shipped code)
+
+[12:01:11] $ npx genie-react call app_reset_backend '{}' --session upd-g --fields seed
+[1]:
+  - {seed:20260302}
+[exit 0]
+
+[12:01:12] $ agent-browser --session upd-g open 'http://127.0.0.1:5243/orders?status=processing'
+✓ Meridian Ops
+  http://127.0.0.1:5243/orders?status=processing&sort=placedAt&dir=desc
+[exit 0]
+
+[12:01:12] $ agent-browser --session upd-g wait --text 'SO-105979'
+SO-105979
+[exit 0]
+
+[12:01:12] $ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g | head -3
+ok: true
+condition: settled
+waitedMs: 1231
+[exit 0]
+
+[12:01:14] $ npx genie-react verify begin --session upd-g --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+recording vfy_673952a4-e627-4f4c-b938-f894742abd3a "put one order on hold"
+  url "http://127.0.0.1:5243/orders?status=processing&sort=placedAt&dir=desc"
+  1 recording render OrderRow only props.order,mount
+  2 recording render OrderRow min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:9,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_673952a4-e627-4f4c-b938-f894742abd3a --session upd-g
+session: {sessionId:56f33efa-4985-4b3e-b184-300f345f2786,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:13}
+schemaVersion: "1.0"
+targets: [{target:{component:OrderRow},status:resolved,instances:10,source:/src/features/orders/orders-table.tsx}]
+startedAt: 2026-11-19T09:01:14.924Z
+expiresAt: 2026-11-19T09:06:14.934Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+[12:01:14] $ bash /tmp/upd-g/hold.sh
+✓ Done
+✓ Done
+SO-105979 updated
+[exit 0]
+
+[12:01:15] $ npx genie-react verify end vfy_673952a4-e627-4f4c-b938-f894742abd3a --session upd-g
+fail vfy_673952a4-e627-4f4c-b938-f894742abd3a "put one order on hold"  10 commits, quiet after 830 ms (react, query, router, network)
+  url "http://127.0.0.1:5243/orders?status=processing&sort=placedAt&dir=desc"
+  1 fail render OrderRow only props.order,mount  {renders:29,events:29,violatingEvents:26,causes:[mount,props.onStatusChange,props.order]}
+      claim: {kind:render-causes,target:{component:OrderRow},allow:[{kind:props,name:order},{kind:mount}]}
+      deciding: [{kind:render-event,renderEventId:render:17:241,documentCommitId:17,mountId:mount:16,causes:[{cause:props.onStatusChange,evidence:exact}]},{kind:render-event,renderEventId:render:17:240,documentCommitId:17,mountId:mount:15,causes:[{cause:props.onStatusChange,evidence:exact}]},{kind:render-event,renderEventId:render:17:239,documentCommitId:17,mountId:mount:14,causes:[{cause:props.onStatusChange,evidence:exact}]}]
+  2 pass render OrderRow min 1  {renders:29,mounts:3,updates:26,remounts:0,semantics:exact,instances:13,activeInstances:13}
+      claim: {kind:renders,target:{component:OrderRow},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:14,key:o-105918,renders:3,mounts:1,updates:2,mountGeneration:1,latestDocumentCommitId:17,source:/src/features/orders/orders-table.tsx:121:17},{kind:instance,mountId:mount:15,key:o-105917,renders:3,mounts:1,updates:2,mountGeneration:1,latestDocumentCommitId:17,source:/src/features/orders/orders-table.tsx:121:17},{kind:instance,mountId:mount:16,key:o-105915,renders:3,mounts:1,updates:2,mountGeneration:1,latestDocumentCommitId:17,source:/src/features/orders/orders-table.tsx:121:17}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:9}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:9,settledDocumentCommitId:18,frozenDocumentCommitId:19,commits:10,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:830,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_673952a4-e627-4f4c-b938-f894742abd3a --claim 1 --session upd-g
+session: {sessionId:56f33efa-4985-4b3e-b184-300f345f2786,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:13}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_8af18fcfed41,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_render_causes,react_error_state]}
+startedAt: 2026-11-19T09:01:14.924Z
+endedAt: 2026-11-19T09:01:17.367Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+## Reference fix applied temporarily
+
+[12:01:24] $ node /tmp/upd-g/applyfix.mjs ../../evals/realworld/dashboard/order-hold-rerenders-all-rows.json .
+patched src/features/orders/order-row.tsx
+patched src/features/orders/order-row.tsx
+patched src/features/orders/order-row.tsx
+patched src/features/orders/order-row.tsx
+patched src/features/orders/orders-table.tsx
+[exit 0]
+
+[12:01:24] $ git diff src
+diff --git a/apps/realworld-dashboard/src/features/orders/order-row.tsx b/apps/realworld-dashboard/src/features/orders/order-row.tsx
+index d8f7df3..4113273 100644
+--- a/apps/realworld-dashboard/src/features/orders/order-row.tsx
++++ b/apps/realworld-dashboard/src/features/orders/order-row.tsx
+@@ -17,7 +17,7 @@ export interface OrderRowProps {
+   start: number
+   canEdit: boolean
+   onToggleSelect: (id: string) => void
+-  onStatusChange: (id: string, status: OrderStatus) => void
++  onStatusChange: (order: OrderSummary, status: OrderStatus) => void
+ }
+ 
+ export const OrderRow = memo(function OrderRow({
+@@ -37,20 +37,20 @@ export const OrderRow = memo(function OrderRow({
+       id: 'hold',
+       label: 'Put on hold',
+       disabled: !canEdit || closed || order.status === 'on_hold',
+-      onSelect: () => onStatusChange(order.id, 'on_hold'),
++      onSelect: () => onStatusChange(order, 'on_hold'),
+     },
+     {
+       id: 'ship',
+       label: 'Mark shipped',
+       disabled: !canEdit || closed || order.status === 'shipped',
+-      onSelect: () => onStatusChange(order.id, 'shipped'),
++      onSelect: () => onStatusChange(order, 'shipped'),
+     },
+     {
+       id: 'cancel',
+       label: 'Cancel order',
+       tone: 'danger',
+       disabled: !canEdit || closed,
+-      onSelect: () => onStatusChange(order.id, 'cancelled'),
++      onSelect: () => onStatusChange(order, 'cancelled'),
+     },
+   ]
+ 
+diff --git a/apps/realworld-dashboard/src/features/orders/orders-table.tsx b/apps/realworld-dashboard/src/features/orders/orders-table.tsx
+index 90c16f4..2cf09ac 100644
+--- a/apps/realworld-dashboard/src/features/orders/orders-table.tsx
++++ b/apps/realworld-dashboard/src/features/orders/orders-table.tsx
+@@ -40,11 +40,8 @@ export function OrdersTable({
+     [hiddenColumns],
+   )
+   const onStatusChange = useCallback(
+-    (id: string, status: OrderSummary['status']) => {
+-      const order = rows.find((row) => row.id === id)
+-      if (order) changeStatus({ id, number: order.number, status })
+-    },
+-    [rows, changeStatus],
++    (order: OrderSummary, status: OrderSummary['status']) => changeStatus({ id: order.id, number: order.number, status }),
++    [changeStatus],
+   )
+ 
+   const virtualizer = useVirtualizer({
+[exit 0]
+
+[12:01:26] $ npx genie-react call app_reset_backend '{}' --session upd-g --fields seed
+[1]:
+  - {seed:20260302}
+[exit 0]
+
+[12:01:27] $ agent-browser --session upd-g open 'http://127.0.0.1:5243/orders?status=processing'
+✓ Meridian Ops
+  http://127.0.0.1:5243/orders?status=processing&sort=placedAt&dir=desc
+[exit 0]
+
+[12:01:27] $ agent-browser --session upd-g wait --text 'SO-105979'
+SO-105979
+[exit 0]
+
+[12:01:27] $ npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g | head -3
+ok: true
+condition: settled
+waitedMs: 1225
+[exit 0]
+
+[12:01:29] $ agent-browser --session upd-g snapshot -i | grep -c -i 'could not be loaded'
+0
+[exit 1]
+
+## Genie: verify AFTER the fix
+
+[12:01:34] $ npx genie-react verify begin --session upd-g --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+recording vfy_dd4ac4d4-d0e2-4ab7-aa00-2dbaf890c7fa "put one order on hold"
+  url "http://127.0.0.1:5243/orders?status=processing&sort=placedAt&dir=desc"
+  1 recording render OrderRow only props.order,mount
+  2 recording render OrderRow min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:14,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_dd4ac4d4-d0e2-4ab7-aa00-2dbaf890c7fa --session upd-g
+session: {sessionId:26404e14-2460-4832-97e3-4609b70441c1,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:15}
+schemaVersion: "1.0"
+targets: [{target:{component:OrderRow},status:resolved,instances:10,source:/src/features/orders/orders-table.tsx}]
+startedAt: 2026-11-19T09:01:34.761Z
+expiresAt: 2026-11-19T09:06:34.772Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+[12:01:34] $ bash /tmp/upd-g/hold.sh
+✓ Done
+✓ Done
+SO-105979 updated
+[exit 0]
+
+[12:01:35] $ npx genie-react verify end vfy_dd4ac4d4-d0e2-4ab7-aa00-2dbaf890c7fa --session upd-g
+pass vfy_dd4ac4d4-d0e2-4ab7-aa00-2dbaf890c7fa "put one order on hold"  10 commits, quiet after 2015 ms (react, query, router, network)
+  url "http://127.0.0.1:5243/orders?status=processing&sort=placedAt&dir=desc"
+  1 pass render OrderRow only props.order,mount  {renders:5,events:5,violatingEvents:0,causes:[mount,props.order]}
+      claim: {kind:render-causes,target:{component:OrderRow},allow:[{kind:props,name:order},{kind:mount}]}
+      deciding: [{kind:render-event,renderEventId:render:22:121,documentCommitId:22,mountId:mount:4,causes:[{cause:props.order,evidence:exact}]},{kind:render-event,renderEventId:render:19:68,documentCommitId:19,mountId:mount:4,causes:[{cause:props.order,evidence:exact}]},{kind:render-event,renderEventId:render:16:7,documentCommitId:16,mountId:mount:16,causes:[{cause:mount,evidence:exact}]}]
+  2 pass render OrderRow min 1  {renders:5,mounts:3,updates:2,remounts:0,semantics:exact,instances:13,activeInstances:13}
+      claim: {kind:renders,target:{component:OrderRow},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:4,key:o-105979,renders:2,mounts:0,updates:2,mountGeneration:1,latestDocumentCommitId:22,source:/src/features/orders/orders-table.tsx:118:17},{kind:instance,mountId:mount:14,key:o-105918,renders:1,mounts:1,updates:0,mountGeneration:1,latestDocumentCommitId:16,source:/src/features/orders/orders-table.tsx:118:17},{kind:instance,mountId:mount:15,key:o-105917,renders:1,mounts:1,updates:0,mountGeneration:1,latestDocumentCommitId:16,source:/src/features/orders/orders-table.tsx:118:17}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:14}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:14,settledDocumentCommitId:23,frozenDocumentCommitId:24,commits:10,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:2015,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 2 for these claims on this tab; previous fail vfy_673952a4-e627-4f4c-b938-f894742abd3a; document reloaded since
+evidence: $ npx genie-react verify show vfy_dd4ac4d4-d0e2-4ab7-aa00-2dbaf890c7fa --session upd-g
+session: {sessionId:26404e14-2460-4832-97e3-4609b70441c1,logicalSessionId:6afe88d7-ca8f-4853-b709-88daca657184,documentGeneration:15}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_8af18fcfed41,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_673952a4-e627-4f4c-b938-f894742abd3a,verdict:fail,reasons:[],endedAt:2026-11-19T09:01:17.367Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_render_causes,react_error_state]}
+startedAt: 2026-11-19T09:01:34.761Z
+endedAt: 2026-11-19T09:01:37.554Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+[12:01:37] $ agent-browser --session upd-g get text '[data-order-id=o-105979]'
+SO-105979
+Lumen Retail
+On hold
+standard
+NA
+46
+Mar 2, 2026
+$2,341.78
+[exit 0]
+
+## Revert the reference fix
+
+[12:01:43] $ git checkout -- src && git status --short .
+
+[exit 0]
+[teardown] stopped the dev server on 5243 and closed agent-browser session upd-g
+````

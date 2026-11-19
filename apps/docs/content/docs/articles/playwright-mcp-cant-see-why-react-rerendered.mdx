@@ -62,13 +62,13 @@ Then I applied the fix and ran the agent-browser commands again. The output matc
 
 ## What Genie adds
 
-Genie reads React from inside the page. Open a render window, click, and count the rows that rendered:
+Genie reads React from inside the page. I re-ran these Genie steps on Genie 1.1.0. Open a render window, click, and count the rows that rendered:
 
 ```bash
-npx genie-react call react_clear_renders '{"component":["IssueRow","IssueTable"],"budget":{"adaptive":false,"fiberLimit":20000,"operationLimit":2000000,"timeLimitMs":500,"targetOperationReserve":100000,"targetTimeReserveMs":100}}' --session art-m3
-agent-browser --session art-m3 click '.issue-row:nth-child(4) input[type=checkbox]'
-npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --session art-m3
-npx genie-react call react_component_cohort '{"component":"IssueRow","limit":1}' --session art-m3
+npx genie-react call react_clear_renders '{"component":["IssueRow","IssueTable"],"budget":{"adaptive":false,"fiberLimit":20000,"operationLimit":2000000,"timeLimitMs":500,"targetOperationReserve":100000,"targetTimeReserveMs":100}}' --session upd-g
+agent-browser --session upd-g click '.issue-row:nth-child(4) input[type=checkbox]'
+npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --session upd-g
+npx genie-react call react_component_cohort '{"component":"IssueRow","limit":1}' --session upd-g
 ```
 
 ```text
@@ -79,18 +79,26 @@ mountedIdle: 0
 mountedUnknown: 0
 ```
 
-One click, 100 row renders. I raised the render budget for this read. With the default budget of 250 fibers and 8 ms, the same read covered 34 rows and reported the other 66 as `mountedUnknown`. Genie marks that gap instead of counting the missing rows as idle.
+One click, 100 row renders. I raised the render budget for this read. With the default budget, which scaled to 750 fibers and 36 ms on this page, the same read covered 34 rows and reported the other 66 as `mountedUnknown`. Genie marks that gap instead of counting the missing rows as idle. The coverage also says which budget to use next (trimmed):
+
+```text
+  budgetAdvice:
+    exhaustedLimits: [targetOperationReserve]
+    suggestedBudget: {fiberLimit:750,operationLimit:90000,timeLimitMs:36,targetOperationReserve:12000,targetTimeReserveMs:12}
+```
+
+I cleared again with that budget and repeated the click, and the read covered all 100 rows. Genie 1.0.2 reported the same gap without `budgetAdvice`.
 
 Now ask why:
 
 ```bash
-npx genie-react call react_render_causes '{"component":"IssueRow","limit":2}' --session art-m3
+npx genie-react call react_render_causes '{"component":"IssueRow","limit":2}' --session upd-g
 ```
 
 Trimmed to one event, with the path shortened:
 
 ```text
-  IssueRow #14934473705596 {…,key:iss-1754,necessity:unknown,necessityReason:callbacks-changed,inputEvidence:changed,source:{location:…/src/features/issues/issue-table.tsx:48:15,role:element-callsite,ownership:app}}
+  IssueRow #2868266403964 {…,key:iss-1754,necessity:unknown,necessityReason:callbacks-changed,inputEvidence:changed,source:{location:…/src/features/issues/issue-table.tsx:48:15,role:element-callsite,ownership:app}}
     ← props exact onToggle
 ```
 
@@ -132,17 +140,17 @@ Pass the stable bound action and let the row supply its own ID:
 `verify` turns "fixed" into an exit code. The claims say every row render must come from the `selected` prop, and the table must still render, so a click that missed the app fails:
 
 ```bash
-npx genie-react verify begin --session art-m3 --name 'select one row' \
+npx genie-react verify begin --session upd-g --name 'select one row' \
   --budget '{"adaptive":false,"fiberLimit":20000,"operationLimit":2000000,"timeLimitMs":500,"targetOperationReserve":100000,"targetTimeReserveMs":100}' \
   --claim 'render IssueRow only props.selected' --claim 'render IssueTable min 1' --claim 'boundaries clean'
-agent-browser --session art-m3 click '.issue-row:nth-child(4) input[type=checkbox]'
-npx genie-react verify end <id> --session art-m3; echo "exit code: $?"
+agent-browser --session upd-g click '.issue-row:nth-child(4) input[type=checkbox]'
+npx genie-react verify end <id> --session upd-g; echo "exit code: $?"
 ```
 
 Before the fix, trimmed to the verdict and claim lines:
 
 ```text
-fail vfy_07278364-4735-4e75-b781-41f5e78784ce "select one row"  3 commits, quiet after 1123 ms (react)
+fail vfy_dd9856b5-1dc3-4224-8498-c7095869bfe2 "select one row"  3 commits, quiet after 958 ms (react)
   1 fail render IssueRow only props.selected  {renders:100,events:100,violatingEvents:100,causes:[props.onToggle,props.selected]}
   2 pass render IssueTable min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
   3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
@@ -152,7 +160,7 @@ exit code: 1
 After the fix:
 
 ```text
-pass vfy_d90460fe-fdf7-4ce5-b087-04590ac48bb8 "select one row"  3 commits, quiet after 1095 ms (react)
+pass vfy_31125f33-e12a-4234-98d1-28782d185a13 "select one row"  3 commits, quiet after 949 ms (react)
   1 pass render IssueRow only props.selected  {renders:1,events:1,violatingEvents:0,causes:[props.selected]}
   2 pass render IssueTable min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
   3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}

@@ -9,7 +9,8 @@ it 29 console lines that say `OrderRow` and nothing else. why-did-you-render gav
 the prop on the command line and returned a fail verdict with exit code 1.
 
 Every command and output below comes from runs on the Meridian Ops dashboard in this repo
-(`apps/realworld-dashboard`). The full logs are in the
+(`apps/realworld-dashboard`). The Genie steps were re-run on Genie 1.1.0, and the Genie output comes
+from that re-run. The full logs are in the
 [evidence file](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/react-scan-vs-why-did-you-render-vs-genie.md).
 
 ## One order goes on hold and every row re-renders
@@ -87,20 +88,29 @@ lines for one click, and the agent has to find these lines among them.
 
 ## Genie answers on the command line and returns a verdict
 
-Genie runs beside the app and prints to the terminal. `react_render_causes` returned 29 events,
-each graded (trimmed to two):
+Genie runs beside the app and prints to the terminal. The agent opens a render window, runs the
+interaction, and waits until React, Query and Router are all settled before it reads:
+
+```bash
+npx genie-react call react_clear_renders '{"component":"OrderRow"}' --session upd-g
+# Put SO-105979 on hold with agent-browser, using --session upd-g.
+npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session upd-g
+npx genie-react call react_render_causes '{"component":"OrderRow","limit":3}' --session upd-g
+```
+
+`react_render_causes` returned 29 events, each graded (trimmed to two):
 
 ```text
-  OrderRow #15349961457853 {renderEventId:render:30:241,mountId:mount:6,key:o-105915}
+  OrderRow #13713092378813 {renderEventId:render:17:241,mountId:mount:6,key:o-105915}
     ← props exact onStatusChange
-  OrderRow #15349961457819 {renderEventId:render:30:240,mountId:mount:5,key:o-105917}
+  OrderRow #13713092378779 {renderEventId:render:17:240,mountId:mount:5,key:o-105917}
     ← props exact onStatusChange
 ```
 
 `exact` means Genie saw the prop change directly. To check a fix, the agent writes claims first:
 
 ```bash
-npx genie-react verify begin --session art-m1 --name 'put one order on hold' \
+npx genie-react verify begin --session upd-g --name 'put one order on hold' \
   --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
 ```
 
@@ -108,7 +118,7 @@ The claim allows `mount` because three rows below the fold mounted during the in
 fix, `verify end` failed with exit code 1 (trimmed to the verdict and first claim):
 
 ```text
-fail vfy_0a79aa28-a975-4339-8957-83e3514b70b1 "put one order on hold"  10 commits, quiet after 900 ms (react, query, router)
+fail vfy_673952a4-e627-4f4c-b938-f894742abd3a "put one order on hold"  10 commits, quiet after 830 ms (react, query, router, network)
   1 fail render OrderRow only props.order,mount  {renders:29,events:29,violatingEvents:26,causes:[mount,props.onStatusChange,props.order]}
 ```
 
@@ -132,7 +142,7 @@ The fix from the answer key passes the whole order to the callback, so it no lon
 with exit code 0:
 
 ```text
-pass vfy_c3e39be0-5592-464c-9331-778ab36dba6d "put one order on hold"  10 commits, quiet after 1045 ms (react, query, router)
+pass vfy_dd4ac4d4-d0e2-4ab7-aa00-2dbaf890c7fa "put one order on hold"  10 commits, quiet after 2015 ms (react, query, router, network)
   1 pass render OrderRow only props.order,mount  {renders:5,events:5,violatingEvents:0,causes:[mount,props.order]}
 ```
 

@@ -5,7 +5,7 @@ description: The React DevTools Profiler draws one sidebar click as colored bars
 
 Your coding agent can't look at a React Profiler flamegraph and see which bar matters. Genie gives it the same commit as text: which components rendered, whether each render was needed, and what caused it. For one click on a React 19.3.1 dashboard, the Profiler showed the stat cards re-rendering. Genie counted four of them and named the cause, two callbacks that a context provider recreates on every render.
 
-Both recordings below captured the same click in the same page, at the same time. The [evidence file](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/your-agent-cant-read-the-react-profiler.md) has every command and the full output.
+The Profiler and Genie first recorded the same click in the same page, at the same time. The Genie steps were then re-run on Genie 1.1.0 in the unchanged app, and the Genie output below comes from that re-run. The [evidence file](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/your-agent-cant-read-the-react-profiler.md) has every command and the full output.
 
 ## Collapsing the sidebar re-renders the dashboard cards
 
@@ -46,19 +46,21 @@ An agent can press those buttons, as my script did. What comes back is pixels, o
 
 ## What Genie gives the agent
 
-Genie recorded the same click. The agent opens a window, clicks, waits for React to go idle, and asks what rendered:
+Genie records the same click. The agent opens a window, clicks, waits for React to go idle, and asks what rendered:
 
 ```bash
-npx genie-react call react_clear_renders '{}' --session art-m2
-agent-browser --session art-m2 click @e2
-npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session art-m2
-npx genie-react call react_get_renders '{"sort":"renders","limit":80,"appOnly":true}' --session art-m2 --fields name,renders,necessity,necessityReason
+npx genie-react call react_clear_renders '{}' --session upd-g
+agent-browser --session upd-g click @e177
+npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session upd-g
+npx genie-react call react_get_renders '{"sort":"renders","limit":80,"appOnly":true}' --session upd-g --fields name,renders,necessity,necessityReason
 ```
 
-The result lists 41 app components that rendered once each. Trimmed to selected rows:
+`react_quiesce` reported `observedCommits: 0`, because the click's commit landed before the wait started. Its `renderWindow` field, `{…,commits:1}`, shows that the window holds that commit.
+
+The result lists 35 app components that rendered once each. Genie 1.0.2 also listed six TanStack Router `Link` elements here under the name `sidebar-nav.tsx`, and 1.1.0 hides them as library components. Trimmed to selected rows:
 
 ```text
-[41]:
+[35]:
   each: {renders:1}
   - {name:AppShell,necessity:necessary,necessityReason:dom-changed}
   - {name:PreferencesProvider,necessity:necessary,necessityReason:dom-changed}
@@ -73,11 +75,11 @@ The result lists 41 app components that rendered once each. Trimmed to selected 
 `unnecessary` tells the agent that the four cards rendered and changed nothing. Next, the cause:
 
 ```bash
-npx genie-react call react_render_causes '{"component":"StatCard","limit":1}' --session art-m2
+npx genie-react call react_render_causes '{"component":"StatCard","limit":1}' --session upd-g
 ```
 
 ```text
-StatCard #17220923031780 {…,necessity:unnecessary,necessityReason:output-unchanged,inputEvidence:incomplete,…,source:{location:/src/features/dashboard/dashboard-page.tsx:55:9,…}}
+StatCard #813913080036 {…,necessity:unnecessary,necessityReason:output-unchanged,inputEvidence:incomplete,…,source:{location:/src/features/dashboard/dashboard-page.tsx:55:9,…}}
   ← context exact "Context(PreferencesProvider)" {contextIndex:0}
 ```
 
@@ -141,14 +143,14 @@ The import line also gains `useCallback`.
 A flamegraph before and after would need a human to compare the colors. `verify` states the result as claims and an exit code. I ran it on the unchanged app, before the fix:
 
 ```bash
-npx genie-react verify begin --session art-m2 --name "collapse sidebar" \
+npx genie-react verify begin --session upd-g --name "collapse sidebar" \
   --claim 'render StatCard max 0' --claim 'render SidebarNav min 1'
-agent-browser --session art-m2 click @e2
-npx genie-react verify end vfy_221d972e-6836-407d-bba6-9f6065f3aac2 --session art-m2
+agent-browser --session upd-g click @e198
+npx genie-react verify end vfy_97e052d8-87d3-4d33-b298-f4c3ca50ece7 --session upd-g
 ```
 
 ```text
-fail vfy_221d972e-6836-407d-bba6-9f6065f3aac2 "collapse sidebar"  1 commit, quiet after 743 ms (react, query, router)
+fail vfy_97e052d8-87d3-4d33-b298-f4c3ca50ece7 "collapse sidebar"  1 commit, quiet after 752 ms (react, query, router, network)
   1 fail render StatCard max 0  {renders:4,mounts:0,updates:4,remounts:0,semantics:exact,instances:4,activeInstances:4}
   2 pass render SidebarNav min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
 ```
@@ -156,7 +158,7 @@ fail vfy_221d972e-6836-407d-bba6-9f6065f3aac2 "collapse sidebar"  1 commit, quie
 The command exited `1`. After the fix, the same claims and the same click:
 
 ```text
-pass vfy_889a43a7-889b-4d57-932a-498e005142c8 "collapse sidebar"  1 commit, quiet after 720 ms (react, query, router)
+pass vfy_08be3534-53d2-44a9-bd18-09a5ccddc0cf "collapse sidebar"  1 commit, quiet after 2314 ms (react, query, router, network)
   1 pass render StatCard max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:4,activeInstances:4}
   2 pass render SidebarNav min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
 ```
