@@ -387,7 +387,7 @@ async function symbolicateCapturedFrame(
   const resolved = symbolicated ?? frame
   const symbolicationChangedPosition =
     symbolicated?.fileName !== undefined &&
-    (normalizeFileName(symbolicated.fileName) !== normalizeFileName(frame.fileName) ||
+    (normalizeModuleFileName(symbolicated.fileName) !== normalizeModuleFileName(frame.fileName) ||
       symbolicated.lineNumber !== frame.lineNumber ||
       symbolicated.columnNumber !== frame.columnNumber)
   return resolved.fileName
@@ -1081,7 +1081,7 @@ function normalizeServedFileName(file: string): string {
 const HTTP_ORIGIN_RE = /^https?:\/\/[^/]+/i
 
 /** bippy reads the first directory of a served URL as a deploy base when the next one is short, so `/src/lib/a.ts` became `/lib/a.ts`; a served path names the module as the dev server does. */
-function normalizeModuleFileName(file: string): string {
+export function normalizeModuleFileName(file: string): string {
   return normalizeFileName(file.replace(HTTP_ORIGIN_RE, ''))
 }
 

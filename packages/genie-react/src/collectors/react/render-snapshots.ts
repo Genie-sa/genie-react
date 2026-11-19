@@ -96,6 +96,7 @@ export interface IncompleteCoverageReason {
     | 'inputs-truncated'
     | 'props-not-enumerated'
     | 'source-classification-incomplete'
+    | 'render-events-evicted'
   fibers: number
   components?: string[]
   detail: string
@@ -112,6 +113,20 @@ type RenderTrackingCoverageInput = Omit<
   | 'observationBudget'
   | 'incompleteBecause'
 > & { gaps?: CoverageGapDetails }
+
+export const RECENT_RENDER_EVENT_LIMIT = 1_000
+/** Events of components react_clear_renders names that eviction passes over. */
+export const NAMED_RENDER_EVENT_RESERVE = 500
+
+/** Render events the window's bounded history evicted, and how many of them belong to the components a read selects. */
+export interface EvictedRenderEvents {
+  total: number
+  selected: number
+  /** The selected components that lost the most events, up to 10. */
+  components: string[]
+  /** Whether a selected component that lost events is one the window names, so naming it again cannot keep them. */
+  namedByWindow: boolean
+}
 
 export const UNOBSERVED_COMMITS_NEXT =
   'Open a window with react_clear_renders (or devtools_interaction_begin), repeat the interaction, then read again. To observe a page load, load the page with _genie_observe in its URL.'
@@ -418,6 +433,50 @@ export function withMembershipCoverage<T extends RenderTrackingCoverage>(
         next: 'Pass appOnly:false for counts that do not depend on ownership, or read again shortly: ownership keeps resolving in the background, though a component React rendered without an owner stack stays unknown.',
       },
     ],
+  }
+}
+
+/** Eviction makes causal coverage a lower bound; the reason says whether the components the read selects lost events and how to keep them. */
+export function withEvictedRenderEvents<T extends RenderTrackingCoverage>(
+  coverage: T,
+  evicted: EvictedRenderEvents,
+  selective: boolean,
+): T & { droppedRenderEvents: number } {
+  if (evicted.total === 0) return { ...coverage, droppedRenderEvents: 0 }
+  return {
+    ...coverage,
+    incompleteBecause: [
+      ...(coverage.incompleteBecause ?? []),
+      renderEventsEvictedReason(evicted, selective),
+    ],
+    complete: false,
+    semantics: 'lower-bound',
+    droppedRenderEvents: evicted.total,
+  }
+}
+
+function renderEventsEvictedReason(
+  evicted: EvictedRenderEvents,
+  selective: boolean,
+): IncompleteCoverageReason {
+  const history = `The window keeps its newest ${RECENT_RENDER_EVENT_LIMIT} render events and evicted ${evicted.total} older ones`
+  if (evicted.selected === 0) {
+    return {
+      reason: 'render-events-evicted',
+      fibers: 0,
+      detail: `${history}, none of them renders of the components this read selects.`,
+    }
+  }
+  return {
+    reason: 'render-events-evicted',
+    fibers: evicted.selected,
+    components: evicted.components,
+    detail: selective
+      ? `${history}; ${evicted.selected} of them were renders of the components this read selects, so their oldest events are missing.`
+      : `${history}, so this read is missing the oldest events.`,
+    next: evicted.namedByWindow
+      ? `The components react_clear_renders named rendered more than the ${NAMED_RENDER_EVENT_RESERVE} events kept for them. Name fewer components, or read after each interaction.`
+      : `Run react_clear_renders with component set to the component you read, so its newest ${NAMED_RENDER_EVENT_RESERVE} render events outlast other components', then repeat the step and read again.`,
   }
 }
 

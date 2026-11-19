@@ -33,7 +33,9 @@ a `deprecations` entry naming `component`. `roots` defaults to `[]` and accepts 
 defaults to `{bufferLimit:1000,targetReserve:100}`; `bufferLimit` is an integer from 100 to 20000,
 `targetReserve` is an integer from 0 to 5000, and the reserve cannot exceed the buffer.
 A named component's input attribution spends its target reserve first and then the general budget,
-so naming a component never leaves it fewer causes than an unscoped window finds.
+so naming a component never leaves it fewer causes than an unscoped window finds. Its newest 500
+render events also outlast every other component's in the 1,000-event history `react_render_causes`
+reads.
 
 The first commit analyzed after commits nothing observed, such as the first interaction in a new
 window, gets four times `timeLimitMs` and `targetTimeReserveMs`, up to their maxima, because the
@@ -334,6 +336,14 @@ npx @genie-react/cli call react_render_causes \
   }
 }
 ```
+
+Genie keeps the newest 1,000 render events. The newest 500 events of components the window names
+with `component` are evicted only after every other component's, so a large table re-rendering on
+each keystroke cannot push out the component you asked about. When events were evicted,
+`renderEventRetention.evictedEvents` and `coverage.droppedRenderEvents` count them and
+`coverage.incompleteBecause` has a `render-events-evicted` entry: `fibers` counts the evicted events
+of the components the read selects, `components` names up to 10 of them, and `next` says how to keep
+them. When `fibers` is 0, none of the evicted events belonged to the selected components.
 
 **Agent use:** Join `renderEventId`, observation, document commit, and mount IDs to the action
 (`view:"full"` adds hook IDs), then change the producer of the exact input. Repeat the interaction if events were evicted or
@@ -1181,7 +1191,9 @@ Clears render counters and starts a profiling observation.
 defaults to `{bufferLimit:1000,targetReserve:100}`; `bufferLimit` is an integer from 100 to 20000,
 `targetReserve` is an integer from 0 to 5000, and the reserve cannot exceed the buffer.
 A named component's input attribution spends its target reserve first and then the general budget,
-so naming a component never leaves it fewer causes than an unscoped window finds.
+so naming a component never leaves it fewer causes than an unscoped window finds. Its newest 500
+render events also outlast every other component's in the 1,000-event history `react_render_causes`
+reads.
 
 The first commit analyzed after commits nothing observed, such as the first interaction in a new
 window, gets four times `timeLimitMs` and `targetTimeReserveMs`, up to their maxima, because the

@@ -939,6 +939,7 @@ export const renderCoverageSchema = z.object({
           'inputs-truncated',
           'props-not-enumerated',
           'source-classification-incomplete',
+          'render-events-evicted',
         ]),
         fibers: z.number().int().nonnegative(),
         components: z

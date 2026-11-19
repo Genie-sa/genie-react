@@ -165,6 +165,14 @@ export function renderCausesProblems(result: Value): string[] {
   if (coverage.complete === true && Number(retention.evictedEvents) > 0) {
     problems.push(`coverage complete while ${retention.evictedEvents} events were evicted`)
   }
+  if (
+    Number(retention.evictedEvents) > 0 &&
+    !reasonsOf(coverage).includes('render-events-evicted')
+  ) {
+    problems.push(
+      `${retention.evictedEvents} events were evicted, yet coverage.incompleteBecause does not say so`,
+    )
+  }
   if (result.sourceClassification !== undefined) {
     problems.push(
       ...classificationProblems(

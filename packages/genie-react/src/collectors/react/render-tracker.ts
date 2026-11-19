@@ -32,7 +32,7 @@ import {
   consumeCommitWork,
   createCommitWorkBudget,
 } from './commit-budget'
-import type { ComponentMatch } from './component-name'
+import { type ComponentMatch, componentNameMatcher } from './component-name'
 import { recordResultingEffectCommit } from './effect-events'
 import {
   clearEffects,
@@ -156,6 +156,9 @@ import {
   buildRenderTrackingCoverage,
   type CoverageGapDetails,
   diffRenderSnapshot,
+  type EvictedRenderEvents,
+  NAMED_RENDER_EVENT_RESERVE,
+  RECENT_RENDER_EVENT_LIMIT,
   type RenderBudgetAdvice,
   type RenderBudgetLimit,
   type RenderTrackingCoverage,
@@ -207,6 +210,9 @@ const records = new Map<number, RenderRecord>()
 const unmountedRecordIds: number[] = []
 let evictedUnmountedRecords = 0
 const recentCauseEvents: RetainedRenderCauseEvent[] = []
+const namedCauseEvents = new WeakSet<RetainedRenderCauseEvent>()
+let retainedNamedCauseEvents = 0
+const evictedCauseEventsByComponent = new Map<string, number>()
 let commits = 0
 let installed = false
 let instrumentation: Unsubscribe | null = null
@@ -320,7 +326,6 @@ const COLD_COMMIT_TIME_FACTOR = 4
 const HERMES_TIME_FACTOR = 8
 
 const DID_CAPTURE = 0b1000_0000
-const RECENT_CAUSE_EVENT_LIMIT = 1_000
 interface PendingUnmount {
   rendererId: number
   fiber: Fiber
@@ -678,6 +683,8 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   unmountedRecordIds.length = 0
   evictedUnmountedRecords = 0
   recentCauseEvents.length = 0
+  retainedNamedCauseEvents = 0
+  evictedCauseEventsByComponent.clear()
   commits = 0
   skippedCommitFibers = 0
   droppedPendingUnmountFibers = 0
@@ -931,9 +938,16 @@ function isObservationTarget(fiber: Fiber): boolean {
 }
 
 function matchesObservedComponent(fiber: Fiber): boolean {
+  return windowNamesComponents() && isObservedComponentName(nameOf(fiber))
+}
+
+function windowNamesComponents(): boolean {
   const { components, exactComponents } = observationConfiguration
-  if (components.length === 0 && exactComponents.length === 0) return false
-  const name = nameOf(fiber)
+  return components.length > 0 || exactComponents.length > 0
+}
+
+function isObservedComponentName(name: string): boolean {
+  const { components, exactComponents } = observationConfiguration
   if (exactComponents.includes(name)) return true
   const lowered = name.toLowerCase()
   return components.some((needle) => lowered.includes(needle))
@@ -1203,6 +1217,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
     earliestDocumentCommitId: number | null
     latestDocumentCommitId: number | null
   }
+  evictedRenderEvents: EvictedRenderEvents
 }> {
   const eventsAtStart = [...recentCauseEvents]
   const recordsAtStart = snapshotRenderRecords(recordsOfEvents(eventsAtStart))
@@ -1222,6 +1237,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
   const budgetSubsystemsAtStart = getBudgetExhaustedSubsystems()
   const budgetAdviceAtStart = getRenderBudgetAdvice()
   const evictedAtStart = droppedRenderEvents
+  const evictedRenderEventsAtStart = evictedCauseEventsOf(query)
   const coverageGapsAtStart = getCoverageGapDetails()
   const report = await buildRenderCauseEventsReport(recordsAtStart, eventsAtStart, query, {
     isCurrent: () => reportStateMatches(epoch),
@@ -1250,6 +1266,7 @@ export async function getRenderCauseMeasurement(query: RenderCauseQuery): Promis
       earliestDocumentCommitId: eventsAtStart[0]?.documentCommitId ?? null,
       latestDocumentCommitId: eventsAtStart.at(-1)?.documentCommitId ?? null,
     },
+    evictedRenderEvents: evictedRenderEventsAtStart,
   }
 }
 
@@ -2023,11 +2040,41 @@ function publishCauseEvent(
   }
   records.set(record.id, record)
   recentCauseEvents.push(event)
-  if (recentCauseEvents.length > RECENT_CAUSE_EVENT_LIMIT) {
-    recentCauseEvents.shift()
-    droppedRenderEvents += 1
+  if (windowNamesComponents() && isObservedComponentName(record.name)) {
+    namedCauseEvents.add(event)
+    retainedNamedCauseEvents += 1
   }
+  if (recentCauseEvents.length > RECENT_RENDER_EVENT_LIMIT) evictCauseEvent()
   return event
+}
+
+/** The newest `NAMED_RENDER_EVENT_RESERVE` events of components the window names outlast every other component's, so a busy table cannot push out the render the agent asked about. */
+function evictCauseEvent(): void {
+  const firstUnnamed =
+    retainedNamedCauseEvents > NAMED_RENDER_EVENT_RESERVE
+      ? 0
+      : recentCauseEvents.findIndex((event) => !namedCauseEvents.has(event))
+  const [evicted] = recentCauseEvents.splice(Math.max(0, firstUnnamed), 1)
+  if (!evicted) return
+  if (namedCauseEvents.has(evicted)) retainedNamedCauseEvents -= 1
+  droppedRenderEvents += 1
+  evictedCauseEventsByComponent.set(
+    evicted.componentName,
+    (evictedCauseEventsByComponent.get(evicted.componentName) ?? 0) + 1,
+  )
+}
+
+function evictedCauseEventsOf(query: RenderCauseQuery): EvictedRenderEvents {
+  const selects = componentNameMatcher(query)
+  const selected = [...evictedCauseEventsByComponent]
+    .filter(([name]) => selects(name))
+    .sort(([, left], [, right]) => right - left)
+  return {
+    total: droppedRenderEvents,
+    selected: selected.reduce((sum, [, events]) => sum + events, 0),
+    components: selected.slice(0, GAP_COMPONENT_LIMIT).map(([name]) => name),
+    namedByWindow: selected.some(([name]) => isObservedComponentName(name)),
+  }
 }
 
 /** Finalize once after traversal so report coverage names every subsystem the shared guard stopped. */
