@@ -21,16 +21,10 @@ function docsPages() {
     })
 }
 
-const serverErrorRetries = 3
+const propagationRetries = 4
 
-async function fetchLive(path) {
-  const url = new URL(path, siteUrl)
-  let response = await fetch(url, { redirect: 'manual' })
-  for (let attempt = 1; response.status >= 500 && attempt <= serverErrorRetries; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, attempt * 2000))
-    response = await fetch(url, { redirect: 'manual' })
-  }
-  return response
+function fetchLive(path) {
+  return fetch(new URL(path, siteUrl), { redirect: 'manual' })
 }
 
 async function expectStatus(path, status, contentType) {
@@ -54,16 +48,28 @@ async function expectRedirect(from, to) {
 }
 
 const checks = [
-  expectStatus('/llms.txt', 200, 'text/markdown'),
-  expectStatus('/sitemap.xml', 200),
+  () => expectStatus('/llms.txt', 200, 'text/markdown'),
+  () => expectStatus('/sitemap.xml', 200),
   ...docsPages().flatMap((page) => [
-    expectStatus(page.html, 200, 'text/html'),
-    expectStatus(page.markdown, 200, 'text/markdown'),
+    () => expectStatus(page.html, 200, 'text/html'),
+    () => expectStatus(page.markdown, 200, 'text/markdown'),
   ]),
-  ...Object.entries(movedPages).map(([from, to]) => expectRedirect(from, to)),
+  ...Object.entries(movedPages).map(
+    ([from, to]) =>
+      () =>
+        expectRedirect(from, to),
+  ),
 ]
 
-const errors = (await Promise.all(checks)).filter(Boolean)
+// A new Worker version takes a few seconds to reach every Cloudflare location, so a failed URL is retried before it counts.
+let failing = checks
+let errors = []
+for (let attempt = 0; attempt <= propagationRetries && failing.length > 0; attempt++) {
+  if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, attempt * 3000))
+  const results = await Promise.all(failing.map((check) => check()))
+  failing = failing.filter((_, index) => results[index])
+  errors = results.filter(Boolean)
+}
 
 if (errors.length > 0) {
   console.error(`${siteUrl.origin} does not match this checkout:\n${errors.join('\n')}`)
