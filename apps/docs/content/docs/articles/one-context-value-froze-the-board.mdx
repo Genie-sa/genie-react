@@ -1,0 +1,183 @@
+---
+title: Collapsing the sidebar re-rendered 1,292 components. One context value was the cause
+description: One click on the sidebar toggle re-rendered every feature gate and priority picker on a 420-card board. Genie named the context value behind it, and verify proved the fix.
+---
+
+One click on **Toggle sidebar** re-rendered 1,292 components, and 1,260 of them were feature gates and
+priority pickers on board cards that did not change. The cause was `FeatureFlagsProvider`, which built
+a new context value on every render, so every component that read the flags rendered again whenever the
+app shell did.
+
+This page walks through how a coding agent finds that with Genie and proves the fix. Every command
+and output below comes from one run against `apps/realworld-legacy` in this repository, a React 18.3
+project tracker built with webpack, Redux Toolkit and `connect()`. The
+[raw evidence](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/one-context-value-froze-the-board.md)
+has every command with its full output.
+
+## The symptom
+
+The board shows 420 cards in five columns. Collapsing the sidebar changes one Redux field,
+`ui.sidebarCollapsed`. Only the shell and the sidebar should render.
+
+Open a render window, click once, wait for React to go idle, and count:
+
+```bash
+npx genie-react call react_clear_renders '{"budget":{"adaptive":false,"fiberLimit":20000,"operationLimit":2000000,"timeLimitMs":500,"targetOperationReserve":100000,"targetTimeReserveMs":100}}' --session art-l2 --select /ok
+agent-browser --session art-l2 click 'button[aria-label="Toggle sidebar"]'
+npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session art-l2 --select /outcome
+npx genie-react call react_get_renders '{"appOnly":false,"limit":1}' --session art-l2 --select /summary
+```
+
+The budget is the one the repository's eval probes use for this app. The summary, trimmed to the
+counts:
+
+```text
+result:
+  commits: 3
+  trackedComponents: 1288
+  totalRenders: 1292
+  totalUpdates: 1292
+  semantics: exact
+```
+
+The same read with `"component":"FeatureGate"` returned `totalUpdates` 840, and with
+`"component":"PriorityPicker"` it returned 420. That is two gates and one picker on every card.
+
+## The evidence
+
+`react_render_causes` says why one of those gates rendered:
+
+```bash
+npx genie-react call react_render_causes '{"component":"FeatureGate","limit":1}' --session art-l2
+```
+
+```text
+FeatureGate #8975944785683 {renderEventId:render:29:1292,…,necessity:unnecessary,necessityReason:output-unchanged,…}
+  ← context exact "Context(FeatureFlagsProvider)" {contextIndex:0}
+```
+
+The cause is a context change, graded `exact`, and the render produced the same output it had before.
+Add `"view":"full"` to see what changed inside the context value. This is the cause object from that
+read, trimmed with `…`:
+
+```text
+causes:[{kind:context,evidence:exact,…,name:"Context(FeatureFlagsProvider)",provider:{componentId:8975944778186,componentName:FeatureFlagsProvider},before:{flags:{card-estimates:true,card-labels:true,inline-priority:true,reports-workload:true,issue-presence:true},isEnabled:{…preview:"ƒ isEnabled()",…}},after:{flags:{card-estimates:true,card-labels:true,inline-priority:true,reports-workload:true,issue-presence:true},isEnabled:{…preview:"ƒ isEnabled()",…}},deepDiff:{changes:[{kind:identity-changed-uninspected,path:/isEnabled}],visited:3,truncated:true}}]
+```
+
+The five flags are identical before and after. The only change is `/isEnabled`, a function with a new
+identity.
+
+The unfiltered `react_get_renders` read from the first capture shows where the cascade started.
+Trimmed:
+
+```text
+AppShell #8975944778185 {…,wrappedBy:{…,componentName:"Connect(AppShell)",…,causes:[{kind:external-store,evidence:inferred,name:selector,redux:{evidence:exact,actions:[ui/sidebarToggled]}}],…},…}
+  ← parent inferred "Connect(AppShell)"
+  ← props exact sidebarCollapsed
+FeatureFlagsProvider #8975944778186 {…}
+  ← parent inferred AppShell {origin:"Connect(AppShell)"}
+  ← children exact
+```
+
+So the chain is `ui/sidebarToggled`, then `Connect(AppShell)`, then `AppShell` with a new
+`sidebarCollapsed` prop, then `FeatureFlagsProvider`, then every flag consumer.
+
+## The cause
+
+`AppShell` has to render when the sidebar collapses. The problem is what its child does when it
+renders:
+
+```tsx title="src/contexts/feature-flags.tsx"
+export function FeatureFlagsProvider({ flags, children }: FeatureFlagsProviderProps) {
+  const value = { flags, isEnabled: (name: string) => flags[name] === true }
+  return <FeatureFlagsContext.Provider value={value}>{children}</FeatureFlagsContext.Provider>
+}
+```
+
+Each render creates a new object and a new `isEnabled` arrow. React compares a provider's value with
+`Object.is`, sees a new object, and renders every component that calls `useContext` on it. `BoardCard`
+is wrapped in `memo` and its props did not change, but a context update reaches `FeatureGate` and
+`PriorityPicker` without passing through that check.
+
+## The fix
+
+Keep the value stable while `flags` is stable:
+
+```diff
+-import { createContext, type ReactNode, useContext } from 'react'
++import { createContext, type ReactNode, useContext, useMemo } from 'react'
+@@
+ export function FeatureFlagsProvider({ flags, children }: FeatureFlagsProviderProps) {
+-  const value = { flags, isEnabled: (name: string) => flags[name] === true }
++  const value = useMemo(() => ({ flags, isEnabled: (name: string) => flags[name] === true }), [flags])
+   return <FeatureFlagsContext.Provider value={value}>{children}</FeatureFlagsContext.Provider>
+ }
+```
+
+`flags` comes from `config?.flags ?? NO_FLAGS` in `AppShell`. RTK Query returns the same `config`
+object until it refetches, and `NO_FLAGS` is a module constant, so the memo holds across sidebar
+toggles.
+
+## The proof
+
+Declare what the fix must make true, click, and let Genie decide. `render SideNav min 1` is the
+positive control. If the click never reached the app, that claim fails.
+
+```bash
+npx genie-react verify begin --session art-l2 --name 'toggle the sidebar' \
+  --claim 'render FeatureGate max 0' --claim 'render SideNav min 1' --claim 'boundaries clean' \
+  --budget '{"adaptive":false,"fiberLimit":20000,"operationLimit":2000000,"timeLimitMs":500}'
+agent-browser --session art-l2 click 'button[aria-label="Toggle sidebar"]'
+npx genie-react verify end vfy_8d095d2a-164a-4840-97fe-3c46536c4865 --session art-l2
+```
+
+Before the fix, trimmed to the verdict, the claim lines and the exit code:
+
+```text
+fail vfy_8d095d2a-164a-4840-97fe-3c46536c4865 "toggle the sidebar"  4 commits, quiet after 1270 ms (react)
+  1 fail render FeatureGate max 0  {renders:37,mounts:0,updates:37,remounts:0,semantics:lower-bound,instances:200,activeInstances:200}
+  2 pass render SideNav min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:lower-bound,instances:1,activeInstances:1}
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+exitCode: 1
+```
+
+The verdict is right, but read the numbers with care. Genie resolved 200 `FeatureGate` instances for
+the claim while the board mounts 840, and it counted 37 renders, marked `lower-bound`. A run with the
+default budget gave the same 37. The exact count is the 840 from `react_get_renders` above. For an
+upper bound such as `max 0`, any render is enough to fail.
+
+With the fix applied and the page reloaded, the same begin, click and end, with the new ID, printed:
+
+```text
+pass vfy_b9edc18c-b624-4476-8833-8ea57574c3da "toggle the sidebar"  4 commits, quiet after 634 ms (react)
+  1 pass render FeatureGate max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:200,activeInstances:200}
+  2 pass render SideNav min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+exitCode: 0
+```
+
+The render count from the symptom section, repeated on the fixed code:
+
+| Component | Before | After |
+| --- | --- | --- |
+| All components | 1,292 | 33 |
+| `FeatureGate` | 840 | 0 |
+| `PriorityPicker` | 420 | 0 |
+| `BoardColumn` | 5 | 5 |
+
+## When this approach does not fit
+
+The five `BoardColumn` renders survive the fix. They come from a reselect selector shared by all five
+columns, a separate bug covered in
+[useSelector returned a new object](/docs/articles/useselector-new-object-rerenders).
+
+Genie counted renders here, not time. These runs did not measure how long the click took, so this
+page makes no claim about frame time. To prove a speed change, compare repeated captures as
+[Optimize](/docs/guides/optimize) describes.
+
+`useMemo` only helps when its inputs are stable. If `AppShell` passed a new `flags` object on every
+render, the memo would rebuild each time, and the fix would belong where `flags` is created.
+
+Genie does not look at the screen. It reports what React did, so confirm the sidebar still collapses
+with your browser driver. [Verify a fix](/docs/guides/verify-a-fix) lists every claim form, and
+[Debug renders and effects](/docs/guides/renders-and-effects) covers the render tools used here.

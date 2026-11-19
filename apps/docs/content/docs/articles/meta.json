@@ -4,6 +4,8 @@
   "pages": [
     "prove-your-agents-react-fix",
     "the-fix-that-passed-and-changed-nothing",
+    "one-context-value-froze-the-board",
+    "useselector-new-object-rerenders",
     "effect-fetches-on-every-keystroke",
     "clicked-7-days-got-90-days",
     "error-boundary-renders-nothing",
