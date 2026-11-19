@@ -87,7 +87,7 @@ When the screen updates slowly, find out whether you wait on data or on React:
 ```bash
 id=$(npx @genie-react/cli call timeline_start --session my-agent '{"name":"run mutation"}' --json | jq -r .id)
 agent-browser --session my-agent find text 'run mutation' click
-npx @genie-react/cli call devtools_wait --session my-agent '{"condition":"settled","timeoutMs":5000}'
+npx @genie-react/cli call devtools_wait --session my-agent '{"condition":"settled","domains":["react","query"],"timeoutMs":5000}'
 npx @genie-react/cli call timeline_stop --session my-agent "{\"id\":\"$id\"}"
 npx @genie-react/cli call timeline_read --session my-agent "{\"id\":\"$id\"}" --fields domain,type,atMs,details
 ```

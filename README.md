@@ -18,7 +18,7 @@ Declare what the fix must make true, drive the interaction, and let Genie decide
 
 ```bash
 pnpm exec genie-react verify begin --session my-agent --name "put one order on hold" \
-  --claim 'render OrderRow only props.order' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+  --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
 # Put one order on hold with agent-browser.
 pnpm exec genie-react verify end <id> --session my-agent
 ```
@@ -26,16 +26,18 @@ pnpm exec genie-react verify end <id> --session my-agent
 This is a real run on the [dashboard demo](apps/realworld-dashboard), trimmed to the first claim. Before the fix, putting one order on hold re-rendered every row because each row received a new `onStatusChange` callback:
 
 ```
-fail "put one order on hold"  10 commits, quiet after 771 ms (react, query, router)
-  1 fail render OrderRow only props.order  {renders:30,violatingEvents:30,causes:[props.onStatusChange,props.order]}
+fail "put one order on hold"  10 commits, quiet after 900 ms (react, query, router)
+  1 fail render OrderRow only props.order,mount  {renders:29,events:29,violatingEvents:26,causes:[mount,props.onStatusChange,props.order]}
 ```
 
 After the agent removed `rows` from the callback's dependencies:
 
 ```
-pass "put one order on hold"  11 commits, quiet after 907 ms (react, query, router)
-  1 pass render OrderRow only props.order  {renders:2,violatingEvents:0,causes:[props.order]}
+pass "put one order on hold"  10 commits, quiet after 1045 ms (react, query, router)
+  1 pass render OrderRow only props.order,mount  {renders:5,events:5,violatingEvents:0,causes:[mount,props.order]}
 ```
+
+The claim allows `mount` because a first mount is a render cause too: the table is virtualized, so rows below the fold mount during the click. Without it, the fixed run fails on those three mounts.
 
 The exit code is the verdict: `0` pass, `1` fail, `4` refused, `5` inconclusive. Genie passes a claim only on exact, complete evidence. When it cannot prove a claim, for example because the page reloaded mid-check, it refuses and prints the command that fixes the gap. Claims cover render counts, the causes a render may have, effect runs, effects that stop re-running, error boundaries, and Suspense fallbacks that hide a component. See [Verify a fix](https://genie-react.com/docs/workflows/verify-a-fix).
 

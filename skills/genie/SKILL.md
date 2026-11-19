@@ -26,11 +26,11 @@ Genie records renders and effects only inside a window, so open one before the a
 ```bash
 npx genie-react call react_clear_renders '{"component":"CheckoutRow"}' --session my-agent
 # Perform the action once with the driver.
-npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session my-agent
+npx genie-react call devtools_wait '{"condition":"settled","domains":["react","query","router"],"timeoutMs":10000}' --fail-on-result-error --session my-agent
 npx genie-react call react_render_causes '{"component":"CheckoutRow","limit":20}' --session my-agent
 ```
 
-The capture counts when quiesce reports `idle` and coverage is complete. If `coverage.budgetAdvice` appears, clear again with its budget and repeat the action. Each cause has a grade: `exact` is proof, `inferred` a lead, `unknown` open.
+The wait holds until React stops committing, no query is fetching, no mutation is running and the router has settled, so a refetch the action starts lands before you read. List only the domains `status` reports; a domain the app lacks fails the wait. Without `domains`, `settled` waits for React only, as `react_quiesce` does, which can report idle before a refetch commits. The capture counts when the wait reports `ok: true` and coverage is complete. If `coverage.budgetAdvice` appears, clear again with its budget and repeat the action. Each cause has a grade: `exact` is proof, `inferred` a lead, `unknown` open.
 
 | Question | Tool |
 | --- | --- |
@@ -58,7 +58,7 @@ npx genie-react verify begin --session my-agent --name "type in filter" \
 npx genie-react verify end <id> --session my-agent
 ```
 
-Include a `min 1` claim on a component the interaction must change, so an interaction that missed the app fails. The `no_activity` refusal covers only a window with no React commit at all, so on an app whose own timers commit, a missed interaction passes every `max` claim without it. A component hidden behind a Suspense fallback does not render, so claim `suspense <Name> hidden max 0` to prove it stayed on screen. `npx genie-react verify begin --help` lists the claim forms. The exit code is the verdict: `0` pass, `1` fail, `4` refused, `5` inconclusive. On a refusal, run its `$` fix and repeat the interaction; a refusal without one says what to change first. Report a fix only on a pass, quoting the verdict line, with the driver confirming the screen.
+Include a `min 1` claim on a component the interaction must change, so an interaction that missed the app fails. The `no_activity` refusal covers only a window with no React commit at all, so on an app whose own timers commit, a missed interaction passes every `max` claim without it. An `only` claim counts a first mount as a cause: add `mount`, as in `render OrderRow only props.order,mount`, when the action can mount instances, such as rows mounting in a virtualized list. A component hidden behind a Suspense fallback does not render, so claim `suspense <Name> hidden max 0` to prove it stayed on screen. `npx genie-react verify begin --help` lists the claim forms. The exit code is the verdict: `0` pass, `1` fail, `4` refused, `5` inconclusive. On a refusal, run its `$` fix and repeat the interaction; a refusal without one says what to change first. Report a fix only on a pass, quoting the verdict line, with the driver confirming the screen.
 
 ## Other agents
 

@@ -194,7 +194,9 @@ On hold
   shows it happening.
 - `verify` needs a development build of React 18 or newer. It counts renders, not milliseconds.
   For timing before and after a change, see [Optimize](/docs/guides/optimize).
-- `only props.order` held here because no row moved. If the update had re-sorted the table, rows
-  would also render for a new `start` position, and the claim would need that cause too.
+- `only props.order` held here because no row moved and none mounted. If the update had re-sorted
+  the table, rows would also render for a new `start` position, and the claim would need that cause
+  too. In a shorter viewport the virtualized table mounts rows below the fold during the click, and
+  the claim needs `mount`: `render OrderRow only props.order,mount`.
 
 The claim forms and every verdict are in [Verify a fix](/docs/guides/verify-a-fix).

@@ -56,6 +56,12 @@ Names are exact component names. Narrow one with `@src/file.tsx` or `[key=value]
 control, such as `min 1` on a component the action must change, so a run that never reached the app
 fails. `--claims <file>` takes claims as JSON.
 
+`only` treats a first mount as a cause like any other, so a component that mounts during the window
+fails `only props.order`. List `mount` when the action can mount instances, as a virtualized list
+does when rows below the fold mount: `render OrderRow only props.order,mount`. Allowing `mount` also
+accepts a remount from a changed `key`; a `max <N> counting updates` claim on the same component
+fails on one.
+
 A component hidden behind a Suspense fallback does not render, so `render TopBar max 0` passes while
 a fallback blanks the top bar. To prove a layout stays on screen while a lazy route or data loads,
 claim `suspense TopBar hidden max 0`. It counts every fallback above `TopBar` that replaced content
