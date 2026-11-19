@@ -455,6 +455,51 @@ describe('queryCollector', () => {
     })
   })
 
+  it('query_simulate_state pending and error drop the data timestamp like a query that never loaded', async () => {
+    const client = new QueryClient()
+    client.setQueryData(['greeting'], 'hello')
+    const collector = queryCollector(client)
+    const neverLoaded = { dataUpdatedAt: 0, dataUpdateCount: 0 }
+
+    await call(collector, 'query_simulate_state', { queryKey: ['greeting'], state: 'pending' })
+    expect(client.getQueryState(['greeting'])).toMatchObject({ data: undefined, ...neverLoaded })
+
+    await call(collector, 'query_simulate_state', { queryKey: ['greeting'], state: 'error' })
+    expect(client.getQueryState(['greeting'])).toMatchObject({ data: undefined, ...neverLoaded })
+  })
+
+  it('query_simulate_state keepData simulates a failed refresh that keeps the cached data', async () => {
+    const client = new QueryClient()
+    client.setQueryData(['greeting'], 'hello')
+    const { dataUpdatedAt } = client.getQueryState(['greeting']) ?? {}
+    const collector = queryCollector(client)
+    const observer = new QueryObserver(client, { queryKey: ['greeting'], enabled: false })
+    const unsubscribe = observer.subscribe(() => {})
+
+    await call(collector, 'query_simulate_state', { queryKey: ['greeting'], state: 'pending' })
+    await call(collector, 'query_simulate_state', {
+      queryKey: ['greeting'],
+      state: 'error',
+      errorMessage: 'Refresh failed',
+      keepData: true,
+    })
+
+    expect(client.getQueryState(['greeting'])).toMatchObject({
+      data: 'hello',
+      dataUpdatedAt,
+      status: 'error',
+      fetchStatus: 'idle',
+    })
+    expect(observer.getCurrentResult()).toMatchObject({
+      data: 'hello',
+      isRefetchError: true,
+      isLoadingError: false,
+    })
+    await call(collector, 'query_restore_state', { queryKey: ['greeting'] })
+    expect(client.getQueryState(['greeting'])).toMatchObject({ data: 'hello', status: 'success' })
+    unsubscribe()
+  })
+
   it('query_restore_state restores every simulated query and rejects missing targets', async () => {
     const client = new QueryClient()
     client.setQueryData(['one'], 1)

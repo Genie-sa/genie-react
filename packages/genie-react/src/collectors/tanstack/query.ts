@@ -473,7 +473,7 @@ const querySimulateStateContract = defineAgentToolContract({
   name: 'query_simulate_state',
   title: 'Simulate query pending or error state',
   description:
-    'Hold one existing query in a synthetic pending/loading or error state so its mounted UI can be inspected without changing app code or the server. Cancels a real in-flight fetch first, captures the stable state once, and notifies normal TanStack observers. While pending is simulated, TanStack treats the query as fetching and skips new fetches. Real Query activity can supersede the visible simulation; query_restore_state reports how it reconciled that activity. Always restore when finished.',
+    'Hold one existing query in a synthetic pending/loading or error state so its mounted UI can be inspected without changing app code or the server. Pending and the default error state look like a query that never loaded: no data, dataUpdatedAt 0. keepData=true with state=error keeps the cached data instead, like a failed background refresh. Cancels a real in-flight fetch first, captures the stable state once, and notifies normal TanStack observers. While pending is simulated, TanStack treats the query as fetching and skips new fetches. Real Query activity can supersede the visible simulation; query_restore_state reports how it reconciled that activity. Always restore when finished.',
   group: 'action',
   input: z
     .object({
@@ -484,6 +484,12 @@ const querySimulateStateContract = defineAgentToolContract({
         .min(1)
         .default('Simulated query error')
         .describe('Error message used when state=error; ignored for pending.'),
+      keepData: z
+        .boolean()
+        .default(false)
+        .describe(
+          'Used when state=error; ignored for pending. false simulates a failed first load: the query holds no data and dataUpdatedAt is 0. true simulates a failed background refresh: the cached data and dataUpdatedAt stay, so isRefetchError is true.',
+        ),
     })
     .refine((value) => hasQueryIdentifier(value), requireQueryIdentifier)
     .meta(requiresOneOf('queryHash', 'queryKey')),
@@ -661,7 +667,7 @@ function stateAfterSimulation(simulation: QuerySimulation): {
   if (current === applied) return { outcome: 'restored', state: { ...original } }
   const fetch = activity.fetching ? current : original
   const fetchFields = { fetchStatus: fetch.fetchStatus, fetchMeta: fetch.fetchMeta }
-  if (current.dataUpdateCount > original.dataUpdateCount) {
+  if (current.dataUpdateCount > applied.dataUpdateCount) {
     const fetchStatusIsSimulated =
       !activity.fetching && current.fetchStatus !== original.fetchStatus
     return { outcome: 'superseded', state: fetchStatusIsSimulated ? fetchFields : null }
@@ -1256,7 +1262,7 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
       }),
       defineCollectorTool({
         contract: querySimulateStateContract,
-        handler: async ({ queryHash, queryKey, state, errorMessage }) => {
+        handler: async ({ queryHash, queryKey, state, errorMessage, keepData }) => {
           const target = { queryHash, queryKey }
           let query = findQueryByIdentifier(queryCache(), target)
           if (!query) throw new Error(`Query not found for ${describeQueryIdentifier(target)}.`)
@@ -1274,9 +1280,11 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
           if (!query) throw new Error('Query was removed while its in-flight fetch was cancelled.')
 
           const originalState = existing?.originalState ?? { ...query.state }
+          const neverLoaded = { data: undefined, dataUpdatedAt: 0, dataUpdateCount: 0 }
+          const { data, dataUpdatedAt, dataUpdateCount } = originalState
           if (state === 'pending') {
             query.setState({
-              data: undefined,
+              ...neverLoaded,
               error: null,
               fetchFailureReason: null,
               fetchMeta: null,
@@ -1286,7 +1294,7 @@ export function queryCollector(queryClient: QueryClient): GenieCollector {
           } else {
             const error = new Error(errorMessage)
             query.setState({
-              data: undefined,
+              ...(keepData ? { data, dataUpdatedAt, dataUpdateCount } : neverLoaded),
               error,
               errorUpdatedAt: Date.now(),
               fetchFailureReason: error,

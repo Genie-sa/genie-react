@@ -24,7 +24,9 @@ simulatedState: pending
 originalStatus: success
 ```
 
-The page shows `query: loading…`. Use `"state":"error"` for the error branch. Restore the real data:
+The page shows `query: loading…`. Use `"state":"error"` for the error branch of a failed first load,
+and `"state":"error","keepData":true` for a refresh that fails while the old data is on screen.
+Restore the real data:
 
 ```bash
 npx @genie-react/cli call query_restore_state --session my-agent '{"queryKey":["greeting"]}'

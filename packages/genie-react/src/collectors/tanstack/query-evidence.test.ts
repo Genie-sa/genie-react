@@ -96,6 +96,44 @@ describe('query_invalidations', () => {
     expect(calls[0]?.stack.join('\n')).toContain('saveCustomer')
   })
 
+  it('names the cached key a singular, plural or one-letter typo in a key segment missed', async () => {
+    queryClient.setQueryData(['tasks', 'list'], [])
+    queryClient.setQueryData(['categories'], [])
+    queryClient.setQueryData(['projects', 'list'], [])
+    queryClient.setQueryData(['note', 'detail', 3], {})
+    await act(async () => queryClient.invalidateQueries({ queryKey: ['task', 'list'] }))
+    await act(async () => queryClient.invalidateQueries({ queryKey: ['category'] }))
+    await act(async () => queryClient.invalidateQueries({ queryKey: ['projcts', 'list'] }))
+    await act(async () => queryClient.invalidateQueries({ queryKey: ['notes', 'detail'] }))
+
+    const { calls } = await call<FilterCalls>('query_invalidations', {})
+    expect(
+      calls.map(({ filters, matchedCount, nearMisses }) => [
+        filters.queryKey,
+        matchedCount,
+        nearMisses,
+      ]),
+    ).toEqual([
+      [['notes', 'detail'], 0, ['["note","detail",3]']],
+      [['projcts', 'list'], 0, ['["projects","list"]']],
+      [['category'], 0, ['["categories"]']],
+      [['task', 'list'], 0, ['["tasks","list"]']],
+    ])
+  })
+
+  it('keeps unrelated keys out of near misses', async () => {
+    queryClient.setQueryData(['tasks', 'detail', 7], {})
+    queryClient.setQueryData(['users', 'list'], [])
+    queryClient.setQueryData(['orders', 'list'], [])
+    queryClient.setQueryData(['cart'], [])
+    await act(async () => queryClient.invalidateQueries({ queryKey: ['task', 'list'] }))
+    await act(async () => queryClient.invalidateQueries({ queryKey: ['invoices', 'list'] }))
+    await act(async () => queryClient.invalidateQueries({ queryKey: ['car'] }))
+
+    const { calls } = await call<FilterCalls>('query_invalidations', {})
+    expect(calls.map((entry) => entry.nearMisses)).toEqual([[], [], []])
+  })
+
   it('lists the queries a matching invalidation reached, once, without the refetch it makes itself', async () => {
     await mountCustomer()
     queryClient.setQueryData(['customers', 'detail', 'c-0007'], { name: 'unobserved' })

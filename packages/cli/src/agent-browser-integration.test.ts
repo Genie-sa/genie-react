@@ -5,7 +5,7 @@ import { createStandaloneBridge } from 'genie-react/hub'
 import { decodeFrame, encodeMessage, GENIE_TAB_IDENTITY_GLOBAL } from 'genie-react/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
-import { runCall, runStatus } from './agent'
+import { runCall, runStatus, runTools } from './agent'
 import type { FakePage } from './agent-browser.test-support'
 
 const AGENT_TOKEN = 'agent-browser-integration-token'
@@ -112,6 +112,7 @@ describe('CLI commands beside agent-browser', () => {
               title: 'Owner',
               description: 'Owner.',
               group: 'react',
+              outputJsonSchema: { type: 'object', properties: { answeredBy: { type: 'string' } } },
             },
           ],
         }),
@@ -283,5 +284,47 @@ describe('CLI commands beside agent-browser', () => {
         data: { session: 'docs', cause: 'no-genie' },
       }),
     )
+  })
+  it('keeps the --session name the user passed in tools next commands', async () => {
+    const url = await twoTabs()
+    browsers({
+      'agent-a': { url: APP_URL, logicalSessionId: 'tab-a' },
+      'agent-b': { url: APP_URL, logicalSessionId: 'tab-b' },
+    })
+    const output = captured()
+
+    expect(await runTools('react_component_for_dom', { url, session: 'agent-b', json: true })).toBe(
+      0,
+    )
+    const { argv } = output.result().output.next
+    expect(argv.slice(argv.indexOf('genie-react'))).toEqual([
+      'genie-react',
+      'tools',
+      'react_component_for_dom',
+      '--output-schema',
+      '--session',
+      'agent-b',
+    ])
+  })
+
+  it('keeps the --session name the user passed when suggesting a tool', async () => {
+    const url = await twoTabs()
+    browsers({
+      'agent-a': { url: APP_URL, logicalSessionId: 'tab-a' },
+      'agent-b': { url: APP_URL, logicalSessionId: 'tab-b' },
+    })
+    const output = captured()
+
+    expect(await runTools('react_component_for_do', { url, session: 'agent-b', json: true })).toBe(
+      1,
+    )
+    const { argv } = output.result().next
+    expect(argv.slice(argv.indexOf('genie-react'))).toEqual([
+      'genie-react',
+      'tools',
+      'react_component_for_dom',
+      '--session',
+      'agent-b',
+    ])
   })
 })

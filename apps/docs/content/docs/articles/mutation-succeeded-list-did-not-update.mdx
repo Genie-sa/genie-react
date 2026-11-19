@@ -194,9 +194,10 @@ the read and the invalidation together, so the two still match.
 
 ## Where this approach falls short
 
-- `nearMisses` stayed empty here. It lists cached keys that share the filter's first segment, and
-  `task` is not `tasks`. For a typo in the first segment, run `query_list` and compare the keys
-  yourself.
+- `nearMisses` stayed empty here. In 1.0.2 it lists only cached keys that share the filter's first
+  segment, and `task` is not `tasks`. Later releases also list keys where one segment differs by a
+  plural ending or a small typo, so this run would show `["tasks","list"]`. On 1.0.2, run
+  `query_list` and compare the keys yourself.
 - `query_invalidations` records the four filter calls only. A mutation that writes with
   `setQueryData` does not appear there. Read the target query with `query_get` instead.
 - `verify` decides render, effect and boundary claims, and it printed `ui-outcome-not-observed` on
