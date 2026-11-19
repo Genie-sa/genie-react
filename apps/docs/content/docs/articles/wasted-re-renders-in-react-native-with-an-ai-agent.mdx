@@ -249,8 +249,10 @@ Every `verify` result here carried this line in its `environment`:
 renderCollection:"degraded (hook installed after React initialised — commits before that point were not observed)"
 ```
 
-It means Genie missed commits from before its hook loaded, such as app startup. The windows here
-opened later, and every claim reported `semantics:exact`. Do not use this setup to measure startup.
+In 1.0.2 this line was wrong. The demo loads the hook first, but loading it read the global `Node`,
+which React Native defines lazily, and that loaded React Native's renderer before render tracking
+started. No commit was missed. Later releases leave `Node` unread until Genie needs it and report
+`renderCollection: available`.
 
 Genie measures development builds, so render counts here say nothing about release-build speed. For
 timing work, see [Optimize a slow interaction](/docs/guides/optimize). For claim syntax, see

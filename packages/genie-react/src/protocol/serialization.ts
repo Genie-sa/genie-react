@@ -112,14 +112,14 @@ function isReactElement(value: object): value is ReactElementLike {
   return typeof marker === 'symbol' && REACT_ELEMENT_TYPES.has(marker)
 }
 
-const DomNode = (globalThis as { Node?: new (...args: never[]) => object }).Node
-
 interface DomNodeLike {
   nodeName?: string
   id?: string
 }
 
+/** Reads `Node` per call: React Native defines it as a lazy global whose first read loads the renderer, which must not happen while the hook is still installing. */
 function isDomNode(value: object): value is DomNodeLike {
+  const DomNode = (globalThis as { Node?: new (...args: never[]) => object }).Node
   return typeof DomNode === 'function' && value instanceof DomNode
 }
 
