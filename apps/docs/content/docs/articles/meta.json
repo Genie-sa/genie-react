@@ -5,6 +5,8 @@
     "prove-your-agents-react-fix",
     "the-fix-that-passed-and-changed-nothing",
     "effect-fetches-on-every-keystroke",
-    "clicked-7-days-got-90-days"
+    "clicked-7-days-got-90-days",
+    "error-boundary-renders-nothing",
+    "blank-screen-while-lazy-route-loads"
   ]
 }
