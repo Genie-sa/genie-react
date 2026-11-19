@@ -98,6 +98,12 @@ type Result = Record<string, unknown> & {
   coverage: { complete: boolean; semantics: string }
 }
 
+function recordOf(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
 async function rendersUntilClassified(): Promise<Result> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     const report = await call<Result>('react_get_renders', { includeCursor: false })
@@ -179,6 +185,42 @@ describe('render results never contradict themselves', () => {
     expect(renders.coverage.complete).toBe(false)
     expect(getRendersProblems(renders)).toEqual([])
     expect(renderCausesProblems(causes)).toEqual([])
+  })
+
+  it('every read of a window whose budget ran out tells the agent to clear with a larger budget', async () => {
+    await call('react_clear_renders', { budget: { fiberLimit: 50, adaptive: false } })
+    host = document.createElement('div')
+    document.body.append(host)
+    const created = createRoot(host)
+    root = created
+    act(() => created.render(h(Table, { rows: 100, cells: 2 })))
+    const span = await call<{ handle: string }>('react_measure', { label: 'starved' })
+    await call('react_profile_snapshot', { label: 'starved-before' })
+    act(() => bump?.())
+
+    const reads: [string, Record<string, unknown>][] = [
+      ['react_get_renders', { appOnly: false }],
+      ['react_render_causes', { appOnly: false }],
+      ['react_component_cohort', { component: 'Cell', appOnly: false }],
+      ['react_component_cohort', { component: 'Cell', appOnly: false, view: 'full' }],
+      ['react_renders_since', { handle: span.handle, appOnly: false }],
+      ['react_profile_report', { appOnly: false }],
+      ['react_profile_snapshot', { label: 'starved-after' }],
+      ['react_renders_diff', { baseline: 'starved-before' }],
+      ['react_effect_audit', { appOnly: false }],
+      ['react_effect_events', { appOnly: false }],
+      ['react_effect_timeline', { appOnly: false }],
+    ]
+    const withoutAdvice: string[] = []
+    for (const [tool, args] of reads) {
+      const { coverage } = await call<{ coverage: Record<string, unknown> }>(tool, args)
+      const advice = recordOf(tool === 'react_renders_diff' ? recordOf(coverage.current) : coverage)
+      if (typeof recordOf(advice?.budgetAdvice)?.next !== 'string') {
+        withoutAdvice.push(`${tool} ${JSON.stringify(args)}`)
+      }
+    }
+
+    expect(withoutAdvice).toEqual([])
   })
 
   // React 19 records owner stacks for 10,000 elements a second; a 500-row table spends them, so smaller trees run before it to keep their sources.

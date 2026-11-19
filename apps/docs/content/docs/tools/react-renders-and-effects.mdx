@@ -339,7 +339,10 @@ npx @genie-react/cli call react_render_causes \
 (`view:"full"` adds hook IDs), then change the producer of the exact input. Repeat the interaction if events were evicted or
 coverage is incomplete. When a budget limit skipped work, `coverage.budgetAdvice` names the
 `exhaustedLimits` and gives a `suggestedBudget` estimated to fit the largest lossy commit; pass it to
-`react_clear_renders` and repeat the step. `react_get_renders` reports the same field.
+`react_clear_renders` and repeat the step. `react_get_renders`, `react_component_cohort`, the effect
+reads, `react_profile_report`, `react_profile_snapshot` and `react_renders_diff` (under
+`coverage.current`) report the same field, and `react_renders_since` reports it when a commit its
+span owns ran out.
 
 ```json
 {
@@ -374,7 +377,9 @@ returns every instance with its full descriptor and source provenance.
 `appOnly` defaults to `false`; set it to `true` to hide instances known to be library code.
 Ownership includes mounted instances and cached unmount provenance. Unknown ownership stays visible
 and lowers coverage. `documentCommitId` marks the captured traversal;
-`attribution.status: "stale"` means commits or a clear raced source lookup.
+`attribution.status: "stale"` means commits or a clear raced source lookup. A commit that ran out of
+analysis budget leaves instances `mounted-unknown`; `coverage.budgetAdvice` then gives the budget to
+pass to `react_clear_renders` before you repeat the step.
 
 Each instance also reports its current `renderingState`, independently of recorded updates:
 
@@ -1403,7 +1408,8 @@ The response carries `label`, disjoint `commitIds`, `excludedCommits` owned by n
 lookup. `omittedByLimit` identifies rows outside the selected page; the summary covers all selected
 components. Global clear does not erase span evidence. A span retains at most 500 components and
 1000 commits; hitting the commit cap closes it. Collection and retention losses make coverage
-incomplete. Unresolved source ownership also makes an app-only report incomplete; use
+incomplete. When a commit the span owns ran out of analysis budget, `coverage.budgetAdvice` gives
+the budget to pass to `react_clear_renders` before you repeat the step. Unresolved source ownership also makes an app-only report incomplete; use
 `appOnly:false` to inspect all retained records. `attribution:"temporal-only"` explicitly means
 these counts do not prove which interaction caused a commit.
 

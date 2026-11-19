@@ -100,6 +100,7 @@ import {
   getPendingUnmountFiberCount,
   getPropsNotEnumeratedFiberCount,
   getRefreshCommitsExcludedCount,
+  getRenderBudgetAdvice,
   getRenderCauseMeasurement,
   getRenderObservationConfig,
   getRendersLeaderboardsMeasurement,
@@ -567,13 +568,12 @@ export function reactCollector(): GenieCollector {
       defineCollectorTool({
         contract: reactRendersSinceContract,
         handler: ({ handle, close, component, exact, appOnly, limit }) =>
-          readMeasurementSpan(handle, close, {
-            component,
-            exact,
-            appOnly,
-            limit,
-            sort: 'renders',
-          }),
+          readMeasurementSpan(
+            handle,
+            close,
+            { component, exact, appOnly, limit, sort: 'renders' },
+            getRenderBudgetAdvice(),
+          ),
       }),
       defineCollectorTool({
         contract: reactGetRendersContract,
@@ -763,6 +763,7 @@ export function reactCollector(): GenieCollector {
               propsNotEnumeratedFibers: getPropsNotEnumeratedFiberCount(),
               budgetExhaustedCommits: getBudgetExhaustedCommitCount(),
               budgetExhaustedSubsystems: getBudgetExhaustedSubsystems(),
+              budgetAdvice: getRenderBudgetAdvice(),
               pendingUnmountFibers: getPendingUnmountFiberCount(),
             },
           )

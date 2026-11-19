@@ -851,6 +851,17 @@ const renderBudgetLimitSchema = z.enum([
   'targetTimeReserveMs',
 ])
 
+const renderBudgetAdviceSchema = z
+  .object({
+    exhaustedLimits: z.array(renderBudgetLimitSchema),
+    suggestedBudget: z.record(renderBudgetLimitSchema, z.number().positive()),
+    next: z.string(),
+  })
+  .optional()
+  .describe(
+    'Present when a budget limit skipped work in this window: the limits that ran out and a budget estimated to fit the largest lossy commit. Growth inside the window cannot restore skipped commits, so clear with the suggested budget and repeat the step.',
+  )
+
 const sourceClassificationEffectSchema = z
   .enum(['result', 'ownership-labels'])
   .describe(
@@ -912,16 +923,7 @@ export const renderCoverageSchema = z.object({
   budgetExhaustedSubsystems: z.array(
     z.object({ subsystem: z.string(), commits: z.number().int().positive() }),
   ),
-  budgetAdvice: z
-    .object({
-      exhaustedLimits: z.array(renderBudgetLimitSchema),
-      suggestedBudget: z.record(renderBudgetLimitSchema, z.number().positive()),
-      next: z.string(),
-    })
-    .optional()
-    .describe(
-      'Present when a budget limit skipped work in this window: the limits that ran out and a budget estimated to fit the largest lossy commit. Growth inside the window cannot restore skipped commits, so clear with the suggested budget and repeat the step.',
-    ),
+  budgetAdvice: renderBudgetAdviceSchema,
   incompleteBecause: z
     .array(
       z.object({
@@ -1399,6 +1401,7 @@ const cohortReportSchema = z.object({
     budgetExhaustedSubsystems: z.array(
       z.object({ subsystem: z.string(), commits: z.number().int().positive() }),
     ),
+    budgetAdvice: renderBudgetAdviceSchema,
     generationHistoryEvictions: z.number().int().nonnegative(),
   }),
 })
@@ -1571,6 +1574,9 @@ export const reactRendersSinceContract = defineAgentToolContract({
     coverage: z.object({
       complete: z.boolean(),
       semantics: renderCoverageSchema.shape.semantics,
+      budgetAdvice: renderBudgetAdviceSchema.describe(
+        'Present when a commit this span owns ran out of analysis budget: the limits that ran out and a budget estimated to fit the largest lossy commit in the window. Clear with the suggested budget and repeat the step.',
+      ),
     }),
     limitation: z.string(),
   }),

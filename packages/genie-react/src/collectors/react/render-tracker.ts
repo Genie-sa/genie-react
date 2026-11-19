@@ -72,6 +72,7 @@ import {
   beginMeasurementCommit,
   clearMeasurementSpans,
   hasOpenMeasurementSpan,
+  markMeasurementBudgetExhausted,
   markMeasurementCollectionGap,
   markMeasurementIncomplete,
   noteMeasurementUnmount,
@@ -2044,6 +2045,7 @@ export function finalizeCommitAnalysisBudget(budget: CommitAnalysisBudget): void
     decayAdaptiveBudget()
     return
   }
+  markMeasurementBudgetExhausted()
   const scale = currentBudgetScale()
   if (fiberLimitReached) exhaustedBudgetLimits.add('fiberLimit')
   if (budget.work.exhaustedLimit) {
