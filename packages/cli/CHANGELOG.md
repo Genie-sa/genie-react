@@ -1,5 +1,97 @@
 # @genie-react/cli
 
+## 1.1.0
+
+### Minor Changes
+
+- b93ecac: Verify claims hold up on more real apps, and new options cover cases that used to pass or fail for the wrong reason.
+
+  - `verify` waits for the app's in-flight fetch and XMLHttpRequest calls before it decides, and refuses with `not_quiescent` instead of passing while one is still open. Leave `network` out of `--domains` to turn the wait off.
+  - New claim `suspense <Component> hidden max <N>` fails when a Suspense fallback hides that component during the interaction.
+  - `verify` covers up to 2,000 mounted instances of a target and never grades a pass exact when some were left out.
+  - `reduxCollector` accepts `historyLimit` (1 to 5000) and `recordLibraryActions`. RTK Query's own actions are counted by type instead of filling the history.
+  - `query_simulate_state` accepts `keepData` with `state: error` to simulate a failed refresh that keeps its data.
+  - `call devtools_capture_compare --fail-on-result-error` exits 1 when the comparison fails, so CI can gate on it.
+
+### Patch Changes
+
+- 2a6c79b: `call devtools_capture_compare` exited 0 when a budget failed, so a CI script could not gate on the comparison. `--fail-on-result-error` now also covers it: the call exits 1 when `overall` is `fail`. Other verdicts, such as `inconclusive` or `insufficient-data`, still exit 0.
+- 2a6c79b: `react.selfTimeMs` in `devtools_capture_compare` added up one render per component, so typing 27 characters into a field compared about one keystroke, not the whole interaction. The metric now totals the self time of every render in the capture's window, the sum of each listed component's `cumulativeSelfTime`. Comparisons recompute from stored captures, so expect larger values for the same interaction.
+- 2a85a29: When the analysis budget ran out, `react_component_cohort` and `react_renders_since` reported the gap without `coverage.budgetAdvice`, so an agent following the skill had no budget to clear with. Both now include it: the cohort whenever the window ran out, and a span when a commit it owns ran out.
+- 2a85a29: The render in which a `useDeferredValue` catches up to its new value was graded `unknown` with `unclassified-hook-changed`, although `react_inspect_component` names the hook. With a development build of React it is now an exact `state` cause named `useDeferredValue`, with the before and after values on the hook `react_inspect_component` lists.
+- a6e2353: Explain why a `react_effect_audit` effect can be `hot` while `scheduleReason` says `below-schedule-rate`: the schedule rate decides the label only for an effect without a dependency array, and `basis` gives the reason the label holds. The field descriptions and the effect audit docs now say so.
+- 0c814bd: A failure's `exit` field now matches the code the process exits with. Before, commands other than `verify` printed the `verify` exit code, such as `exit: {code:2,class:usage}` for invalid arguments, but exited 1. They now print `exit: {code:1,class:failure}`. Exit codes are unchanged: `verify` keeps its taxonomy, and other commands exit 0 or 1. Use `reason` to tell failures apart.
+- 4959bc8: On React Native, a render window with the default budget ran out of time on an ordinary tap and skipped components, because the default time limits are measured in V8 and Hermes runs the analysis several times slower. An adaptive window on Hermes now gives commits eight times `timeLimitMs` and `targetTimeReserveMs`, `observationConfig` reports the limits in effect, and `budgetAdvice` still suggests a budget you can pass back unchanged.
+- a6e2353: Report hook call sites at their source lines. On Vite, and on webpack with an `eval` source-map devtool, `react_effect_audit`, `react_effect_timeline` and the external-store reports gave a hook's position in the transformed module, such as line 15 of a file whose `useEffect` is on line 13, or line 21 of a 17-line file, with `sourceMapConfidence: "served"`. They now read the module's source map, including the inline map webpack's eval devtools put in each module, and report the original line and column with `sourceMapConfidence: "mapped"`. Stack frames from webpack eval modules are source-mapped the same way.
+- e501d61: `react_inspect_component` and the other tools that take a component `id` now always read the committed fiber. Before, after a component skipped a commit that re-rendered a sibling, they could read React's stale alternate buffer and return old props and state. For example, they returned `{"range":"7d"}` while the page showed `90d`.
+- 4959bc8: On React Native, a render that changed text or other view props on screen was labeled `unnecessary` with `output-unchanged`, because Genie looked for React DOM's update flag and React Native's renderer never sets it. Genie now compares the host props too, so such a render reports `necessary` with `dom-changed` and lists its writes, and one that only replaced a callback reports `callbacks-changed`.
+- 4959bc8: On React Native 0.86, `renderCollection` reported `degraded (hook installed after React initialised)` even when the app loaded `genie-react/hook` first. Loading the hook read the global `Node`, which React Native defines lazily, and that loaded the renderer before render tracking started; no commit was missed. Genie now reads `Node` only when it needs it, and `renderCollection` reports `available`.
+- f7356eb: The README's example claim `render OrderRow only props.order` failed on a correct fix whenever rows mounted during the interaction, as a virtualized table does in a short viewport, because `only` counts a first mount as a cause. The README, the bundled agent skill and the Verify a fix guide now use `render OrderRow only props.order,mount` and explain when to list `mount`. Claim semantics are unchanged.
+- f9a742f: `query_invalidations` now finds the near miss when one key segment differs by a plural ending or a small typo. Before, `nearMisses` listed only keys that shared the filter's first segment, so `invalidateQueries({queryKey:['task','list']})` against a cached `['tasks','list']` reported none. It now lists `["tasks","list"]` first, then the keys that share the first segment.
+- f9a742f: `query_simulate_state` takes a new `keepData` option for `"state":"error"`. The default, `false`, still simulates a failed first load with no data. `true` simulates a failed background refresh: the cached data and `dataUpdatedAt` stay and TanStack reports `isRefetchError: true`, so you can check how a screen shows a refresh error over data it already has.
+- f9a742f: `query_simulate_state` now makes a simulated `pending` or `error` query look like one that never loaded. Before, it dropped the data but kept the old `dataUpdatedAt` and `dataUpdateCount`, so a page could show "Updated 12 seconds ago" next to its loading spinner. Both are now 0 during the simulation, and `query_restore_state` puts them back.
+- 2a85a29: `react_quiesce` reported `observedCommits: 0` right after a click whose commits landed before the call, which read as "nothing happened". `observedCommits` still counts only commits during the wait, and a new `renderWindow` field reports the open render window at the last sample, with its `commits` including the interaction you waited on, or `null` when no window is open.
+- a6e2353: `redux_actions` now counts `matched` from `afterSequence` when you pass it. It counted every retained match, so a forward page could show 4 records, `more: false` and `omittedBefore: 0` beside `matched: 8`.
+- e501d61: A component's first render in a render window now gets an `exact` Redux link when React had no pending work as the window opened. Before, a component that a sibling's update had skipped since its last render got `inferred` with `previous-render-unavailable`, and its candidate actions included dispatches from before the window, such as page-load fetches. An `inferred` link no longer lists actions from before the window.
+- 8334b2e: `redux_actions` no longer loses the app's own actions in apps that use RTK Query. The history kept a fixed 500 records, and RTK Query's own actions and thunks could fill it within one keystroke, so an action such as `issues/filtersChanged` was gone before you could read it. RTK Query's actions, the anonymous thunks that dispatch only those, and unrecorded changes that touch only RTK Query slices are now counted by type in `coverage.libraryActions` instead of filling the history; render causes still name them. Pass `recordLibraryActions: true` to `reduxCollector` to keep them as records, and `historyLimit` (1 to 5000, default 500) to keep more records.
+- 2a6c79b: The default `react_render_causes` view named an external store cause only by its store label, such as `anonymous-external-store`, and only `view:"full"` said which field changed. The default view now lists up to 10 `changedFields` on an `external-store` cause, so `selectedOrderIds` shows without the full view.
+- e501d61: Naming a component in `react_clear_renders` no longer loses its render causes. Before, every named component shared the 4,000-operation target reserve for input attribution, so with several large selectors one of them came back as `unknown` while an unscoped window named its `external-store` cause. A named component now spends its reserve first and then the general budget.
+- 0c814bd: Suggested commands (`next`, `fix` and `evidence` lines, and `next.command`/`next.argv` in JSON) now start with the runner you used. Before, a project with a pnpm lockfile always got `pnpm exec genie-react …`, even when you ran `npx genie-react`. Genie reads the runner from `npm_config_user_agent` and falls back to the project's lockfile when it is not set. The installed skill still uses the project's package manager.
+- f9a742f: `genie-react tools` suggestions now repeat the `--session` you passed. Before, `tools <name> --session my-agent` printed `next: … --session <tab UUID>` when the name resolved through agent-browser. The `--output-schema` hint and the suggestion for an unknown tool now use `--session my-agent`.
+- 2a85a29: Render reads listed TanStack Router `Link` elements, and other `memo(forwardRef(...))` components whose inner function has no name, under the file name of the JSX that rendered them (`sidebar-nav.tsx`) with unknown ownership, so `appOnly:true` kept them. Genie now classifies such a wrapper by the component it wraps, so a library one is hidden, and names a component that has no runtime name after the JSX tag at its call site, such as `Link`.
+- d8b1e1c: Describe Genie as the way your coding agent verifies and optimizes React and React Native apps, and point the npm homepage at genie-react.com.
+- b0ee730: `verify begin` text output shows each undecided claim as `recording` instead of `null`, for example `1 recording render OrderRow only props.order`, and no longer prints an empty `{}` after it.
+- 2a6c79b: `verify` reported the URL the app connected on, not the page the browser showed. After an in-app navigation from `/orders/o-105000?tab=overview` to `/`, `verify begin` and `verify end` both printed the order URL, and the claim fingerprint that groups reruns used it too. `verify` now reads the page URL at begin and at end, so the printed URL, the fingerprint and the URL in a fix command match the page. `browser_visibility` reports that URL as `url`.
+- b0ee730: A `coverage_incomplete` refusal caused by the interaction unmounting more components than Genie keeps (`droppedUnmountFibers`) no longer suggests beginning again, which lost the same unmounts every time. It now says to start from a page that mounts fewer components or to claim a lower bound, and its fix is `change-claim`.
+- b0cf3a2: `verify` read at most 200 mounted instances of a target and still graded the claim as if it had seen them all. On a board with 840 `FeatureGate` instances, `render FeatureGate max 0` passed as `semantics: exact` with `instances: 200`. `verify` now lists up to 2,000 instances, and `react_component_cohort` accepts a `limit` up to 2,000. When a target has more, the target and the claim report `omittedInstances`, the count is a lower bound, and a claim that would pass is refused with `evidence_truncated`. A claim that renders prove false still fails.
+- b0ee730: The verify history line names only the reasons behind an earlier run's verdict. Before, a run that failed on one claim was listed as `previous fail vfy_… (target_not_found)` when another claim had been refused with `target_not_found`; it is now `previous fail vfy_…`.
+- b0ee730: `verify` keeps the rerun history of the same claims on the same tab when a target's source file resolves on one run and not the other, as can happen right after a reload. Before, such a rerun got a new ledger fingerprint and started again at attempt 1 with no history.
+- a6e2353: State exactly when `verify` refuses with `no_activity`: only when the window holds no React commit from any component. On an app whose own timer sets state, a window with no interaction passes, so the docs and the bundled skill now point to a `min 1` claim to catch an action that never reached the app.
+- b0cf3a2: A `render <Name> only <cause>` claim could not pass on a class component wrapped in `connect()`. Every render also carried an inferred `parent` cause, so the claim was refused with `evidence_inferred` and no claim to write instead. When that parent is the component's own wrapper and the wrapper rendered only for exact causes the claim allows, `verify` now counts the parent cause as settled and the claim can pass. The deciding event names the wrapper and its causes.
+- f7d720e: `verify` can now prove that a Suspense fallback did not hide a component. A fallback above the layout could blank the top bar while a lazy route loaded, and `render TopBar max 0` still passed, because hiding is not a render. Claim `suspense TopBar hidden max 0` instead: it fails when any Suspense boundary above `TopBar` replaced it with its fallback during the window, even if the fallback resolved before `verify end`, and refuses when the evidence is incomplete. `react_error_state` with `afterDocumentCommitId` also returns this `hideLog`.
+- f181665: `verify end` no longer passes while a request the interaction started is still in flight. Settle used to wait only for React (and Query or Router when present), so a slow response that landed after React went quiet changed the screen after a `pass`. Settle now also waits on a `network` domain: every `fetch` and `XMLHttpRequest` call the app started during the window must get its response, up to `--timeout-ms`. A request still in flight at the timeout, or at the freeze after the tail, refuses the claims a late response could change with `not_quiescent`; the message names the request, and the `$` fix raises `--timeout-ms`. The verdict line lists `network` among the settled domains. `--domains` accepts `network`, and leaving it out of `--domains` stops the wait. The new `request_watch_start`, `request_watch_read` and `request_watch_stop` tools (`requestWatchCollector` for manual setups) count the requests; requests from workers, WebSocket and EventSource are not seen.
+- 2a6c79b: Hook and effect sources from a Vite app lost their `/src` prefix when the file sat in a short directory such as `src/lib`, `src/api` or `src/ui`: a `useEffect` in `src/lib/telemetry.ts` was reported in `/lib/telemetry.ts`. Genie now keeps the path the dev server serves, so the reported file exists.
+- f7356eb: The bundled agent skill told agents to read renders after `react_quiesce`, which waits for React only, so a TanStack Query refetch could commit after the read. The skill, EVIDENCE.md and the renders guide now wait with `devtools_wait` condition `settled` and `"domains":["react","query","router"]`, and say that `settled` without `domains` also waits for React only.
+- Updated dependencies [2a6c79b]
+- Updated dependencies [2a6c79b]
+- Updated dependencies [2a85a29]
+- Updated dependencies [2a85a29]
+- Updated dependencies [a6e2353]
+- Updated dependencies [0c814bd]
+- Updated dependencies [b93ecac]
+- Updated dependencies [4959bc8]
+- Updated dependencies [a6e2353]
+- Updated dependencies [e501d61]
+- Updated dependencies [4959bc8]
+- Updated dependencies [4959bc8]
+- Updated dependencies [f7356eb]
+- Updated dependencies [f9a742f]
+- Updated dependencies [f9a742f]
+- Updated dependencies [f9a742f]
+- Updated dependencies [2a85a29]
+- Updated dependencies [a6e2353]
+- Updated dependencies [e501d61]
+- Updated dependencies [8334b2e]
+- Updated dependencies [2a6c79b]
+- Updated dependencies [e501d61]
+- Updated dependencies [0c814bd]
+- Updated dependencies [f9a742f]
+- Updated dependencies [2a85a29]
+- Updated dependencies [d8b1e1c]
+- Updated dependencies [b0ee730]
+- Updated dependencies [2a6c79b]
+- Updated dependencies [b0ee730]
+- Updated dependencies [b0cf3a2]
+- Updated dependencies [b0ee730]
+- Updated dependencies [b0ee730]
+- Updated dependencies [a6e2353]
+- Updated dependencies [b0cf3a2]
+- Updated dependencies [f7d720e]
+- Updated dependencies [f181665]
+- Updated dependencies [2a6c79b]
+- Updated dependencies [f7356eb]
+  - genie-react@1.1.0
+
 ## 1.0.2
 
 ### Patch Changes
