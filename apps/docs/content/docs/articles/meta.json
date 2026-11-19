@@ -2,6 +2,8 @@
   "title": "Articles",
   "icon": "Newspaper",
   "pages": [
+    "what-is-an-agentic-react-tool",
+    "debug-a-react-app-with-claude-code",
     "prove-your-agents-react-fix",
     "the-fix-that-passed-and-changed-nothing",
     "we-planted-15-bugs-in-a-legacy-react-app",
