@@ -32,6 +32,8 @@ a `deprecations` entry naming `component`. `roots` defaults to `[]` and accepts 
 50–20000, 1000–2000000, 1–500, 100–500000, and 0.5–250 respectively. `lifecycle`
 defaults to `{bufferLimit:1000,targetReserve:100}`; `bufferLimit` is an integer from 100 to 20000,
 `targetReserve` is an integer from 0 to 5000, and the reserve cannot exceed the buffer.
+A named component's input attribution spends its target reserve first and then the general budget,
+so naming a component never leaves it fewer causes than an unscoped window finds.
 
 The first commit analyzed after commits nothing observed, such as the first interaction in a new
 window, gets four times `timeLimitMs` and `targetTimeReserveMs`, up to their maxima, because the
@@ -1161,6 +1163,8 @@ Clears render counters and starts a profiling observation.
 50–20000, 1000–2000000, 1–500, 100–500000, and 0.5–250 respectively. `lifecycle`
 defaults to `{bufferLimit:1000,targetReserve:100}`; `bufferLimit` is an integer from 100 to 20000,
 `targetReserve` is an integer from 0 to 5000, and the reserve cannot exceed the buffer.
+A named component's input attribution spends its target reserve first and then the general budget,
+so naming a component never leaves it fewer causes than an unscoped window finds.
 
 The first commit analyzed after commits nothing observed, such as the first interaction in a new
 window, gets four times `timeLimitMs` and `targetTimeReserveMs`, up to their maxima, because the

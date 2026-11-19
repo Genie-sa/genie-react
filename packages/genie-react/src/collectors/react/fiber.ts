@@ -1,4 +1,5 @@
 import {
+  _fiberRoots,
   type ContextDependency,
   type Fiber,
   type FiberRoot,
@@ -171,6 +172,16 @@ export interface CommittedRootScope {
   truncated: boolean
 }
 
+export function pendingLanesOf(root: unknown): number {
+  const lanes = (root as { pendingLanes?: unknown }).pendingLanes
+  return typeof lanes === 'number' ? lanes : 0
+}
+
+/** Whether any React root has an update scheduled or suspended that it has not committed yet. */
+export function isReactWorkScheduled(): boolean {
+  return [..._fiberRoots].some((root) => pendingLanesOf(root) !== 0)
+}
+
 // DevTools semantics: a commit whose current has no child is that root unmounting, so it stops being a candidate (and stops being retained).
 export function noteCommittedRoot(root: FiberRoot): void {
   const current = root.current
@@ -330,13 +341,21 @@ function climbToRoot(fiber: Fiber): Fiber {
   return fiberRoot?.current ?? current
 }
 
-function isMounted(fiber: Fiber, root: Fiber): boolean {
-  let current: Fiber | null = fiber
-  while (current) {
-    if (current === root) return true
-    current = current.return
+// Return links can point at either buffer of an ancestor, so a stale buffer may still climb to the committed root. Descending the root's child links visits only committed fibers; each step matches the ancestor or its alternate.
+function committedBufferUnder(fiber: Fiber, root: Fiber): Fiber | null {
+  const ancestry: Fiber[] = []
+  for (let current: Fiber | null = fiber; current; current = current.return) ancestry.push(current)
+  const top = ancestry.pop()
+  if (top !== root && top !== root.alternate) return null
+  let committed = root
+  for (let depth = ancestry.length - 1; depth >= 0; depth -= 1) {
+    const buffer = ancestry[depth] as Fiber
+    let child = committed.child
+    while (child && child !== buffer && child !== buffer.alternate) child = child.sibling
+    if (!child) return null
+    committed = child
   }
-  return false
+  return committed
 }
 
 // react-refresh names inline components `_c`, `_c2`, … — treat those as unnamed so a memo/forwardRef wrapper's displayName (the name users actually set) can win.
@@ -891,9 +910,9 @@ export function findFiberById(root: Fiber, id: NodeId): Fiber | null {
 function findFiberByIdWithin(root: Fiber, id: NodeId): Fiber | null {
   const cached = fiberRegistry.get(id)
   if (cached) {
-    // Resolving the mounted buffer via return-link climbs stays O(depth); bippy's getLatestFiber falls back to a full-root scan when profiler timings are absent. Stale entries fall through to the walk below.
-    if (isMounted(cached, root)) return cached
-    if (cached.alternate && isMounted(cached.alternate, root)) return cached.alternate
+    // Stays O(depth × siblings); bippy's getLatestFiber falls back to a full-root scan when profiler timings are absent. Unmounted entries fall through to the walk below.
+    const committed = committedBufferUnder(cached, root)
+    if (committed) return committed
   }
 
   let found: Fiber | null = null

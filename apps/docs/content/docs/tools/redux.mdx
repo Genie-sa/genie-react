@@ -9,6 +9,9 @@ The JSON examples below show selected fields from the full response.
 These tools exist when the app registers the [Redux collector](/docs/getting-started/install#redux).
 To find the action behind a render, read the `external-store` cause from `react_render_causes`: its
 `redux` field names the actions and grades the link. The history keeps the last 500 records.
+When a component's first render in a window has no earlier render to compare with, Genie still
+grades it `exact` if React had no pending work when the window opened: the window start then
+bounds the actions. An `inferred` link never lists an action from before the window.
 
 The collector supports Redux 4 and 5 and Redux Toolkit 1.9 and 2, with react-redux 8 and 9 for the
 render join. It does not record dispatches that bypass the wrapped `dispatch`, such as sagas, epics

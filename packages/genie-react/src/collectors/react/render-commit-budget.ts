@@ -24,7 +24,7 @@ export interface CommitAnalysisBudget {
   targetWork: CommitWorkBudget
   /** Separate pool for render-input attribution; exhausting it never skips render recording. */
   attributionWork: CommitWorkBudget
-  /** Observation targets' attribution pool, sized like the target reserve so wide non-target siblings cannot starve it. */
+  /** Observation targets' attribution reserve, sized like the target reserve and spent before `attributionWork`, so wide non-target siblings cannot starve it. */
   targetAttributionWork: CommitWorkBudget
   currentCommitEvidence: CurrentCommitEvidence
 }

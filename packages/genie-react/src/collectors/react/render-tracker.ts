@@ -17,6 +17,7 @@ import {
   registerQuerySubscriber,
   setExternalStoreObservation,
 } from '../causal/external-store-registry'
+import { noteRenderWindowStart } from '../causal/redux-store-registry'
 import { isDataDescriptor, safeOwnPropertyDescriptor } from '../causal/safe-object'
 import { safeStructuredClone } from '../structured-clone'
 import { getTimings } from './bippy-compat'
@@ -48,7 +49,13 @@ import {
   recordBoundaryCommit,
   recordErrorState,
 } from './error-tracker'
-import { findAllCommittedRootFibers, nameOf, noteCommit, noteCommittedRoot } from './fiber'
+import {
+  findAllCommittedRootFibers,
+  isReactWorkScheduled,
+  nameOf,
+  noteCommit,
+  noteCommittedRoot,
+} from './fiber'
 import {
   beginInstanceObservation,
   discardExcludedInstanceUnmount,
@@ -555,6 +562,7 @@ export function disposeRenderTracking(): void {
   unmountRendererVerdicts.clear()
   uncertainTraversalRoots = new WeakMap()
   traversedRoots = new WeakSet()
+  noteRenderWindowStart(null)
 }
 
 /** Pause commit recording without uninstalling instrumentation; isTracking() reports false until startRenderTracking() resumes. */
@@ -705,6 +713,10 @@ export function clearRenders(options: RenderObservationOptions = {}): Observatio
   instrumentMountedClasses()
   const observation = beginObservation()
   setExternalStoreObservation(observation)
+  const openedAt = globalThis.performance?.now?.()
+  noteRenderWindowStart(
+    openedAt === undefined ? null : { at: openedAt, settled: !isReactWorkScheduled() },
+  )
   beginInstanceObservation(observation.id)
   return observation
 }
@@ -1387,7 +1399,8 @@ export function recordCommitFiber(
       effectPreparation,
       work,
       budget.currentCommitEvidence,
-      targeted ? budget.targetAttributionWork : budget.attributionWork,
+      budget.attributionWork,
+      targeted ? budget.targetAttributionWork : undefined,
     )
     if (consumeCommitWork(work, targeted ? 'target-error-state' : 'error-state')) {
       recordErrorState(fiber)
@@ -1407,13 +1420,22 @@ export function recordRender(
   commitWork?: CommitWorkBudget,
   commitEvidence?: CurrentCommitEvidence,
   attributionWork?: CommitWorkBudget,
+  attributionReserve?: CommitWorkBudget,
 ): void {
   if (!isCompositeFiber(fiber)) return
   const id = getFiberId(fiber)
   const previous = records.get(id)
   const checkpoint = previous ? { ...previous, causeCounts: { ...previous.causeCounts } } : null
   try {
-    recordRenderAtomic(fiber, phase, effectPreparation, commitWork, commitEvidence, attributionWork)
+    recordRenderAtomic(
+      fiber,
+      phase,
+      effectPreparation,
+      commitWork,
+      commitEvidence,
+      attributionWork,
+      attributionReserve,
+    )
     const recorded = records.get(id)
     if (recorded && recorded !== previous) recordMeasurementRender(recorded, previous)
   } catch (error) {
@@ -1430,6 +1452,7 @@ function recordRenderAtomic(
   commitWork?: CommitWorkBudget,
   commitEvidence?: CurrentCommitEvidence,
   attributionWork?: CommitWorkBudget,
+  attributionReserve?: CommitWorkBudget,
 ): void {
   if (!isCompositeFiber(fiber)) return
 
@@ -1506,7 +1529,7 @@ function recordRenderAtomic(
   }
 
   const renderEventId = nextCausalEventId('render')
-  const evidenceBudget = createRenderEvidenceBudget(attributionWork, commitWork)
+  const evidenceBudget = createRenderEvidenceBudget(attributionWork, commitWork, attributionReserve)
   const pendingQuerySubscribers: PendingQuerySubscriberRegistration[] = []
   const propChanges = diffProps(fiber, evidenceBudget)
   const stateChanges = diffStateChanges(fiber, evidenceBudget)
