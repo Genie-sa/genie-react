@@ -812,3 +812,137 @@ describe('verify on a tree with more matching instances than one render report k
     ])
   }, 20_000)
 })
+
+describe('verify a lazy route whose Suspense boundary can hide the app shell', () => {
+  type Boundary = 'above-shell' | 'inside-shell'
+  type ReactApi = Pick<
+    typeof import('react'),
+    'createElement' | 'lazy' | 'memo' | 'Suspense' | 'useState'
+  >
+
+  /** The realworld-legacy layout: a top bar and a nav link in the shell, and a lazy page under a boundary either above the shell or around the page only. */
+  function lazyRouteApp(React: ReactApi, boundary: Boundary) {
+    let loadSettings: () => void = () => {}
+    const SettingsPage = React.lazy(
+      () =>
+        new Promise<{ default: () => ReactNode }>((resolve) => {
+          loadSettings = () =>
+            resolve({
+              default: function SettingsPage(): ReactNode {
+                return React.createElement('h1', null, 'settings')
+              },
+            })
+        }),
+    )
+    const TopBar = React.memo(function TopBar(): ReactNode {
+      return React.createElement('header', null, 'top bar')
+    })
+    function AppShell({ page, open }: { page: string; open: () => void }): ReactNode {
+      const content =
+        page === 'settings'
+          ? React.createElement(SettingsPage)
+          : React.createElement('p', null, 'board')
+      return React.createElement(
+        'div',
+        null,
+        React.createElement(TopBar),
+        React.createElement('button', { type: 'button', onClick: open }, 'open settings'),
+        React.createElement(
+          'main',
+          null,
+          boundary === 'inside-shell'
+            ? React.createElement(
+                React.Suspense,
+                { fallback: React.createElement('p', null, 'loading page') },
+                content,
+              )
+            : content,
+        ),
+      )
+    }
+    function App(): ReactNode {
+      const [page, setPage] = React.useState('board')
+      const shell = React.createElement(AppShell, { page, open: () => setPage('settings') })
+      return boundary === 'above-shell'
+        ? React.createElement(React.Suspense, { fallback: null }, shell)
+        : shell
+    }
+    return { App, load: () => loadSettings() }
+  }
+
+  const shellClaims: VerifyClaimInput[] = [
+    { kind: 'suspense-hidden', target: { component: 'TopBar' }, max: 0 },
+    { kind: 'renders', target: { component: 'TopBar' }, max: 0 },
+    { kind: 'renders', target: { component: 'SettingsPage' }, min: 1 },
+  ]
+
+  const renderers = {
+    'React 19': async (boundary: Boundary) => {
+      const React = await import('react')
+      const fixture = lazyRouteApp(React, boundary)
+      const app = await mount(createElement(fixture.App))
+      return { container: app.container, act, load: fixture.load }
+    },
+    'React 18': async (boundary: Boundary) => {
+      const react18 = loadReact18('development')
+      const fixture = lazyRouteApp(react18.React, boundary)
+      const container = document.createElement('div')
+      document.body.append(container)
+      const root = react18.createRoot(container)
+      productionRoots.push({ unmount: () => root.unmount(), container })
+      await react18.act(() => root.render(react18.React.createElement(fixture.App)))
+      return { container, act: react18.act, load: fixture.load }
+    },
+  }
+
+  async function openSettings(boundary: Boundary, renderer: keyof typeof renderers) {
+    const app = await renderers[renderer](boundary)
+    start()
+    const began = await begin(shellClaims)
+    await app.act(() => {
+      byText(app.container, 'open settings').click()
+    })
+    const shellWhileLoading = {
+      topBarVisible: !app.container.querySelector('header')?.closest('[style*="display: none"]'),
+      text: app.container.textContent,
+    }
+    await app.act(async () => {
+      app.load()
+      await Promise.resolve()
+    })
+    expect(app.container.textContent).toContain('settings')
+    return { verdict: await end(began.verificationId), shellWhileLoading }
+  }
+
+  it.each(Object.keys(renderers) as (keyof typeof renderers)[])(
+    'fails on %s when the boundary above the shell hides the top bar, which a render claim cannot see',
+    async (renderer) => {
+      const { verdict, shellWhileLoading } = await openSettings('above-shell', renderer)
+
+      expect(shellWhileLoading.topBarVisible).toBe(false)
+      expect(verdict.claims.map((claim) => claim.verdict)).toEqual(['fail', 'pass', 'pass'])
+      expect(verdict.claims[0]).toMatchObject({
+        text: 'suspense TopBar hidden max 0',
+        observed: { hidden: 1 },
+        deciding: [expect.objectContaining({ kind: 'suspense-hide', boundary: 'Suspense' })],
+      })
+    },
+  )
+
+  it.each(Object.keys(renderers) as (keyof typeof renderers)[])(
+    'passes on %s once the boundary sits inside the shell around the page',
+    async (renderer) => {
+      const { verdict, shellWhileLoading } = await openSettings('inside-shell', renderer)
+
+      expect(shellWhileLoading).toEqual({
+        topBarVisible: true,
+        text: expect.stringContaining('loading page'),
+      })
+      expect(verdict.verdict).toBe('pass')
+      expect(verdict.claims[0]).toMatchObject({
+        observed: { hidden: 0 },
+        deciding: [expect.objectContaining({ kind: 'suspense-hide-log', complete: true })],
+      })
+    },
+  )
+})

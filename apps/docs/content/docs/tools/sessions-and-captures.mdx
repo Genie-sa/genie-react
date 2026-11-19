@@ -572,7 +572,8 @@ at most 10 distinct targets. Each claim has a `kind`: `renders` with a `target` 
 only with `counting:"updates"`); `render-causes` with a `target` and an `allow` list of 1–20 causes, each a
 `kind` from `mount`, `children`, `router`, `props`, `state`, `context`, `query`, `parent` and
 `external-store` with an optional `name`; `effect-runs` with a `target` and `max`; `effect-settles` with a
-`target`; and `boundaries-clean` with a `scope` of `window` (default) or `end`. A `target` has a required
+`target`; `boundaries-clean` with a `scope` of `window` (default) or `end`; and `suspense-hidden` with a
+`target` and `max`, the most commits in which a Suspense fallback may replace the target. A `target` has a required
 `component` display name, an optional `source` file suffix, an optional `key`, and for effect claims an
 optional `effectIndex`. `budget` takes `fiberLimit`, `operationLimit`, `timeLimitMs`,
 `targetOperationReserve`, `targetTimeReserveMs` and `adaptive` with the `react_clear_renders` defaults.
@@ -581,7 +582,7 @@ optional `effectIndex`. `budget` takes `fiberLimit`, `operationLimit`, `timeLimi
 include `react` and defaults to every domain the app advertises. `tailMs` (0–30,000) overrides the tail,
 `maxDurationMs` (10,000–1,800,000, default 300,000) bounds the window, and `allowOverrides` (default
 `false`) permits overrides during it. Every claim requires `kind`, every cause in `allow` requires its
-`kind`, `render-causes` requires `allow`, and `effect-runs` requires `max`.
+`kind`, `render-causes` requires `allow`, and `effect-runs` and `suspense-hidden` require `max`.
 
 ```bash
 npx @genie-react/cli call devtools_verify_begin \

@@ -18,8 +18,8 @@ export class ClaimSyntaxError extends Error {
   }
 }
 
-const CLAIM_KEYWORDS = ['render', 'effect', 'boundaries'] as const
-const LATER_KINDS = new Set(['query', 'route', 'suspense', 'budget'])
+const CLAIM_KEYWORDS = ['render', 'effect', 'boundaries', 'suspense'] as const
+const LATER_KINDS = new Set(['query', 'route', 'budget'])
 const BOUND_KEYWORDS = ['max', 'min', 'only'] as const
 const EFFECT_KEYWORDS = ['max', 'settles'] as const
 const BOUNDARY_KEYWORDS = ['clean', 'clean-at-end'] as const
@@ -177,13 +177,23 @@ function parseBoundaries(words: string[]): VerifyClaimInput {
   return { kind: 'boundaries-clean', ...(scope === 'clean-at-end' ? { scope: 'end' } : {}) }
 }
 
+function parseSuspense(words: string[]): VerifyClaimInput {
+  const target: VerifyTarget = parseTarget(words[1], 2, false)
+  if (words[2] !== 'hidden') return expected(3, 'hidden', words[2], ['hidden'])
+  if (words[3] !== 'max') return expected(4, 'max', words[3], ['max'])
+  const max = parseCount(words[4], 5)
+  if (words.length > 5)
+    throw new ClaimSyntaxError('Word 6: a suspense hidden claim takes no further words.', 6)
+  return { kind: 'suspense-hidden', target, max }
+}
+
 /** Parses one `--claim` value in the verify DSL into the claim JSON the hub accepts. */
 export function parseClaim(text: string): VerifyClaimInput {
   const words = text.trim().split(/\s+/).filter(Boolean)
   const [kind] = words
   if (kind !== undefined && LATER_KINDS.has(kind)) {
     throw new ClaimSyntaxError(
-      `Word 1: ${kind} claims are not available in this release; use render, effect or boundaries.`,
+      `Word 1: ${kind} claims are not available in this release; use render, effect, boundaries or suspense.`,
       1,
     )
   }
@@ -194,7 +204,9 @@ export function parseClaim(text: string): VerifyClaimInput {
       return parseEffect(words)
     case 'boundaries':
       return parseBoundaries(words)
+    case 'suspense':
+      return parseSuspense(words)
     default:
-      return expected(1, 'render, effect or boundaries', kind, CLAIM_KEYWORDS)
+      return expected(1, 'render, effect, boundaries or suspense', kind, CLAIM_KEYWORDS)
   }
 }

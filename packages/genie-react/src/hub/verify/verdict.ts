@@ -13,6 +13,7 @@ import { evaluateBoundaries } from './claims/boundaries'
 import { evaluateEffectRuns, evaluateEffectSettles } from './claims/effects'
 import { evaluateRenderCauses } from './claims/render-causes'
 import { evaluateRenders } from './claims/renders'
+import { evaluateSuspenseHidden } from './claims/suspense'
 import type { TargetEvidence, VerificationEvidence } from './evidence'
 import { type ClaimOutcome, refuse, refused } from './outcome'
 
@@ -68,6 +69,8 @@ export function evaluateClaim(claim: VerifyClaim, evidence: VerificationEvidence
       return evaluateEffectRuns(claim, evidence, targetEvidence)
     case 'effect-settles':
       return evaluateEffectSettles(claim, evidence, targetEvidence)
+    case 'suspense-hidden':
+      return evaluateSuspenseHidden(claim, evidence, targetEvidence)
   }
 }
 

@@ -830,7 +830,11 @@ Reads caught errors, active Suspense boundaries, and a blank-tree hint.
 `false`; that option omits source payloads while preserving ownership filtering. With
 `afterDocumentCommitId`, the result adds `catchLog`: every catch committed after that document commit,
 including boundaries that have since reset or unmounted. `catchLog.complete` is `false` when older catches
-were evicted or a commit could not be scanned.
+were evicted or a commit could not be scanned. It also adds `hideLog`: every Suspense boundary that
+replaced content already on screen with its fallback after that commit, including fallbacks that have
+since resolved. Each hide lists `hiddenTargets`, the instances of the components `react_clear_renders`
+targets inside the hidden content. `hiddenScanComplete` is `false` when that content was too large to
+scan, and `hideLog.complete` is `false` when older hides were evicted or a commit could not be scanned.
 
 ```bash
 npx @genie-react/cli call react_error_state \

@@ -171,7 +171,7 @@ The "before" verdict is `refused`, not `fail`. With `fallback={null}`, no `Spinn
 
 ## What verify cannot see here
 
-Look at claim 3. `render TopBar max 0` passed before the fix too, while the top bar was hidden. Hiding a subtree behind a Suspense fallback is not a render, so render claims cannot express "the shell stayed visible". `verify` has no Suspense or visibility claim, and it warns about this on every run: `Genie does not check the screen; confirm it with the UI driver`. For this bug the proof is `react_suspense` plus `agent-browser is visible .top-bar`. The verify run adds the exit code and the positive controls.
+Look at claim 3. `render TopBar max 0` passed before the fix too, while the top bar was hidden. Hiding a subtree behind a Suspense fallback is not a render, so render claims cannot express "the shell stayed visible". Genie 1.0.2, used for these runs, had no Suspense or visibility claim, and it warns about this on every run: `Genie does not check the screen; confirm it with the UI driver`. For this bug the proof is `react_suspense` plus `agent-browser is visible .top-bar`. Later releases add `suspense TopBar hidden max 0`, which counts every fallback that hid the top bar during the window, even one that resolved before `verify end`. The verify run adds the exit code and the positive controls.
 
 Where you start matters. A first attempt began on the board. Navigating away unmounts the whole board, and verify refused `render TopBar max 0` with `coverage_incomplete` and `droppedUnmountFibers 3057`. Running the suggested `verify begin` again gave the same refusal with the same count. Starting from Settings, a small page, gave complete coverage.
 

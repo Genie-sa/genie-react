@@ -932,6 +932,53 @@ export const reactErrorStateContract = defineAgentToolContract({
       })
       .optional()
       .describe('Present when afterDocumentCommitId is given.'),
+    hideLog: z
+      .object({
+        afterDocumentCommitId: z.number().int().nonnegative(),
+        documentCommitId: z.number().int().nonnegative(),
+        hides: z.array(
+          z.object({
+            hideId: z.string(),
+            documentCommitId: z
+              .number()
+              .int()
+              .nonnegative()
+              .describe(
+                'The commit in which the boundary replaced content on screen with its fallback.',
+              ),
+            observationId: z.string().nullable(),
+            boundaryId: z.number(),
+            boundaryName: z.string(),
+            forced: z
+              .boolean()
+              .describe(
+                'true = react_toggle_suspense_fallback held it; no real resource was pending.',
+              ),
+            hiddenTargets: z
+              .array(z.object({ componentName: z.string(), mountId: z.string() }))
+              .describe(
+                'Instances of the components react_clear_renders targets (component or components) inside the content the fallback hid.',
+              ),
+            hiddenTargetsOmitted: z.number().int().nonnegative(),
+            hiddenScanComplete: z
+              .boolean()
+              .describe(
+                'False when the hidden content had more fibers than the scan reads, so hiddenTargets may miss an instance.',
+              ),
+          }),
+        ),
+        omittedByLimit: z.number().int().nonnegative(),
+        complete: z
+          .boolean()
+          .describe(
+            'False when older hides in the range were evicted or a commit in the range could not be scanned; an empty list then does not prove no boundary hid its content.',
+          ),
+        incompleteReasons: z.array(z.enum(['hides-evicted', 'commit-not-scanned'])),
+      })
+      .optional()
+      .describe(
+        'Present when afterDocumentCommitId is given: every Suspense boundary that replaced content already on screen with its fallback after that commit, including fallbacks that have since resolved. A boundary mounting in its fallback hides nothing and is not listed.',
+      ),
   }),
   annotations: { readOnlyHint: true },
 })

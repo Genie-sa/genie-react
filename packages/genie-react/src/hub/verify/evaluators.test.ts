@@ -12,10 +12,11 @@ import {
   rendered,
   SETTLED,
   START,
+  suspenseHide,
   targetEvidence,
   windowEvidence,
 } from '../../test-support/verify-evidence'
-import type { VerificationEvidence } from './evidence'
+import type { TargetEvidence, VerificationEvidence } from './evidence'
 import { evaluateGuards } from './guards'
 import { combine, decide, evaluateClaim } from './verdict'
 
@@ -568,6 +569,130 @@ describe('boundaries-clean decision table', () => {
     ['evidence_unavailable', { ...windowEvidence(), boundaries: null }],
   ] as const)('refuses with %s', (reason, evidence) => {
     expect(reasonOf(clean, evidence)).toBe(reason)
+  })
+})
+
+describe('suspense-hidden decision table', () => {
+  const neverHidden: VerifyClaimInput = {
+    kind: 'suspense-hidden',
+    target: { component: 'StatusBadge' },
+    max: 0,
+  }
+  const withHides = (
+    changes: Partial<NonNullable<VerificationEvidence['boundaries']>>,
+    targets?: TargetEvidence[],
+  ) => {
+    const base = windowEvidence(targets)
+    return { ...base, boundaries: base.boundaries ? { ...base.boundaries, ...changes } : null }
+  }
+
+  it('passes on a complete hide log in which no fallback covered the target', () => {
+    const elsewhere = suspenseHide({ hiddenTargets: [] })
+
+    expect(outcome(neverHidden, withHides({ hides: [elsewhere] }))).toMatchObject({
+      verdict: 'pass',
+      observed: { hidden: 0, hidesInWindow: 1 },
+      deciding: [{ kind: 'suspense-hide-log', complete: true, afterDocumentCommitId: START }],
+    })
+  })
+
+  it('fails when a fallback covered the target, though the target never rendered', () => {
+    expect(outcome(neverHidden, withHides({ hides: [suspenseHide()] }))).toMatchObject({
+      verdict: 'fail',
+      observed: { hidden: 1 },
+      deciding: [{ kind: 'suspense-hide', hideId: 'hide:58:1', boundary: 'Suspense' }],
+    })
+  })
+
+  it('counts commits that hid the target against max N, and fails on an incomplete log once it exceeds N', () => {
+    const twice = [suspenseHide(), suspenseHide({ hideId: 'hide:60:2', documentCommitId: 60 })]
+    const incomplete = { complete: false, incompleteReasons: ['hides-evicted'], omittedByLimit: 0 }
+
+    expect(verdictOf({ ...neverHidden, max: 2 }, withHides({ hides: twice }))).toBe('pass')
+    expect(
+      verdictOf({ ...neverHidden, max: 1 }, withHides({ hides: twice, hideLog: incomplete })),
+    ).toBe('fail')
+  })
+
+  it('excludes forced fallbacks, which the override guard reports', () => {
+    expect(verdictOf(neverHidden, withHides({ hides: [suspenseHide({ forced: true })] }))).toBe(
+      'pass',
+    )
+  })
+
+  it('ignores a same-named instance from another source file only on exact render coverage', () => {
+    const target = { component: 'StatusBadge', source: 'src/screens/search/StatusBadge.tsx' }
+    const narrowed: VerifyClaimInput = { ...neverHidden, target }
+    const targets = [targetEvidence({ target })]
+    const other = suspenseHide({
+      hiddenTargets: [{ componentName: 'StatusBadge', mountId: 'mount:99' }],
+    })
+    const lowerBound = withHides({ hides: [other] }, targets)
+    lowerBound.coverage = lowerBound.coverage && {
+      ...lowerBound.coverage,
+      complete: false,
+      semantics: 'lower-bound',
+      skippedCommitFibers: 3,
+    }
+
+    expect(verdictOf(narrowed, withHides({ hides: [other] }, targets))).toBe('pass')
+    expect(verdictOf(narrowed, withHides({ hides: [suspenseHide()] }, targets))).toBe('fail')
+    expect(reasonOf(narrowed, lowerBound)).toBe('coverage_incomplete')
+  })
+
+  it.each([
+    ['capability_unavailable', withHides({ hideLog: null })],
+    [
+      'evidence_truncated',
+      withHides({
+        hideLog: { complete: false, incompleteReasons: ['hides-evicted'], omittedByLimit: 0 },
+      }),
+    ],
+    [
+      'coverage_incomplete',
+      withHides({
+        hideLog: { complete: false, incompleteReasons: ['commit-not-scanned'], omittedByLimit: 0 },
+      }),
+    ],
+    [
+      'evidence_truncated',
+      withHides({ hideLog: { complete: true, incompleteReasons: [], omittedByLimit: 2 } }),
+    ],
+    [
+      'coverage_incomplete',
+      withHides({ hides: [suspenseHide({ hiddenTargets: [], hiddenScanComplete: false })] }),
+    ],
+    [
+      'evidence_truncated',
+      withHides({ hides: [suspenseHide({ hiddenTargets: [], hiddenTargetsOmitted: 4 })] }),
+    ],
+    ['target_not_found', withHides({}, [targetEvidence({ begin: [], end: [], records: [] })])],
+    [
+      'target_inactive',
+      withHides({}, [
+        targetEvidence({
+          begin: [instance({ renderingState: 'mounted-hidden' })],
+          end: [instance()],
+        }),
+      ]),
+    ],
+    [
+      'target_inactive',
+      withHides({}, [targetEvidence({ end: [instance({ renderingState: 'mounted-hidden' })] })]),
+    ],
+    ['evidence_unavailable', { ...windowEvidence(), boundaries: null }],
+  ] as const)('refuses with %s', (reason, evidence) => {
+    expect(reasonOf(neverHidden, evidence)).toBe(reason)
+  })
+
+  it('refuses when the app did not settle', () => {
+    const base = windowEvidence()
+    const unsettled = {
+      ...base,
+      window: { ...base.window, settle: { ...base.window.settle, outcome: 'timed-out' as const } },
+    }
+
+    expect(reasonOf(neverHidden, unsettled)).toBe('not_quiescent')
   })
 })
 
