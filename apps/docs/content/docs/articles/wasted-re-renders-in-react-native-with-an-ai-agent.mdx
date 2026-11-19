@@ -236,7 +236,9 @@ never renders that router, and limiting the wait to React made the runs settle i
 Do not read `necessity` alone. In this run, Genie marked the three memo rows `unnecessary` with
 `output-unchanged`, yet their text changed on screen. Their cause line was
 `props exact value` with `before:1,after:2`. Trust the cause and the screen over the label, and
-confirm with agent-device.
+confirm with agent-device. In 1.0.2 Genie looked for React DOM's update flag, which React Native's
+renderer never sets. Later releases also compare the host props, so these rows report `necessary`
+with `dom-changed` and a `#text` write.
 
 Check the budget before you count. On this simulator the default budget ran out on the first tap.
 When `coverage.budgetAdvice` appears, clear again with its budget and repeat the action.
