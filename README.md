@@ -26,14 +26,14 @@ pnpm exec genie-react verify end <id> --session my-agent
 This is a real run on the [dashboard demo](apps/realworld-dashboard), trimmed to the first claim. Before the fix, putting one order on hold re-rendered every row because each row received a new `onStatusChange` callback:
 
 ```
-fail "put one order on hold"  10 commits, quiet after 900 ms (react, query, router, network)
+fail "put one order on hold"  10 commits, quiet after 900 ms (react, query, router)
   1 fail render OrderRow only props.order,mount  {renders:29,events:29,violatingEvents:26,causes:[mount,props.onStatusChange,props.order]}
 ```
 
 After the agent removed `rows` from the callback's dependencies:
 
 ```
-pass "put one order on hold"  10 commits, quiet after 1045 ms (react, query, router, network)
+pass "put one order on hold"  10 commits, quiet after 1045 ms (react, query, router)
   1 pass render OrderRow only props.order,mount  {renders:5,events:5,violatingEvents:0,causes:[mount,props.order]}
 ```
 
