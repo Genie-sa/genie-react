@@ -1,14 +1,14 @@
 {
   "name": "@genie-react/cli",
   "version": "1.0.2",
-  "description": "Give AI coding agents live React and TanStack DevTools from the terminal. Inspect, optimize, test, and verify a running app.",
+  "description": "Let your coding agent verify and optimize your React and React Native apps: see what rendered and why, and prove each fix worked. This is the command your agent runs; add genie-react to your app.",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Genie-sa/genie-react.git",
     "directory": "packages/cli"
   },
-  "homepage": "https://github.com/Genie-sa/genie-react#readme",
+  "homepage": "https://genie-react.com",
   "bugs": "https://github.com/Genie-sa/genie-react/issues",
   "keywords": [
     "react",

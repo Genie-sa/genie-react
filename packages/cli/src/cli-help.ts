@@ -298,7 +298,9 @@ export function cliHelp(name?: string): unknown {
     schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
     status: 'ok',
     command: name ?? 'genie-react',
-    description: command?.description ?? 'Live React and TanStack DevTools for coding agents',
+    description:
+      command?.description ??
+      'Verify and optimize a running React or React Native app from the terminal',
     ...(command
       ? { arguments: command.arguments, notes: command.notes ?? [] }
       : {

@@ -1,6 +1,6 @@
 export const appName = 'Genie React'
 export const appDescription =
-  'Let your coding agent see inside a running React or React Native app and prove that a fix worked.'
+  'Let your coding agent verify and optimize your React and React Native apps: see what rendered and why, and prove each fix worked.'
 export const siteUrl = 'https://genie-react.com'
 export const docsRoute = '/docs'
 

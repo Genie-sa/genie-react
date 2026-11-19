@@ -6,7 +6,7 @@
 [![CI](https://github.com/Genie-sa/genie-react/actions/workflows/ci.yml/badge.svg)](https://github.com/Genie-sa/genie-react/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/genie-react.svg)](./LICENSE)
 
-Genie lets your coding agent see inside a running React or React Native app and prove that a fix worked.
+Genie lets your coding agent verify and optimize your React and React Native apps. It sees what rendered and why, and proves each fix worked.
 
 Your agent already drives the app with [agent-browser](https://github.com/vercel-labs/agent-browser) or [agent-device](https://github.com/callstack/agent-device) and sees the screen. Genie tells it what happened underneath: which components rendered and why, which effects ran, what TanStack Query and Router did, and which error boundary caught what. When the agent says "fixed", `genie-react verify` checks the claim and exits with the verdict.
 

@@ -21,7 +21,7 @@ const html = `<!doctype html>
 <body>
   <div class="kicker">Live app evidence for agents</div>
   <h1>Genie React</h1>
-  <p>Live React &amp; TanStack DevTools for AI coding agents — see what React did, find the cause, check the result.</p>
+  <p>Let your coding agent verify and optimize your React apps, and prove each fix worked.</p>
   <div class="domain">genie-react.com</div>
 </body></html>`
 
