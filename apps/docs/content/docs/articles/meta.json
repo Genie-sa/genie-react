@@ -13,6 +13,8 @@
     "error-boundary-renders-nothing",
     "blank-screen-while-lazy-route-loads",
     "best-tools-for-ai-agents-debugging-react-2026",
-    "react-scan-vs-why-did-you-render-vs-genie"
+    "react-scan-vs-why-did-you-render-vs-genie",
+    "genie-vs-agent-react-devtools",
+    "your-agent-cant-read-the-react-profiler"
   ]
 }
