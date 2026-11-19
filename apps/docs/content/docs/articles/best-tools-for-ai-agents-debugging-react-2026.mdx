@@ -1,0 +1,176 @@
+---
+title: "The best tools to let an AI agent debug your React app in 2026, run on one real bug"
+description: "Six tools ran on one React bug where putting an order on hold re-rendered all 13 rows. Four named the prop an agent could act on. One returned a pass or fail verdict with an exit code."
+---
+
+Give your agent a browser driver first, agent-browser or Playwright MCP, so it can click and read the
+page. Then add the tool that answers your question. Genie names why a component rendered and returns
+a pass or fail exit code for the fix. agent-react-devtools gives a component tree and a render
+profile on the command line. Chrome DevTools MCP covers load time, INP and memory. react-scan and the
+React DevTools panels are built for a person watching. why-did-you-render writes to the console, which
+an agent can read once you change one option.
+
+I ran six of these tools on the same bug in this repo and kept every command and output in the
+[evidence file](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/best-tools-for-ai-agents-debugging-react-2026.md).
+I did not run Playwright MCP or the React DevTools extension. Their rows come from their docs.
+
+## One bug, one click, six tools
+
+The Meridian Ops dashboard (`apps/realworld-dashboard`) lists orders in a virtualized table. Each row
+is a memoized `OrderRow`. Putting one order on hold re-renders every visible row, because the table
+rebuilds the row callback whenever the order list changes:
+
+```tsx title="src/features/orders/orders-table.tsx"
+const onStatusChange = useCallback(
+  (id: string, status: OrderSummary['status']) => {
+    const order = rows.find((row) => row.id === id)
+    if (order) changeStatus({ id, number: order.number, status })
+  },
+  [rows, changeStatus],
+)
+```
+
+The interaction was the same in every run. The agent opened the **Actions** menu for SO-105979,
+clicked **Put on hold**, and waited for the toast:
+
+```bash
+agent-browser --session art-m1 find role button click --name 'Actions for SO-105979'
+agent-browser --session art-m1 find role menuitem click --name 'Put on hold'
+agent-browser --session art-m1 wait --text 'SO-105979 updated'
+```
+
+Genie counted 13 mounted rows, all 13 updated, and 29 `OrderRow` renders in total.
+
+## What each tool told the agent
+
+**Genie** answers on the command line. `react_render_causes` names the prop for each row and grades
+the evidence (trimmed to two of 29 events):
+
+```text
+  OrderRow #15349961457853 {renderEventId:render:30:241,mountId:mount:6,key:o-105915}
+    ← props exact onStatusChange
+  OrderRow #15349961457819 {renderEventId:render:30:240,mountId:mount:5,key:o-105917}
+    ← props exact onStatusChange
+```
+
+**agent-react-devtools** also answers on the command line. `profile rerenders` printed one line per
+row, all 13 with the same culprit (trimmed to two):
+
+```text
+  ? [memo] Memo(OrderRow)  2 renders  causes:props-changed  changed: props: onStatusChange
+  ? [memo] Memo(OrderRow)  2 renders  causes:props-changed  changed: props: order, onStatusChange
+```
+
+**agent-browser** has its own React profiler. Open the session with `--enable react-devtools`, then
+`react renders start` and `react renders stop`. Its change details listed
+`OrderRow props.onStatusChange: fn() -> fn()`. Its counts did not match the other tools: it reported
+26 `OrderRow` instances and 122 re-renders for a page with 13 rows.
+
+**why-did-you-render** writes to the browser console, which an agent reads with
+`agent-browser console`. With the setup from its README and `trackAllPureComponents: true`, it logged
+nothing about `OrderRow`. With `logOnDifferentValues: true` it logged 10 `OrderRow` groups and traced
+the callback one step further than any other tool, to the `useCallback` dependency:
+
+```text
+[log] {prev onStatusChange:parent-hook-useCallback-deps[0]: Array(1054)} !== {next onStatusChange:parent-hook-useCallback-deps[0]: Array(1054)}
+```
+
+**react-scan** drew `OrderRow ×2` over each row. With `log: true` it printed 29 console groups named
+`OrderRow`, with no prop names inside. With its default toolbar on, the toolbar covered the **Actions**
+button of the last visible row, and agent-browser refused the click.
+
+**Chrome DevTools MCP** traced the click and reported no problem (trimmed to one sentence):
+
+```text
+The longest interaction on the page was a `pointerdown` which had a total duration of `28 ms`.
+```
+
+The trace lists React's **Components ⚛** track, but its summary named no component. On this machine
+the click cost 28 ms. The bug shows up as wasted renders, and the trace summary does not count
+renders.
+
+## Only one tool returned a verdict
+
+To prove the fix, Genie's `verify` takes claims before the interaction and returns an exit code
+after it. The claim allows `mount` because three rows below the fold mounted during the click, and a
+mount is not the bug:
+
+```bash
+npx genie-react verify begin --session art-m1 --name 'put one order on hold' \
+  --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+# Run the three agent-browser commands above.
+npx genie-react verify end <id> --session art-m1
+```
+
+Before the fix, trimmed to the verdict and first claim (exit code 1):
+
+```text
+fail vfy_0a79aa28-a975-4339-8957-83e3514b70b1 "put one order on hold"  10 commits, quiet after 900 ms (react, query, router)
+  1 fail render OrderRow only props.order,mount  {renders:29,events:29,violatingEvents:26,causes:[mount,props.onStatusChange,props.order]}
+```
+
+The fix is the reference fix from the answer key. The callback takes the whole order, so it no longer
+depends on `rows`:
+
+```diff
+   const onStatusChange = useCallback(
+-    (id: string, status: OrderSummary['status']) => {
+-      const order = rows.find((row) => row.id === id)
+-      if (order) changeStatus({ id, number: order.number, status })
+-    },
+-    [rows, changeStatus],
++    (order: OrderSummary, status: OrderSummary['status']) => changeStatus({ id: order.id, number: order.number, status }),
++    [changeStatus],
+   )
+```
+
+`OrderRow` changes to call `onStatusChange(order, 'on_hold')` and its prop type changes with it. After
+the fix, the same claims passed with exit code 0:
+
+```text
+pass vfy_c3e39be0-5592-464c-9331-778ab36dba6d "put one order on hold"  10 commits, quiet after 1045 ms (react, query, router)
+  1 pass render OrderRow only props.order,mount  {renders:5,events:5,violatingEvents:0,causes:[mount,props.order]}
+```
+
+agent-react-devtools can compare two exported profiles with `profile diff`. It ranks components by
+average render time. With the default threshold, `OrderRow` was missing from the diff. With
+`--threshold 0` it showed `renders: 29 -> 5`. The command exits 0 either way, so the agent still has
+to judge the result itself. See [Verify a fix](/docs/guides/verify-a-fix) for Genie's claim forms.
+
+## What each tool reads, how it installs, and what it proves
+
+| Tool | What an agent can read | How it installs | React Native | Proves a fix |
+| --- | --- | --- | --- | --- |
+| [Genie](https://github.com/Genie-sa/genie-react) | Render causes with evidence grades, effects, Query, Router, error boundaries, as CLI text or JSON | `genie-react init` adds it to Vite or Next.js. Other bundlers and React Native set up the hook by hand | Yes, with [agent-device](https://github.com/callstack/agent-device) as the driver | Yes. `verify` exits 0, 1, 4 or 5 |
+| [agent-react-devtools](https://github.com/callstackincubator/agent-react-devtools) | Component tree, props, state, hooks, render profiles with changed props, on its CLI | npm package, Vite plugin or connect import, local daemon | Yes, through a Metro wrapper | Compares two profiles. No pass or fail |
+| [react-scan](https://github.com/aidenybai/react-scan) | Outlines on the page. Component names in the console with `log: true`. An `onRender` API | Script tag, or `npx -y react-scan@latest init` | Its README does not mention it | No |
+| [why-did-you-render](https://github.com/welldone-software/why-did-you-render) | Console groups with prop and hook diffs | npm package, a `wdyr` file, and the library as JSX import source | Yes, per its README | No |
+| [React DevTools](https://react.dev/learn/react-developer-tools) | **Components** and **Profiler** panels, built for a person | Browser extension, or the `react-devtools` npm package | Built into React Native DevTools from 0.76 | No |
+| [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp) | Traces, INP and LCP insights, console, network, heap snapshots | MCP server config, `npx -y chrome-devtools-mcp@latest` | Its README does not mention it | No. It measures, and the agent compares |
+| [Playwright MCP](https://github.com/microsoft/playwright-mcp) | Accessibility snapshots, console, network, script evaluation | MCP server config, `npx @playwright/mcp@latest` | Its README does not mention it | It checks the screen, not renders |
+| [agent-browser](https://github.com/vercel-labs/agent-browser) | Accessibility snapshots with refs, console, errors, and [`react` commands](https://agent-browser.dev/react) | `npm install -g agent-browser`, then `agent-browser install` | Not a native driver. Genie uses agent-device there | It checks the screen, not renders |
+
+## Which tool for which job
+
+- To let the agent click, type and read the page, use agent-browser or Playwright MCP. Playwright's
+  README itself points coding agents to its CLI and skills, which use fewer tokens than the MCP
+  server.
+- To find a slow page load, a bad INP score or a memory leak, use Chrome DevTools MCP. Genie does not
+  run Lighthouse or Chrome's performance insights.
+- To watch re-renders while you click around yourself, use react-scan. The overlay shows the
+  problem with no reading at all.
+- To see why a prop changed identity, through `useCallback` and `useMemo` dependencies, turn on
+  why-did-you-render with `logOnDifferentValues`. In this run it went one step deeper than Genie, which
+  named `onStatusChange` but not the `rows` dependency behind it.
+- To give an agent a React tree and a profile on the command line, use agent-react-devtools.
+- To have the agent name the cause with a grade, and prove the fix with an exit code your CI or
+  reviewer can trust, use Genie. The [renders and effects guide](/docs/guides/renders-and-effects)
+  shows the reads, and [another article](/docs/articles/prove-your-agents-react-fix) walks this same
+  bug through `verify`.
+
+## When Genie is not the answer
+
+Genie needs a development build of React 18 or newer, so it cannot profile production. It does not
+see the screen, so you still need the driver to confirm what the user sees. Your app also has to
+install `genie-react`. If you only want to look at one slow page once, react-scan or the React
+DevTools Profiler gets you there with less setup.
