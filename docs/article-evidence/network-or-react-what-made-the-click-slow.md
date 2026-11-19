@@ -2838,3 +2838,1095 @@ $ npx genie-react call timeline_read '{"id":"timeline-949c494f-de32-43c5-9e56-cb
 [exit 0]
 $ git checkout -- apps/realworld-legacy   # fix reverted
 ~~~~
+
+## Re-run on Genie 1.1.0
+
+Only the parts that 1.1.0 changes were re-run: render causes, `verify` before and after the fix, and the row cohort. The timeline runs above (sections 1 and 2) were not repeated.
+
+- Date: 2026-11-19 (UTC time in the log)
+- Commit: `ce408cb205c0e798cb04c35512772b7454283141` (`git rev-parse HEAD`, origin/main with the 1.1.0 release)
+- App: `apps/realworld-legacy` (Acme Tracker), dev server http://127.0.0.1:5234, standalone Genie hub `ws://127.0.0.1:15234/__genie/ws`, mock API latency at its default of 60 ms, signed in as `dana@acme.test`
+- URL: http://127.0.0.1:5234/issues
+- Bug: `issue-table-selector-recompute`. Its reference fix was applied for the "fix applied" runs and reverted with `git checkout -- apps/realworld-legacy`.
+- Tools: `genie-react` CLI and hub 1.1.0 (this checkout), agent-browser 0.39.1, session `upd-d`
+
+```
+$ pnpm install && pnpm build                 # repo root, exit 0
+$ cd apps/realworld-legacy
+$ node_modules/.bin/genie-react --version    # 1.1.0
+$ GENIE_HUB_PORT=15234 pnpm hub
+$ PORT=5234 GENIE_HUB_PORT=15234 pnpm exec webpack serve --mode development --port 5234
+```
+
+Hub output:
+
+```
+
+> @genie-react/realworld-legacy@ hub ~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy
+> genie-react hub --port ${GENIE_HUB_PORT:-4712}
+
+ok hub_ready: The local hub is available.
+next: $ pnpm exec genie-react status
+event: ready
+userActionRequired: false
+data:
+  cwd: ~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy
+  port: 15234
+  url: ws://127.0.0.1:15234/__genie/ws
+  clientUrl: http://127.0.0.1:15234/__genie/client.js
+```
+
+Every command below ran from `apps/realworld-legacy` through a logging wrapper that exports `GENIE_HUB_PORT=15234`, prints `$ ` and the exact command, its full output, and `[exit N]`, and replaces the home directory with `~`. Lines starting with `##` mark each part. Every part starts with the same steps as the original run: `app_backend_reset`, `app_sign_in`, open `/issues`, wait for `.issue-row` and `.notifications__count`, open the notifications menu, wait 500 ms.
+
+The "verify with requestWatchCollector" part ran once with `requestWatchCollector()` added to `src/devtools/connect-genie.ts`. That is a setup change, not a fix for the seeded bug. Its diff is in the log, and it was reverted with `git checkout -- apps/realworld-legacy`.
+
+### Log
+
+~~~~text
+$ date -u +%Y-%m-%dT%H:%M:%SZ; git rev-parse HEAD
+2026-11-19T09:02:16Z
+ce408cb205c0e798cb04c35512772b7454283141
+[exit 0]
+
+$ npx genie-react --version
+1.1.0
+[exit 0]
+
+## render causes (shipped code)
+$ npx genie-react call app_backend_reset '{}' --session upd-d
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ npx genie-react call app_sign_in '{}' --session upd-d
+user: {id:u-1,name:"Dana Whitfield",email:dana@acme.test,title:Designer,team:Infra}
+[exit 0]
+
+$ agent-browser --session upd-d open http://127.0.0.1:5234/issues
+✓ Acme Tracker
+  http://127.0.0.1:5234/issues
+[exit 0]
+
+$ agent-browser --session upd-d wait '.issue-row'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d wait '.notifications__count'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d click 'button.notifications__trigger'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d wait 500
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_clear_renders '{}' --session upd-d
+ok: true
+tracking: true
+documentCommitId: 18
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:18}
+observationConfig:
+  adaptive: true
+  adaptiveScale: 3
+  fiberLimit: 750
+  operationLimit: 90000
+  timeLimitMs: 36
+  targetOperationReserve: 4000
+  targetTimeReserveMs: 4
+  lifecycleBufferLimit: 1000
+  lifecycleTargetReserve: 100
+strictMode: on
+[exit 0]
+
+$ agent-browser --session upd-d find text 'Mark all read' click
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --session upd-d
+ok: true
+outcome: idle
+elapsedMs: 651
+observedCommits: 0
+renderWindow: {id:observation:1,startedAfterDocumentCommitId:18,commits:1}
+documentCommitId: 19
+sessionId: 52aac690-79bc-498d-859f-df73f44ab0ac
+renderCollection: available
+pendingWork:
+  documentCommitId: 19
+  scheduledRoots: 0
+  suspendedBoundaries: 0
+  dehydratedBoundaries: 0
+  boundaries: []
+  scanTruncated: false
+  scannedFibers: 2319
+[exit 0]
+
+$ npx genie-react call react_render_causes '{"component":"IssueTable","limit":2}' --session upd-d
+componentMatch:
+  component: IssueTable
+  exact: true
+  status: matched
+  matchedNames: [IssueTable]
+  matchedNameCount: 1
+  similarNames: []
+tracking: true
+commits: 2
+documentCommitId: 20
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:18}
+attribution:
+  status: current
+  startedAtDocumentCommitId: 20
+  completedAtDocumentCommitId: 20
+  startedAtAnalysisGeneration: 21
+  completedAtAnalysisGeneration: 21
+view: summary
+events[1] (componentName #componentId {fields}, then ← kind evidence name {fields} per cause):
+  IssueTable #12845307658416 {renderEventId:render:19:71,documentCommitId:19,mountId:mount:46,necessity:unnecessary,necessityReason:inputs-unchanged,inputEvidence:changed,wrappedBy:{componentId:12845307658414,componentName:"Connect(IssueTable)",renderEventId:render:19:70,causes:[{kind:external-store,evidence:inferred,name:selector,changedFields:[rows],redux:{evidence:exact,actions:[notifications/markAllRead/fulfilled]}}],necessity:unnecessary,necessityReason:inputs-unchanged},source:{location:~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/features/issues/issue-table.tsx:43:7,role:component-body,ownership:app}}
+    ← parent inferred "Connect(IssueTable)"
+    ← props exact rows {referenceOnly:true}
+omittedByLimit: 0
+sourceClassification:
+  complete: true
+  affects: result
+  totalCandidates: 1
+  evaluated: 1
+  app: 1
+  library: 0
+  unknown: 0
+  unknownComponents: []
+  unknownComponentsOmitted: 0
+renderEventRetention: {evictedEvents:0,earliestDocumentCommitId:19,latestDocumentCommitId:20}
+coverage:
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 1
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  incompleteBecause[1]:
+    - {reason:inputs-truncated,fibers:1,components:[NotificationsMenu],detail:"An input held values Genie compares only in part, such as functions, class instances or objects past the inspected depth; read deepDiff.truncated on these components."}
+  complete: false
+  inputAttributionComplete: false
+  semantics: lower-bound
+  coverageDomain: render-causality
+  droppedRenderEvents: 0
+[exit 0]
+
+## verify (shipped code)
+$ npx genie-react call app_backend_reset '{}' --session upd-d
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ npx genie-react call app_sign_in '{}' --session upd-d
+user: {id:u-1,name:"Dana Whitfield",email:dana@acme.test,title:Designer,team:Infra}
+[exit 0]
+
+$ agent-browser --session upd-d open http://127.0.0.1:5234/issues
+✓ Acme Tracker
+  http://127.0.0.1:5234/issues
+[exit 0]
+
+$ agent-browser --session upd-d wait '.issue-row'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d wait '.notifications__count'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d click 'button.notifications__trigger'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d wait 500
+✓ Done
+[exit 0]
+
+$ npx genie-react verify begin --session upd-d --name 'mark all read' --claim 'render IssueTable max 0' --claim 'render NotificationsMenu min 1' --claim 'boundaries clean' | tee /tmp/upd-d/vb.txt
+recording vfy_02f9a02e-ba20-4782-bac2-d3e290e1f9a0 "mark all read"
+  url "http://127.0.0.1:5234/issues"
+  1 recording render IssueTable max 0
+  2 recording render NotificationsMenu min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:18,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_02f9a02e-ba20-4782-bac2-d3e290e1f9a0 --session upd-d
+session: {sessionId:8c2cc9d0-8823-4338-ab76-c1e05c1364a0,logicalSessionId:a07593a5-db3c-4fae-a8d8-4c337dd757ea,documentGeneration:31}
+schemaVersion: "1.0"
+targets: [{target:{component:IssueTable},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/features/issues/issue-table.tsx},{target:{component:NotificationsMenu},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/layout/top-bar.tsx}]
+startedAt: 2026-11-19T09:02:27.903Z
+expiresAt: 2026-11-19T09:07:27.915Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-d find text 'Mark all read' click
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_02f9a02e-ba20-4782-bac2-d3e290e1f9a0 --session upd-d; echo "exit code: $?"
+fail vfy_02f9a02e-ba20-4782-bac2-d3e290e1f9a0 "mark all read"  2 commits, quiet after 657 ms (react)
+  url "http://127.0.0.1:5234/issues"
+  1 fail render IssueTable max 0  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:IssueTable},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:19,source:~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/features/issues/issue-table.tsx:43:7}]
+  2 pass render NotificationsMenu min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:NotificationsMenu},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:2,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:19,source:~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/layout/top-bar.tsx:31:9}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:18}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:18,settledDocumentCommitId:19,frozenDocumentCommitId:20,commits:2,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:657,domains:{react:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_02f9a02e-ba20-4782-bac2-d3e290e1f9a0 --claim 1 --session upd-d
+session: {sessionId:8c2cc9d0-8823-4338-ab76-c1e05c1364a0,logicalSessionId:a07593a5-db3c-4fae-a8d8-4c337dd757ea,documentGeneration:31}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_c2c78bcb232c,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T09:02:27.903Z
+endedAt: 2026-11-19T09:02:29.386Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+exit code: 1
+[exit 0]
+
+## row cohort, default budget (shipped code)
+$ npx genie-react call app_backend_reset '{}' --session upd-d
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ npx genie-react call app_sign_in '{}' --session upd-d
+user: {id:u-1,name:"Dana Whitfield",email:dana@acme.test,title:Designer,team:Infra}
+[exit 0]
+
+$ agent-browser --session upd-d open http://127.0.0.1:5234/issues
+✓ Acme Tracker
+  http://127.0.0.1:5234/issues
+[exit 0]
+
+$ agent-browser --session upd-d wait '.issue-row'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d wait '.notifications__count'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d click 'button.notifications__trigger'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d wait 500
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_clear_renders '{"component":"IssueRow"}' --session upd-d
+ok: true
+tracking: true
+documentCommitId: 18
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:18}
+observationConfig:
+  adaptive: true
+  adaptiveScale: 3
+  fiberLimit: 750
+  operationLimit: 90000
+  timeLimitMs: 36
+  targetOperationReserve: 4000
+  targetTimeReserveMs: 4
+  lifecycleBufferLimit: 1000
+  lifecycleTargetReserve: 100
+strictMode: on
+[exit 0]
+
+$ agent-browser --session upd-d find text 'Mark all read' click
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --session upd-d
+ok: true
+outcome: idle
+elapsedMs: 1307
+observedCommits: 1
+renderWindow: {id:observation:1,startedAfterDocumentCommitId:18,commits:2}
+documentCommitId: 20
+sessionId: 5a7d1c41-c8be-4c2d-bb21-8dd868403e6e
+renderCollection: available
+pendingWork:
+  documentCommitId: 20
+  scheduledRoots: 0
+  suspendedBoundaries: 0
+  dehydratedBoundaries: 0
+  boundaries: []
+  scanTruncated: false
+  scannedFibers: 2319
+[exit 0]
+
+$ npx genie-react call react_component_cohort '{"component":"IssueRow"}' --session upd-d
+attribution:
+  status: current
+  startedAtDocumentCommitId: 20
+  completedAtDocumentCommitId: 20
+  startedAtAnalysisGeneration: 21
+  completedAtAnalysisGeneration: 21
+documentCommitId: 20
+ownershipCoverage:
+  complete: true
+  totalCandidates: 100
+  app: 100
+  library: 0
+  unknown: 0
+  affects: ownership-labels
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:18}
+query: {component:IssueRow,exact:true}
+componentMatch:
+  component: IssueRow
+  exact: true
+  status: matched
+  matchedNames: [IssueRow]
+  matchedNameCount: 1
+  similarNames: []
+status: mixed
+matched: 100
+mountedUpdated: 34
+mountedIdle: 0
+mountedUnknown: 66
+unmounted: 0
+returned: 50
+omittedByLimit: 50
+rendererBundle: development
+coverage:
+  complete: false
+  freezeDetection: disabled
+  scannedFibers: 2319
+  scanLimit: 20000
+  scanTruncated: false
+  rootAvailable: true
+  rootCount: 1
+  scannedRootCount: 1
+  rootLimit: 100
+  rootScope: committed
+  rootScopeComplete: true
+  rootScopeTruncated: false
+  inputAttributionComplete: false
+  skippedCommitFibers: 66
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 1
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 1
+  budgetExhaustedSubsystems[5]:
+    each: {commits:1}
+    - {subsystem:target:input-equivalence}
+    - {subsystem:target:instance-ancestry}
+    - {subsystem:target:instance-siblings}
+    - {subsystem:target:target-error-state}
+    - {subsystem:target:target-fibers}
+  budgetAdvice:
+    exhaustedLimits: [targetOperationReserve]
+    suggestedBudget: {fiberLimit:750,operationLimit:90000,timeLimitMs:36,targetOperationReserve:12000,targetTimeReserveMs:12}
+    next: "targetOperationReserve ran out. Run react_clear_renders with {\"budget\":{\"fiberLimit\":750,\"operationLimit\":90000,\"timeLimitMs\":36,\"targetOperationReserve\":12000,\"targetTimeReserveMs\":12}}, repeat the step, and read again."
+  generationHistoryEvictions: 0
+view: summary
+shared:
+  logicalPathPrefix: "AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > IssuesPage[index=0] > <div>[index=0] > withRouter(Connect(IssueTable))[index=3] > Connect(IssueTable)[index=0] > IssueTable[index=0] > <div>[index=0] > <table>[index=0] > <tbody>[index=1]"
+  componentName: IssueRow
+  sourceOwnership: app
+  source: ~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/features/issues/issue-table.tsx:48:15
+  parent: {fiberId:1894852329648,name:IssueTable,key:null}
+  keyedParent: null
+  logicalIdentityEvidence: keyed
+  mountGenerationEvidence: exact
+  renderingState: mounted-rendering
+  reactVisibility: not-hidden
+instances[50]:
+  each: {mountGeneration:1,hostSelector:tr.issue-row}
+  - {status:mounted-updated,mountId:mount:1,fiberId:1894852329673,key:iss-1,siblingIndex:0,logicalPath:"IssueRow[key=\"iss-1\"]"}
+  - {status:mounted-updated,mountId:mount:2,fiberId:1894852329693,key:iss-27,siblingIndex:1,logicalPath:"IssueRow[key=\"iss-27\"]"}
+  - {status:mounted-updated,mountId:mount:3,fiberId:1894852329713,key:iss-37,siblingIndex:2,logicalPath:"IssueRow[key=\"iss-37\"]"}
+  - {status:mounted-updated,mountId:mount:4,fiberId:1894852329733,key:iss-40,siblingIndex:3,logicalPath:"IssueRow[key=\"iss-40\"]"}
+  - {status:mounted-updated,mountId:mount:5,fiberId:1894852329753,key:iss-41,siblingIndex:4,logicalPath:"IssueRow[key=\"iss-41\"]"}
+  - {status:mounted-updated,mountId:mount:6,fiberId:1894852329772,key:iss-52,siblingIndex:5,logicalPath:"IssueRow[key=\"iss-52\"]"}
+  - {status:mounted-updated,mountId:mount:7,fiberId:1894852329792,key:iss-87,siblingIndex:6,logicalPath:"IssueRow[key=\"iss-87\"]"}
+  - {status:mounted-updated,mountId:mount:8,fiberId:1894852329812,key:iss-94,siblingIndex:7,logicalPath:"IssueRow[key=\"iss-94\"]"}
+  - {status:mounted-updated,mountId:mount:9,fiberId:1894852329832,key:iss-101,siblingIndex:8,logicalPath:"IssueRow[key=\"iss-101\"]"}
+  - {status:mounted-updated,mountId:mount:10,fiberId:1894852329852,key:iss-107,siblingIndex:9,logicalPath:"IssueRow[key=\"iss-107\"]"}
+  - {status:mounted-updated,mountId:mount:11,fiberId:1894852329872,key:iss-115,siblingIndex:10,logicalPath:"IssueRow[key=\"iss-115\"]"}
+  - {status:mounted-updated,mountId:mount:12,fiberId:1894852329891,key:iss-127,siblingIndex:11,logicalPath:"IssueRow[key=\"iss-127\"]"}
+  - {status:mounted-updated,mountId:mount:13,fiberId:1894852329911,key:iss-144,siblingIndex:12,logicalPath:"IssueRow[key=\"iss-144\"]"}
+  - {status:mounted-updated,mountId:mount:14,fiberId:1894852329930,key:iss-149,siblingIndex:13,logicalPath:"IssueRow[key=\"iss-149\"]"}
+  - {status:mounted-updated,mountId:mount:15,fiberId:1894852329949,key:iss-167,siblingIndex:14,logicalPath:"IssueRow[key=\"iss-167\"]"}
+  - {status:mounted-updated,mountId:mount:16,fiberId:1894852329969,key:iss-169,siblingIndex:15,logicalPath:"IssueRow[key=\"iss-169\"]"}
+  - {status:mounted-updated,mountId:mount:17,fiberId:1894852329989,key:iss-206,siblingIndex:16,logicalPath:"IssueRow[key=\"iss-206\"]"}
+  - {status:mounted-updated,mountId:mount:18,fiberId:1894852330008,key:iss-235,siblingIndex:17,logicalPath:"IssueRow[key=\"iss-235\"]"}
+  - {status:mounted-updated,mountId:mount:19,fiberId:1894852330028,key:iss-238,siblingIndex:18,logicalPath:"IssueRow[key=\"iss-238\"]"}
+  - {status:mounted-updated,mountId:mount:20,fiberId:1894852330047,key:iss-239,siblingIndex:19,logicalPath:"IssueRow[key=\"iss-239\"]"}
+  - {status:mounted-updated,mountId:mount:21,fiberId:1894852330067,key:iss-258,siblingIndex:20,logicalPath:"IssueRow[key=\"iss-258\"]"}
+  - {status:mounted-updated,mountId:mount:22,fiberId:1894852330086,key:iss-265,siblingIndex:21,logicalPath:"IssueRow[key=\"iss-265\"]"}
+  - {status:mounted-updated,mountId:mount:23,fiberId:1894852330106,key:iss-277,siblingIndex:22,logicalPath:"IssueRow[key=\"iss-277\"]"}
+  - {status:mounted-updated,mountId:mount:24,fiberId:1894852330126,key:iss-280,siblingIndex:23,logicalPath:"IssueRow[key=\"iss-280\"]"}
+  - {status:mounted-updated,mountId:mount:25,fiberId:1894852330146,key:iss-290,siblingIndex:24,logicalPath:"IssueRow[key=\"iss-290\"]"}
+  - {status:mounted-updated,mountId:mount:26,fiberId:1894852330166,key:iss-311,siblingIndex:25,logicalPath:"IssueRow[key=\"iss-311\"]"}
+  - {status:mounted-updated,mountId:mount:27,fiberId:1894852330186,key:iss-321,siblingIndex:26,logicalPath:"IssueRow[key=\"iss-321\"]"}
+  - {status:mounted-updated,mountId:mount:28,fiberId:1894852330206,key:iss-334,siblingIndex:27,logicalPath:"IssueRow[key=\"iss-334\"]"}
+  - {status:mounted-updated,mountId:mount:29,fiberId:1894852330226,key:iss-347,siblingIndex:28,logicalPath:"IssueRow[key=\"iss-347\"]"}
+  - {status:mounted-updated,mountId:mount:30,fiberId:1894852330246,key:iss-350,siblingIndex:29,logicalPath:"IssueRow[key=\"iss-350\"]"}
+  - {status:mounted-updated,mountId:mount:31,fiberId:1894852330266,key:iss-360,siblingIndex:30,logicalPath:"IssueRow[key=\"iss-360\"]"}
+  - {status:mounted-updated,mountId:mount:32,fiberId:1894852330285,key:iss-362,siblingIndex:31,logicalPath:"IssueRow[key=\"iss-362\"]"}
+  - {status:mounted-updated,mountId:mount:33,fiberId:1894852330305,key:iss-368,siblingIndex:32,logicalPath:"IssueRow[key=\"iss-368\"]"}
+  - {status:mounted-updated,mountId:mount:34,fiberId:1894852330325,key:iss-369,siblingIndex:33,logicalPath:"IssueRow[key=\"iss-369\"]"}
+  - {status:mounted-unknown,mountId:mount:484,fiberId:1894852330345,key:iss-385,siblingIndex:34,logicalPath:"IssueRow[key=\"iss-385\"]"}
+  - {status:mounted-unknown,mountId:mount:485,fiberId:1894852330365,key:iss-399,siblingIndex:35,logicalPath:"IssueRow[key=\"iss-399\"]"}
+  - {status:mounted-unknown,mountId:mount:486,fiberId:1894852330385,key:iss-420,siblingIndex:36,logicalPath:"IssueRow[key=\"iss-420\"]"}
+  - {status:mounted-unknown,mountId:mount:487,fiberId:1894852330405,key:iss-427,siblingIndex:37,logicalPath:"IssueRow[key=\"iss-427\"]"}
+  - {status:mounted-unknown,mountId:mount:488,fiberId:1894852330425,key:iss-444,siblingIndex:38,logicalPath:"IssueRow[key=\"iss-444\"]"}
+  - {status:mounted-unknown,mountId:mount:489,fiberId:1894852330445,key:iss-498,siblingIndex:39,logicalPath:"IssueRow[key=\"iss-498\"]"}
+  - {status:mounted-unknown,mountId:mount:490,fiberId:1894852330464,key:iss-499,siblingIndex:40,logicalPath:"IssueRow[key=\"iss-499\"]"}
+  - {status:mounted-unknown,mountId:mount:491,fiberId:1894852330484,key:iss-531,siblingIndex:41,logicalPath:"IssueRow[key=\"iss-531\"]"}
+  - {status:mounted-unknown,mountId:mount:492,fiberId:1894852330504,key:iss-557,siblingIndex:42,logicalPath:"IssueRow[key=\"iss-557\"]"}
+  - {status:mounted-unknown,mountId:mount:493,fiberId:1894852330524,key:iss-577,siblingIndex:43,logicalPath:"IssueRow[key=\"iss-577\"]"}
+  - {status:mounted-unknown,mountId:mount:494,fiberId:1894852330544,key:iss-584,siblingIndex:44,logicalPath:"IssueRow[key=\"iss-584\"]"}
+  - {status:mounted-unknown,mountId:mount:495,fiberId:1894852330564,key:iss-597,siblingIndex:45,logicalPath:"IssueRow[key=\"iss-597\"]"}
+  - {status:mounted-unknown,mountId:mount:496,fiberId:1894852330583,key:iss-613,siblingIndex:46,logicalPath:"IssueRow[key=\"iss-613\"]"}
+  - {status:mounted-unknown,mountId:mount:497,fiberId:1894852330603,key:iss-616,siblingIndex:47,logicalPath:"IssueRow[key=\"iss-616\"]"}
+  - {status:mounted-unknown,mountId:mount:498,fiberId:1894852330623,key:iss-635,siblingIndex:48,logicalPath:"IssueRow[key=\"iss-635\"]"}
+  - {status:mounted-unknown,mountId:mount:499,fiberId:1894852330642,key:iss-713,siblingIndex:49,logicalPath:"IssueRow[key=\"iss-713\"]"}
+[exit 0]
+
+## row cohort, suggested budget from budgetAdvice (shipped code)
+$ npx genie-react call app_backend_reset '{}' --session upd-d
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ npx genie-react call app_sign_in '{}' --session upd-d
+user: {id:u-1,name:"Dana Whitfield",email:dana@acme.test,title:Designer,team:Infra}
+[exit 0]
+
+$ agent-browser --session upd-d open http://127.0.0.1:5234/issues
+✓ Acme Tracker
+  http://127.0.0.1:5234/issues
+[exit 0]
+
+$ agent-browser --session upd-d wait '.issue-row'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d wait '.notifications__count'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d click 'button.notifications__trigger'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d wait 500
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_clear_renders '{"component":"IssueRow","budget":{"fiberLimit":750,"operationLimit":90000,"timeLimitMs":36,"targetOperationReserve":12000,"targetTimeReserveMs":12}}' --session upd-d
+ok: true
+tracking: true
+documentCommitId: 19
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:19}
+observationConfig:
+  adaptive: true
+  adaptiveScale: 1
+  fiberLimit: 750
+  operationLimit: 90000
+  timeLimitMs: 36
+  targetOperationReserve: 12000
+  targetTimeReserveMs: 12
+  lifecycleBufferLimit: 1000
+  lifecycleTargetReserve: 100
+strictMode: on
+[exit 0]
+
+$ agent-browser --session upd-d find text 'Mark all read' click
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --session upd-d
+ok: true
+outcome: idle
+elapsedMs: 639
+observedCommits: 0
+renderWindow: {id:observation:1,startedAfterDocumentCommitId:19,commits:1}
+documentCommitId: 20
+sessionId: 0619fb6f-d352-4b8c-95ba-ea5a5ff2b3df
+renderCollection: available
+pendingWork:
+  documentCommitId: 20
+  scheduledRoots: 0
+  suspendedBoundaries: 0
+  dehydratedBoundaries: 0
+  boundaries: []
+  scanTruncated: false
+  scannedFibers: 2319
+[exit 0]
+
+$ npx genie-react call react_component_cohort '{"component":"IssueRow"}' --session upd-d
+attribution:
+  status: current
+  startedAtDocumentCommitId: 21
+  completedAtDocumentCommitId: 21
+  startedAtAnalysisGeneration: 22
+  completedAtAnalysisGeneration: 22
+documentCommitId: 21
+ownershipCoverage:
+  complete: true
+  totalCandidates: 100
+  app: 100
+  library: 0
+  unknown: 0
+  affects: ownership-labels
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:19}
+query: {component:IssueRow,exact:true}
+componentMatch:
+  component: IssueRow
+  exact: true
+  status: matched
+  matchedNames: [IssueRow]
+  matchedNameCount: 1
+  similarNames: []
+status: updated
+matched: 100
+mountedUpdated: 100
+mountedIdle: 0
+mountedUnknown: 0
+unmounted: 0
+returned: 50
+omittedByLimit: 50
+rendererBundle: development
+coverage:
+  complete: true
+  freezeDetection: disabled
+  scannedFibers: 2319
+  scanLimit: 20000
+  scanTruncated: false
+  rootAvailable: true
+  rootCount: 1
+  scannedRootCount: 1
+  rootLimit: 100
+  rootScope: committed
+  rootScopeComplete: true
+  rootScopeTruncated: false
+  inputAttributionComplete: false
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 1
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  generationHistoryEvictions: 0
+view: summary
+shared:
+  logicalPathPrefix: "AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > IssuesPage[index=0] > <div>[index=0] > withRouter(Connect(IssueTable))[index=3] > Connect(IssueTable)[index=0] > IssueTable[index=0] > <div>[index=0] > <table>[index=0] > <tbody>[index=1]"
+  componentName: IssueRow
+  sourceOwnership: app
+  source: ~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/features/issues/issue-table.tsx:48:15
+  parent: {fiberId:15518824136880,name:IssueTable,key:null}
+  keyedParent: null
+  logicalIdentityEvidence: keyed
+  mountGenerationEvidence: exact
+  renderingState: mounted-rendering
+  reactVisibility: not-hidden
+instances[50]:
+  each: {status:mounted-updated,mountGeneration:1,hostSelector:tr.issue-row}
+  - {mountId:mount:1,fiberId:15518824136905,key:iss-1,siblingIndex:0,logicalPath:"IssueRow[key=\"iss-1\"]"}
+  - {mountId:mount:2,fiberId:15518824136925,key:iss-27,siblingIndex:1,logicalPath:"IssueRow[key=\"iss-27\"]"}
+  - {mountId:mount:3,fiberId:15518824136945,key:iss-37,siblingIndex:2,logicalPath:"IssueRow[key=\"iss-37\"]"}
+  - {mountId:mount:4,fiberId:15518824136965,key:iss-40,siblingIndex:3,logicalPath:"IssueRow[key=\"iss-40\"]"}
+  - {mountId:mount:5,fiberId:15518824136985,key:iss-41,siblingIndex:4,logicalPath:"IssueRow[key=\"iss-41\"]"}
+  - {mountId:mount:6,fiberId:15518824137004,key:iss-52,siblingIndex:5,logicalPath:"IssueRow[key=\"iss-52\"]"}
+  - {mountId:mount:7,fiberId:15518824137024,key:iss-87,siblingIndex:6,logicalPath:"IssueRow[key=\"iss-87\"]"}
+  - {mountId:mount:8,fiberId:15518824137044,key:iss-94,siblingIndex:7,logicalPath:"IssueRow[key=\"iss-94\"]"}
+  - {mountId:mount:9,fiberId:15518824137064,key:iss-101,siblingIndex:8,logicalPath:"IssueRow[key=\"iss-101\"]"}
+  - {mountId:mount:10,fiberId:15518824137084,key:iss-107,siblingIndex:9,logicalPath:"IssueRow[key=\"iss-107\"]"}
+  - {mountId:mount:11,fiberId:15518824137104,key:iss-115,siblingIndex:10,logicalPath:"IssueRow[key=\"iss-115\"]"}
+  - {mountId:mount:12,fiberId:15518824137123,key:iss-127,siblingIndex:11,logicalPath:"IssueRow[key=\"iss-127\"]"}
+  - {mountId:mount:13,fiberId:15518824137143,key:iss-144,siblingIndex:12,logicalPath:"IssueRow[key=\"iss-144\"]"}
+  - {mountId:mount:14,fiberId:15518824137162,key:iss-149,siblingIndex:13,logicalPath:"IssueRow[key=\"iss-149\"]"}
+  - {mountId:mount:15,fiberId:15518824137181,key:iss-167,siblingIndex:14,logicalPath:"IssueRow[key=\"iss-167\"]"}
+  - {mountId:mount:16,fiberId:15518824137201,key:iss-169,siblingIndex:15,logicalPath:"IssueRow[key=\"iss-169\"]"}
+  - {mountId:mount:17,fiberId:15518824137221,key:iss-206,siblingIndex:16,logicalPath:"IssueRow[key=\"iss-206\"]"}
+  - {mountId:mount:18,fiberId:15518824137240,key:iss-235,siblingIndex:17,logicalPath:"IssueRow[key=\"iss-235\"]"}
+  - {mountId:mount:19,fiberId:15518824137260,key:iss-238,siblingIndex:18,logicalPath:"IssueRow[key=\"iss-238\"]"}
+  - {mountId:mount:20,fiberId:15518824137279,key:iss-239,siblingIndex:19,logicalPath:"IssueRow[key=\"iss-239\"]"}
+  - {mountId:mount:21,fiberId:15518824137299,key:iss-258,siblingIndex:20,logicalPath:"IssueRow[key=\"iss-258\"]"}
+  - {mountId:mount:22,fiberId:15518824137318,key:iss-265,siblingIndex:21,logicalPath:"IssueRow[key=\"iss-265\"]"}
+  - {mountId:mount:23,fiberId:15518824137338,key:iss-277,siblingIndex:22,logicalPath:"IssueRow[key=\"iss-277\"]"}
+  - {mountId:mount:24,fiberId:15518824137358,key:iss-280,siblingIndex:23,logicalPath:"IssueRow[key=\"iss-280\"]"}
+  - {mountId:mount:25,fiberId:15518824137378,key:iss-290,siblingIndex:24,logicalPath:"IssueRow[key=\"iss-290\"]"}
+  - {mountId:mount:26,fiberId:15518824137398,key:iss-311,siblingIndex:25,logicalPath:"IssueRow[key=\"iss-311\"]"}
+  - {mountId:mount:27,fiberId:15518824137418,key:iss-321,siblingIndex:26,logicalPath:"IssueRow[key=\"iss-321\"]"}
+  - {mountId:mount:28,fiberId:15518824137438,key:iss-334,siblingIndex:27,logicalPath:"IssueRow[key=\"iss-334\"]"}
+  - {mountId:mount:29,fiberId:15518824137458,key:iss-347,siblingIndex:28,logicalPath:"IssueRow[key=\"iss-347\"]"}
+  - {mountId:mount:30,fiberId:15518824137478,key:iss-350,siblingIndex:29,logicalPath:"IssueRow[key=\"iss-350\"]"}
+  - {mountId:mount:31,fiberId:15518824137498,key:iss-360,siblingIndex:30,logicalPath:"IssueRow[key=\"iss-360\"]"}
+  - {mountId:mount:32,fiberId:15518824137517,key:iss-362,siblingIndex:31,logicalPath:"IssueRow[key=\"iss-362\"]"}
+  - {mountId:mount:33,fiberId:15518824137537,key:iss-368,siblingIndex:32,logicalPath:"IssueRow[key=\"iss-368\"]"}
+  - {mountId:mount:34,fiberId:15518824137557,key:iss-369,siblingIndex:33,logicalPath:"IssueRow[key=\"iss-369\"]"}
+  - {mountId:mount:35,fiberId:15518824137577,key:iss-385,siblingIndex:34,logicalPath:"IssueRow[key=\"iss-385\"]"}
+  - {mountId:mount:36,fiberId:15518824137597,key:iss-399,siblingIndex:35,logicalPath:"IssueRow[key=\"iss-399\"]"}
+  - {mountId:mount:37,fiberId:15518824137617,key:iss-420,siblingIndex:36,logicalPath:"IssueRow[key=\"iss-420\"]"}
+  - {mountId:mount:38,fiberId:15518824137637,key:iss-427,siblingIndex:37,logicalPath:"IssueRow[key=\"iss-427\"]"}
+  - {mountId:mount:39,fiberId:15518824137657,key:iss-444,siblingIndex:38,logicalPath:"IssueRow[key=\"iss-444\"]"}
+  - {mountId:mount:40,fiberId:15518824137677,key:iss-498,siblingIndex:39,logicalPath:"IssueRow[key=\"iss-498\"]"}
+  - {mountId:mount:41,fiberId:15518824137696,key:iss-499,siblingIndex:40,logicalPath:"IssueRow[key=\"iss-499\"]"}
+  - {mountId:mount:42,fiberId:15518824137716,key:iss-531,siblingIndex:41,logicalPath:"IssueRow[key=\"iss-531\"]"}
+  - {mountId:mount:43,fiberId:15518824137736,key:iss-557,siblingIndex:42,logicalPath:"IssueRow[key=\"iss-557\"]"}
+  - {mountId:mount:44,fiberId:15518824137756,key:iss-577,siblingIndex:43,logicalPath:"IssueRow[key=\"iss-577\"]"}
+  - {mountId:mount:45,fiberId:15518824137776,key:iss-584,siblingIndex:44,logicalPath:"IssueRow[key=\"iss-584\"]"}
+  - {mountId:mount:46,fiberId:15518824137796,key:iss-597,siblingIndex:45,logicalPath:"IssueRow[key=\"iss-597\"]"}
+  - {mountId:mount:47,fiberId:15518824137815,key:iss-613,siblingIndex:46,logicalPath:"IssueRow[key=\"iss-613\"]"}
+  - {mountId:mount:48,fiberId:15518824137835,key:iss-616,siblingIndex:47,logicalPath:"IssueRow[key=\"iss-616\"]"}
+  - {mountId:mount:49,fiberId:15518824137855,key:iss-635,siblingIndex:48,logicalPath:"IssueRow[key=\"iss-635\"]"}
+  - {mountId:mount:50,fiberId:15518824137874,key:iss-713,siblingIndex:49,logicalPath:"IssueRow[key=\"iss-713\"]"}
+[exit 0]
+
+## reference fix applied from evals/realworld/legacy/issue-table-selector-recompute.json
+diff --git a/apps/realworld-legacy/src/store/issue-selectors.ts b/apps/realworld-legacy/src/store/issue-selectors.ts
+index 82fb68b..1c2d53e 100644
+--- a/apps/realworld-legacy/src/store/issue-selectors.ts
++++ b/apps/realworld-legacy/src/store/issue-selectors.ts
+@@ -10,10 +10,8 @@ export const { selectAll: selectAllIssues } = issuesAdapter.getSelectors(
+   (state: RootState) => state.issues,
+ )
+ 
+-const selectIssueQuery = (state: RootState) => ({
+-  filters: state.issues.filters,
+-  sort: state.issues.sort,
+-})
++const selectIssueFilters = (state: RootState) => state.issues.filters
++const selectIssueSort = (state: RootState) => state.issues.sort
+ 
+ function matchesFilters(issue: Issue, filters: IssueFilters): boolean {
+   if (filters.status !== 'all' && issue.status !== filters.status) return false
+@@ -45,8 +43,8 @@ function compareIssues(a: Issue, b: Issue, { field }: IssueSort): number {
+ }
+ 
+ export const selectVisibleIssues = createSelector(
+-  [selectAllIssues, selectIssueQuery],
+-  (issues, { filters, sort }) => {
++  [selectAllIssues, selectIssueFilters, selectIssueSort],
++  (issues, filters, sort) => {
+     const direction = sort.direction === 'asc' ? 1 : -1
+     return issues
+       .filter((issue) => matchesFilters(issue, filters))
+## verify (fix applied)
+$ npx genie-react call app_backend_reset '{}' --session upd-d
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ npx genie-react call app_sign_in '{}' --session upd-d
+user: {id:u-1,name:"Dana Whitfield",email:dana@acme.test,title:Designer,team:Infra}
+[exit 0]
+
+$ agent-browser --session upd-d open http://127.0.0.1:5234/issues
+✓ Acme Tracker
+  http://127.0.0.1:5234/issues
+[exit 0]
+
+$ agent-browser --session upd-d wait '.issue-row'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d wait '.notifications__count'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d click 'button.notifications__trigger'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d wait 500
+✓ Done
+[exit 0]
+
+$ npx genie-react verify begin --session upd-d --name 'mark all read' --claim 'render IssueTable max 0' --claim 'render NotificationsMenu min 1' --claim 'boundaries clean' | tee /tmp/upd-d/vb.txt
+recording vfy_338ececd-90a2-41c6-ac42-8c68584fa675 "mark all read"
+  url "http://127.0.0.1:5234/issues"
+  1 recording render IssueTable max 0
+  2 recording render NotificationsMenu min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:18,domains:[react],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_338ececd-90a2-41c6-ac42-8c68584fa675 --session upd-d
+session: {sessionId:bfc4ee4c-66ec-4200-81ee-f0032bc3c58e,logicalSessionId:a07593a5-db3c-4fae-a8d8-4c337dd757ea,documentGeneration:35}
+schemaVersion: "1.0"
+targets: [{target:{component:IssueTable},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/features/issues/issue-table.tsx},{target:{component:NotificationsMenu},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/layout/top-bar.tsx}]
+startedAt: 2026-11-19T09:03:08.000Z
+expiresAt: 2026-11-19T09:08:08.012Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-d find text 'Mark all read' click
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_338ececd-90a2-41c6-ac42-8c68584fa675 --session upd-d; echo "exit code: $?"
+pass vfy_338ececd-90a2-41c6-ac42-8c68584fa675 "mark all read"  2 commits, quiet after 634 ms (react)
+  url "http://127.0.0.1:5234/issues"
+  1 pass render IssueTable max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:IssueTable},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:coverage,complete:true,targetedComplete:true,semantics:exact},{kind:instance,mountId:mount:1,renderingState:mounted-rendering,source:~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/features/issues/issue-table.tsx:43:7}]
+  2 pass render NotificationsMenu min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:NotificationsMenu},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:2,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:19,source:~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/layout/top-bar.tsx:31:9}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:18}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:18,settledDocumentCommitId:19,frozenDocumentCommitId:20,commits:2,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:634,domains:{react:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 2 for these claims on this tab; previous fail vfy_02f9a02e-ba20-4782-bac2-d3e290e1f9a0; document reloaded since
+evidence: $ npx genie-react verify show vfy_338ececd-90a2-41c6-ac42-8c68584fa675 --session upd-d
+session: {sessionId:bfc4ee4c-66ec-4200-81ee-f0032bc3c58e,logicalSessionId:a07593a5-db3c-4fae-a8d8-4c337dd757ea,documentGeneration:35}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_c2c78bcb232c,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_02f9a02e-ba20-4782-bac2-d3e290e1f9a0,verdict:fail,reasons:[],endedAt:2026-11-19T09:02:29.386Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T09:03:08.000Z
+endedAt: 2026-11-19T09:03:09.422Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+exit code: 0
+[exit 0]
+
+## row cohort, suggested budget (fix applied)
+$ npx genie-react call app_backend_reset '{}' --session upd-d
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ npx genie-react call app_sign_in '{}' --session upd-d
+user: {id:u-1,name:"Dana Whitfield",email:dana@acme.test,title:Designer,team:Infra}
+[exit 0]
+
+$ agent-browser --session upd-d open http://127.0.0.1:5234/issues
+✓ Acme Tracker
+  http://127.0.0.1:5234/issues
+[exit 0]
+
+$ agent-browser --session upd-d wait '.issue-row'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d wait '.notifications__count'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d click 'button.notifications__trigger'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d wait 500
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_clear_renders '{"component":"IssueRow","budget":{"fiberLimit":750,"operationLimit":90000,"timeLimitMs":36,"targetOperationReserve":12000,"targetTimeReserveMs":12}}' --session upd-d
+ok: true
+tracking: true
+documentCommitId: 18
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:18}
+observationConfig:
+  adaptive: true
+  adaptiveScale: 1
+  fiberLimit: 750
+  operationLimit: 90000
+  timeLimitMs: 36
+  targetOperationReserve: 12000
+  targetTimeReserveMs: 12
+  lifecycleBufferLimit: 1000
+  lifecycleTargetReserve: 100
+strictMode: on
+[exit 0]
+
+$ agent-browser --session upd-d find text 'Mark all read' click
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --session upd-d
+ok: true
+outcome: idle
+elapsedMs: 626
+observedCommits: 0
+renderWindow: {id:observation:1,startedAfterDocumentCommitId:18,commits:1}
+documentCommitId: 19
+sessionId: a5d7e0bf-c653-440f-8d08-b230e187d686
+renderCollection: available
+pendingWork:
+  documentCommitId: 19
+  scheduledRoots: 0
+  suspendedBoundaries: 0
+  dehydratedBoundaries: 0
+  boundaries: []
+  scanTruncated: false
+  scannedFibers: 2319
+[exit 0]
+
+$ npx genie-react call react_component_cohort '{"component":"IssueRow"}' --session upd-d
+attribution:
+  status: current
+  startedAtDocumentCommitId: 20
+  completedAtDocumentCommitId: 20
+  startedAtAnalysisGeneration: 21
+  completedAtAnalysisGeneration: 21
+documentCommitId: 20
+ownershipCoverage:
+  complete: true
+  totalCandidates: 100
+  app: 100
+  library: 0
+  unknown: 0
+  affects: ownership-labels
+observation: {id:observation:1,epoch:1,startedAfterDocumentCommitId:18}
+query: {component:IssueRow,exact:true}
+componentMatch:
+  component: IssueRow
+  exact: true
+  status: matched
+  matchedNames: [IssueRow]
+  matchedNameCount: 1
+  similarNames: []
+status: mounted-idle
+matched: 100
+mountedUpdated: 0
+mountedIdle: 100
+mountedUnknown: 0
+unmounted: 0
+returned: 50
+omittedByLimit: 50
+rendererBundle: development
+coverage:
+  complete: true
+  freezeDetection: disabled
+  scannedFibers: 2319
+  scanLimit: 20000
+  scanTruncated: false
+  rootAvailable: true
+  rootCount: 1
+  scannedRootCount: 1
+  rootLimit: 100
+  rootScope: committed
+  rootScopeComplete: true
+  rootScopeTruncated: false
+  inputAttributionComplete: false
+  skippedCommitFibers: 0
+  droppedUnmountFibers: 0
+  analysisFailedFibers: 0
+  pausedCommits: 0
+  unobservedCommits: 0
+  refreshCommitsExcluded: 0
+  truncatedInputFibers: 1
+  propsNotEnumeratedFibers: 0
+  budgetExhaustedCommits: 0
+  budgetExhaustedSubsystems: []
+  generationHistoryEvictions: 0
+view: summary
+shared:
+  logicalPathPrefix: "AppErrorBoundary[index=0] > Provider[index=0] > BrowserRouter[index=0] > Router[index=0] > ThemeProvider[index=0] > App[index=0] > Routes[index=0] > RenderedRoute[index=0] > RequireAuth[index=0] > Connect(AppShell)[index=0] > AppShell[index=0] > FeatureFlagsProvider[index=0] > <div>[index=0] > <main>[index=2] > Outlet[index=0] > RenderedRoute[index=0] > IssuesPage[index=0] > <div>[index=0] > withRouter(Connect(IssueTable))[index=3] > Connect(IssueTable)[index=0] > IssueTable[index=0] > <div>[index=0] > <table>[index=0] > <tbody>[index=1]"
+  componentName: IssueRow
+  sourceOwnership: app
+  source: ~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/features/issues/issue-table.tsx:48:15
+  parent: {fiberId:6588647604395,name:IssueTable,key:null}
+  keyedParent: null
+  logicalIdentityEvidence: keyed
+  mountGenerationEvidence: exact
+  renderingState: mounted-rendering
+  reactVisibility: not-hidden
+instances[50]:
+  each: {status:mounted-idle,mountGeneration:1,hostSelector:tr.issue-row}
+  - {mountId:mount:46,fiberId:6588647604394,key:iss-1,siblingIndex:0,logicalPath:"IssueRow[key=\"iss-1\"]"}
+  - {mountId:mount:47,fiberId:6588647604396,key:iss-27,siblingIndex:1,logicalPath:"IssueRow[key=\"iss-27\"]"}
+  - {mountId:mount:48,fiberId:6588647604397,key:iss-37,siblingIndex:2,logicalPath:"IssueRow[key=\"iss-37\"]"}
+  - {mountId:mount:49,fiberId:6588647604398,key:iss-40,siblingIndex:3,logicalPath:"IssueRow[key=\"iss-40\"]"}
+  - {mountId:mount:50,fiberId:6588647604399,key:iss-41,siblingIndex:4,logicalPath:"IssueRow[key=\"iss-41\"]"}
+  - {mountId:mount:51,fiberId:6588647604400,key:iss-52,siblingIndex:5,logicalPath:"IssueRow[key=\"iss-52\"]"}
+  - {mountId:mount:52,fiberId:6588647604401,key:iss-87,siblingIndex:6,logicalPath:"IssueRow[key=\"iss-87\"]"}
+  - {mountId:mount:53,fiberId:6588647604402,key:iss-94,siblingIndex:7,logicalPath:"IssueRow[key=\"iss-94\"]"}
+  - {mountId:mount:54,fiberId:6588647604403,key:iss-101,siblingIndex:8,logicalPath:"IssueRow[key=\"iss-101\"]"}
+  - {mountId:mount:55,fiberId:6588647604404,key:iss-107,siblingIndex:9,logicalPath:"IssueRow[key=\"iss-107\"]"}
+  - {mountId:mount:56,fiberId:6588647604405,key:iss-115,siblingIndex:10,logicalPath:"IssueRow[key=\"iss-115\"]"}
+  - {mountId:mount:57,fiberId:6588647604406,key:iss-127,siblingIndex:11,logicalPath:"IssueRow[key=\"iss-127\"]"}
+  - {mountId:mount:58,fiberId:6588647604407,key:iss-144,siblingIndex:12,logicalPath:"IssueRow[key=\"iss-144\"]"}
+  - {mountId:mount:59,fiberId:6588647604408,key:iss-149,siblingIndex:13,logicalPath:"IssueRow[key=\"iss-149\"]"}
+  - {mountId:mount:60,fiberId:6588647604409,key:iss-167,siblingIndex:14,logicalPath:"IssueRow[key=\"iss-167\"]"}
+  - {mountId:mount:61,fiberId:6588647604410,key:iss-169,siblingIndex:15,logicalPath:"IssueRow[key=\"iss-169\"]"}
+  - {mountId:mount:62,fiberId:6588647604411,key:iss-206,siblingIndex:16,logicalPath:"IssueRow[key=\"iss-206\"]"}
+  - {mountId:mount:63,fiberId:6588647604412,key:iss-235,siblingIndex:17,logicalPath:"IssueRow[key=\"iss-235\"]"}
+  - {mountId:mount:64,fiberId:6588647604413,key:iss-238,siblingIndex:18,logicalPath:"IssueRow[key=\"iss-238\"]"}
+  - {mountId:mount:65,fiberId:6588647604414,key:iss-239,siblingIndex:19,logicalPath:"IssueRow[key=\"iss-239\"]"}
+  - {mountId:mount:66,fiberId:6588647604415,key:iss-258,siblingIndex:20,logicalPath:"IssueRow[key=\"iss-258\"]"}
+  - {mountId:mount:67,fiberId:6588647604416,key:iss-265,siblingIndex:21,logicalPath:"IssueRow[key=\"iss-265\"]"}
+  - {mountId:mount:68,fiberId:6588647604417,key:iss-277,siblingIndex:22,logicalPath:"IssueRow[key=\"iss-277\"]"}
+  - {mountId:mount:69,fiberId:6588647604418,key:iss-280,siblingIndex:23,logicalPath:"IssueRow[key=\"iss-280\"]"}
+  - {mountId:mount:70,fiberId:6588647604419,key:iss-290,siblingIndex:24,logicalPath:"IssueRow[key=\"iss-290\"]"}
+  - {mountId:mount:71,fiberId:6588647604420,key:iss-311,siblingIndex:25,logicalPath:"IssueRow[key=\"iss-311\"]"}
+  - {mountId:mount:72,fiberId:6588647604421,key:iss-321,siblingIndex:26,logicalPath:"IssueRow[key=\"iss-321\"]"}
+  - {mountId:mount:73,fiberId:6588647604422,key:iss-334,siblingIndex:27,logicalPath:"IssueRow[key=\"iss-334\"]"}
+  - {mountId:mount:74,fiberId:6588647604423,key:iss-347,siblingIndex:28,logicalPath:"IssueRow[key=\"iss-347\"]"}
+  - {mountId:mount:75,fiberId:6588647604424,key:iss-350,siblingIndex:29,logicalPath:"IssueRow[key=\"iss-350\"]"}
+  - {mountId:mount:76,fiberId:6588647604425,key:iss-360,siblingIndex:30,logicalPath:"IssueRow[key=\"iss-360\"]"}
+  - {mountId:mount:77,fiberId:6588647604426,key:iss-362,siblingIndex:31,logicalPath:"IssueRow[key=\"iss-362\"]"}
+  - {mountId:mount:78,fiberId:6588647604427,key:iss-368,siblingIndex:32,logicalPath:"IssueRow[key=\"iss-368\"]"}
+  - {mountId:mount:79,fiberId:6588647604428,key:iss-369,siblingIndex:33,logicalPath:"IssueRow[key=\"iss-369\"]"}
+  - {mountId:mount:80,fiberId:6588647604429,key:iss-385,siblingIndex:34,logicalPath:"IssueRow[key=\"iss-385\"]"}
+  - {mountId:mount:81,fiberId:6588647604430,key:iss-399,siblingIndex:35,logicalPath:"IssueRow[key=\"iss-399\"]"}
+  - {mountId:mount:82,fiberId:6588647604431,key:iss-420,siblingIndex:36,logicalPath:"IssueRow[key=\"iss-420\"]"}
+  - {mountId:mount:83,fiberId:6588647604432,key:iss-427,siblingIndex:37,logicalPath:"IssueRow[key=\"iss-427\"]"}
+  - {mountId:mount:84,fiberId:6588647604433,key:iss-444,siblingIndex:38,logicalPath:"IssueRow[key=\"iss-444\"]"}
+  - {mountId:mount:85,fiberId:6588647604434,key:iss-498,siblingIndex:39,logicalPath:"IssueRow[key=\"iss-498\"]"}
+  - {mountId:mount:86,fiberId:6588647604435,key:iss-499,siblingIndex:40,logicalPath:"IssueRow[key=\"iss-499\"]"}
+  - {mountId:mount:87,fiberId:6588647604436,key:iss-531,siblingIndex:41,logicalPath:"IssueRow[key=\"iss-531\"]"}
+  - {mountId:mount:88,fiberId:6588647604437,key:iss-557,siblingIndex:42,logicalPath:"IssueRow[key=\"iss-557\"]"}
+  - {mountId:mount:89,fiberId:6588647604438,key:iss-577,siblingIndex:43,logicalPath:"IssueRow[key=\"iss-577\"]"}
+  - {mountId:mount:90,fiberId:6588647604439,key:iss-584,siblingIndex:44,logicalPath:"IssueRow[key=\"iss-584\"]"}
+  - {mountId:mount:91,fiberId:6588647604440,key:iss-597,siblingIndex:45,logicalPath:"IssueRow[key=\"iss-597\"]"}
+  - {mountId:mount:92,fiberId:6588647604441,key:iss-613,siblingIndex:46,logicalPath:"IssueRow[key=\"iss-613\"]"}
+  - {mountId:mount:93,fiberId:6588647604442,key:iss-616,siblingIndex:47,logicalPath:"IssueRow[key=\"iss-616\"]"}
+  - {mountId:mount:94,fiberId:6588647604443,key:iss-635,siblingIndex:48,logicalPath:"IssueRow[key=\"iss-635\"]"}
+  - {mountId:mount:95,fiberId:6588647604444,key:iss-713,siblingIndex:49,logicalPath:"IssueRow[key=\"iss-713\"]"}
+[exit 0]
+
+## reverted with: git checkout -- apps/realworld-legacy
+## temporary setup change: requestWatchCollector added to the app collectors (not an app fix; reverted after)
+diff --git a/apps/realworld-legacy/src/devtools/connect-genie.ts b/apps/realworld-legacy/src/devtools/connect-genie.ts
+index 1807845..e2278e4 100644
+--- a/apps/realworld-legacy/src/devtools/connect-genie.ts
++++ b/apps/realworld-legacy/src/devtools/connect-genie.ts
+@@ -1,17 +1,18 @@
+ import { createGenieClient, reactCollector, sessionCollector } from 'genie-react/client'
+-import { memoryCollector, perfCollector, timelineCollector } from 'genie-react/collectors'
++import { memoryCollector, perfCollector, requestWatchCollector, timelineCollector } from 'genie-react/collectors'
+ import { reduxCollector } from 'genie-react/collectors/redux'
+ import { store } from '../store'
+ import { registerAppTools } from './app-tools'
+ 
+ createGenieClient({
+   url: process.env.GENIE_HUB_URL,
+   collectors: [
+     sessionCollector(),
+     reactCollector(),
+     memoryCollector(),
+     perfCollector(),
+     timelineCollector(),
++    requestWatchCollector(),
+     reduxCollector(store, { name: 'app' }),
+   ],
+ }).start()
+## verify with requestWatchCollector (shipped code)
+$ npx genie-react call app_backend_reset '{}' --session upd-d
+seed: 2019
+issues: 3240
+notificationPollMs: 15000
+[exit 0]
+
+$ npx genie-react call app_sign_in '{}' --session upd-d
+user: {id:u-1,name:"Dana Whitfield",email:dana@acme.test,title:Designer,team:Infra}
+[exit 0]
+
+$ agent-browser --session upd-d open http://127.0.0.1:5234/issues
+✓ Acme Tracker
+  http://127.0.0.1:5234/issues
+[exit 0]
+
+$ agent-browser --session upd-d wait '.issue-row'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d wait '.notifications__count'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d click 'button.notifications__trigger'
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-d wait 500
+✓ Done
+[exit 0]
+
+$ npx genie-react status --session upd-d --select /domains
+status: ok
+selection: {expression:/domains,matchedPathCount:1,matchedPaths:[/domains],omittedPathCount:46}
+result: [session,react,memory,perf,timeline,network,redux,app]
+[exit 0]
+
+$ npx genie-react verify begin --session upd-d --name 'mark all read' --claim 'render IssueTable max 0' --claim 'render NotificationsMenu min 1' --claim 'boundaries clean' | tee /tmp/upd-d/vb.txt
+recording vfy_985ecb3e-7346-47bb-8e44-d1f6f86ceccb "mark all read"
+  url "http://127.0.0.1:5234/issues"
+  1 recording render IssueTable max 0
+  2 recording render NotificationsMenu min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:19,domains:[react,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_985ecb3e-7346-47bb-8e44-d1f6f86ceccb --session upd-d
+session: {sessionId:d8ffac16-e22e-49c6-b450-9e325177172c,logicalSessionId:a07593a5-db3c-4fae-a8d8-4c337dd757ea,documentGeneration:39}
+schemaVersion: "1.0"
+targets: [{target:{component:IssueTable},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/features/issues/issue-table.tsx},{target:{component:NotificationsMenu},status:resolved,instances:1,source:~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/layout/top-bar.tsx}]
+startedAt: 2026-11-19T09:03:56.704Z
+expiresAt: 2026-11-19T09:08:56.721Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-d find text 'Mark all read' click
+✓ Done
+[exit 0]
+
+$ npx genie-react verify end vfy_985ecb3e-7346-47bb-8e44-d1f6f86ceccb --session upd-d; echo "exit code: $?"
+fail vfy_985ecb3e-7346-47bb-8e44-d1f6f86ceccb "mark all read"  3 commits, quiet after 1116 ms (react, network)
+  url "http://127.0.0.1:5234/issues"
+  1 fail render IssueTable max 0  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:IssueTable},max:0,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:20,source:~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/features/issues/issue-table.tsx:43:7}]
+  2 pass render NotificationsMenu min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:NotificationsMenu},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:2,renders:1,mounts:0,updates:1,mountGeneration:1,latestDocumentCommitId:20,source:~/.t3/worktrees/genie-react/t3-9e64af67-f21cc60f9d8a6648/apps/realworld-legacy/src/layout/top-bar.tsx:31:9}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:19}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:19,settledDocumentCommitId:21,frozenDocumentCommitId:22,commits:3,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:1116,domains:{react:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:unavailable}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+! visibility-unobserved: the app reports no visibility signal, so a hidden interval was not observed
+attempt 3 for these claims on this tab; previous pass vfy_338ececd-90a2-41c6-ac42-8c68584fa675; document reloaded since
+evidence: $ npx genie-react verify show vfy_985ecb3e-7346-47bb-8e44-d1f6f86ceccb --claim 1 --session upd-d
+session: {sessionId:d8ffac16-e22e-49c6-b450-9e325177172c,logicalSessionId:a07593a5-db3c-4fae-a8d8-4c337dd757ea,documentGeneration:39}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_c2c78bcb232c,scope:logical-session,storage:memory,attempt:3,history:[{verificationId:vfy_02f9a02e-ba20-4782-bac2-d3e290e1f9a0,verdict:fail,reasons:[],endedAt:2026-11-19T09:02:29.386Z},{verificationId:vfy_338ececd-90a2-41c6-ac42-8c68584fa675,verdict:pass,reasons:[],endedAt:2026-11-19T09:03:09.422Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,react_refresh_events,request_watch_start,request_watch_stop,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T09:03:56.704Z
+endedAt: 2026-11-19T09:03:58.606Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+exit code: 1
+[exit 0]
+
+## reverted with: git checkout -- apps/realworld-legacy
+~~~~

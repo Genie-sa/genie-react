@@ -5,41 +5,41 @@ description: Typing 10 characters into a comment box sent 10 activity requests. 
 
 Typing "Looks good" into an issue's comment box sent 10 requests to `/api/issues/CORE-12/activity`, one per key. The cause was one prop, `types={['created', 'status', 'field']}`. The `useActivity` effect lists `types` as a dependency, so each keystroke re-rendered the page, built a new array, and fetched the feed again.
 
-This walkthrough runs against `apps/realworld-legacy`, a React 18 app in this repo with webpack and Redux. Every command and output below comes from one session on 2026-11-19. The [raw evidence](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/effect-fetches-on-every-keystroke.md) has the full output.
+This walkthrough runs against `apps/realworld-legacy`, a React 18 app in this repo with webpack and Redux. Every command and output below comes from runs on 2026-11-19. The [raw evidence](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/effect-fetches-on-every-keystroke.md) has the full output.
 
 ## Ten keys sent ten requests
 
 Start a timeline recording, type into the comment box with agent-browser, and read the request lane:
 
 ```bash
-npx genie-react call react_clear_renders '{}' --session art-l3
-npx genie-react call timeline_start '{"name":"type a comment"}' --session art-l3 --json
-agent-browser --session art-l3 click 'textarea[aria-label="Add a comment"]'
-agent-browser --session art-l3 keyboard type 'Looks good'
-npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session art-l3
-npx genie-react call timeline_stop '{"id":"timeline-6ee4583c-5e39-436a-8cf8-24b758ddd87d"}' --session art-l3
-npx genie-react call timeline_read '{"id":"timeline-6ee4583c-5e39-436a-8cf8-24b758ddd87d","domains":["request"]}' --session art-l3 --fields atMs,details
+npx genie-react call react_clear_renders '{}' --session upd-d
+npx genie-react call timeline_start '{"name":"type a comment"}' --session upd-d --json
+agent-browser --session upd-d click 'textarea[aria-label="Add a comment"]'
+agent-browser --session upd-d keyboard type 'Looks good'
+npx genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session upd-d
+npx genie-react call timeline_stop '{"id":"timeline-d3cbc466-4ded-49db-84c2-1075810ad900"}' --session upd-d
+npx genie-react call timeline_read '{"id":"timeline-d3cbc466-4ded-49db-84c2-1075810ad900","domains":["request"]}' --session upd-d --fields atMs,details
 ```
 
 Trimmed to the shared fields, the first two rows and the last:
 
 ```text
 [10]:
-  each: {details:{url:http://127.0.0.1:5313/api/issues/CORE-12/activity,query:"?types=~04a965f331",…,method:GET,outcome:response,overlappingSameEndpoint:9,finishedAfterNewer:false}}
-  - {atMs:3603,details:{startMs:3539.6,endMs:3602.3,durationMs:62.7,bodyReadMs:3602.7,bodyReadLast:false}}
-  - {atMs:3663.7,details:{startMs:3546,endMs:3663.3,durationMs:117.3,bodyReadMs:3663.6,bodyReadLast:false}}
+  each: {details:{url:http://127.0.0.1:5234/api/issues/CORE-12/activity,query:"?types=~166ad13156",…,method:GET,outcome:response,overlappingSameEndpoint:9,finishedAfterNewer:false}}
+  - {atMs:115.9,details:{startMs:53.2,endMs:115.1,durationMs:61.9,bodyReadMs:115.6,bodyReadLast:false}}
+  - {atMs:176.2,details:{startMs:58.1,endMs:175.9,durationMs:117.8,bodyReadMs:176.2,bodyReadLast:false}}
   …
-  - {atMs:4155,details:{startMs:3581.3,endMs:4154.6,durationMs:573.3,bodyReadMs:4154.9,bodyReadLast:true}}
+  - {atMs:669.4,details:{startMs:88.8,endMs:668.4,durationMs:579.6,bodyReadMs:669.2,bodyReadLast:true}}
 ```
 
-Ten characters, ten GET requests, all started within 42 ms. Every one carries the same hashed `types` value, so the app asked for identical data ten times.
+Ten characters, ten GET requests, all started within 36 ms. Every one carries the same hashed `types` value, so the app asked for identical data ten times.
 
 ## The effect audit names the dependency
 
 The timeline shows what left the page, not which code sent it. `react_effect_audit` reads the effects of one component inside the same render window:
 
 ```bash
-npx genie-react call react_effect_audit '{"component":"ActivityLog"}' --session art-l3
+npx genie-react call react_effect_audit '{"component":"ActivityLog"}' --session upd-d
 ```
 
 Trimmed to the one effect it found:
@@ -47,24 +47,26 @@ Trimmed to the one effect it found:
 ```text
 effects:[{index:0,hookIndex:1,kind:effect,depsMode:list,depCount:2,scheduled:10,fired:10,updates:11,lastChangedDep:1,cleanupFunctionObserved:true,hasCleanup:true,
   note:"re-ran 10 times when no dependency changed value — dependency [1] is a new reference with equal contents; trace its producer and stabilize it or depend on its primitive fields",
-  hotness:{label:hot,basis:reference-only-reruns,reruns:{valueChanged:0,referenceOnly:10,undetermined:0},…},
-  hook:useEffect,customHooks:[useActivity],source:{file:/src/features/issue-detail/use-activity.ts,…},…}]
+  hotness:{label:hot,basis:reference-only-reruns,reruns:{valueChanged:0,referenceOnly:10,undetermined:0},…,scheduleReason:below-schedule-rate,…},
+  hook:useEffect,customHooks:[useActivity],source:{file:/src/features/issue-detail/use-activity.ts,line:13,column:1,functionName:useActivity,sourceMapConfidence:mapped,role:hook-callsite},…}]
 ```
 
-The effect ran 10 times. Dependency `[1]` changed reference every time and changed value zero times. `customHooks:[useActivity]` puts the effect in `use-activity.ts`, and the audit's component source points at the JSX call site, `issue-detail-page.tsx:56`.
+The effect ran 10 times. Dependency `[1]` changed reference every time and changed value zero times. `basis:reference-only-reruns` is why the label is `hot`. `scheduleReason` says `below-schedule-rate` because the effect was scheduled on 10 of 11 updates, and that rate decides the label only for an effect without a dependency array.
+
+`source` points at the `useEffect` on line 13 of `use-activity.ts`, read through the module's source map (`sourceMapConfidence:mapped`). The column is 1 because this app's webpack config uses `eval-cheap-module-source-map`, which maps lines only. Genie 1.0.2 reported line 15, a line in the transformed module, and 1.1.0 fixed it. The audit's component source points at the JSX call site, `issue-detail-page.tsx:56`.
 
 `react_effect_timeline` lists each run with the slot that changed:
 
 ```bash
-npx genie-react call react_effect_timeline '{"component":"ActivityLog","limit":3}' --session art-l3
+npx genie-react call react_effect_timeline '{"component":"ActivityLog","limit":3}' --session upd-d
 ```
 
 ```text
 events[3]:
   each: {…,phase:update,event:scheduled,evidence:exact,dependencyComparison:compared,changedDependencySlots:[1],dependencyChanges:[{slot:1,change:reference-only}],…,execution:{status:observed,evidence:exact,outcome:completed,trigger:commit},…}
-  - {effectEventId:effect:42:955,…,cleanupExecution:{status:unobserved,reason:not-yet-observed},…}
-  - {effectEventId:effect:41:854,…,cleanupExecution:{status:observed,evidence:exact,…,outcome:completed},…}
-  - {effectEventId:effect:40:753,…,cleanupExecution:{status:observed,evidence:exact,…,outcome:completed},…}
+  - {effectEventId:effect:32:951,…,cleanupExecution:{status:unobserved,reason:not-yet-observed},…}
+  - {effectEventId:effect:31:850,…,cleanupExecution:{status:observed,evidence:exact,…,outcome:completed},…}
+  - {effectEventId:effect:30:749,…,cleanupExecution:{status:observed,evidence:exact,…,outcome:completed},…}
 ```
 
 The cleanup ran before each new run, so the effect is not leaking. It is doing the same work again for no reason.
@@ -115,17 +117,17 @@ Move the array out of render so it keeps one identity:
 Declare what typing must do before you change code. The effect must not run at all, `CommentComposer` must render (so a run that never reached the textarea fails), and no error boundary may catch:
 
 ```bash
-npx genie-react verify begin --session art-l3 --name 'type a comment' \
+npx genie-react verify begin --session upd-d --name 'type a comment' \
   --claim 'effect ActivityLog max 0' --claim 'render CommentComposer min 1' --claim 'boundaries clean'
-agent-browser --session art-l3 click 'textarea[aria-label="Add a comment"]'
-agent-browser --session art-l3 keyboard type 'Looks good'
-npx genie-react verify end vfy_a22cc089-f208-4743-8e82-6ee59d0fdba3 --session art-l3
+agent-browser --session upd-d click 'textarea[aria-label="Add a comment"]'
+agent-browser --session upd-d keyboard type 'Looks good'
+npx genie-react verify end vfy_fedc05c9-9e0d-424f-99fe-4a25ba78d583 --session upd-d
 ```
 
 On the shipped code, trimmed to the verdict and claim lines, it exits 1:
 
 ```text
-fail vfy_a22cc089-f208-4743-8e82-6ee59d0fdba3 "type a comment"  18 commits, quiet after 1553 ms (react)
+fail vfy_fedc05c9-9e0d-424f-99fe-4a25ba78d583 "type a comment"  13 commits, quiet after 944 ms (react)
   1 fail effect ActivityLog max 0  {effects:[{effectIndex:0,runs:10,rawRuns:10}]}
   2 pass render CommentComposer min 1  {renders:10,mounts:0,updates:10,remounts:0,semantics:exact,instances:1,activeInstances:1}
   3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
@@ -134,11 +136,11 @@ fail vfy_a22cc089-f208-4743-8e82-6ee59d0fdba3 "type a comment"  18 commits, quie
 With the fix applied and the page reloaded, the same claims and the same typing exit 0:
 
 ```text
-pass vfy_47eddd96-70b3-4788-b04c-80a9dd470d24 "type a comment"  15 commits, quiet after 1248 ms (react)
+pass vfy_ed61c8c6-4df8-40e6-b64a-ed6fbf38af8b "type a comment"  12 commits, quiet after 796 ms (react)
   1 pass effect ActivityLog max 0  {effects:[]}
   2 pass render CommentComposer min 1  {renders:10,mounts:0,updates:10,remounts:0,semantics:exact,instances:1,activeInstances:1}
   3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
-attempt 2 for these claims on this tab; previous fail vfy_a22cc089-f208-4743-8e82-6ee59d0fdba3; document reloaded since
+attempt 2 for these claims on this tab; previous fail vfy_fedc05c9-9e0d-424f-99fe-4a25ba78d583; document reloaded since
 ```
 
 `CommentComposer` still rendered 10 times, once per key, which is what a controlled textarea should do. The effect ran 0 times. A second timeline recording of the same typing on the fixed code returned `matchedEventCount: 0` for the request lane, so the 10 requests are gone.
@@ -146,8 +148,7 @@ attempt 2 for these claims on this tab; previous fail vfy_a22cc089-f208-4743-8e8
 ## When this approach does not fit
 
 - The effect tools see effects in React components. A request sent from an event handler, a class lifecycle method or a Redux thunk never shows up in `react_effect_audit`. Use the timeline request lane for those, and read the code that sends them.
-- The `hot` label needs at least 3 updates in the window (`hotnessCriteria.minUpdates:3`). If you type one character, read `fired` and `lastChangedDep` instead of the label.
-- Genie's line numbers for the hook were off in this webpack setup. It reported `use-activity.ts:15` for a `useEffect` on line 13, and `activity-log.tsx:21` in a 17-line file. The file names and the `issue-detail-page.tsx:56` call site were right. Search the named file for the hook before you trust a line.
+- An effect with dependencies is `hot` only after it re-runs at least 3 times in the window (`hotnessCriteria.minUpdates:3`). If you type one character, read `fired` and `lastChangedDep` instead of the label.
 - A constant only works when the array never changes. If the types come from props or state, wrap the array in `useMemo`, or pass `types.join(',')` and depend on the string. This walkthrough did not test those variants.
 
 [Debug renders and effects](/docs/guides/renders-and-effects) covers the effect tools, and [Verify a fix](/docs/guides/verify-a-fix) lists every claim form.
