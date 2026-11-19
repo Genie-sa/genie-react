@@ -4,8 +4,8 @@ description: "A wrong fix typechecked and passed genie-react verify because the 
 ---
 
 The fix passed because nothing rendered. A claim that limits renders, such as
-`render OrderRow only props.order`, also holds when zero rows render, so a run whose click missed
-the app looks clean. Adding `render OrderRow min 1` made the same run fail with exit code 1.
+`render OrderRow only props.order,mount`, also holds when zero rows render, so a run whose click
+missed the app looks clean. Adding `render OrderRow min 1` made the same run fail with exit code 1.
 
 This happened in a real run on the Meridian Ops dashboard in this repo
 (`apps/realworld-dashboard`). The commands and untrimmed output are in the
@@ -19,8 +19,8 @@ Putting one order on hold re-renders every visible `OrderRow`, because the table
 On unchanged code, this run failed with exit code 1 (trimmed):
 
 ```text
-fail vfy_c6434521-1454-4087-9d79-40c74da41761 "put one order on hold"  9 commits, quiet after 967 ms (react, query, router)
-  1 fail render OrderRow only props.order  {renders:24,events:24,violatingEvents:24,causes:[props.onStatusChange,props.order]}
+fail vfy_63b3257e-02dc-4641-9eb0-d68f05c5214a "put one order on hold"  14 commits, quiet after 917 ms (react, query, router, network)
+  1 fail render OrderRow only props.order,mount  {renders:24,events:24,violatingEvents:24,causes:[props.onStatusChange,props.order]}
   2 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
 ```
 
@@ -50,19 +50,19 @@ changes with every data update. The fix does nothing.
 The agent reran the exact commands from the first run:
 
 ```bash
-npx genie-react verify begin --session art-l5 --name 'put one order on hold' \
-  --claim 'render OrderRow only props.order' --claim 'boundaries clean'
-agent-browser --session art-l5 click 'button[aria-label="Actions for SO-105999"]'
-agent-browser --session art-l5 find role menuitem click --name 'Put on hold'
-agent-browser --session art-l5 wait 1500
-npx genie-react verify end vfy_3cf3a5e7-d247-468d-bc36-c8893ac3812c --session art-l5
+npx genie-react verify begin --session upd-b --name 'put one order on hold' \
+  --claim 'render OrderRow only props.order,mount' --claim 'boundaries clean'
+agent-browser --session upd-b click 'button[aria-label="Actions for SO-105999"]'
+agent-browser --session upd-b find role menuitem click --name 'Put on hold'
+agent-browser --session upd-b wait 1500
+npx genie-react verify end vfy_e7e11896-11d9-4dd4-94df-8465e8987c3b --session upd-b
 ```
 
 Both clicks printed `✓ Done`. The verdict, trimmed:
 
 ```text
-pass vfy_3cf3a5e7-d247-468d-bc36-c8893ac3812c "put one order on hold"  4 commits, quiet after 738 ms (react, query, router)
-  1 pass render OrderRow only props.order  {renders:0,events:0,violatingEvents:0,causes:[]}
+pass vfy_e7e11896-11d9-4dd4-94df-8465e8987c3b "put one order on hold"  9 commits, quiet after 1027 ms (react, query, router, network)
+  1 pass render OrderRow only props.order,mount  {renders:0,events:0,violatingEvents:0,causes:[]}
   2 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
 ```
 
@@ -74,15 +74,15 @@ The first run had already put SO-105999 on hold, and the row menu disables **Put
 order that is on hold. A snapshot after the rerun shows the menu still open (trimmed):
 
 ```bash
-agent-browser --session art-l5 snapshot -i | grep -A4 'Actions for SO-105999'
+agent-browser --session upd-b snapshot -i | grep -A4 'Actions for SO-105999'
 ```
 
 ```text
-  - gridcell "Actions for SO-105999" [ref=e471]
-    - button "Actions for SO-105999" [expanded=true, ref=e597]
-    - menuitem "Put on hold" [disabled, ref=e608]
-    - menuitem "Mark shipped" [ref=e609]
-    - menuitem "Cancel order" [ref=e610]
+  - gridcell "Actions for SO-105999" [ref=e69]
+    - button "Actions for SO-105999" [expanded=true, ref=e195]
+    - menuitem "Put on hold" [disabled, ref=e206]
+    - menuitem "Mark shipped" [ref=e207]
+    - menuitem "Cancel order" [ref=e208]
 ```
 
 agent-browser reported the click on the disabled item as `✓ Done`. No status change happened, so
@@ -90,21 +90,22 @@ no row had a reason to render.
 
 Genie has a guard for a window where nothing happened. It refuses with `no_activity` when the
 window has no React commit at all, as the [refusal list](/docs/reference/evidence#refusals)
-describes. This window had 4, from opening the menu, so the guard did not apply.
+describes. This window had 9, from opening the menu and from a clock on the page, so the guard did
+not apply.
 
 On this page the guard can't apply even with no interaction. Ending a window without touching the
 app also passed, with exit code 0 (trimmed):
 
 ```text
-pass vfy_d1ccc920-0e7e-4a55-be8e-23c38452a555 "put one order on hold"  2 commits, quiet after 714 ms (react, query, router)
-  1 pass render OrderRow only props.order  {renders:0,events:0,violatingEvents:0,causes:[]}
+pass vfy_f897206c-6cd6-48ed-bb2a-4b18de4e9af3 "put one order on hold"  7 commits, quiet after 1174 ms (react, query, router, network)
+  1 pass render OrderRow only props.order,mount  {renders:0,events:0,violatingEvents:0,causes:[]}
 ```
 
-`verify show` with `--section raw:react_get_renders` names the source of those 2 commits. Selected
+`verify show` with `--section raw:react_get_renders` names the source of those 7 commits. Selected
 fields:
 
 ```text
-{name:SyncStatus,mountId:mount:13,renders:2,updates:2,causes:[{kind:state,evidence:exact,name:"state[0]"}],necessity:necessary,necessityReason:dom-changed,source:{location:/src/features/orders/orders-page.tsx:50:11,role:element-callsite,ownership:app}}
+{name:SyncStatus,mountId:mount:13,renders:7,updates:7,causes:[{kind:state,evidence:exact,name:"state[0]"}],necessity:necessary,necessityReason:dom-changed,source:{location:/src/features/orders/orders-page.tsx:50:11,role:element-callsite,ownership:app}}
 ```
 
 `SyncStatus` shows "Updated N seconds ago" and sets state once a second. A page with a ticking
@@ -116,8 +117,8 @@ What catches this is a positive control, a claim that only the interaction can m
 at least one `OrderRow` has to render. Same wrong fix, same disabled menu item, one more claim:
 
 ```bash
-npx genie-react verify begin --session art-l5 --name 'put one order on hold' \
-  --claim 'render OrderRow only props.order' \
+npx genie-react verify begin --session upd-b --name 'put one order on hold' \
+  --claim 'render OrderRow only props.order,mount' \
   --claim 'render OrderRow min 1' \
   --claim 'boundaries clean'
 ```
@@ -125,8 +126,8 @@ npx genie-react verify begin --session art-l5 --name 'put one order on hold' \
 After the same two clicks, `verify end` printed (trimmed):
 
 ```text
-fail vfy_b0ea2304-3805-4fea-86ec-6ca0f600c13b "put one order on hold"  4 commits, quiet after 876 ms (react, query, router)
-  1 pass render OrderRow only props.order  {renders:0,events:0,violatingEvents:0,causes:[]}
+fail vfy_7b4fb2bb-b4e6-4a27-966b-a33b997ea461 "put one order on hold"  9 commits, quiet after 1036 ms (react, query, router, network)
+  1 pass render OrderRow only props.order,mount  {renders:0,events:0,violatingEvents:0,causes:[]}
   2 fail render OrderRow min 1  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:12,activeInstances:12}
   3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
 ```
@@ -136,12 +137,12 @@ nothing. Twelve rows were mounted and none rendered.
 
 ## On a row that can go on hold, the fix fails
 
-The agent reset the demo data with `npx genie-react call app_reset_backend '{}' --session art-l5`,
+The agent reset the demo data with `npx genie-react call app_reset_backend '{}' --session upd-b`,
 reopened the page, and ran the three claims again. This time the click reached the order (trimmed):
 
 ```text
-fail vfy_f2a5d2cf-60c2-46d7-8cd8-8c10bd255547 "put one order on hold"  10 commits, quiet after 924 ms (react, query, router)
-  1 fail render OrderRow only props.order  {renders:24,events:24,violatingEvents:24,causes:[props.onStatusChange,props.order]}
+fail vfy_fc65520e-3289-47b1-ab0b-fcae777c96a6 "put one order on hold"  16 commits, quiet after 916 ms (react, query, router, network)
+  1 fail render OrderRow only props.order,mount  {renders:24,events:24,violatingEvents:24,causes:[props.onStatusChange,props.order]}
   2 pass render OrderRow min 1  {renders:24,mounts:0,updates:24,remounts:0,semantics:exact,instances:12,activeInstances:12}
   3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
 ```
@@ -159,19 +160,19 @@ Reloading the page between `begin` and `end` gave `refused` with exit code 4. Ea
 the command that starts a clean window (trimmed to claim 1):
 
 ```text
-refused vfy_21b5da2d-e0e6-4b88-b71f-f68ae510fed2 "put one order on hold"
-  1 refused render OrderRow only props.order  session_changed: The document closed or reloaded during the window.
-      fix: $ pnpm exec genie-react verify begin --session art-l5 --name 'put one order on hold' --claim 'render OrderRow only props.order' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+refused vfy_6803f668-9ff9-41ba-9757-58c785ca9778 "put one order on hold"
+  1 refused render OrderRow only props.order,mount  session_changed: The document closed or reloaded during the window.
+      fix: $ npx genie-react verify begin --session upd-b --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
 ```
 
 The `$` line is runnable and repeats the original claims, so the rerun checks the same thing. It
-says `pnpm exec` although this run used `npx`. Both start the same CLI from the app folder.
+starts with `npx`, the runner this run used.
 
 Opening the search palette with `effect CommandPalette max 1` gave `inconclusive` with exit code 5
 (trimmed):
 
 ```text
-inconclusive vfy_8766d2c9-f8aa-4fc5-8f27-098b9a3ceee9 "open search"  4 commits, quiet after 790 ms (react, query, router)
+inconclusive vfy_f12f14af-ba52-456c-9216-611b4af4a15f "open search"  7 commits, quiet after 800 ms (react, query, router, network)
   1 inconclusive effect CommandPalette max 1  strict_mode_replay: The raw count exceeds 1 only by StrictMode's development replay of a fresh mount, which a production build does not run.
       observed: {effects:[{effectIndex:0,runs:1,rawRuns:2},{effectIndex:1,runs:1,rawRuns:2}]}
   2 pass render CommandPalette min 1  {renders:1,mounts:1,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}

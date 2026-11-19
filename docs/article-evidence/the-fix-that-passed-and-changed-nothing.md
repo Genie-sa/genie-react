@@ -618,3 +618,644 @@ $ git checkout -- src/features/orders/orders-table.tsx && git status --short -- 
 ## t3/articles-verify-proof
 # exit code: 0
 ```
+
+## Re-run on Genie 1.1.0
+
+- Date: 2026-11-19 (runs between 08:57 and 08:59 UTC)
+- Commit: `ce408cb205c0e798cb04c35512772b7454283141` (`git rev-parse HEAD`, second command below)
+- App: `apps/realworld-dashboard` (Meridian Ops), dev server started from the app folder with
+  `DASHBOARD_PORT=5232 pnpm exec vite --port 5232 --strictPort`
+- URL: `http://127.0.0.1:5232/orders` (redirects to `/orders?sort=placedAt&dir=desc`)
+- Genie: CLI, hub and runtime 1.1.0 from this checkout (`pnpm install && pnpm build`), React 19.3.1
+  development build in StrictMode, headless Chromium through agent-browser 0.39.1
+- Session: `upd-b`, already signed in as the manager demo user (see the 1.1.0 re-run in the
+  evidence for `prove-your-agents-react-fix`, which ran just before these commands on the same tab)
+
+Every command below ran from `apps/realworld-dashboard`, in this order. Output is untrimmed. The
+first command reverts the reference fix left from the `prove-your-agents-react-fix` re-run. Steps
+that are not shell commands are noted here: waits of 2 seconds after each `open`, after the
+reload and after the source edit, and the temporary source edit itself, which was applied with a
+script and is shown by the `git diff` run that follows it. The edit is the same deliberately wrong
+fix as in the 1.0.2 run (same blob, `021e8bd`). It was reverted with `git checkout` (last command)
+and never committed.
+
+The `only` claim is now `render OrderRow only props.order,mount`, the form the 1.1.0 skill and the
+Verify a fix guide use. The order of runs matches the 1.0.2 run except that the no-interaction
+window comes last:
+
+1. Unchanged code, real interaction on SO-105999: fail, 24 renders, exit 1.
+2. Wrong fix applied. Same commands, same row, which run 1 already put on hold, so the
+   **Put on hold** item is disabled: pass with 0 renders, exit 0.
+3. Same as 2 with `render OrderRow min 1` added: fail, exit 1.
+4. Backend reset, real interaction on SO-105999 with the wrong fix: fail with 24 renders, exit 1.
+5. Page reloaded between `begin` and `end`: refused with `session_changed`, exit 4. The `$` fix
+   lines start with `npx`.
+6. Open the search palette with `effect CommandPalette max 1`: inconclusive with
+   `strict_mode_replay`, exit 5.
+7. `begin` and `end` with no interaction at all: pass with 7 commits, exit 0, because `SyncStatus`
+   ticks once a second. `verify show --section raw:react_get_renders` shows those commits.
+
+What differs from the 1.0.2 run:
+
+- `verify begin` prints each undecided claim as `recording`, not `null`.
+- Suggested commands start with `npx`, the runner used, not `pnpm exec`.
+- Settle also waits on the `network` domain, so the verdict line ends with
+  `(react, query, router, network)`. The windows ran longer between `begin` and `end`, so they hold
+  more `SyncStatus` commits: 9 instead of 4 for runs 2 and 3, and 7 instead of 2 for run 7.
+- Run 2 is `attempt 2` with run 1 in its history although the code edit reloaded the page.
+- Every verdict and exit code is the same as in 1.0.2.
+
+```console
+$ git checkout -- src/features/orders/order-row.tsx src/features/orders/orders-table.tsx && git status --short -- .
+## ali/articles-update-b...origin/main
+# exit code: 0
+```
+
+```console
+$ git rev-parse HEAD
+ce408cb205c0e798cb04c35512772b7454283141
+# exit code: 0
+```
+
+```console
+$ npx genie-react call app_reset_backend '{}' --session upd-b
+seed: 20260302
+faults: []
+latency: []
+latencyScale: 1
+requestCount: 0
+counts: {orders:6000,customers:1200,products:2400}
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b open 'http://127.0.0.1:5232/orders'
+✓ Meridian Ops
+  http://127.0.0.1:5232/orders?sort=placedAt&dir=desc
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify begin --session upd-b --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'boundaries clean'
+recording vfy_63b3257e-02dc-4641-9eb0-d68f05c5214a "put one order on hold"
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 recording render OrderRow only props.order,mount
+  2 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:8,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_63b3257e-02dc-4641-9eb0-d68f05c5214a --session upd-b
+session: {sessionId:3bf10c1e-29b7-46a7-971b-b039c240cebf,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:7}
+schemaVersion: "1.0"
+targets: [{target:{component:OrderRow},status:resolved,instances:12,source:/src/features/orders/orders-table.tsx}]
+startedAt: 2026-11-19T08:57:10.824Z
+expiresAt: 2026-11-19T09:02:10.836Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b click 'button[aria-label="Actions for SO-105999"]'
+✓ Done
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b find role menuitem click --name 'Put on hold'
+✓ Done
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b wait 1500
+✓ Done
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify end vfy_63b3257e-02dc-4641-9eb0-d68f05c5214a --session upd-b
+fail vfy_63b3257e-02dc-4641-9eb0-d68f05c5214a "put one order on hold"  14 commits, quiet after 917 ms (react, query, router, network)
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 fail render OrderRow only props.order,mount  {renders:24,events:24,violatingEvents:24,causes:[props.onStatusChange,props.order]}
+      claim: {kind:render-causes,target:{component:OrderRow},allow:[{kind:props,name:order},{kind:mount}]}
+      deciding: [{kind:render-event,renderEventId:render:19:187,documentCommitId:19,mountId:mount:12,causes:[{cause:props.onStatusChange,evidence:exact}]},{kind:render-event,renderEventId:render:19:186,documentCommitId:19,mountId:mount:11,causes:[{cause:props.onStatusChange,evidence:exact}]},{kind:render-event,renderEventId:render:19:185,documentCommitId:19,mountId:mount:10,causes:[{cause:props.onStatusChange,evidence:exact}]}]
+  2 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:8}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:8,settledDocumentCommitId:21,frozenDocumentCommitId:22,commits:14,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:917,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_63b3257e-02dc-4641-9eb0-d68f05c5214a --claim 1 --session upd-b
+session: {sessionId:3bf10c1e-29b7-46a7-971b-b039c240cebf,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:7}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_af5808659bf4,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_render_causes,react_error_state]}
+startedAt: 2026-11-19T08:57:10.824Z
+endedAt: 2026-11-19T08:57:18.237Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 1
+```
+
+```console
+$ agent-browser --session upd-b get text '[data-order-id="o-105999"]'
+SO-105999
+Delta Health 5
+On hold
+standard
+EMEA
+40
+Mar 2, 2026
+$8,624.19
+# exit code: 0
+```
+
+```console
+$ git diff -- src/features/orders
+diff --git a/apps/realworld-dashboard/src/features/orders/orders-table.tsx b/apps/realworld-dashboard/src/features/orders/orders-table.tsx
+index 90c16f4..021e8bd 100644
+--- a/apps/realworld-dashboard/src/features/orders/orders-table.tsx
++++ b/apps/realworld-dashboard/src/features/orders/orders-table.tsx
+@@ -39,12 +39,13 @@ export function OrdersTable({
+     () => ORDER_COLUMNS.filter((column) => !hiddenColumns.includes(column.id)),
+     [hiddenColumns],
+   )
++  const ordersById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
+   const onStatusChange = useCallback(
+     (id: string, status: OrderSummary['status']) => {
+-      const order = rows.find((row) => row.id === id)
++      const order = ordersById.get(id)
+       if (order) changeStatus({ id, number: order.number, status })
+     },
+-    [rows, changeStatus],
++    [ordersById, changeStatus],
+   )
+ 
+   const virtualizer = useVirtualizer({
+# exit code: 0
+```
+
+```console
+$ npx tsc --noEmit -p . && echo typecheck ok
+typecheck ok
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify begin --session upd-b --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'boundaries clean'
+recording vfy_e7e11896-11d9-4dd4-94df-8465e8987c3b "put one order on hold"
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 recording render OrderRow only props.order,mount
+  2 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:15,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_e7e11896-11d9-4dd4-94df-8465e8987c3b --session upd-b
+session: {sessionId:b3dcce2c-6ef1-4669-9d45-d43bdd2928ad,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:8}
+schemaVersion: "1.0"
+targets: [{target:{component:OrderRow},status:resolved,instances:12,source:/src/features/orders/orders-table.tsx}]
+startedAt: 2026-11-19T08:57:36.463Z
+expiresAt: 2026-11-19T09:02:36.476Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b click 'button[aria-label="Actions for SO-105999"]'
+✓ Done
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b find role menuitem click --name 'Put on hold'
+✓ Done
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b wait 1500
+✓ Done
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify end vfy_e7e11896-11d9-4dd4-94df-8465e8987c3b --session upd-b
+pass vfy_e7e11896-11d9-4dd4-94df-8465e8987c3b "put one order on hold"  9 commits, quiet after 1027 ms (react, query, router, network)
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 pass render OrderRow only props.order,mount  {renders:0,events:0,violatingEvents:0,causes:[]}
+      claim: {kind:render-causes,target:{component:OrderRow},allow:[{kind:props,name:order},{kind:mount}]}
+      deciding: []
+  2 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:15}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:15,settledDocumentCommitId:23,frozenDocumentCommitId:24,commits:9,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:1027,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 2 for these claims on this tab; previous fail vfy_63b3257e-02dc-4641-9eb0-d68f05c5214a; document reloaded since
+evidence: $ npx genie-react verify show vfy_e7e11896-11d9-4dd4-94df-8465e8987c3b --session upd-b
+session: {sessionId:b3dcce2c-6ef1-4669-9d45-d43bdd2928ad,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:8}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_af5808659bf4,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_63b3257e-02dc-4641-9eb0-d68f05c5214a,verdict:fail,reasons:[],endedAt:2026-11-19T08:57:18.237Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_render_causes,react_error_state]}
+startedAt: 2026-11-19T08:57:36.463Z
+endedAt: 2026-11-19T08:57:44.076Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b snapshot -i | grep -A4 'Actions for SO-105999'
+  - gridcell "Actions for SO-105999" [ref=e69]
+    - button "Actions for SO-105999" [expanded=true, ref=e195]
+    - menuitem "Put on hold" [disabled, ref=e206]
+    - menuitem "Mark shipped" [ref=e207]
+    - menuitem "Cancel order" [ref=e208]
+  - gridcell "Select SO-105998" [ref=e70]
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b open 'http://127.0.0.1:5232/orders'
+✓ Meridian Ops
+  http://127.0.0.1:5232/orders?sort=placedAt&dir=desc
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify begin --session upd-b --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+recording vfy_7b4fb2bb-b4e6-4a27-966b-a33b997ea461 "put one order on hold"
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 recording render OrderRow only props.order,mount
+  2 recording render OrderRow min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:8,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_7b4fb2bb-b4e6-4a27-966b-a33b997ea461 --session upd-b
+session: {sessionId:1ef58946-1bc9-4764-8866-6f69b1c9fc34,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:9}
+schemaVersion: "1.0"
+targets: [{target:{component:OrderRow},status:resolved,instances:12,source:/src/features/orders/orders-table.tsx}]
+startedAt: 2026-11-19T08:57:50.906Z
+expiresAt: 2026-11-19T09:02:50.916Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b click 'button[aria-label="Actions for SO-105999"]'
+✓ Done
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b find role menuitem click --name 'Put on hold'
+✓ Done
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b wait 1500
+✓ Done
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify end vfy_7b4fb2bb-b4e6-4a27-966b-a33b997ea461 --session upd-b
+fail vfy_7b4fb2bb-b4e6-4a27-966b-a33b997ea461 "put one order on hold"  9 commits, quiet after 1036 ms (react, query, router, network)
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 pass render OrderRow only props.order,mount  {renders:0,events:0,violatingEvents:0,causes:[]}
+      claim: {kind:render-causes,target:{component:OrderRow},allow:[{kind:props,name:order},{kind:mount}]}
+      deciding: []
+  2 fail render OrderRow min 1  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:12,activeInstances:12}
+      claim: {kind:renders,target:{component:OrderRow},min:1,counting:renders,allowRemount:false}
+      deciding: []
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:8}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:8,settledDocumentCommitId:16,frozenDocumentCommitId:17,commits:9,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:1036,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 3 for these claims on this tab; previous pass vfy_963e66b2-808f-4181-9a6b-33829f737e69; document reloaded since
+evidence: $ npx genie-react verify show vfy_7b4fb2bb-b4e6-4a27-966b-a33b997ea461 --claim 2 --session upd-b
+session: {sessionId:1ef58946-1bc9-4764-8866-6f69b1c9fc34,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:9}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_75576ea0e0d8,scope:logical-session,storage:memory,attempt:3,history:[{verificationId:vfy_6079298e-51e7-4e78-ab1b-d81729b841bc,verdict:fail,reasons:[],endedAt:2026-11-19T08:56:18.297Z},{verificationId:vfy_963e66b2-808f-4181-9a6b-33829f737e69,verdict:pass,reasons:[],endedAt:2026-11-19T08:56:59.168Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_render_causes,react_error_state]}
+startedAt: 2026-11-19T08:57:50.906Z
+endedAt: 2026-11-19T08:57:58.192Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 1
+```
+
+```console
+$ npx genie-react call app_reset_backend '{}' --session upd-b
+seed: 20260302
+faults: []
+latency: []
+latencyScale: 1
+requestCount: 0
+counts: {orders:6000,customers:1200,products:2400}
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b open 'http://127.0.0.1:5232/orders'
+✓ Meridian Ops
+  http://127.0.0.1:5232/orders?sort=placedAt&dir=desc
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify begin --session upd-b --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+recording vfy_fc65520e-3289-47b1-ab0b-fcae777c96a6 "put one order on hold"
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 recording render OrderRow only props.order,mount
+  2 recording render OrderRow min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:8,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_fc65520e-3289-47b1-ab0b-fcae777c96a6 --session upd-b
+session: {sessionId:7e2bf9e5-da9a-41fe-8c2e-77c230fbe522,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:10}
+schemaVersion: "1.0"
+targets: [{target:{component:OrderRow},status:resolved,instances:12,source:/src/features/orders/orders-table.tsx}]
+startedAt: 2026-11-19T08:58:05.678Z
+expiresAt: 2026-11-19T09:03:05.689Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b click 'button[aria-label="Actions for SO-105999"]'
+✓ Done
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b find role menuitem click --name 'Put on hold'
+✓ Done
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b wait 1500
+✓ Done
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify end vfy_fc65520e-3289-47b1-ab0b-fcae777c96a6 --session upd-b
+fail vfy_fc65520e-3289-47b1-ab0b-fcae777c96a6 "put one order on hold"  16 commits, quiet after 916 ms (react, query, router, network)
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 fail render OrderRow only props.order,mount  {renders:24,events:24,violatingEvents:24,causes:[props.onStatusChange,props.order]}
+      claim: {kind:render-causes,target:{component:OrderRow},allow:[{kind:props,name:order},{kind:mount}]}
+      deciding: [{kind:render-event,renderEventId:render:21:193,documentCommitId:21,mountId:mount:12,causes:[{cause:props.onStatusChange,evidence:exact}]},{kind:render-event,renderEventId:render:21:192,documentCommitId:21,mountId:mount:11,causes:[{cause:props.onStatusChange,evidence:exact}]},{kind:render-event,renderEventId:render:21:191,documentCommitId:21,mountId:mount:10,causes:[{cause:props.onStatusChange,evidence:exact}]}]
+  2 pass render OrderRow min 1  {renders:24,mounts:0,updates:24,remounts:0,semantics:exact,instances:12,activeInstances:12}
+      claim: {kind:renders,target:{component:OrderRow},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,key:o-106000,renders:2,mounts:0,updates:2,mountGeneration:1,latestDocumentCommitId:21,source:/src/features/orders/orders-table.tsx:122:17},{kind:instance,mountId:mount:2,key:o-105999,renders:2,mounts:0,updates:2,mountGeneration:1,latestDocumentCommitId:21,source:/src/features/orders/orders-table.tsx:122:17},{kind:instance,mountId:mount:3,key:o-105998,renders:2,mounts:0,updates:2,mountGeneration:1,latestDocumentCommitId:21,source:/src/features/orders/orders-table.tsx:122:17}]
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:8}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:8,settledDocumentCommitId:23,frozenDocumentCommitId:24,commits:16,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:916,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 4 for these claims on this tab; previous fail vfy_7b4fb2bb-b4e6-4a27-966b-a33b997ea461; document reloaded since
+evidence: $ npx genie-react verify show vfy_fc65520e-3289-47b1-ab0b-fcae777c96a6 --claim 1 --session upd-b
+session: {sessionId:7e2bf9e5-da9a-41fe-8c2e-77c230fbe522,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:10}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_75576ea0e0d8,scope:logical-session,storage:memory,attempt:4,history:[{verificationId:vfy_6079298e-51e7-4e78-ab1b-d81729b841bc,verdict:fail,reasons:[],endedAt:2026-11-19T08:56:18.297Z},{verificationId:vfy_963e66b2-808f-4181-9a6b-33829f737e69,verdict:pass,reasons:[],endedAt:2026-11-19T08:56:59.168Z},{verificationId:vfy_7b4fb2bb-b4e6-4a27-966b-a33b997ea461,verdict:fail,reasons:[],endedAt:2026-11-19T08:57:58.192Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_render_causes,react_error_state]}
+startedAt: 2026-11-19T08:58:05.678Z
+endedAt: 2026-11-19T08:58:14.920Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 1
+```
+
+```console
+$ agent-browser --session upd-b get text '[data-order-id="o-105999"]'
+SO-105999
+Delta Health 5
+On hold
+standard
+EMEA
+40
+Mar 2, 2026
+$8,624.19
+# exit code: 0
+```
+
+```console
+$ npx genie-react call app_reset_backend '{}' --session upd-b
+seed: 20260302
+faults: []
+latency: []
+latencyScale: 1
+requestCount: 0
+counts: {orders:6000,customers:1200,products:2400}
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b open 'http://127.0.0.1:5232/orders'
+✓ Meridian Ops
+  http://127.0.0.1:5232/orders?sort=placedAt&dir=desc
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify begin --session upd-b --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+recording vfy_6803f668-9ff9-41ba-9757-58c785ca9778 "put one order on hold"
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 recording render OrderRow only props.order,mount
+  2 recording render OrderRow min 1
+  3 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:8,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_6803f668-9ff9-41ba-9757-58c785ca9778 --session upd-b
+session: {sessionId:7d99c844-b723-4447-8795-a6fc3dae688f,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:11}
+schemaVersion: "1.0"
+targets: [{target:{component:OrderRow},status:resolved,instances:12,source:/src/features/orders/orders-table.tsx}]
+startedAt: 2026-11-19T08:58:24.039Z
+expiresAt: 2026-11-19T09:03:24.050Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b click 'button[aria-label="Actions for SO-105999"]'
+✓ Done
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b reload
+http://127.0.0.1:5232/orders?sort=placedAt&dir=desc
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify end vfy_6803f668-9ff9-41ba-9757-58c785ca9778 --session upd-b
+refused vfy_6803f668-9ff9-41ba-9757-58c785ca9778 "put one order on hold"
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 refused render OrderRow only props.order,mount  session_changed: The document closed or reloaded during the window.
+      observed: {}
+      evidence:{},fix:{action:begin-again}
+      fix: $ npx genie-react verify begin --session upd-b --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+      claim: {kind:render-causes,target:{component:OrderRow},allow:[{kind:props,name:order},{kind:mount}]}
+      deciding: []
+  2 refused render OrderRow min 1  session_changed: The document closed or reloaded during the window.
+      observed: {}
+      evidence:{},fix:{action:begin-again}
+      fix: $ npx genie-react verify begin --session upd-b --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+      claim: {kind:renders,target:{component:OrderRow},min:1,counting:renders,allowRemount:false}
+      deciding: []
+  3 refused boundaries clean  session_changed: The document closed or reloaded during the window.
+      observed: {}
+      evidence:{},fix:{action:begin-again}
+      fix: $ npx genie-react verify begin --session upd-b --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: []
+  window session_changed: The document closed or reloaded during the window.
+    guard:same-document
+    evidence:{},fix:{action:begin-again}
+    fix: $ npx genie-react verify begin --session upd-b --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'render OrderRow min 1' --claim 'boundaries clean'
+window: {observationId:observation:1,startDocumentCommitId:8}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 5 for these claims on this tab; previous fail vfy_fc65520e-3289-47b1-ab0b-fcae777c96a6; document reloaded since
+evidence: $ npx genie-react verify show vfy_6803f668-9ff9-41ba-9757-58c785ca9778 --claim 1 --session upd-b
+session: {sessionId:7d99c844-b723-4447-8795-a6fc3dae688f,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:11}
+schemaVersion: "1.0"
+exitCode: 4
+stage: end
+ledger: {fingerprint:cf_75576ea0e0d8,scope:logical-session,storage:memory,attempt:5,history:[{verificationId:vfy_6079298e-51e7-4e78-ab1b-d81729b841bc,verdict:fail,reasons:[],endedAt:2026-11-19T08:56:18.297Z},{verificationId:vfy_963e66b2-808f-4181-9a6b-33829f737e69,verdict:pass,reasons:[],endedAt:2026-11-19T08:56:59.168Z},{verificationId:vfy_7b4fb2bb-b4e6-4a27-966b-a33b997ea461,verdict:fail,reasons:[],endedAt:2026-11-19T08:57:58.192Z},{verificationId:vfy_fc65520e-3289-47b1-ab0b-fcae777c96a6,verdict:fail,reasons:[],endedAt:2026-11-19T08:58:14.920Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:false,tools:[]}
+startedAt: 2026-11-19T08:58:24.039Z
+endedAt: 2026-11-19T08:58:29.785Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 4
+```
+
+```console
+$ npx genie-react verify begin --session upd-b --name 'open search' --claim 'effect CommandPalette max 1' --claim 'render CommandPalette min 1'
+recording vfy_f12f14af-ba52-456c-9216-611b4af4a15f "open search"
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 recording effect CommandPalette max 1
+  2 recording render CommandPalette min 1
+window: {observationId:observation:1,startDocumentCommitId:15,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_f12f14af-ba52-456c-9216-611b4af4a15f --session upd-b
+session: {sessionId:4a860ff6-c397-482c-9c60-b8591d11a073,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:12}
+schemaVersion: "1.0"
+targets: [{target:{component:CommandPalette},status:pending,instances:0}]
+startedAt: 2026-11-19T08:58:33.198Z
+expiresAt: 2026-11-19T09:03:33.204Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b find role button click --name 'Search orders, customers, products…'
+✓ Done
+# exit code: 0
+```
+
+```console
+$ agent-browser --session upd-b wait 1000
+✓ Done
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify end vfy_f12f14af-ba52-456c-9216-611b4af4a15f --session upd-b
+inconclusive vfy_f12f14af-ba52-456c-9216-611b4af4a15f "open search"  7 commits, quiet after 800 ms (react, query, router, network)
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 inconclusive effect CommandPalette max 1  strict_mode_replay: The raw count exceeds 1 only by StrictMode's development replay of a fresh mount, which a production build does not run.
+      observed: {effects:[{effectIndex:0,runs:1,rawRuns:2},{effectIndex:1,runs:1,rawRuns:2}]}
+      evidence:{effectIndexes:[0,1]}
+      claim: {kind:effect-runs,target:{component:CommandPalette},max:1}
+      deciding: []
+  2 pass render CommandPalette min 1  {renders:1,mounts:1,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:CommandPalette},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:4,renders:1,mounts:1,updates:0,mountGeneration:1,latestDocumentCommitId:19,source:/src/layout/app-shell.tsx:44:23}]
+window: {observationId:observation:1,startDocumentCommitId:15,settledDocumentCommitId:21,frozenDocumentCommitId:22,commits:7,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:800,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_f12f14af-ba52-456c-9216-611b4af4a15f --claim 1 --session upd-b
+session: {sessionId:4a860ff6-c397-482c-9c60-b8591d11a073,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:12}
+schemaVersion: "1.0"
+exitCode: 5
+stage: end
+ledger: {fingerprint:cf_9595e1b6fa01,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_effect_timeline,react_effect_audit]}
+startedAt: 2026-11-19T08:58:33.198Z
+endedAt: 2026-11-19T08:58:38.889Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 5
+```
+
+```console
+$ agent-browser --session upd-b open 'http://127.0.0.1:5232/orders'
+✓ Meridian Ops
+  http://127.0.0.1:5232/orders?sort=placedAt&dir=desc
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify begin --session upd-b --name 'put one order on hold' --claim 'render OrderRow only props.order,mount' --claim 'boundaries clean'
+recording vfy_f897206c-6cd6-48ed-bb2a-4b18de4e9af3 "put one order on hold"
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 recording render OrderRow only props.order,mount
+  2 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:8,domains:[react,query,router,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_f897206c-6cd6-48ed-bb2a-4b18de4e9af3 --session upd-b
+session: {sessionId:164b810a-8f09-4368-848d-4b361cf2bf42,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:13}
+schemaVersion: "1.0"
+targets: [{target:{component:OrderRow},status:resolved,instances:12,source:/src/features/orders/orders-table.tsx}]
+startedAt: 2026-11-19T08:58:45.218Z
+expiresAt: 2026-11-19T09:03:45.228Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify end vfy_f897206c-6cd6-48ed-bb2a-4b18de4e9af3 --session upd-b
+pass vfy_f897206c-6cd6-48ed-bb2a-4b18de4e9af3 "put one order on hold"  7 commits, quiet after 1174 ms (react, query, router, network)
+  url "http://127.0.0.1:5232/orders?sort=placedAt&dir=desc"
+  1 pass render OrderRow only props.order,mount  {renders:0,events:0,violatingEvents:0,causes:[]}
+      claim: {kind:render-causes,target:{component:OrderRow},allow:[{kind:props,name:order},{kind:mount}]}
+      deciding: []
+  2 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:8}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:8,settledDocumentCommitId:14,frozenDocumentCommitId:15,commits:7,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:1174,domains:{react:met,query:met,router:met,network:met}},tail:{ms:500,commits:1},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 3 for these claims on this tab; previous pass vfy_e7e11896-11d9-4dd4-94df-8465e8987c3b; document reloaded since
+evidence: $ npx genie-react verify show vfy_f897206c-6cd6-48ed-bb2a-4b18de4e9af3 --session upd-b
+session: {sessionId:164b810a-8f09-4368-848d-4b361cf2bf42,logicalSessionId:87a7df47-883d-40a5-82f6-5a2af5d0d6e9,documentGeneration:13}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_af5808659bf4,scope:logical-session,storage:memory,attempt:3,history:[{verificationId:vfy_63b3257e-02dc-4641-9eb0-d68f05c5214a,verdict:fail,reasons:[],endedAt:2026-11-19T08:57:18.237Z},{verificationId:vfy_e7e11896-11d9-4dd4-94df-8465e8987c3b,verdict:pass,reasons:[],endedAt:2026-11-19T08:57:44.076Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_render_causes,react_error_state]}
+startedAt: 2026-11-19T08:58:45.218Z
+endedAt: 2026-11-19T08:58:51.453Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+# exit code: 0
+```
+
+```console
+$ npx genie-react verify show vfy_f897206c-6cd6-48ed-bb2a-4b18de4e9af3 --section raw:react_get_renders --session upd-b
+verificationId: vfy_f897206c-6cd6-48ed-bb2a-4b18de4e9af3
+section: raw:react_get_renders
+results[3]:
+  each: {status:ok,tool:react_get_renders,args:{sort:renders,appOnly:false},result:{renderCollection:available,bundle:development,timingsBundleDependent:true,countsScope:observed-run,attribution:{status:current},summary:{referenceOnlyPropComponents:0,topReferenceOnlyProps:[],coverageDomain:render-measurement},sourceClassification:{complete:true,affects:ownership-labels,unknown:0,unknownComponents:[],unknownComponentsOmitted:0},nextCursor:null,pagination:{offset:0},coverage:{skippedCommitFibers:0,droppedUnmountFibers:0,analysisFailedFibers:0,pausedCommits:0,refreshCommitsExcluded:0,truncatedInputFibers:0,propsNotEnumeratedFibers:0,budgetExhaustedCommits:0,budgetExhaustedSubsystems:[],coverageDomain:render-causality}}}
+  - {args:{limit:1,includeCursor:false},capturedAt:2026-11-19T08:58:45.218Z,durationMs:1,result:{tracking:false,commits:0,documentCommitId:8,observation:null,attribution:{startedAtDocumentCommitId:8,completedAtDocumentCommitId:8,startedAtAnalysisGeneration:8,completedAtAnalysisGeneration:8},view:summary,summary:{commits:0,trackedComponents:0,totalRenders:0,totalUpdates:0,noObservedInputChangeComponents:0,semantics:unknown},components:[],sourceClassification:{totalCandidates:0,evaluated:0,app:0,library:0},omittedByLimit:0,pagination:{snapshotId:null,totalComponents:0,expiresAt:null},comparable:false,notComparableReasons:[commits-not-observed],coverage:{unobservedCommits:8,incompleteBecause:[{reason:commits-not-observed,fibers:0,detail:"8 commits happened while no render window, profile, measurement or timeline was open. Genie analyses renders and effects only while one is open, so nothing from those commits is recorded.",next:"Open a window with react_clear_renders (or devtools_interaction_begin), repeat the interaction, then read again. To observe a page load, load the page with _genie_observe in its URL."}],complete:false,inputAttributionComplete:false,semantics:lower-bound}}}
+  - {args:{limit:1,includeCursor:false},capturedAt:2026-11-19T08:58:51.437Z,durationMs:1,result:{tracking:true,commits:7,documentCommitId:15,observation:{id:observation:1,epoch:1,startedAfterDocumentCommitId:8},attribution:{startedAtDocumentCommitId:15,completedAtDocumentCommitId:15,startedAtAnalysisGeneration:16,completedAtAnalysisGeneration:16},view:summary,summary:{commits:7,trackedComponents:3,totalRenders:21,totalUpdates:21,noObservedInputChangeComponents:2,semantics:exact},components:[{id:9801266364487,name:SyncStatus,mountId:mount:13,renders:7,updates:7,selfTime:0.4,totalTime:1,cumulativeSelfTime:1.5,cumulativeTotalTime:4.3,latestDocumentCommitId:15,causeCounts:{state:7},causes:[{kind:state,evidence:exact,name:"state[0]"}],necessity:necessary,necessityReason:dom-changed,inputEvidence:changed,source:{location:/src/features/orders/orders-page.tsx:50:11,role:element-callsite,ownership:app}}],sourceClassification:{totalCandidates:3,evaluated:3,app:1,library:2},omittedByLimit:2,pagination:{snapshotId:null,totalComponents:3,expiresAt:null},comparable:true,notComparableReasons:[],coverage:{unobservedCommits:0,complete:true,inputAttributionComplete:true,semantics:exact}}}
+  - {args:{nameFilter:OrderRow,limit:200,view:full},capturedAt:2026-11-19T08:58:51.440Z,durationMs:2,result:{tracking:false,commits:7,documentCommitId:15,observation:{id:observation:1,epoch:1,startedAfterDocumentCommitId:8},attribution:{startedAtDocumentCommitId:15,completedAtDocumentCommitId:15,startedAtAnalysisGeneration:16,completedAtAnalysisGeneration:16},view:full,summary:{commits:7,trackedComponents:0,totalRenders:0,totalUpdates:0,unstableComponents:0,unnecessaryComponents:0,noObservedInputChangeComponents:0,topUnstableProps:[],semantics:exact},components:[],sourceClassification:{totalCandidates:0,evaluated:0,app:0,library:0},omittedByLimit:0,pagination:{snapshotId:1f4eabe3-7d7c-4936-aeac-f14ff9675e56,totalComponents:0,expiresAt:1795079031441},comparable:true,notComparableReasons:[],coverage:{unobservedCommits:0,complete:true,inputAttributionComplete:true,semantics:exact}}}
+# exit code: 0
+```
+
+```console
+$ git checkout -- src/features/orders/orders-table.tsx && git status --short -- .
+## ali/articles-update-b...origin/main
+# exit code: 0
+```
