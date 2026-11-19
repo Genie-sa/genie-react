@@ -1,0 +1,200 @@
+---
+title: "Your AI agent said 'fixed'. Make it prove it with an exit code"
+description: "A real run of genie-react verify. Putting one order on hold re-rendered 12 rows twice, the verdict failed with exit 1, and after the fix it passed with exit 0."
+---
+
+Make your agent write down what the fix must make true before it touches the UI, then let
+`npx genie-react verify` decide. The command exits 0 when every claim holds and 1 when the evidence
+proves one false, so your agent's "fixed" has to match an exit code.
+
+This page is one real run on the Meridian Ops dashboard in this repo
+(`apps/realworld-dashboard`). Putting one order on hold re-rendered all 12 visible rows, twice
+each. The verdict before the fix was `fail` with exit code 1. After the fix it was `pass` with exit
+code 0, and only the changed row rendered. The full commands and untrimmed output are in the
+[evidence file](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/prove-your-agents-react-fix.md).
+
+## Putting one order on hold re-renders every row
+
+The orders page shows a virtualised table. Each row is an `OrderRow` wrapped in `memo`, with an
+actions menu that has **Put on hold**, **Mark shipped** and **Cancel order**. The table hands every
+row the same `onStatusChange` callback:
+
+```tsx title="src/features/orders/orders-table.tsx"
+const onStatusChange = useCallback(
+  (id: string, status: OrderSummary['status']) => {
+    const order = rows.find((row) => row.id === id)
+    if (order) changeStatus({ id, number: order.number, status })
+  },
+  [rows, changeStatus],
+)
+```
+
+`memo` should keep the other rows still when one order changes. The first verdict below shows it
+doesn't.
+
+## Write the claims before you drive the UI
+
+`verify begin` opens a recording window on the tab and fixes the claims. They can't change after
+the interaction, so the agent can't rewrite them once it sees the result.
+
+```bash
+npx genie-react verify begin --session art-l5 --name 'put one order on hold' \
+  --claim 'render OrderRow only props.order' \
+  --claim 'render OrderRow min 1' \
+  --claim 'boundaries clean'
+```
+
+The three claims say:
+
+- Every `OrderRow` render had `props.order` as its only cause. A row whose order didn't change
+  shouldn't render at all.
+- At least one `OrderRow` rendered. This is the positive control. Without it, an interaction that
+  missed the row would pass the first claim with zero renders.
+- No error boundary caught anything during the window.
+
+`begin` prints the window ID and resolves the target before anything happens (output trimmed):
+
+```text
+recording vfy_2dbfa57a-44c7-4efc-b956-475e5f2b3eab "put one order on hold"
+  url "http://127.0.0.1:5215/orders?sort=placedAt&dir=desc"
+next: $ pnpm exec genie-react verify end vfy_2dbfa57a-44c7-4efc-b956-475e5f2b3eab --session art-l5
+targets: [{target:{component:OrderRow},status:resolved,instances:12,source:/src/features/orders/orders-table.tsx}]
+```
+
+Then the agent drives the interaction with [agent-browser](https://github.com/vercel-labs/agent-browser)
+and ends the window:
+
+```bash
+agent-browser --session art-l5 click 'button[aria-label="Actions for SO-105999"]'
+agent-browser --session art-l5 find role menuitem click --name 'Put on hold'
+agent-browser --session art-l5 wait 1500
+npx genie-react verify end vfy_2dbfa57a-44c7-4efc-b956-475e5f2b3eab --session art-l5
+```
+
+## The fail verdict names the cause
+
+`verify end` waited for React, TanStack Query and TanStack Router to go quiet, then decided each
+claim. Trimmed to the verdict and claim lines:
+
+```text
+fail vfy_2dbfa57a-44c7-4efc-b956-475e5f2b3eab "put one order on hold"  15 commits, quiet after 942 ms (react, query, router)
+  1 fail render OrderRow only props.order  {renders:24,events:24,violatingEvents:24,causes:[props.onStatusChange,props.order]}
+  2 pass render OrderRow min 1  {renders:24,mounts:0,updates:24,remounts:0,semantics:exact,instances:12,activeInstances:12}
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+```
+
+The command exited with code 1. Twelve rows rendered 24 times, and all 24 renders broke the claim.
+`verify show` prints the evidence behind claim 1. Trimmed to the two commits for SO-105999 and its
+neighbour SO-105998:
+
+```bash
+npx genie-react verify show vfy_2dbfa57a-44c7-4efc-b956-475e5f2b3eab --claim 1 --session art-l5
+```
+
+```text
+  events[24]:
+    each: {inputCoverageComplete:true}
+    - {renderEventId:render:38:181,documentCommitId:38,mountId:mount:3,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:38:180,documentCommitId:38,mountId:mount:2,causes:[{kind:props,evidence:exact,name:order,reason:null},{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:36:36,documentCommitId:36,mountId:mount:3,causes:[{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+    - {renderEventId:render:36:35,documentCommitId:36,mountId:mount:2,causes:[{kind:props,evidence:exact,name:order,reason:null},{kind:props,evidence:exact,name:onStatusChange,reason:null}]}
+```
+
+`mount:2` is SO-105999, the order put on hold. It rendered because its `order` changed, which is
+expected, and because `onStatusChange` changed. `mount:3` is SO-105998. Its only cause is
+`onStatusChange`, graded `exact`. The other 10 rows look the same.
+
+## The cause is `rows` in the callback's dependencies
+
+`onStatusChange` lists `rows` as a dependency so it can look up the order number for the toast.
+The status mutation updates the list twice. `onMutate` writes the optimistic status, then
+`onSuccess` writes the server's copy. Each update gives the table a new `rows` array, so
+`useCallback` returns a new function, and every memoised `OrderRow` sees a changed prop. That is
+the two commits in the evidence, 36 and 38, times 12 rows.
+
+## The fix passes the order instead of looking it up
+
+The row already holds its `order`, so it can pass the whole object up. The callback then needs no
+`rows` at all. This is the reference fix from the dashboard's answer key, applied for this run and
+reverted afterwards:
+
+```diff
+--- a/apps/realworld-dashboard/src/features/orders/orders-table.tsx
++++ b/apps/realworld-dashboard/src/features/orders/orders-table.tsx
+   const onStatusChange = useCallback(
+-    (id: string, status: OrderSummary['status']) => {
+-      const order = rows.find((row) => row.id === id)
+-      if (order) changeStatus({ id, number: order.number, status })
+-    },
+-    [rows, changeStatus],
++    (order: OrderSummary, status: OrderSummary['status']) =>
++      changeStatus({ id: order.id, number: order.number, status }),
++    [changeStatus],
+   )
+--- a/apps/realworld-dashboard/src/features/orders/order-row.tsx
++++ b/apps/realworld-dashboard/src/features/orders/order-row.tsx
+-  onStatusChange: (id: string, status: OrderStatus) => void
++  onStatusChange: (order: OrderSummary, status: OrderStatus) => void
+-      onSelect: () => onStatusChange(order.id, 'on_hold'),
++      onSelect: () => onStatusChange(order, 'on_hold'),
+```
+
+The same one-word change applies to the **Mark shipped** and **Cancel order** items. The app
+typechecked with `npx tsc --noEmit -p .`.
+
+## The pass verdict proves it
+
+The first run had already put SO-105999 on hold, which disables its **Put on hold** item. Before the
+second run, the agent reset the demo backend so the same row could go on hold again:
+
+```bash
+npx genie-react call app_reset_backend '{}' --session art-l5
+agent-browser --session art-l5 open 'http://127.0.0.1:5215/orders'
+```
+
+Then it ran the same `verify begin` with the same three claims, the same two clicks, and
+`verify end`. Trimmed:
+
+```text
+pass vfy_3bbabc5d-9307-4502-943e-97ee8f8849d7 "put one order on hold"  10 commits, quiet after 924 ms (react, query, router)
+  1 pass render OrderRow only props.order  {renders:2,events:2,violatingEvents:0,causes:[props.order]}
+  2 pass render OrderRow min 1  {renders:2,mounts:0,updates:2,remounts:0,semantics:exact,instances:12,activeInstances:12}
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 2 for these claims on this tab; previous fail vfy_2dbfa57a-44c7-4efc-b956-475e5f2b3eab; document reloaded since
+```
+
+The command exited with code 0. The same 12 rows were on screen. Two renders happened, both on
+SO-105999, both caused only by `props.order`. Down from 24.
+
+The last line links the attempts. Genie remembers that the same claims failed on this tab, and that
+the page reloaded in between. An agent that reports "fixed" can quote the failing ID and the
+passing ID together.
+
+Genie says it does not check the screen, so the agent asked agent-browser:
+
+```bash
+agent-browser --session art-l5 get text '[data-order-id="o-105999"]'
+```
+
+```text
+SO-105999
+Delta Health 5
+On hold
+```
+
+## Where this approach does not fit
+
+- Genie checks renders, render causes, effect runs and error boundaries. It does not check pixels,
+  layout or copy. The driver still has to confirm the screen, as above.
+- The claims are only as good as the interaction. If the click had hit a disabled menu item, claim
+  1 would have passed with zero renders. The `min 1` claim catches that, and
+  [The React fix that passed every check and changed nothing](/docs/articles/the-fix-that-passed-and-changed-nothing)
+  shows it happening.
+- `verify` needs a development build of React 18 or newer. It counts renders, not milliseconds.
+  For timing before and after a change, see [Optimize](/docs/guides/optimize).
+- `only props.order` held here because no row moved. If the update had re-sorted the table, rows
+  would also render for a new `start` position, and the claim would need that cause too.
+
+The claim forms and every verdict are in [Verify a fix](/docs/guides/verify-a-fix).
