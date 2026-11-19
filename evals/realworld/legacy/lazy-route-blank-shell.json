@@ -48,6 +48,6 @@
   },
   "genieEvidence": {
     "observability": "full",
-    "notes": "react_suspense works on React 18: it reports the boundary at app.tsx:15 in state fallback (exact) and says blockers are unavailable before React 19. It does not say that the boundary is an ancestor of the shell or that its fallback is empty; the probe adds a DOM visibility check."
+    "notes": "react_suspense works on React 18: it reports the boundary at app.tsx:19 in state fallback (exact) and says blockers are unavailable before React 19. It does not say that the boundary is an ancestor of the shell or that its fallback is empty. A verify claim `suspense TopBar hidden max 0` fails while that fallback hides the shell and passes once the boundary sits inside AppShell, though `render TopBar max 0` passes either way; the probe adds a DOM visibility check."
   }
 }

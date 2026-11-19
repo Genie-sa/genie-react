@@ -210,12 +210,23 @@ const boundariesClaimSchema = z
   })
   .strict()
 
+const suspenseHiddenClaimSchema = z
+  .object({
+    kind: z.literal('suspense-hidden'),
+    target: verifyTargetSchema,
+    max: boundSchema.describe(
+      'Most commits in the window in which a Suspense boundary above the target replaced it with its fallback; 0 means no fallback ever hides it.',
+    ),
+  })
+  .strict()
+
 export const verifyClaimSchema = z.discriminatedUnion('kind', [
   rendersClaimSchema,
   renderCausesClaimSchema,
   effectRunsClaimSchema,
   effectSettlesClaimSchema,
   boundariesClaimSchema,
+  suspenseHiddenClaimSchema,
 ])
 export type VerifyClaim = z.infer<typeof verifyClaimSchema>
 export type VerifyClaimInput = z.input<typeof verifyClaimSchema>
@@ -552,6 +563,8 @@ export function formatVerifyClaim(claim: VerifyClaim): string {
       return `effect ${formatVerifyTarget(claim.target)} settles`
     case 'boundaries-clean':
       return claim.scope === 'end' ? 'boundaries clean-at-end' : 'boundaries clean'
+    case 'suspense-hidden':
+      return `suspense ${formatVerifyTarget(claim.target)} hidden max ${claim.max}`
   }
 }
 

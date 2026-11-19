@@ -594,7 +594,9 @@ export class VerificationManager<TSession extends VerificationSession> {
       )
       targets.set(key, { resolution, renders, events, effects, end })
     }
-    const boundaries = input.claims.some((claim) => claim.kind === 'boundaries-clean')
+    const boundaries = input.claims.some(
+      (claim) => claim.kind === 'boundaries-clean' || claim.kind === 'suspense-hidden',
+    )
       ? readBoundaries(
           await capture('react_error_state', {
             appOnly: false,
@@ -997,7 +999,8 @@ function toolsFor(claim: VerifyClaim): string[] {
   if (claim.kind === 'render-causes') return [...CORE_TOOLS, 'react_render_causes']
   if (claim.kind === 'effect-runs' || claim.kind === 'effect-settles')
     return [...CORE_TOOLS, 'react_effect_timeline']
-  if (claim.kind === 'boundaries-clean') return [...CORE_TOOLS, 'react_error_state']
+  if (claim.kind === 'boundaries-clean' || claim.kind === 'suspense-hidden')
+    return [...CORE_TOOLS, 'react_error_state']
   return CORE_TOOLS
 }
 

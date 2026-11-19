@@ -20,6 +20,13 @@ import {
   resolveStackFrames,
   type SourceOwnership,
 } from './source'
+import {
+  getSuspenseHideLog,
+  recordSuspenseHide,
+  resetSuspenseHideLogForTests,
+  type SuspenseHideLog,
+  suspenseBoundaryName,
+} from './suspense-hide-log'
 import { committedSuspenseState, forEachVisibleSuspenseBoundary } from './suspense-state'
 import { isSuspenseFiber } from './work-tags'
 
@@ -105,6 +112,7 @@ export function resetErrorStateForTests(): void {
   catchSequence = 0
   latestEvictedCatchCommit = -1
   latestUnscannedCommit = -1
+  resetSuspenseHideLogForTests()
 }
 
 const isHostRootFiber = (fiber: Fiber): boolean =>
@@ -122,6 +130,17 @@ export function recordErrorState(fiber: Fiber): void {
 }
 
 export const hasCapturedError = (fiber: Fiber): boolean => ((fiber.flags ?? 0) & DID_CAPTURE) !== 0
+
+/** Records the screen state a rendered fiber committed: a boundary catch, or a Suspense boundary hiding its content; `isTarget` picks the hidden instances worth naming. */
+export function recordBoundaryCommit(fiber: Fiber, isTarget: (fiber: Fiber) => boolean): void {
+  recordBoundaryCatch(fiber)
+  if (!isSuspenseFiber(fiber)) return
+  try {
+    recordSuspenseHide(fiber, isTarget)
+  } catch {
+    noteUnscannedCommit()
+  }
+}
 
 /** Records a boundary or root that caught in the current commit; cheap and unbudgeted, so analysis limits never hide a catch, and repeat calls for one commit are ignored. */
 export function recordBoundaryCatch(fiber: Fiber): void {
@@ -328,6 +347,7 @@ export interface ErrorState {
   suspended: SuspendedBoundary[]
   blankTreeHint: string | null
   catchLog?: BoundaryCatchLog
+  hideLog?: SuspenseHideLog
 }
 
 type BoundaryStatus =
@@ -551,7 +571,14 @@ export async function getErrorState(query: {
   return {
     ...(query.afterDocumentCommitId === undefined
       ? {}
-      : { catchLog: getBoundaryCatchLog(query.afterDocumentCommitId, limit) }),
+      : {
+          catchLog: getBoundaryCatchLog(query.afterDocumentCommitId, limit),
+          hideLog: getSuspenseHideLog(
+            query.afterDocumentCommitId,
+            limit,
+            latestUnscannedCommit > query.afterDocumentCommitId,
+          ),
+        }),
     caughtErrors,
     suspended: suspendedList,
     blankTreeHint: hintFrom(caughtErrors),
@@ -561,11 +588,6 @@ export async function getErrorState(query: {
       organicCaught.length + forcedCaught.length > caughtCandidates.length ||
       showing.length + forcedSuspended.length > suspendedCandidates.length,
   }
-}
-
-function suspenseBoundaryName(fiber: Fiber): string {
-  const name = nameOf(fiber)
-  return name === 'Anonymous' ? 'Suspense' : name
 }
 
 const STACK_FRAME = /^\s*at\s|@/

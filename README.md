@@ -37,7 +37,7 @@ pass "put one order on hold"  11 commits, quiet after 907 ms (react, query, rout
   1 pass render OrderRow only props.order  {renders:2,violatingEvents:0,causes:[props.order]}
 ```
 
-The exit code is the verdict: `0` pass, `1` fail, `4` refused, `5` inconclusive. Genie passes a claim only on exact, complete evidence. When it cannot prove a claim, for example because the page reloaded mid-check, it refuses and prints the command that fixes the gap. Claims cover render counts, the causes a render may have, effect runs, effects that stop re-running, and error boundaries. See [Verify a fix](https://genie-react.com/docs/workflows/verify-a-fix).
+The exit code is the verdict: `0` pass, `1` fail, `4` refused, `5` inconclusive. Genie passes a claim only on exact, complete evidence. When it cannot prove a claim, for example because the page reloaded mid-check, it refuses and prints the command that fixes the gap. Claims cover render counts, the causes a render may have, effect runs, effects that stop re-running, error boundaries, and Suspense fallbacks that hide a component. See [Verify a fix](https://genie-react.com/docs/workflows/verify-a-fix).
 
 ## What your agent can ask
 

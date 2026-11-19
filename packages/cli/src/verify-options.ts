@@ -20,7 +20,7 @@ export const VERIFY_OPTION_DETAILS: Record<keyof typeof VERIFY_OPTIONS, OptionDe
   },
   claim: {
     description:
-      'verify begin: one claim in the verify DSL, repeatable up to 20 (10 distinct targets): render <Name>[@file][[key=k]] max|min <N> [counting updates] [allow-remount]; render <Name> only <cause>[,<cause>]; effect <Name>[#index] max <N> | settles; boundaries clean | clean-at-end. verify show: the claim number whose evidence to print',
+      'verify begin: one claim in the verify DSL, repeatable up to 20 (10 distinct targets): render <Name>[@file][[key=k]] max|min <N> [counting updates] [allow-remount]; render <Name> only <cause>[,<cause>]; effect <Name>[#index] max <N> | settles; boundaries clean | clean-at-end; suspense <Name> hidden max <N>. verify show: the claim number whose evidence to print',
     conflictsWith: ['claims'],
   },
   claims: {

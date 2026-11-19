@@ -282,6 +282,7 @@ Resolution at `begin`:
 | `boundaries-clean` | `boundaries clean` | 1 |
 | `query` | `query <key> <success\|error\|refetched> [delivered-to <target>]` | 2 |
 | `route` | `route <pathname>` | 2 |
+| `suspense-hidden` | `suspense <target> hidden max <N>` | 1 |
 | `suspense-resolved` | `suspense <target> resolved` | 2 |
 | `budget` | `verify compare ... --budget '<metric> <rule>'` | 2 |
 
@@ -346,6 +347,18 @@ Current evidence covers only the end state. `collectors/react/error-tracker.ts` 
 
 Uncaught errors outside boundaries and unhandled rejections are not observed. The error tracker patches `console.error` only to pair React's boundary logs with boundaries (`captureConsoleError` in `error-tracker.ts`), and no collector listens for `window` `error` or `unhandledrejection` events. Every `boundaries` result carries the caveat `uncaught-errors-outside-boundaries-unobserved`. A claim named "no errors" is deliberately not offered.
 
+#### `suspense-hidden`
+
+Semantics: the number of commits inside the window (after `startDocumentCommitId`, up to and including `frozenDocumentCommitId`) in which a Suspense boundary above a matched instance replaced content already on screen with its fallback. Hiding is not a render, so `render <target> max 0` passes while a fallback blanks the target; this claim is how an agent proves a layout stayed on screen. A boundary that mounts in its fallback hid nothing and does not count. Fallbacks forced with `react_toggle_suspense_fallback` are excluded and reported through the `override_active` guard.
+
+Evidence: the hide log `react_error_state` returns with `afterDocumentCommitId` (`collectors/react/suspense-hide-log.ts`). The commit traversal records each boundary whose committed state turned from content to fallback, unbudgeted like boundary catches, and scans the hidden primary children for instances of the observation's target components, up to 50,000 fibers. A commit Genie does not analyze still records hides when React's `Visibility` flag shows one in the root's subtree. `react_suspense` reads only the present state, so it cannot see a fallback that resolved before `end`.
+
+| Result | Condition |
+| --- | --- |
+| pass | commits that hid the target at most N, the hide log complete with nothing omitted, every hide in the window scanned completely, an instance observed in the window and not hidden at `begin` or at the end, and settle met |
+| fail | commits that hid the target greater than N, on any log, since a recorded hide is exact |
+| refused | `capability_unavailable` for a runtime without the hide log; `evidence_truncated` when hides were evicted, omitted by the read limit or listed more target instances than kept; `coverage_incomplete` when a commit was not scanned or a hide had more content than the scan reads; `target_not_found`; `target_ambiguous`; `target_inactive` when an instance was hidden at `begin` or is hidden at the end with no hide in the window; for a target narrowed by source or key, every `renders` coverage refusal when a hide covered a same-named instance Genie cannot place; `not_quiescent` |
+
 #### `query` (phase 2)
 
 Semantics: the TanStack Query entry with this exact key or hash reaches a state by settle. `success` and `error` test `status` with `fetchStatus: "idle"`. `refetched` requires that `fetchCount` increased between `begin` and settle and that `fetchStatus` is `idle`. `delivered-to <target>` adds three conditions: a `query_notifications` event in this observation window (`observationId` equal to the window's) for an observer owned by the target, with `data` in `changedResultFields`, and a target render event whose cause is `query` with evidence `exact`, joined by `notificationId` (`collectors/tanstack/query.ts` `queryNotificationsContract`, `renderEventIds`).
@@ -391,7 +404,7 @@ effect     = "effect" target [ "#" index ] ( "max" N | "settles" )
 query      = "query" key ( "success" | "error" | "refetched" ) [ "delivered-to" target ]
 route      = "route" pathname
 boundaries = "boundaries" ( "clean" | "clean-at-end" )
-suspense   = "suspense" target "resolved"
+suspense   = "suspense" target ( "hidden" "max" N | "resolved" )
 target     = Name [ "@" sourcePath ] [ "[key=" key "]" ]
 cause      = "mount" | "children" | "router" | ("props" | "state" | "context" | "query") [ "." name ]
 key        = JSON array | queryHash string
@@ -412,7 +425,8 @@ JSON input has one object per claim:
     { "kind": "effect-settles", "target": { "component": "ReportsScreen" } },
     { "kind": "query", "queryKey": ["tasks", "list"], "state": "refetched", "deliveredTo": { "component": "TaskList" } },
     { "kind": "route", "pathname": "/orders/42" },
-    { "kind": "boundaries-clean" }
+    { "kind": "boundaries-clean" },
+    { "kind": "suspense-hidden", "target": { "component": "TopBar" }, "max": 0 }
   ],
   "budget": { "fiberLimit": 1200 },
   "settle": { "quietMs": 500, "timeoutMs": 10000, "domains": ["react", "query"] }
@@ -738,6 +752,7 @@ A false pass is `pass` when the claim is false. Each row names the failure and t
 | 27 | **Hub restart or expiry.** The verification state is gone | `window_lost`; the CLI never fills in a verdict. |
 | 28 | **Truncated output.** A cut-off JSON document is read as a pass | The verdict is bounded, its fields come first, and the exit code carries the verdict. |
 | 29 | **A forged verdict from the app.** App code registers a tool named like a hub tool | The hub answers `devtools_verify_*` before forwarding (as `handleInvoke` does for capture and interaction tools), and the CLI trusts hub codes only from hub-answered tools. |
+| 30 | **A fallback hid the target, which is not a render.** A Suspense boundary above the shell showed its fallback while a lazy route loaded, so `render TopBar max 0` passed with the top bar blanked | `suspense <target> hidden max N` reads the commit-time hide log, which keeps a hide after its fallback resolved. An evicted, omitted or unscanned hide refuses instead of passing. |
 
 What `verify` still cannot see, and says so in every verdict: the visible UI (caveat `ui-outcome-not-observed`), work beyond the horizon, uncaught errors outside boundaries, and network requests without Query.
 

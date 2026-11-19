@@ -43,10 +43,9 @@ import {
 } from './effect-tracker'
 import {
   clearErrorState,
-  hasCapturedError,
   noteUnanalyzedRendererCommit,
   noteUnscannedCommit,
-  recordBoundaryCatch,
+  recordBoundaryCommit,
   recordErrorState,
 } from './error-tracker'
 import { findAllCommittedRootFibers, nameOf, noteCommit, noteCommittedRoot } from './fiber'
@@ -159,6 +158,7 @@ import { cascadeOrigin, wrapperOf } from './render-wrappers'
 import { captureReportEpoch, reportAttribution, reportStateMatches } from './report-attribution'
 import { isSafeRenderer, supportedCommitHandler } from './safe-instrumentation'
 import { clearSourceCache } from './source'
+import { mayHaveHidden } from './suspense-hide-log'
 import { canBailOutOnProps, comparesPropsShallowly, isSuspenseFiber } from './work-tags'
 
 export type {
@@ -415,7 +415,7 @@ export function startRenderTracking(): boolean {
         const targetedCandidates: { fiber: Fiber; phase: RenderPhase }[] = []
         try {
           traverseRenderedFibers(root, (fiber, reportedPhase) => {
-            recordBoundaryCatch(fiber)
+            recordBoundaryCommit(fiber, matchesObservedComponent)
             // Bippy reports a Suspense re-reveal as a mount; a fiber with an alternate has committed before.
             const phase = reportedPhase === 'mount' && fiber.alternate ? 'update' : reportedPhase
             const targeted = isObservationTarget(fiber)
@@ -494,7 +494,9 @@ function recordUnanalyzedCommit(rendererId: number, root: FiberRoot): void {
     unobservedCommits += 1
     discardPendingUnmounts(rendererId, forgetUnobservedUnmount)
   }
-  if (!hasSettledBaseline(root) || mayHaveCaught(root)) advanceExcludedCommitBaseline(root)
+  if (!hasSettledBaseline(root) || mayHaveCaught(root) || mayHaveHidden(root.current)) {
+    advanceExcludedCommitBaseline(root)
+  }
   noteUnobservedMounts(root.current)
 }
 
@@ -521,12 +523,10 @@ function isSafeUnmountRenderer(rendererId: number): boolean {
   return verdict
 }
 
-/** Advance Bippy's per-root previous-Fiber baseline without retaining excluded commit evidence; catches are still recorded, since a boundary's error state is screen state. */
+/** Advance Bippy's per-root previous-Fiber baseline without retaining excluded commit evidence; catches and Suspense hides are still recorded, since they are screen state. */
 function advanceExcludedCommitBaseline(root: FiberRoot): void {
   try {
-    traverseRenderedFibers(root, (fiber) => {
-      if (hasCapturedError(fiber)) recordBoundaryCatch(fiber)
-    })
+    traverseRenderedFibers(root, (fiber) => recordBoundaryCommit(fiber, matchesObservedComponent))
     uncertainTraversalRoots.delete(root)
     traversedRoots.add(root)
   } catch {

@@ -216,6 +216,25 @@ const errorStateSchema = z.object({
       incompleteReasons: z.array(z.string()),
     })
     .optional(),
+  hideLog: z
+    .object({
+      hides: z.array(
+        z.object({
+          hideId: z.string(),
+          documentCommitId: z.number(),
+          boundaryId: z.number(),
+          boundaryName: z.string(),
+          forced: z.boolean(),
+          hiddenTargets: z.array(z.object({ componentName: z.string(), mountId: z.string() })),
+          hiddenTargetsOmitted: z.number(),
+          hiddenScanComplete: z.boolean(),
+        }),
+      ),
+      omittedByLimit: z.number(),
+      complete: z.boolean(),
+      incompleteReasons: z.array(z.string()),
+    })
+    .optional(),
 })
 
 const overridesSchema = z.object({
@@ -488,11 +507,24 @@ export function readEffects(
   }
 }
 
+export interface LogCompleteness {
+  complete: boolean
+  incompleteReasons: string[]
+  omittedByLimit: number
+}
+
+export type SuspenseHideRecord = NonNullable<
+  z.infer<typeof errorStateSchema>['hideLog']
+>['hides'][number]
+
 export interface BoundaryRead {
   catches: NonNullable<z.infer<typeof errorStateSchema>['catchLog']>['catches']
-  catchLog: { complete: boolean; incompleteReasons: string[]; omittedByLimit: number } | null
+  catchLog: LogCompleteness | null
   atEnd: z.infer<typeof errorStateSchema>['caughtErrors']
   scanTruncated: boolean
+  hides: SuspenseHideRecord[]
+  /** Null when the app runtime predates the Suspense hide log. */
+  hideLog: LogCompleteness | null
 }
 
 export function readBoundaries(
@@ -514,6 +546,16 @@ export function readBoundaries(
       : null,
     atEnd: state.caughtErrors,
     scanTruncated: state.scanTruncated,
+    hides: (state.hideLog?.hides ?? []).filter(
+      (entry) => entry.documentCommitId <= throughDocumentCommitId,
+    ),
+    hideLog: state.hideLog
+      ? {
+          complete: state.hideLog.complete,
+          incompleteReasons: state.hideLog.incompleteReasons,
+          omittedByLimit: state.hideLog.omittedByLimit,
+        }
+      : null,
   }
 }
 

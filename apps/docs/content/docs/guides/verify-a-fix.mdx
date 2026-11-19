@@ -50,10 +50,17 @@ attempt 2 for these claims on this tab; previous fail vfy_…; code changed sinc
 | `effect <Name>[#index] settles` | the effect stopped running after the app settled |
 | `boundaries clean` | no error boundary caught during the window or is in an error state at the end |
 | `boundaries clean-at-end` | no boundary is in an error state at the end |
+| `suspense <Name> hidden max <N>` | a Suspense fallback replaced matched instances in at most N commits |
 
 Names are exact component names. Narrow one with `@src/file.tsx` or `[key=value]`. Add a positive
 control, such as `min 1` on a component the action must change, so a run that never reached the app
 fails. `--claims <file>` takes claims as JSON.
+
+A component hidden behind a Suspense fallback does not render, so `render TopBar max 0` passes while
+a fallback blanks the top bar. To prove a layout stays on screen while a lazy route or data loads,
+claim `suspense TopBar hidden max 0`. It counts every fallback above `TopBar` that replaced content
+already on screen, including fallbacks that resolved before `end`. A boundary that mounts in its
+fallback hid nothing and does not count.
 
 ## Read the verdict
 

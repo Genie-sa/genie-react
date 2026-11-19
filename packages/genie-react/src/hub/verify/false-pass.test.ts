@@ -12,6 +12,7 @@ import {
   rendered,
   SETTLED,
   START,
+  suspenseHide,
   targetEvidence,
   windowEvidence,
 } from '../../test-support/verify-evidence'
@@ -305,6 +306,8 @@ const rows: Row[] = [
         catchLog: { complete: true, incompleteReasons: [], omittedByLimit: 0 },
         atEnd: [],
         scanTruncated: false,
+        hides: [],
+        hideLog: { complete: true, incompleteReasons: [], omittedByLimit: 0 },
       },
     },
     unprotectedEvidence: windowEvidence(),
@@ -317,6 +320,20 @@ const rows: Row[] = [
     protectedEvidence: windowEvidence([targetEvidence({ attributionStale: true })]),
     unprotectedEvidence: windowEvidence([targetEvidence()]),
     expected: { verdict: 'refused', reason: 'coverage_incomplete' },
+  },
+  {
+    row: 30,
+    name: 'a fallback hid the target and resolved before end, and hiding is not a render',
+    claims: [{ kind: 'suspense-hidden', target: { component: 'StatusBadge' }, max: 0 }],
+    protectedEvidence: {
+      ...windowEvidence(),
+      boundaries: {
+        ...(windowEvidence().boundaries as NonNullable<VerificationEvidence['boundaries']>),
+        hides: [suspenseHide()],
+      },
+    },
+    unprotectedEvidence: windowEvidence(),
+    expected: { verdict: 'fail' },
   },
 ]
 

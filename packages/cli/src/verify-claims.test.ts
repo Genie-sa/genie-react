@@ -49,6 +49,18 @@ describe('verify claim DSL', () => {
     ],
     ['boundaries clean', { kind: 'boundaries-clean' }],
     ['boundaries clean-at-end', { kind: 'boundaries-clean', scope: 'end' }],
+    [
+      'suspense TopBar hidden max 0',
+      { kind: 'suspense-hidden', target: { component: 'TopBar' }, max: 0 },
+    ],
+    [
+      'suspense TopBar@src/layout/top-bar.tsx hidden max 2',
+      {
+        kind: 'suspense-hidden',
+        target: { component: 'TopBar', source: 'src/layout/top-bar.tsx' },
+        max: 2,
+      },
+    ],
   ] as const)('parses %j', (text, expected) => {
     expect(parseClaim(text)).toEqual(expected)
   })
@@ -70,6 +82,7 @@ describe('verify claim DSL', () => {
       { kind: 'effect-runs', target: { component: 'Feed', effectIndex: 0 }, max: 0 },
       { kind: 'effect-settles', target: { component: 'Feed' } },
       { kind: 'boundaries-clean', scope: 'end' },
+      { kind: 'suspense-hidden', target: { component: 'TopBar', key: 'main' }, max: 1 },
     ]
     for (const input of claims) {
       const claim = verifyClaimSchema.parse(input)
@@ -110,6 +123,9 @@ describe('verify claim DSL', () => {
     ['render Badge max 0 countng updates', 5, 'counting'],
     ['effect Feed setles', 3, 'settles'],
     ['boundaries clen', 2, 'clean'],
+    ['suspens TopBar hidden max 0', 1, 'suspense'],
+    ['suspense TopBar hiden max 0', 3, 'hidden'],
+    ['suspense TopBar hidden mx 0', 4, 'max'],
   ])('rejects %j at word %i and suggests %s', (text, position, suggestion) => {
     const error = (() => {
       try {
@@ -131,6 +147,12 @@ describe('verify claim DSL', () => {
     ['an empty cause list', 'render Badge only'],
     ['an unknown cause', 'render Badge only hooks'],
     ['extra words', 'effect Feed settles now'],
+    ['extra words after a suspense bound', 'suspense TopBar hidden max 0 now'],
+    ['an effect index on a suspense claim', 'suspense TopBar#1 hidden max 0'],
+    [
+      'a suspense min bound, which an absence of hides cannot prove',
+      'suspense TopBar hidden min 1',
+    ],
     ['a Query claim, which a later release adds', 'query ["tasks"] success'],
     ['an empty claim', '   '],
   ])('rejects %s', (_label, text) => {

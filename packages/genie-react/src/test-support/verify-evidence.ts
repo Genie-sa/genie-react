@@ -6,6 +6,7 @@ import type {
   InstanceRecord,
   RenderEventRecord,
   RenderEventsRead,
+  SuspenseHideRecord,
   TargetEvidence,
   VerificationEvidence,
 } from '../hub/verify/evidence'
@@ -50,6 +51,21 @@ export function rendered(overrides: Partial<InstanceRecord> = {}): InstanceRecor
     latestDocumentCommitId: SETTLED,
     sourceFile: 'src/screens/search/StatusBadge.tsx',
     sourceLocation: 'src/screens/search/StatusBadge.tsx:14:8',
+    ...overrides,
+  }
+}
+
+/** A Suspense boundary that replaced content holding the StatusBadge instance with its fallback. */
+export function suspenseHide(overrides: Partial<SuspenseHideRecord> = {}): SuspenseHideRecord {
+  return {
+    hideId: 'hide:58:1',
+    documentCommitId: 58,
+    boundaryId: 7,
+    boundaryName: 'Suspense',
+    forced: false,
+    hiddenTargets: [{ componentName: 'StatusBadge', mountId: 'mount:12' }],
+    hiddenTargetsOmitted: 0,
+    hiddenScanComplete: true,
     ...overrides,
   }
 }
@@ -189,6 +205,8 @@ export function windowEvidence(
       catchLog: { complete: true, incompleteReasons: [], omittedByLimit: 0 },
       atEnd: [],
       scanTruncated: false,
+      hides: [],
+      hideLog: { complete: true, incompleteReasons: [], omittedByLimit: 0 },
     },
     ...overrides,
   }
