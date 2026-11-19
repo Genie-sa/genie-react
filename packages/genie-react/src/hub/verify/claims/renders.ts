@@ -149,6 +149,8 @@ export function evaluateRenders(
     ...(matched.omittedInstances > 0 ? { omittedInstances: matched.omittedInstances } : {}),
     activeInstances: activeInstances(matched).length,
   }
+  const budgetAdvice = semantics === 'lower-bound' ? evidence.coverage?.budgetAdvice : undefined
+  const decidedObserved = budgetAdvice ? { ...observed, budgetAdvice } : observed
   const busiest = [...records]
     .filter((record) => record.renders > 0)
     .sort((left, right) => right.renders - left.renders)
@@ -158,12 +160,12 @@ export function evaluateRenders(
 
   if (claim.max !== undefined) {
     if (counted > claim.max && !identity) {
-      return { verdict: 'fail', observed, deciding: busiest, caveats: [] }
+      return { verdict: 'fail', observed: decidedObserved, deciding: busiest, caveats: [] }
     }
     if (guardsRemounts && remounts.length > 0 && !identity) {
       return {
         verdict: 'fail',
-        observed,
+        observed: decidedObserved,
         deciding: remounts.slice(0, MAX_DECIDING).map(instanceItem),
         caveats: ['remounts-counted-under-counting-updates'],
       }
@@ -208,7 +210,7 @@ export function evaluateRenders(
   if (counted >= min) {
     return {
       verdict: 'pass',
-      observed,
+      observed: decidedObserved,
       deciding: busiest,
       caveats: semantics === 'exact' ? [] : ['count-is-a-lower-bound'],
     }

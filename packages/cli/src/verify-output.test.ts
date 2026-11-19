@@ -183,6 +183,37 @@ describe('commands built from a stored verdict', () => {
     expect(tail(document.next.argv)).toEqual(['verify', 'show', ID, '--claim', '4'])
   })
 
+  it('adds the begin that repeats a run with the budget a lower-bound count names', () => {
+    const [, passed] = verdict().claims as Record<string, unknown>[]
+    const document = withNextCommands(
+      verdict({
+        verdict: 'fail',
+        exitCode: 1,
+        claims: [
+          {
+            ...passed,
+            verdict: 'fail',
+            observed: {
+              renders: 37,
+              semantics: 'lower-bound',
+              budgetAdvice: {
+                exhaustedLimits: ['targetOperationReserve'],
+                suggestedBudget: { targetOperationReserve: 92000, targetTimeReserveMs: 92 },
+              },
+            },
+          },
+        ],
+      }),
+      'my-agent',
+    ) as { claims: { observed: { budgetAdvice: { next?: { argv: string[] } } } }[] }
+
+    const argv = document.claims[0]?.observed.budgetAdvice.next?.argv ?? []
+    expect(argv.slice(argv.indexOf('--budget'), argv.indexOf('--budget') + 2)).toEqual([
+      '--budget',
+      '{"targetOperationReserve":92000,"targetTimeReserveMs":92}',
+    ])
+  })
+
   it('points a recording window at verify end', () => {
     const document = withNextCommands(
       { kind: 'verification', verificationId: ID, state: 'recording' },
@@ -206,6 +237,39 @@ describe('verdict text', () => {
     expect(
       lines.some((line) => line.startsWith('      fix: $ ') && line.includes('--budget')),
     ).toBe(true)
+  })
+
+  it('prints a lower-bound count budget advice and its begin command below the claim', () => {
+    const [, passed] = verdict().claims as Record<string, unknown>[]
+    const lines = renderVerificationText(
+      withNextCommands(
+        verdict({
+          verdict: 'fail',
+          exitCode: 1,
+          claims: [
+            {
+              ...passed,
+              verdict: 'fail',
+              observed: {
+                renders: 37,
+                semantics: 'lower-bound',
+                budgetAdvice: {
+                  exhaustedLimits: ['targetOperationReserve'],
+                  suggestedBudget: { targetOperationReserve: 92000 },
+                },
+              },
+            },
+          ],
+        }),
+        undefined,
+      ),
+    ).split('\n')
+
+    expect(lines.slice(1, 4)).toEqual([
+      '  2 fail render OrdersTable min 1  {renders:37,semantics:lower-bound}',
+      '      budgetAdvice: {exhaustedLimits:[targetOperationReserve],suggestedBudget:{targetOperationReserve:92000}}',
+      expect.stringMatching(/^ {6}exact: \$ .*verify begin .*--budget /),
+    ])
   })
 
   it('marks the claims of a recording window as not decided yet', () => {

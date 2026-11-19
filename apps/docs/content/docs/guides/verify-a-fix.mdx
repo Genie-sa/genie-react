@@ -41,7 +41,9 @@ Fix the code and run all three again. The last line tracks attempts:
 attempt 2 for these claims on this tab; previous fail vfy_…; code changed since (Fast Refresh)
 ```
 
-`verify show <id> --claim 1` prints the evidence that decided a claim.
+`verify show <id> --claim 1` prints the evidence that decided a claim. The `evidence:` line under a
+verdict names the first claim whose verdict is the run's, so a `fail` points at the failed claim even
+when a refused claim comes before it.
 
 ## Write claims
 
@@ -104,6 +106,17 @@ passes with exit code 0. Only a `min 1` claim on a component the interaction mus
 action that never reached the app.
 
 [Read evidence](/docs/reference/evidence#refusals) lists every refusal.
+
+A count graded `semantics:lower-bound` can still decide a claim: 37 renders already break `max 0`.
+When the lower bound comes from an analysis budget that ran out, such as the target reserve on a board
+with hundreds of instances, the claim prints the budget that would make the count exact and the
+command that begins the same run with it:
+
+```text
+  1 fail render FeatureGate max 0  {renders:37,…,semantics:lower-bound,instances:840,activeInstances:840}
+      budgetAdvice: {exhaustedLimits:[targetOperationReserve],suggestedBudget:{…,targetOperationReserve:92000,targetTimeReserveMs:92}}
+      exact: $ npx genie-react verify begin … --budget '{…,"targetOperationReserve":92000,"targetTimeReserveMs":92}'
+```
 
 ## While a window is open
 
