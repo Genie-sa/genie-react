@@ -118,6 +118,29 @@ function Leaf(): ReactNode {
   return createElement('span', null, 'leaf')
 }
 
+function RangeLabel({ range }: { range: string }): ReactNode {
+  return createElement('output', null, range)
+}
+
+function RangePanel(): ReactNode {
+  const [range, setRange] = useState('7d')
+  return createElement(
+    Fragment,
+    null,
+    createElement('button', { type: 'button', onClick: () => setRange('90d') }, 'widen'),
+    createElement(RangeLabel, { range }),
+  )
+}
+
+function Ticker(): ReactNode {
+  const [ticks, setTicks] = useState(0)
+  return createElement('button', { type: 'button', onClick: () => setTicks(ticks + 1) }, 'tick')
+}
+
+function RangeDashboard(): ReactNode {
+  return createElement(Fragment, null, createElement(RangePanel), createElement(Ticker))
+}
+
 const TargetRoot = memo(function TargetRoot(): ReactNode {
   return createElement('section', null, createElement(Leaf))
 })
@@ -316,5 +339,24 @@ describe('render tracking against a live React tree', () => {
     const root = findRootFiber()
     if (!root) throw new Error('No committed root')
     expect(firstHookState(findFiberById(root, registerFiber(before.fiber)))).toBe(1)
+  })
+
+  it('resolves a stale alternate whose return chain still reaches the committed root', () => {
+    view = render(createElement(RangeDashboard))
+    const mounted = owningComponentFor(view.getByText('7d'), 1)
+    if (!mounted) throw new Error('RangeLabel has no owning fiber')
+
+    // RangeLabel skips the tick, so after widen its stale buffer's return still reaches the live root.
+    fireEvent.click(view.getByText('tick'))
+    fireEvent.click(view.getByText('widen'))
+
+    expect(getLatestFiber(mounted.fiber)).not.toBe(mounted.fiber)
+    const root = findRootFiber()
+    if (!root) throw new Error('No committed root')
+    for (let read = 0; read < 5; read += 1) {
+      expect(findFiberById(root, registerFiber(mounted.fiber))?.memoizedProps).toEqual({
+        range: '90d',
+      })
+    }
   })
 })
