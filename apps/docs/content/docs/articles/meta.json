@@ -9,12 +9,14 @@
     "one-context-value-froze-the-board",
     "useselector-new-object-rerenders",
     "effect-fetches-on-every-keystroke",
+    "network-or-react-what-made-the-click-slow",
     "clicked-7-days-got-90-days",
     "error-boundary-renders-nothing",
     "blank-screen-while-lazy-route-loads",
     "best-tools-for-ai-agents-debugging-react-2026",
     "react-scan-vs-why-did-you-render-vs-genie",
     "genie-vs-agent-react-devtools",
-    "your-agent-cant-read-the-react-profiler"
+    "your-agent-cant-read-the-react-profiler",
+    "playwright-mcp-cant-see-why-react-rerendered"
   ]
 }
