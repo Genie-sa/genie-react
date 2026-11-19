@@ -29,6 +29,9 @@ async function loadGenie(router: unknown) {
   vi.doMock('../collectors/perf', () => ({ perfCollector: tag('perf') }))
   vi.doMock('../collectors/visibility', () => ({ visibilityCollector: tag('visibility') }))
   vi.doMock('../collectors/timeline', () => ({ timelineCollector: tag('timeline') }))
+  vi.doMock('../collectors/request-watch', () => ({
+    requestWatchCollector: tag('request-watch'),
+  }))
   const pluginPassthroughCollector = vi.fn(() => ({ __collector: 'plugin' }))
   vi.doMock('../collectors/devtools-passthrough', () => ({ pluginPassthroughCollector }))
   vi.doMock('../collectors/tanstack', () => ({
@@ -68,6 +71,7 @@ describe('<Genie /> in a plain React app (no router)', () => {
       'visibility',
       'plugin',
       'timeline',
+      'request-watch',
     ])
     expect(startSpy).toHaveBeenCalledTimes(1)
     expect(errorSpy).not.toHaveBeenCalled()
@@ -83,9 +87,16 @@ describe('<Genie /> with a plugin-injected client already running', () => {
     render(createElement(Genie))
 
     expect(createGenieClient).not.toHaveBeenCalled()
-    expect(register).toHaveBeenCalledTimes(5)
+    expect(register).toHaveBeenCalledTimes(6)
     const registered = register.mock.calls.map((c) => (c[0] as TaggedCollector).__collector)
-    expect(registered).toEqual(['memory', 'perf', 'visibility', 'plugin', 'timeline'])
+    expect(registered).toEqual([
+      'memory',
+      'perf',
+      'visibility',
+      'plugin',
+      'timeline',
+      'request-watch',
+    ])
   })
 })
 
@@ -126,6 +137,7 @@ describe('<Genie /> under a TanStack Router', () => {
       'visibility',
       'plugin',
       'timeline',
+      'request-watch',
       'router',
       'query',
     ])
@@ -145,6 +157,7 @@ describe('<Genie /> under a TanStack Router', () => {
       'visibility',
       'plugin',
       'timeline',
+      'request-watch',
       'router',
     ])
   })
@@ -181,6 +194,7 @@ describe('<Genie /> under a TanStack Router', () => {
       'visibility',
       'plugin',
       'timeline',
+      'request-watch',
       'router',
     ])
     expect(errorSpy).not.toHaveBeenCalled()
@@ -250,6 +264,7 @@ describe('<Genie /> under a bare QueryClientProvider (no router)', () => {
       'visibility',
       'plugin',
       'timeline',
+      'request-watch',
       'query',
     ])
   })
@@ -287,6 +302,7 @@ describe('<Genie /> under a bare QueryClientProvider (no router)', () => {
       'visibility',
       'plugin',
       'timeline',
+      'request-watch',
     ])
   })
 })

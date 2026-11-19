@@ -12,11 +12,12 @@ const UNDERSPECIFIED_REASONS = new Set(['invalid_args', 'tool_error'])
 const FIRST = [
   'query_list',
   'timeline_start',
+  'request_watch_start',
   'query_list_mutations',
   'devtools_capture_list',
   'plugin_list',
 ]
-const LAST = ['timeline_stop']
+const LAST = ['timeline_stop', 'request_watch_stop']
 
 function isReadOnly(contract) {
   return contract.annotations?.readOnlyHint === true || HUB_READ_ONLY_TOOLS.has(contract.name)

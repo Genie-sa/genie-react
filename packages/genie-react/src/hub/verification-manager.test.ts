@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { reactCollector } from '../collectors/react'
 import { reactComponentCohortContract } from '../collectors/react/render-contract'
+import { requestWatchCollector } from '../collectors/request-watch'
 import { visibilityCollector } from '../collectors/visibility'
 import {
   devtoolsVerifyReadContract,
@@ -248,6 +249,96 @@ describe('verify on a real React tree', () => {
       verdict: 'refused',
       refusal: { reason: 'not_quiescent' },
       observed: { renders: 2 },
+    })
+  })
+
+  describe('a request the app started in the tail', () => {
+    function RefreshingScreen(): ReactNode {
+      const [query, setQuery] = useState('')
+      const [report, setReport] = useState(STABLE_APPEARANCE)
+      const refresh = () => {
+        void fetch('/api/status')
+          .then((response) => response.json())
+          .then((next: { tone: string }) => setReport(next))
+      }
+      return createElement(
+        'main',
+        null,
+        createElement('button', { type: 'button', onClick: () => setQuery(`${query}c`) }, 'type'),
+        createElement('button', { type: 'button', onClick: refresh }, 'refresh'),
+        createElement(StatusBadge, { appearance: report }),
+      )
+    }
+
+    const originalFetch = globalThis.fetch
+    let respond: (() => void) | undefined
+
+    beforeEach(() => {
+      respond = undefined
+      globalThis.fetch = (() =>
+        new Promise((resolve) => {
+          respond = () =>
+            resolve({ status: 200, json: async () => ({ tone: 'stale' }) } as Response)
+        })) as typeof fetch
+    })
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch
+    })
+
+    async function verifyRefreshInTail(answerWhileSettling: boolean): Promise<Verification> {
+      let container: HTMLElement | undefined
+      let settles = 0
+      harness = verifyHarness([reactCollector(), requestWatchCollector()], {
+        duringTail: async () => {
+          if (container) await click(byText(container, 'refresh'))
+        },
+        duringSettle: async () => {
+          settles += 1
+          if (settles < 2 || !answerWhileSettling) return undefined
+          await act(async () => {
+            respond?.()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+          })
+          return undefined
+        },
+      })
+      container = (await mount(createElement(RefreshingScreen))).container
+      const began = await begin([
+        { kind: 'renders', target: { component: 'StatusBadge' }, max: 0 },
+        { kind: 'renders', target: { component: 'RefreshingScreen' }, min: 1 },
+      ])
+      expect((began as unknown as { window: { domains: string[] } }).window.domains).toContain(
+        'network',
+      )
+      await click(byText(container, 'type'))
+      return end(began.verificationId)
+    }
+
+    it('settles again until the response lands, so the render it causes decides the claim', async () => {
+      const verdict = await verifyRefreshInTail(true)
+
+      expect(verdict.verdict).toBe('fail')
+      expect(verdict.claims[0]).toMatchObject({ verdict: 'fail', observed: { renders: 1 } })
+    })
+
+    it('refuses instead of passing when the request is still in flight at the freeze', async () => {
+      const verdict = await verifyRefreshInTail(false)
+
+      expect(verdict.verdict).toBe('refused')
+      expect(verdict.claims[0]).toMatchObject({
+        verdict: 'refused',
+        observed: { renders: 0 },
+        refusal: { reason: 'not_quiescent' },
+      })
+      expect(verdict.claims[0]?.refusal?.message).toContain(
+        '1 request is still in flight: GET http://localhost:3000/api/status',
+      )
+      const stopped = await harness?.invoke<{ results: { result: { inFlight: number } }[] }>(
+        'devtools_verify_read',
+        { verificationId: verdict.verificationId, section: 'raw:request_watch_stop' },
+      )
+      expect(stopped?.results[0]?.result.inFlight).toBe(1)
     })
   })
 

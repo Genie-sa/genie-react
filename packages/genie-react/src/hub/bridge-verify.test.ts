@@ -7,6 +7,7 @@ import { WebSocket } from 'ws'
 import { GenieClient, type SocketLike } from '../client'
 import { reactCollector } from '../collectors/react'
 import { PENDING_WORK_FIBERS_PER_CALL } from '../collectors/react/pending-work'
+import { requestWatchCollector } from '../collectors/request-watch'
 import { newId, type VerifyClaimInput } from '../protocol'
 import { freezeAnalysisClock } from '../test-support/analysis-clock'
 import {
@@ -37,7 +38,7 @@ let agent: { ws: WebSocket; inbox: Inbox }
 function startClient(): GenieClient {
   const started = new GenieClient({
     url,
-    collectors: [reactCollector()],
+    collectors: [reactCollector(), requestWatchCollector()],
     socketFactory: (target) => new WebSocket(target) as unknown as SocketLike,
   })
   started.start()
@@ -102,6 +103,40 @@ function DebouncedSearch(): ReactNode {
     createElement('button', { type: 'button', onClick: () => setQuery(`${query}c`) }, 'type'),
     createElement(StatusBadge, { tone: results }),
   )
+}
+
+/** Picking a range applies at once; the report for it arrives later, like the slow 90-day response in the realworld-legacy reports page. */
+function ReportRange(): ReactNode {
+  const [range, setRange] = useState('7d')
+  const [chart, setChart] = useState({ value: 'idle' })
+  const pick = () => {
+    setRange('90d')
+    void fetch('/api/reports/throughput?range=90d')
+      .then((response) => response.json())
+      .then((report: { range: string }) => setChart({ value: report.range }))
+  }
+  return createElement(
+    'main',
+    null,
+    createElement('button', { type: 'button', onClick: pick }, `pick ${range}`),
+    createElement(StatusBadge, { tone: chart }),
+  )
+}
+
+/** Answers the app's fetch after `delayMs`, or never when it is null. */
+function serveReportAfter(delayMs: number | null): () => void {
+  const original = globalThis.fetch
+  globalThis.fetch = (() =>
+    new Promise((resolve) => {
+      if (delayMs === null) return
+      setTimeout(
+        () => resolve({ status: 200, json: async () => ({ range: '90d' }) } as Response),
+        delayMs,
+      )
+    })) as typeof fetch
+  return () => {
+    globalThis.fetch = original
+  }
 }
 
 async function mounted(element: ReactNode, text: string): Promise<void> {
@@ -218,6 +253,52 @@ describe('verify through the hub against a real React tree', () => {
       'React work is still pending: 1 Suspense boundary shows a fallback',
     )
   }, 30_000)
+
+  it('waits for a request the interaction started, so a response after React went quiet fails the claim', async () => {
+    const restore = serveReportAfter(1_500)
+    try {
+      await mounted(createElement(ReportRange), 'pick 7d')
+      const { verificationId } = await begin([badgeMax0])
+      press('pick 7d')
+      const ended = await invoke('devtools_verify_end', { verificationId })
+
+      expect(ended.result).toMatchObject({ verdict: 'fail', exitCode: 1 })
+      expect(ended.result.claims[0].observed).toMatchObject({ renders: 1, semantics: 'exact' })
+      expect(ended.result.window.settle).toMatchObject({
+        outcome: 'met',
+        domains: { react: 'met', network: 'met' },
+      })
+      expect(ended.result.window.settle.waitedMs).toBeGreaterThanOrEqual(1_500)
+    } finally {
+      restore()
+    }
+  })
+
+  it('refuses instead of passing while a request the interaction started is still in flight at the timeout', async () => {
+    const restore = serveReportAfter(null)
+    try {
+      await mounted(createElement(ReportRange), 'pick 7d')
+      const { verificationId } = await begin([badgeMax0], { quietMs: 400, timeoutMs: 1_000 })
+      press('pick 7d')
+      const ended = await invoke('devtools_verify_end', { verificationId })
+
+      expect(ended.result).toMatchObject({ verdict: 'refused', exitCode: 4 })
+      const refusal = ended.result.claims[0].refusal
+      expect(refusal).toMatchObject({
+        reason: 'not_quiescent',
+        fix: { action: 'begin-again', settle: { timeoutMs: 2_000 } },
+      })
+      expect(refusal.message).toMatch(
+        /1 request is still in flight: GET http:\/\/\S+\/api\/reports\/throughput \(\d+ ms\)/,
+      )
+      expect(ended.result.window.settle).toMatchObject({
+        outcome: 'timed-out',
+        domains: { network: 'pending' },
+      })
+    } finally {
+      restore()
+    }
+  })
 
   it('shows the freeze-first interaction order would have missed that render', async () => {
     await mounted(createElement(DebouncedSearch), 'idle')

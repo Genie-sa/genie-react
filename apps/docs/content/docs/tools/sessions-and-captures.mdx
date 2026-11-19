@@ -583,8 +583,9 @@ only with `counting:"updates"`); `render-causes` with a `target` and an `allow` 
 optional `effectIndex`. `budget` takes `fiberLimit`, `operationLimit`, `timeLimitMs`,
 `targetOperationReserve`, `targetTimeReserveMs` and `adaptive` with the `react_clear_renders` defaults.
 `lifecycle` takes `bufferLimit` and `targetReserve`. `settle` takes `quietMs` (100–5,000, default 500),
-`timeoutMs` (500–60,000, default 10,000) and `domains`, a list from `react`, `query` and `router` that must
-include `react` and defaults to every domain the app advertises. `tailMs` (0–30,000) overrides the tail,
+`timeoutMs` (500–60,000, default 10,000) and `domains`, a list from `react`, `query`, `router` and
+`network` that must include `react` and defaults to every domain the app advertises. `network` waits
+for the fetch and XMLHttpRequest calls the app started during the window. `tailMs` (0–30,000) overrides the tail,
 `maxDurationMs` (10,000–1,800,000, default 300,000) bounds the window, and `allowOverrides` (default
 `false`) permits overrides during it. Every claim requires `kind`, every cause in `allow` requires its
 `kind`, `render-causes` requires `allow`, and `effect-runs` and `suspense-hidden` require `max`.
@@ -647,7 +648,9 @@ npx @genie-react/cli call devtools_verify_end \
 ```
 
 **Agent use:** Read `verdict` and each claim's `refusal` or `inconclusive` reason; a refusal's `fix` names
-what to change before the next run. A repeated call returns the stored verdict, so call it again after a
+what to change before the next run. A request the interaction started that is still in flight when the
+settle timeout ends, or at the freeze, means the app did not settle: claims a late response could change
+refuse with `not_quiescent`, the message names the request, and the fix raises `timeoutMs`. A repeated call returns the stored verdict, so call it again after a
 timeout. `hubCode: "VERIFICATION_UNKNOWN"` means the hub no longer holds the window; begin a new one.
 
 ## `devtools_verify_read`

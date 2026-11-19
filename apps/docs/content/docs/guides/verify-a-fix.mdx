@@ -5,7 +5,10 @@ icon: ShieldCheck
 ---
 
 Declare claims, drive the UI, and end the window. Genie waits for the app to settle, then decides
-each claim.
+each claim. Settling means React stopped committing, Query and Router work finished, and every fetch
+or XMLHttpRequest call the app started during the window got its response. A request still in flight
+when `--timeout-ms` runs out refuses the claims it could change, naming the request; the `$` fix
+raises the timeout.
 
 ## Run one verification
 
@@ -22,7 +25,7 @@ npx @genie-react/cli verify end <id> --session my-agent
 `apps/vite-demo` before the fix, trimmed:
 
 ```text
-fail vfy_… "click the counter"  1 commit, quiet after 616 ms (react, query)
+fail vfy_… "click the counter"  1 commit, quiet after 616 ms (react, query, network)
   1 fail render MemoChild max 0  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,…}
   2 pass render App min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,…}
   3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
@@ -89,7 +92,7 @@ A refusal names its reason and the fix. When the window holds no React commit at
 hold when nothing renders, such as `max 0`, refuse with `no_activity`:
 
 ```text
-refused vfy_… "nothing"  0 commits, quiet after 609 ms (react, query)
+refused vfy_… "nothing"  0 commits, quiet after 609 ms (react, query, network)
   1 refused render MemoChild max 0  no_activity: No React commit happened in the window; the interaction did not reach this tab or did not change React state.
 ```
 

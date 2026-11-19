@@ -34,6 +34,9 @@ async function loadNative() {
     __collector: 'timeline',
   }))
   vi.doMock('../collectors/timeline', () => ({ timelineCollector }))
+  vi.doMock('../collectors/request-watch', () => ({
+    requestWatchCollector: () => ({ __collector: 'request-watch' }),
+  }))
   vi.doMock('../collectors/devtools-passthrough', () => ({
     pluginPassthroughCollector: () => ({ __collector: 'plugin' }),
   }))
@@ -102,6 +105,7 @@ describe('startGenie', () => {
       'visibility',
       'plugin',
       'timeline',
+      'request-watch',
     ])
   })
 
@@ -129,6 +133,7 @@ describe('startGenie', () => {
       'visibility',
       'plugin',
       'timeline',
+      'request-watch',
       'router',
       'query',
     ])

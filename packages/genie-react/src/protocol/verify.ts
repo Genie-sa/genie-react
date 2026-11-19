@@ -50,7 +50,7 @@ export const INCONCLUSIVE_REASONS = [
 export type InconclusiveReason = (typeof INCONCLUSIVE_REASONS)[number]
 
 /** Domains a verification can settle on before it freezes; React is always one of them. */
-export const VERIFY_SETTLE_DOMAINS = ['react', 'query', 'router'] as const
+export const VERIFY_SETTLE_DOMAINS = ['react', 'query', 'router', 'network'] as const
 export type VerifySettleDomain = (typeof VERIFY_SETTLE_DOMAINS)[number]
 
 export const VERIFY_CAUSE_KINDS = [
@@ -258,7 +258,7 @@ const settleInputSchema = z
       .max(VERIFY_SETTLE_DOMAINS.length)
       .optional()
       .describe(
-        'Defaults to every domain the app advertises. A narrowed list must keep react; work in a dropped domain is no longer waited for.',
+        'Defaults to every domain the app advertises. network waits for the fetch and XMLHttpRequest calls the app started during the window. A narrowed list must keep react; work in a dropped domain is no longer waited for.',
       ),
   })
   .strict()

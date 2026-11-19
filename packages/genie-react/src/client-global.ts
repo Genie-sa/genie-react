@@ -4,6 +4,7 @@ import { memoryCollector } from './collectors/memory'
 import { perfCollector } from './collectors/perf'
 import { reactCollector } from './collectors/react'
 import './collectors/react/hook'
+import { requestWatchCollector } from './collectors/request-watch'
 import { timelineCollector } from './collectors/timeline'
 import { visibilityCollector } from './collectors/visibility'
 import { GENIE_DEFAULT_HUB_PORT, readGenieGlobal } from './protocol'
@@ -21,6 +22,7 @@ if (typeof window !== 'undefined' && !readGenieGlobal()) {
       perfCollector(),
       visibilityCollector(),
       timelineCollector(),
+      requestWatchCollector(),
     ],
   }).start()
 }
