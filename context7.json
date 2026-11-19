@@ -1,4 +1,16 @@
 {
+  "$schema": "https://context7.com/schema/context7.json",
   "url": "https://context7.com/genie-sa/genie-react",
-  "public_key": "pk_mRp8Zj7fp2V5emLERbeip"
+  "public_key": "pk_mRp8Zj7fp2V5emLERbeip",
+  "projectTitle": "Genie React",
+  "description": "Genie React gives AI coding agents React DevTools access to a running React or React Native app through the genie-react CLI. It reports which components re-rendered and why, effect runs and loops, render performance before and after a change, TanStack Query and Router state, Redux actions, Suspense, hydration and error boundaries. Its verify command checks render-count, render-cause, effect and error-boundary claims to confirm a fix.",
+  "folders": ["apps/docs/content/docs", "skills/genie"],
+  "rules": [
+    "Pass the same --session name to every Genie command as the agent-browser or agent-device session that drives the app, and read results only after `npx genie-react status --session <name>` reports ready: true.",
+    "Genie records renders and effects only inside a window: call react_clear_renders before the interaction, perform it once, then call react_quiesce before reading react_render_causes or react_get_renders.",
+    "To prove a fix, run `npx genie-react verify begin` with --claim flags before driving the interaction and `npx genie-react verify end <id>` after it. The exit code is the verdict: 0 pass, 1 fail, 4 refused, 5 inconclusive.",
+    "Include a `render <Component> min 1` claim for a component the interaction must change, so an interaction that missed the app fails instead of passing.",
+    "On a refused verdict, run the `$` command it prints and repeat the interaction. Report a fix only on a pass.",
+    "A render cause graded exact is proof, inferred is a lead, and unknown is still open."
+  ]
 }
