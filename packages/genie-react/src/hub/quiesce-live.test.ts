@@ -94,6 +94,24 @@ describe('react_quiesce against a real React tree', () => {
     expect(container.textContent).toBe('done')
   })
 
+  it('counts an update that committed before the call in the render window, not in observedCommits', async () => {
+    let select: () => void = () => {}
+    function Row(): ReactNode {
+      const [selected, setSelected] = useState(false)
+      select = () => setSelected(true)
+      return createElement('p', null, selected ? 'selected' : 'idle')
+    }
+    await mounted(createElement(Row), 'idle')
+    expect((await invoke('react_clear_renders', {})).ok).toBe(true)
+    select()
+    await expect.poll(() => container.textContent, { timeout: 3_000 }).toBe('selected')
+
+    const result = await quiesce({ idleMs: 300, timeoutMs: 5_000 })
+
+    expect(result).toMatchObject({ outcome: 'idle', observedCommits: 0 })
+    expect(result.renderWindow?.commits).toBeGreaterThanOrEqual(1)
+  })
+
   it('waits out a chain of effects that each schedule the next update', async () => {
     function Chain(): ReactNode {
       const [step, setStep] = useState(0)

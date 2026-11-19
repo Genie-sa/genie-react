@@ -22,6 +22,7 @@ describe('react_quiesce', () => {
       silent?: boolean
       replace?: boolean
       refresh?: boolean
+      window?: { commits: number; startedAfterDocumentCommitId: number }
     },
   ) {
     const { ws } = await open(`${url}?role=app`)
@@ -52,6 +53,14 @@ describe('react_quiesce', () => {
         result: {
           documentCommitId: value.commit ?? 10,
           renderCollection: value.collection ?? 'available',
+          commits: value.window?.commits ?? 0,
+          observation: value.window
+            ? {
+                id: 'observation:1',
+                epoch: 1,
+                startedAfterDocumentCommitId: value.window.startedAfterDocumentCommitId,
+              }
+            : null,
         },
       })
     })
@@ -79,6 +88,22 @@ describe('react_quiesce', () => {
       pendingWork: null,
     })
     expect(result.elapsedMs).toBeGreaterThanOrEqual(250)
+  })
+
+  it('reports the commits of the open render window, which include those before the wait', async () => {
+    await app(() => ({ commit: 51, window: { commits: 41, startedAfterDocumentCommitId: 10 } }))
+    const result = reactQuiesceContract.output.parse((await invoke({ idleMs: 100 })).result)
+    expect(result).toMatchObject({
+      outcome: 'idle',
+      observedCommits: 0,
+      renderWindow: { id: 'observation:1', startedAfterDocumentCommitId: 10, commits: 41 },
+    })
+  })
+
+  it('reports no render window when none is open', async () => {
+    await app(() => ({ commit: 51 }))
+    const result = reactQuiesceContract.output.parse((await invoke({ idleMs: 100 })).result)
+    expect(result).toMatchObject({ outcome: 'idle', observedCommits: 0, renderWindow: null })
   })
 
   it('reports timed-out while commits keep arriving', async () => {

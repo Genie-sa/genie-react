@@ -6,6 +6,7 @@
     "outcome": "idle",
     "elapsedMs": 929,
     "observedCommits": 1,
+    "renderWindow": { "id": "observation:1", "startedAfterDocumentCommitId": 11, "commits": 2 },
     "documentCommitId": 13,
     "sessionId": "9e2387cb-d702-449d-a760-bce7261948d7",
     "renderCollection": "available"
