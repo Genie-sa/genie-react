@@ -403,6 +403,35 @@ describe('render-causes decision table', () => {
     })
   })
 
+  it('counts a first mount as a cause, so a claim must list mount to allow one', () => {
+    const onlyOrder: VerifyClaimInput = {
+      ...onlyState,
+      allow: [{ kind: 'props', name: 'order' }],
+    }
+    const scrolledIntoView = [
+      renderEvent({ causes: [{ kind: 'props', evidence: 'exact', name: 'order', reason: null }] }),
+      renderEvent({
+        renderEventId: 'render:42:2',
+        mountId: 'mount:2',
+        causes: [{ kind: 'mount', evidence: 'exact', name: null, reason: null }],
+      }),
+    ]
+    const evidence = windowEvidence([
+      targetEvidence({
+        records: [rendered(), rendered({ mountId: 'mount:2', mounts: 1, updates: 0 })],
+        events: events(scrolledIntoView),
+      }),
+    ])
+
+    expect(outcome(onlyOrder, evidence)).toMatchObject({
+      verdict: 'fail',
+      observed: { violatingEvents: 1, causes: ['mount', 'props.order'] },
+    })
+    expect(
+      verdictOf({ ...onlyOrder, allow: [...onlyOrder.allow, { kind: 'mount' }] }, evidence),
+    ).toBe('pass')
+  })
+
   it('labels observed causes the way a claim names them', () => {
     const allowAll: VerifyClaimInput = {
       ...onlyState,
