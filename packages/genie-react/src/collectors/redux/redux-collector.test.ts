@@ -444,6 +444,22 @@ describe('redux_actions and redux_state', () => {
     ])
   })
 
+  it('counts only matches after the cursor when reading forward', async () => {
+    const store = createStore4(combineReducers4({ session, reports: immutableReports }))
+    const collector = reduxCollector(store)
+    for (let index = 0; index < 4; index += 1) {
+      store.dispatch({ type: 'reports/RANGE_SET', range: `${index}d` })
+      store.dispatch({ type: 'session/noop' })
+    }
+
+    const page = await actions(collector, { typePrefix: 'reports/', afterSequence: 4, limit: 1 })
+
+    expect(page.records.map((record) => record.sequence)).toEqual([5])
+    expect(page.matched).toBe(2)
+    expect(page.omittedBefore).toBe(0)
+    expect(page.more).toBe(true)
+  })
+
   it('keeps the payload as dispatched even when the app later mutates the action object', async () => {
     const store = createStore4(combineReducers4({ reports: immutableReports }))
     const collector = reduxCollector(store)

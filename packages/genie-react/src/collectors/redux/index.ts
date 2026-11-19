@@ -171,7 +171,11 @@ const reduxActionsContract = defineAgentToolContract({
   output: z.object({
     store: storeSchema,
     records: z.array(recordSchema),
-    matched: z.number().int().nonnegative().describe('Retained records matching the filters.'),
+    matched: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe('Retained records matching the filters, counting only those after afterSequence.'),
     omittedBefore: z
       .number()
       .int()
@@ -301,23 +305,18 @@ type ActionsOutput = z.output<typeof reduxActionsContract.output>
 
 function listActions(tap: ReduxStoreTap, input: ActionsInput): ActionsOutput {
   const records = tap.records()
-  const matching = records.filter((record) => matches(record, input))
   const after = input.afterSequence
-  const page =
-    after === undefined
-      ? matching.slice(-input.limit)
-      : matching.filter((record) => record.sequence > after).slice(0, input.limit)
-  const first = page[0]
+  const matching = records.filter(
+    (record) => (after === undefined || record.sequence > after) && matches(record, input),
+  )
+  const page = after === undefined ? matching.slice(-input.limit) : matching.slice(0, input.limit)
   const last = page.at(-1)
-  const omittedBefore = first
-    ? matching.filter((record) => record.sequence < first.sequence).length
-    : 0
   const more = last ? matching.some((record) => record.sequence > last.sequence) : false
   return {
     store: { storeId: tap.storeId, name: tap.name },
     records: page.map((record) => describeRecord(record, input.view === 'full')),
     matched: matching.length,
-    omittedBefore: after === undefined ? omittedBefore : 0,
+    omittedBefore: after === undefined ? matching.length - page.length : 0,
     more,
     nextAfterSequence: last?.sequence ?? after ?? null,
     latestSequence: tap.latestSequence(),
