@@ -189,6 +189,12 @@ Then pass `reduxStore={store}` to `<Genie />` on Vite or React Native, add `geni
 bundled client's `collectors`, or call `registerGenieCollector(genieRedux)` on Next.js. This adds
 the [Redux tools](/docs/tools/redux).
 
+The second argument is optional: `name` labels the store, `historyLimit` sets how many records the
+history keeps (1 to 5000, default 500), `recordLibraryActions: true` keeps RTK Query's own actions
+as records instead of counting them, and `detectMutations: false` turns off the in-place mutation
+check. `<Genie reduxStore={store} />` uses the defaults unless `reduxCollector` already ran for that
+store.
+
 ## Check the connection
 
 Start the dev server, open the app in an agent-browser session, and wait for Genie. This is

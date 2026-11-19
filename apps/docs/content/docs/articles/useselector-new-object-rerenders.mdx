@@ -212,6 +212,9 @@ npx genie-react call app_backend_reset '{"notificationPollMs":120000}' --session
 
 If your app dispatches hundreds of actions per interaction, read `react_render_causes` and
 `redux_actions` in one `batch` right after the action, and pick an interaction that dispatches less.
+Genie releases after 1.0.2 count RTK Query's own actions in `coverage.libraryActions` instead of
+keeping them in the history, and `reduxCollector` accepts a `historyLimit` of up to 5000; see the
+[Redux tools](/docs/tools/redux).
 
 react-redux 8.1 and later also catch this bug in development, with a
 [selector stability check](https://redux.js.org/react-redux/api/hooks#development-mode-checks) that
