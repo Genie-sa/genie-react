@@ -1,0 +1,153 @@
+---
+title: Give Cursor, Codex, and Copilot a view inside your running React app
+description: One init command gives Cursor, Codex and Copilot a Genie skill for AI React debugging. Here is the setup each agent's docs confirm, and a real verify run.
+---
+
+Cursor, Codex, and Copilot can all do AI React debugging with Genie after one command. `genie-react init` writes an Agent Skill to `.agents/skills/genie`, and the docs of all three agents list that folder. The skill teaches the agent to read renders, effects and error boundaries from your running app, and to prove a fix with `genie-react verify`.
+
+Below is what `init` installs, the setup each agent's own docs confirm, and one real run on `apps/realworld-dashboard`. The [raw evidence](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/react-runtime-tools-for-cursor-codex-copilot.md) has the full output from 2026-11-19.
+
+## What init installs
+
+From the app folder, with `genie-react` and `@genie-react/cli` installed as dev dependencies:
+
+```bash
+node_modules/.bin/genie-react init --yes
+```
+
+On the dashboard, trimmed to the artifacts:
+
+```text
+ok setup_completed: Setup changes are recorded in artifacts.
+  artifacts[7]:
+    - {kind:vite_config,status:already,path:…/apps/realworld-dashboard/vite.config.ts}
+    - {kind:root_route,status:already,path:…/apps/realworld-dashboard/src/routes/__root.tsx}
+    - {kind:gitignore,path:…/apps/realworld-dashboard/.gitignore,status:applied}
+    - {kind:agent_skill,path:…/apps/realworld-dashboard/.agents/skills/genie/SKILL.md,status:applied}
+    - {kind:agent_skill,path:…/apps/realworld-dashboard/.agents/skills/genie/APP_TOOLS.md,status:applied}
+    - {kind:agent_skill,path:…/apps/realworld-dashboard/.agents/skills/genie/EVIDENCE.md,status:applied}
+    - {kind:agent_skill,path:…/apps/realworld-dashboard/.claude/skills/genie,status:applied,link:symlink}
+```
+
+The dashboard already had Genie in its Vite config, so those rows say `already`. In a fresh app, `init` edits the config too. It also adds `.genie/` to `.gitignore`. The files it wrote, from `find .agents .claude` trimmed to the files and the link:
+
+```text
+-rw-r--r--@ .agents/skills/genie/APP_TOOLS.md
+-rw-r--r--@ .agents/skills/genie/EVIDENCE.md
+-rw-r--r--@ .agents/skills/genie/SKILL.md
+lrwxr-xr-x@ .claude/skills/genie -> ../../.agents/skills/genie
+```
+
+`.agents/skills/genie` holds the real files. `.claude/skills/genie` is a symlink to it for Claude Code. `SKILL.md` starts with `name: genie`, which matches its folder name, as Cursor requires. `init` also rewrites every command in the skill to the binary your project installed, so the agent runs `node_modules/.bin/genie-react status …` and skips the startup cost of `npx` on every call. `genie-react doctor` checks that both locations match the CLI. Trimmed to the skill locations:
+
+```text
+    - {path:.agents/skills/genie,symlink:false,conflictPath:null,version:1.0.2,hash:8be4d791caab3cd1f598df472927022c9ec1bcc183e580ecac1a6f1d474da628,current:true}
+    - {path:.claude/skills/genie,symlink:true,conflictPath:null,version:1.0.2,hash:8be4d791caab3cd1f598df472927022c9ec1bcc183e580ecac1a6f1d474da628,current:true}
+```
+
+Rerun `init` after you upgrade Genie. The skill expects the agent to drive the browser with [agent-browser](https://github.com/vercel-labs/agent-browser), so the agent needs it on its `PATH`.
+
+## Cursor
+
+[Cursor's skills docs](https://cursor.com/docs/skills) list `.agents/skills/` and `.cursor/skills/` as project skill folders, and also load `.claude/skills/` and `.codex/skills/` for compatibility. The agent picks a skill when its description matches the task. You can also type `/` in Agent chat and pick `genie`.
+
+Cursor also finds `.agents/skills/` folders nested anywhere in the repository, scoped to files under that folder. In a monorepo where `init` ran in `apps/web`, Cursor surfaces the skill when the agent works on files under `apps/web/`. No extra setup is needed.
+
+## Codex
+
+[Codex's skills docs](https://learn.chatgpt.com/docs/build-skills) say it scans `.agents/skills` in every directory from your current working directory up to the repository root. Start Codex in the app folder or below it. If you start it at the root of a monorepo, it does not look inside `apps/web/.agents/skills`.
+
+Mention the skill with `$genie`, pick it from `/skills`, or let Codex choose it from the description. The docs say Codex follows symlinked skill folders and detects new skills automatically. If `genie` does not appear, restart Codex.
+
+## Copilot
+
+[GitHub's skills docs](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/add-skills) list `.github/skills`, `.claude/skills` and `.agents/skills` in the repository as project skill folders. The same page lists Copilot cloud agent, Copilot code review, Copilot CLI and VS Code agent mode as surfaces that use skills. Copilot picks a skill from your prompt and the skill's description.
+
+In [Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills), run `/skills reload` after `init`, then `/skills info genie` to confirm it loaded. Write `/genie` in a prompt to ask for it by name.
+
+[VS Code's skills page](https://code.visualstudio.com/docs/agent-customization/agent-skills) lists `.github/skills/` as the project folder for its Copilot harness. It does not list `.agents/skills/` for that harness, and it says the table is not a complete list. If `genie` is missing from the `/` menu in VS Code chat, copy `.agents/skills/genie` to `.github/skills/genie` and copy it again after each upgrade.
+
+GitHub's docs describe these folders at the repository level. They do not say whether Copilot reads a skill nested in `apps/web/`. In a monorepo, check with `/skills info genie`.
+
+## Tell the agent where your app runs
+
+The skill knows Genie. It does not know your dev server's port, how to sign in, or which session name to use. Put that in `AGENTS.md`, which all three read:
+
+- [Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md) reads `AGENTS.md` from the project root down to the working directory before it starts work.
+- [Cursor](https://cursor.com/docs/rules) reads `AGENTS.md` in the project root and in subdirectories. Its `.cursor/rules` files must use the `.mdc` extension.
+- [Copilot](https://docs.github.com/en/copilot/reference/custom-instructions-support) reads `AGENTS.md` and `.github/copilot-instructions.md` in the cloud agent, the CLI and VS Code chat.
+
+For the dashboard, that note looks like this:
+
+```md title="AGENTS.md"
+## Running the app
+- Dev server: `DASHBOARD_PORT=5217 pnpm exec vite --port 5217 --strictPort` in apps/realworld-dashboard
+- Open http://127.0.0.1:5217/ with agent-browser, then sign in with
+  `node_modules/.bin/genie-react call app_login_as '{"role":"manager"}' --session <your session>`
+- For questions about renders, effects or slow interactions, use the genie skill.
+```
+
+## One run that every agent performs the same way
+
+Each agent runs the skill's commands in its shell tool. The commands are the same in Cursor, Codex and Copilot. This run came from a terminal on the dashboard. In the seeded bug, ticking one order's checkbox on **Orders** re-renders the sidebar, which shows nothing about the selection.
+
+Open a window, tick the box, wait for React to settle, and ask why `SidebarNav` rendered:
+
+```bash
+node_modules/.bin/genie-react call react_clear_renders '{"component":"SidebarNav"}' --session art-l7
+agent-browser --session art-l7 check 'input[aria-label="Select SO-105999"]'
+node_modules/.bin/genie-react call react_quiesce '{"idleMs":500,"timeoutMs":10000}' --fail-on-result-error --session art-l7
+node_modules/.bin/genie-react call react_render_causes '{"component":"SidebarNav","view":"full"}' --session art-l7 --fields events
+```
+
+Trimmed to the cause:
+
+```text
+causes:[{kind:external-store,evidence:inferred,reason:external-store-snapshot-changed,…,selectionEqual:false,subscriptionFired:true,
+  before:{density:comfortable,hiddenColumns:[],recentlyViewed:[],selectedOrderIds:{…},setDensity:{…},…},
+  changedFields:[selectedOrderIds],…,storeLabel:anonymous-external-store,selector:null,…}],
+necessity:unnecessary,necessityReason:output-unchanged
+```
+
+The sidebar's store snapshot is the whole workspace store (`selector:null`). The field that changed, `selectedOrderIds`, is one the sidebar never shows, and the render changed no output. The code matches:
+
+```diff title="src/layout/sidebar-nav.tsx"
+-  const { recentlyViewed } = useWorkspaceStore()
++  const recentlyViewed = useWorkspaceStore((state) => state.recentlyViewed)
+```
+
+The skill's verify step declares the outcome before the change. `BulkActionBar` must render, which proves the click reached the app. With the box unchecked again (`agent-browser uncheck`), run:
+
+```bash
+node_modules/.bin/genie-react verify begin --session art-l7 --name 'select one order' \
+  --claim 'render SidebarNav max 0' --claim 'render BulkActionBar min 1' --claim 'boundaries clean'
+agent-browser --session art-l7 check 'input[aria-label="Select SO-105999"]'
+node_modules/.bin/genie-react verify end vfy_bd8e1d6a-5e03-477a-a0ca-fbfe2e995949 --session art-l7
+```
+
+Before the change, it exits 1:
+
+```text
+fail vfy_bd8e1d6a-5e03-477a-a0ca-fbfe2e995949 "select one order"  7 commits, quiet after 1362 ms (react, query, router)
+  1 fail render SidebarNav max 0  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  2 pass render BulkActionBar min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+```
+
+After it, the same claims exit 0, and agent-browser confirmed the **Bulk actions** toolbar was visible:
+
+```text
+pass vfy_fa81c07f-2672-4f7b-b8e5-4c1f62f8fb29 "select one order"  7 commits, quiet after 731 ms (react, query, router)
+  1 pass render SidebarNav max 0  {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  2 pass render BulkActionBar min 1  {renders:1,mounts:0,updates:1,remounts:0,semantics:exact,instances:1,activeInstances:1}
+  3 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+```
+
+## When this setup does not fit
+
+- The agent needs a shell, a running dev server and a browser it can drive. This article did not test Cursor Cloud Agents or the Copilot cloud agent, which run in remote sandboxes.
+- Genie needs a development build of React 18 or newer and Node.js 22.12 or newer.
+- The skill does not start your app or sign in for you. Write those steps in `AGENTS.md`.
+- The external-store cause above is `inferred` and the store has no name (`anonymous-external-store`). Read the component's store call before you change it.
+
+[Use it with your agent](/docs/getting-started/agent) covers sessions and running several agents at once, and [Verify a fix](/docs/guides/verify-a-fix) lists every claim form.
