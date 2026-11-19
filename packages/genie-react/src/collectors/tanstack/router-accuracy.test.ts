@@ -170,13 +170,15 @@ const rendered = () => view?.container.textContent
 describe('router_get_state settlement', () => {
   it('runs against the router release the demo and realistic apps install', () => {
     const testFile = fileURLToPath(import.meta.url)
-    const tested = createRequire(testFile).resolve('@tanstack/react-router/package.json')
+    const repository = join(dirname(testFile), '../../../../..')
     const manifest = (path: string) => JSON.parse(readFileSync(path, 'utf8'))
-    const realistic = manifest(
-      join(dirname(testFile), '../../../../../apps/realworld-dashboard/package.json'),
-    )
+    const installedFrom = (from: string) =>
+      manifest(createRequire(from).resolve('@tanstack/react-router/package.json')).version
+    const realistic = manifest(join(repository, 'apps/realworld-dashboard/package.json'))
+    const tested = installedFrom(testFile)
 
-    expect(manifest(tested).version).toBe(realistic.dependencies['@tanstack/react-router'])
+    expect(tested).toBe(realistic.dependencies['@tanstack/react-router'])
+    expect(installedFrom(join(repository, 'examples/expo-demo/package.json'))).toBe(tested)
   })
 
   it('stays unsettled while a loader runs and settles once the route renders', async () => {
@@ -202,6 +204,35 @@ describe('router_get_state settlement', () => {
       pendingMatchCount: 0,
     })
     expect(rendered()).toBe('slow')
+  })
+
+  it('settles a router that finished loading but was never rendered', async () => {
+    const { router, collector } = app()
+    await router.load()
+
+    expect(await call<RouterState>(collector, 'router_get_state', {})).toMatchObject({
+      pathname: '/',
+      resolvedPathname: '/',
+      status: 'idle',
+      settled: true,
+      pendingWork: [],
+    })
+  })
+
+  it('stays unsettled while a router that was never rendered runs a loader', async () => {
+    const { router, collector, slow } = app(createMemoryHistory({ initialEntries: ['/slow'] }))
+    const load = router.load()
+    await flush()
+
+    const during = await call<RouterState>(collector, 'router_get_state', {})
+    expect(during).toMatchObject({ settled: false })
+    expect(during.pendingWork).toContain('loading')
+
+    slow.resolve()
+    await load
+    expect(await call<RouterState>(collector, 'router_get_state', {})).toMatchObject({
+      settled: true,
+    })
   })
 
   it('stays unsettled while a stale-while-revalidate loader runs after isLoading clears', async () => {

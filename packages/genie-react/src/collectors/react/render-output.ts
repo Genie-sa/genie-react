@@ -219,7 +219,10 @@ function ownOutput(
   const flags = fiber.flags
   // React clears Placement before the commit hook runs but keeps ChildDeletion on the parent.
   if (flags & CHILD_DELETION) addWrite(tally, `${fiberLabel(fiber)}:remove-child`)
-  const updated = fiber.alternate !== null && (flags & UPDATE) !== 0
+  // React Native's Fabric never sets Update: it flags only the hosts it clones, and a host whose only change is a callback not even that.
+  const previous = fiber.alternate
+  const updated =
+    previous !== null && ((flags & UPDATE) !== 0 || fiber.memoizedProps !== previous.memoizedProps)
   if (fiber.tag === tags.HostText) {
     if (updated) addWrite(tally, '#text')
   } else if (

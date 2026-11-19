@@ -11,6 +11,7 @@ import {
 import { defaultWorkTags } from './work-tags'
 
 const UPDATE = 0b100
+const CLONED = 0b1000
 const CHILD_DELETION = 0b1_0000
 
 interface FakeFiber {
@@ -217,6 +218,58 @@ describe('commit output attribution', () => {
     const list = link(component('List'), row)
 
     expect(tallyOf(attribute([list, row], [[list, facts()]]), list)?.complete).toBe(false)
+  })
+
+  describe('on a persistent renderer such as React Native Fabric', () => {
+    it('counts a text change that Fabric committed by cloning instead of flagging an update', () => {
+      const unchanged = fiber(defaultWorkTags.HostText, null, 'Memo row: ')
+      const value = fiber(defaultWorkTags.HostText, null, '2', '1', CLONED)
+      const nativeText = link(
+        fiber(
+          defaultWorkTags.HostComponent,
+          'RCTText',
+          { children: ['Memo row: ', 2] },
+          { children: ['Memo row: ', 1] },
+          CLONED,
+        ),
+        unchanged,
+        value,
+      )
+      const text = link(component('Text'), nativeText)
+      const row = link(component('MemoNameRow'), text)
+
+      const tallies = attribute(
+        [row, text, nativeText, value],
+        [
+          [row, facts()],
+          [text, facts()],
+        ],
+      )
+
+      expect(tallyOf(tallies, row)).toMatchObject({ writes: 1, writeLabels: ['#text'] })
+      expect(gradeRender('update', false, tallyOf(tallies, row) ?? null)).toEqual({
+        necessity: 'necessary',
+        necessityReason: 'dom-changed',
+      })
+    })
+
+    it('reports a callback Fabric replaced without cloning the host view', () => {
+      const view = fiber(
+        defaultWorkTags.HostComponent,
+        'RCTView',
+        { onLayout: () => 2 },
+        { onLayout: () => 1 },
+      )
+      const row = link(component('Row'), view)
+
+      const tallies = attribute([row, view], [[row, facts()]])
+
+      expect(tallyOf(tallies, row)).toMatchObject({
+        writes: 0,
+        callbackOnlyUpdates: 1,
+        callbackLabels: ['RCTView.onLayout'],
+      })
+    })
   })
 
   it('marks output incomplete instead of guessing once its budget runs out', () => {

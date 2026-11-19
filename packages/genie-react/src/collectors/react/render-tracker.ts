@@ -315,6 +315,8 @@ const MOUNTED_TREE_VISIT_LIMIT = 100_000
 const ADAPTIVE_DECAY_COMMITS = 30
 // Measured in Chromium at a 2x CPU throttle: the first analyzed commit after unanalyzed ones took four times a warm commit, because V8 had not compiled the analysis code or had flushed it.
 const COLD_COMMIT_TIME_FACTOR = 4
+// Measured in Expo Go on an iOS simulator: Hermes, which has no JIT, analyzed a component about four times slower than V8 once warm, and twice that in a window's first large commit, because a tap first commits a small press-in render that spends the cold allowance.
+const HERMES_TIME_FACTOR = 8
 
 const DID_CAPTURE = 0b1000_0000
 const RECENT_CAUSE_EVENT_LIMIT = 1_000
@@ -773,20 +775,36 @@ function grown(configured: number, scale: number, ceiling: number): number {
   return Math.max(configured, Math.min(ceiling, configured * scale))
 }
 
-function scaledBudget(scale: number, costScale = 1): RenderObservationConfiguration['budget'] {
+function scaledBudget(
+  scale: number,
+  costScale = 1,
+  timeFactor = 1,
+): RenderObservationConfiguration['budget'] {
   const configured = observationConfiguration.budget
   const workScale = scale * costScale
   return {
     ...configured,
     fiberLimit: grown(configured.fiberLimit, scale, MAXIMUM_BUDGET.fiberLimit),
     operationLimit: grown(configured.operationLimit, workScale, MAXIMUM_BUDGET.operationLimit),
-    timeLimitMs: grown(configured.timeLimitMs, workScale, MAXIMUM_BUDGET.timeLimitMs),
+    timeLimitMs: grown(configured.timeLimitMs, workScale * timeFactor, MAXIMUM_BUDGET.timeLimitMs),
+    targetTimeReserveMs: grown(
+      configured.targetTimeReserveMs,
+      timeFactor,
+      MAXIMUM_BUDGET.targetTimeReserveMs,
+    ),
   }
+}
+
+/** The default time limits are measured in V8, so an adaptive window scales them for a slower engine. */
+function engineTimeFactor(): number {
+  return observationConfiguration.budget.adaptive && 'HermesInternal' in globalThis
+    ? HERMES_TIME_FACTOR
+    : 1
 }
 
 function effectiveObservationBudget(): RenderObservationConfiguration['budget'] {
   return observationConfiguration.budget.adaptive
-    ? scaledBudget(adaptiveBudgetScale, adaptiveCostScale)
+    ? scaledBudget(adaptiveBudgetScale, adaptiveCostScale, engineTimeFactor())
     : scaledBudget(1)
 }
 
@@ -881,7 +899,7 @@ export function getRenderBudgetAdvice(): RenderBudgetAdvice | undefined {
     ),
     timeLimitMs: Math.min(
       MAXIMUM_BUDGET.timeLimitMs,
-      Math.max(main.timeLimitMs, suggestedTimeLimitMs),
+      Math.max(main.timeLimitMs, Math.ceil(suggestedTimeLimitMs / engineTimeFactor())),
     ),
     targetOperationReserve: grown(
       configured.targetOperationReserve,
@@ -2039,7 +2057,7 @@ export function finalizeCommitAnalysisBudget(budget: CommitAnalysisBudget): void
       adaptiveCostScale = Math.max(
         adaptiveCostScale,
         required.operations / (configured.operationLimit * adaptiveBudgetScale),
-        required.timeLimitMs / (configured.timeLimitMs * adaptiveBudgetScale),
+        required.timeLimitMs / (configured.timeLimitMs * adaptiveBudgetScale * engineTimeFactor()),
       )
     }
   }

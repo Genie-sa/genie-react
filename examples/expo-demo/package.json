@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.2",
-    "@tanstack/react-router": "^1.170.0",
+    "@tanstack/react-router": "1.170.41",
     "expo": "~57.0.7",
     "expo-constants": "~57.0.6",
     "expo-linking": "~57.0.9",

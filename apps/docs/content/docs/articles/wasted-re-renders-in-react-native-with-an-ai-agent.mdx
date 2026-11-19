@@ -230,16 +230,23 @@ agent-device confirmed the screen. After the tap, its diff showed the counter ch
 used every domain and waited the full 10 seconds with `The router has not settled on /`.
 `router_get_state` reported `status: pending` with `pendingWork: [navigation-pending]`. The demo
 never renders that router, and limiting the wait to React made the runs settle in under a second.
+The demo at 1.0.2 installed a TanStack Router release that settles a load only once `RouterProvider`
+renders. Later versions of the demo install the release Genie is tested against, which settles
+without rendering, so `verify` with every domain settles too.
 
 ## When this approach does not fit
 
 Do not read `necessity` alone. In this run, Genie marked the three memo rows `unnecessary` with
 `output-unchanged`, yet their text changed on screen. Their cause line was
 `props exact value` with `before:1,after:2`. Trust the cause and the screen over the label, and
-confirm with agent-device.
+confirm with agent-device. In 1.0.2 Genie looked for React DOM's update flag, which React Native's
+renderer never sets. Later releases also compare the host props, so these rows report `necessary`
+with `dom-changed` and a `#text` write.
 
 Check the budget before you count. On this simulator the default budget ran out on the first tap.
-When `coverage.budgetAdvice` appears, clear again with its budget and repeat the action.
+When `coverage.budgetAdvice` appears, clear again with its budget and repeat the action. Later
+releases give an adaptive window on Hermes eight times the default time limits, and the first tap
+in a default window on this demo then skips no component.
 
 Every `verify` result here carried this line in its `environment`:
 
@@ -247,8 +254,10 @@ Every `verify` result here carried this line in its `environment`:
 renderCollection:"degraded (hook installed after React initialised — commits before that point were not observed)"
 ```
 
-It means Genie missed commits from before its hook loaded, such as app startup. The windows here
-opened later, and every claim reported `semantics:exact`. Do not use this setup to measure startup.
+In 1.0.2 this line was wrong. The demo loads the hook first, but loading it read the global `Node`,
+which React Native defines lazily, and that loaded React Native's renderer before render tracking
+started. No commit was missed. Later releases leave `Node` unread until Genie needs it and report
+`renderCollection: available`.
 
 Genie measures development builds, so render counts here say nothing about release-build speed. For
 timing work, see [Optimize a slow interaction](/docs/guides/optimize). For claim syntax, see

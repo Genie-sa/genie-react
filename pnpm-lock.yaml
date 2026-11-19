@@ -655,8 +655,8 @@ importers:
         specifier: ^5.101.2
         version: 5.101.2(react@19.2.3)
       '@tanstack/react-router':
-        specifier: ^1.170.0
-        version: 1.170.18(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+        specifier: 1.170.41
+        version: 1.170.41(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       expo:
         specifier: ~57.0.7
         version: 57.0.7(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.15)(expo-router@57.0.19)(react-dom@19.2.3(react@19.2.3))(react-native-worklets@0.12.1(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.3))(react@19.2.3)(typescript@6.0.3)
@@ -4966,13 +4966,6 @@ packages:
       react: '>=18.0.0 || >=19.0.0'
       react-dom: '>=18.0.0 || >=19.0.0'
 
-  '@tanstack/react-router@1.170.18':
-    resolution: {integrity: sha512-wpbGYZEp/fmz1q4bn7BD8VZ+/VZ7GBqSJv5V969pU+chP8y7dquWDmKTFMohvUegb9lg12m1uPVvD6kB2wORvQ==}
-    engines: {node: '>=20.19'}
-    peerDependencies:
-      react: '>=18.0.0 || >=19.0.0'
-      react-dom: '>=18.0.0 || >=19.0.0'
-
   '@tanstack/react-router@1.170.41':
     resolution: {integrity: sha512-Mpvw8Wm5MGDbTqI8Yc9flLKxbOHwoWocv0H2aGKcgw2a017oK5nZWqa954P+DrUx/8fI98YNywnHP5XcD3tQ9w==}
     engines: {node: '>=20.19'}
@@ -5107,10 +5100,6 @@ packages:
 
   '@tanstack/router-core@1.171.14':
     resolution: {integrity: sha512-Mo3hwx0qB0cJsVYGDjG0+Ouf7VV74h/vsoDMGztdlyzDanp4gBA2s7IVvm6hFrmQM6GpD9F0Z7SqD7OldfLE7g==}
-    engines: {node: '>=20.19'}
-
-  '@tanstack/router-core@1.171.15':
-    resolution: {integrity: sha512-IILCDcLaItMZQ2jEmCABHY1Nhjjn5XUvwpQp3e4Nmu+vfg0BgYFuu/QASz2SwE2ZNbVMrvt8X/wxa+Gg5aErxA==}
     engines: {node: '>=20.19'}
 
   '@tanstack/router-core@1.171.34':
@@ -15409,11 +15398,11 @@ snapshots:
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
 
-  '@tanstack/react-router@1.170.18(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+  '@tanstack/react-router@1.170.41(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
-      '@tanstack/history': 1.162.0
-      '@tanstack/react-store': 0.9.3(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      '@tanstack/router-core': 1.171.15
+      '@tanstack/history': 1.162.4
+      '@tanstack/react-store': 0.11.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@tanstack/router-core': 1.171.34
       isbot: 5.1.44
       react: 19.2.3
       react-dom: 19.2.3(react@19.2.3)
@@ -15583,6 +15572,13 @@ snapshots:
       - vite-plugin-solid
       - webpack
 
+  '@tanstack/react-store@0.11.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      '@tanstack/store': 0.11.2
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+      use-sync-external-store: 1.7.0(react@19.2.3)
+
   '@tanstack/react-store@0.11.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:
       '@tanstack/store': 0.11.2
@@ -15603,13 +15599,6 @@ snapshots:
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
       use-sync-external-store: 1.7.0(react@19.3.1)
-
-  '@tanstack/react-store@0.9.3(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
-    dependencies:
-      '@tanstack/store': 0.9.3
-      react: 19.2.3
-      react-dom: 19.2.3(react@19.2.3)
-      use-sync-external-store: 1.6.0(react@19.2.3)
 
   '@tanstack/react-store@0.9.3(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:
@@ -15633,13 +15622,6 @@ snapshots:
       - supports-color
 
   '@tanstack/router-core@1.171.14':
-    dependencies:
-      '@tanstack/history': 1.162.0
-      cookie-es: 3.1.1
-      seroval: 1.5.4
-      seroval-plugins: 1.5.4(seroval@1.5.4)
-
-  '@tanstack/router-core@1.171.15':
     dependencies:
       '@tanstack/history': 1.162.0
       cookie-es: 3.1.1
@@ -22305,10 +22287,6 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.17
 
-  use-sync-external-store@1.6.0(react@19.2.3):
-    dependencies:
-      react: 19.2.3
-
   use-sync-external-store@1.6.0(react@19.2.7):
     dependencies:
       react: 19.2.7
@@ -22316,6 +22294,10 @@ snapshots:
   use-sync-external-store@1.7.0(react@18.3.1):
     dependencies:
       react: 18.3.1
+
+  use-sync-external-store@1.7.0(react@19.2.3):
+    dependencies:
+      react: 19.2.3
 
   use-sync-external-store@1.7.0(react@19.2.7):
     dependencies:
