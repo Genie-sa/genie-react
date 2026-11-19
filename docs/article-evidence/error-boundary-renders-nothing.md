@@ -537,3 +537,517 @@ request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperat
 $ git checkout -- evals/fixture-app
 $ git status --short
 ```
+
+
+## Re-run on Genie 1.1.0
+
+- Date: 2026-11-19 (UTC times appear in the log)
+- Commit: `ce408cb205c0e798cb04c35512772b7454283141` (`git rev-parse HEAD`), fixture source unmodified except for the temporary changes shown in the log, reverted with `git checkout -- evals/fixture-app`
+- App: `evals/fixture-app`, the `account` screen at http://localhost:5231/?screen=account
+- Genie: `@genie-react/cli` 1.1.0 and `genie-react` 1.1.0 from this checkout (`node_modules/.bin/genie-react --version` in the fixture prints `1.1.0`)
+- Driver: agent-browser 0.39.1, session `upd-a`
+
+### Server
+
+```console
+$ cd evals/fixture-app
+$ pnpm exec vite --port 5231 --strictPort
+  VITE v8.1.5  ready in 1207 ms
+
+  ➜  Local:   http://localhost:5231/
+  ➜  Network: use --host to expose
+[genie] bridge ready at ws://[::1]:5231/__genie/ws
+```
+
+Every command below ran from `evals/fixture-app`, except the revert at the end, which ran from the repo root. Each block is the command, its full output, and its exit code. Lines starting with `##` are notes added between commands. The `formatLocation` and `CardBody` edits were applied with a script, and the `git diff` blocks show them. Before the fix, the same verify run ran twice so the second run's history line shows the first. The `status --select /selectedBridgeUrl` call confirms the CLI talked to this Vite server's bridge. The `formatLocation` fix was reverted with `git checkout -- src/screens/account/ProfileDetails.tsx` before the fallback-only section.
+
+### Log
+
+```text
+## Before the fix
+
+$ date -u +%Y-%m-%dT%H:%M:%SZ; git rev-parse HEAD; git status --short; node_modules/.bin/genie-react --version
+2026-11-19T09:03:18Z
+ce408cb205c0e798cb04c35512772b7454283141
+## ali/articles-update-a...origin/main [behind 1]
+1.1.0
+[exit 0]
+
+$ agent-browser --session upd-a open 'http://localhost:5231/?screen=account'
+✓ Acme Console
+  http://localhost:5231/?screen=account
+[exit 0]
+
+$ npx genie-react status --session upd-a --wait 15000 --select /ready
+status: ok
+selection: {expression:/ready,matchedPathCount:1,matchedPaths:[/ready],omittedPathCount:51}
+result: true
+[exit 0]
+
+$ npx genie-react status --session upd-a --select /selectedBridgeUrl
+status: ok
+selection:
+  expression: /selectedBridgeUrl
+  matchedPathCount: 1
+  matchedPaths: [/selectedBridgeUrl]
+  omittedPathCount: 51
+result: "ws://[::1]:5231/__genie/ws"
+[exit 0]
+
+$ agent-browser --session upd-a get text '[aria-label=Profile]'
+Profile
+[exit 0]
+
+$ npx genie-react call react_error_state '{}' --session upd-a
+caughtErrors[1]:
+  - {boundaryId:13240864079892,boundaryName:CardBody,boundaryKind:error-boundary,boundarySource:{file:/src/screens/account/AccountScreen.tsx,line:10,column:9,functionName:AccountScreen,sourceMapConfidence:mapped,role:element-callsite},sourceOwnership:unknown,throwingComponent:ProfileDetails,message:"Cannot read properties of undefined (reading 'city')",stack:"TypeError: Cannot read properties of undefined (reading 'city')\n    at formatLocation (http://localhost:5231/src/screens/account/ProfileDetails.tsx:8:20)\n    at ProfileDetails (http://localhost:5231/src/screens/account/ProfileDetails.tsx:47:45)\n    at Object.react_stack_bottom_frame (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:12904:12)\n    at renderWithHooks (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:4235:19)\n    at updateFunctionComponent (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:5607:16)\n    at beginWork (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:6178:20)\n    at runWithFiberInDEV (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:852:66)\n    at performUnitOfWork (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:8467:92)\n    at workLoopSync (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:8363:37)\n    at renderRootSync (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:8347:6)",stackFrames:[{functionName:formatLocation,file:/src/screens/account/ProfileDetails.tsx,line:6,column:21,isLibrary:false,mapping:mapped},{functionName:ProfileDetails,file:/src/screens/account/ProfileDetails.tsx,line:19,column:12,isLibrary:false,mapping:mapped},{functionName:Object.react_stack_bottom_frame,file:/node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/cjs/react-dom-client.development.js,line:25904,column:20,isLibrary:true,mapping:mapped},{functionName:renderWithHooks,file:/node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/cjs/react-dom-client.development.js,line:7662,column:22,isLibrary:true,mapping:mapped},{functionName:updateFunctionComponent,file:/node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/cjs/react-dom-client.development.js,line:10166,column:19,isLibrary:true,mapping:mapped},{functionName:beginWork,file:/node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/cjs/react-dom-client.development.js,line:11778,column:18,isLibrary:true,mapping:mapped},{functionName:runWithFiberInDEV,file:/node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/cjs/react-dom-client.development.js,line:871,column:30,isLibrary:true,mapping:mapped},{functionName:performUnitOfWork,file:/node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/cjs/react-dom-client.development.js,line:17641,column:22,isLibrary:true,mapping:mapped},{functionName:workLoopSync,file:/node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/cjs/react-dom-client.development.js,line:17469,column:41,isLibrary:true,mapping:mapped},{functionName:renderRootSync,file:/node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/cjs/react-dom-client.development.js,line:17450,column:11,isLibrary:true,mapping:mapped}],isLibraryBoundary:false,forced:false,status:active,statusReason:state-unchanged-since-catch,rendered:{output:nothing,hostNodes:0,text:null}}
+suspended: []
+blankTreeHint: "error boundary <CardBody> at /src/screens/account/AccountScreen.tsx:10 caught \"Cannot read properties of undefined (reading 'city')\" thrown by <ProfileDetails> — its children did not render and it renders nothing in its place, so the failure is invisible on screen"
+ownershipCoverage: {complete:false,totalCandidates:1,app:0,library:0,unknown:1}
+scanTruncated: false
+[exit 0]
+
+$ agent-browser --session upd-a open 'http://localhost:5231/?screen=account'
+✓ Acme Console
+  http://localhost:5231/?screen=account
+[exit 0]
+
+$ agent-browser --session upd-a wait 1500
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-a get text '[aria-label=Profile]'
+Profile
+[exit 0]
+
+$ npx genie-react verify begin --session upd-a --name 'reload profile' --claim 'render ProfileDetails min 1' --claim 'boundaries clean'
+recording vfy_871b0f9e-cfd3-4c44-a442-ecd686ca109a "reload profile"
+  url "http://localhost:5231/?screen=account"
+  1 recording render ProfileDetails min 1
+  2 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:2,domains:[react,query,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_871b0f9e-cfd3-4c44-a442-ecd686ca109a --session upd-a
+session: {sessionId:e34dad44-4cdd-48bb-8d4e-4bb5f639b2c4,logicalSessionId:6be2b30f-41d2-4dee-914c-9c7d38e96ad3,documentGeneration:3}
+schemaVersion: "1.0"
+targets: [{target:{component:ProfileDetails},status:pending,instances:0}]
+startedAt: 2026-11-19T09:03:30.173Z
+expiresAt: 2026-11-19T09:08:30.184Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ npx genie-react call query_reset '{"queryKey":["profile"]}' --session upd-a
+ok: true
+matched: 1
+[exit 0]
+
+$ npx genie-react verify end vfy_871b0f9e-cfd3-4c44-a442-ecd686ca109a --session upd-a
+fail vfy_871b0f9e-cfd3-4c44-a442-ecd686ca109a "reload profile"  0 commits, quiet after 626 ms (react, query, network)
+  url "http://localhost:5231/?screen=account"
+  1 refused render ProfileDetails min 1  target_not_found: No ProfileDetails instance was mounted at begin or rendered in the window; a target Genie cannot see is not a target that did nothing.
+      observed: {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:0,activeInstances:0}
+      evidence:{pendingAtBegin:true},fix:{action:find-target,component:ProfileDetails}
+      fix: $ npx genie-react call react_find_components '{"query":"ProfileDetails"}' --session upd-a
+      claim: {kind:renders,target:{component:ProfileDetails},min:1,counting:renders,allowRemount:false}
+      deciding: []
+  2 fail boundaries clean  {caughtDuringWindow:0,caughtAtEnd:1}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-at-end,boundary:CardBody,boundaryKind:error-boundary,message:"Cannot read properties of undefined (reading 'city')"}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+  window no_activity: No React commit happened in the window; the interaction did not reach this tab or did not change React state.
+    guard:activity
+    evidence:{startDocumentCommitId:2,frozenDocumentCommitId:2,commits:0},fix:{action:drive-observed-tab,url:"http://localhost:5231/?screen=account"}
+    fix: $ npx genie-react verify begin --session upd-a --name 'reload profile' --claim 'render ProfileDetails min 1' --claim 'boundaries clean'
+window: {observationId:observation:1,startDocumentCommitId:2,settledDocumentCommitId:2,frozenDocumentCommitId:2,commits:0,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:626,domains:{react:met,query:met,network:met}},tail:{ms:500,commits:0},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 1 for these claims on this tab
+evidence: $ npx genie-react verify show vfy_871b0f9e-cfd3-4c44-a442-ecd686ca109a --claim 1 --session upd-a
+session: {sessionId:e34dad44-4cdd-48bb-8d4e-4bb5f639b2c4,logicalSessionId:6be2b30f-41d2-4dee-914c-9c7d38e96ad3,documentGeneration:3}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_1d1216d8a4f9,scope:logical-session,storage:memory,attempt:1,history:[],codeChangedSincePrevious:null,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T09:03:30.173Z
+endedAt: 2026-11-19T09:03:31.840Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+$ agent-browser --session upd-a open 'http://localhost:5231/?screen=account'
+✓ Acme Console
+  http://localhost:5231/?screen=account
+[exit 0]
+
+$ agent-browser --session upd-a wait 1500
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-a get text '[aria-label=Profile]'
+Profile
+[exit 0]
+
+$ npx genie-react verify begin --session upd-a --name 'reload profile' --claim 'render ProfileDetails min 1' --claim 'boundaries clean'
+recording vfy_a075dbd1-c899-41c6-b6e8-60c641f836b8 "reload profile"
+  url "http://localhost:5231/?screen=account"
+  1 recording render ProfileDetails min 1
+  2 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:2,domains:[react,query,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_a075dbd1-c899-41c6-b6e8-60c641f836b8 --session upd-a
+session: {sessionId:ec89df00-18fc-427d-a487-4e50e5c84e54,logicalSessionId:6be2b30f-41d2-4dee-914c-9c7d38e96ad3,documentGeneration:4}
+schemaVersion: "1.0"
+targets: [{target:{component:ProfileDetails},status:pending,instances:0}]
+startedAt: 2026-11-19T09:03:33.711Z
+expiresAt: 2026-11-19T09:08:33.716Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ npx genie-react call query_reset '{"queryKey":["profile"]}' --session upd-a
+ok: true
+matched: 1
+[exit 0]
+
+$ npx genie-react verify end vfy_a075dbd1-c899-41c6-b6e8-60c641f836b8 --session upd-a
+fail vfy_a075dbd1-c899-41c6-b6e8-60c641f836b8 "reload profile"  0 commits, quiet after 616 ms (react, query, network)
+  url "http://localhost:5231/?screen=account"
+  1 refused render ProfileDetails min 1  target_not_found: No ProfileDetails instance was mounted at begin or rendered in the window; a target Genie cannot see is not a target that did nothing.
+      observed: {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:0,activeInstances:0}
+      evidence:{pendingAtBegin:true},fix:{action:find-target,component:ProfileDetails}
+      fix: $ npx genie-react call react_find_components '{"query":"ProfileDetails"}' --session upd-a
+      claim: {kind:renders,target:{component:ProfileDetails},min:1,counting:renders,allowRemount:false}
+      deciding: []
+  2 fail boundaries clean  {caughtDuringWindow:0,caughtAtEnd:1}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-at-end,boundary:CardBody,boundaryKind:error-boundary,message:"Cannot read properties of undefined (reading 'city')"}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+  window no_activity: No React commit happened in the window; the interaction did not reach this tab or did not change React state.
+    guard:activity
+    evidence:{startDocumentCommitId:2,frozenDocumentCommitId:2,commits:0},fix:{action:drive-observed-tab,url:"http://localhost:5231/?screen=account"}
+    fix: $ npx genie-react verify begin --session upd-a --name 'reload profile' --claim 'render ProfileDetails min 1' --claim 'boundaries clean'
+window: {observationId:observation:1,startDocumentCommitId:2,settledDocumentCommitId:2,frozenDocumentCommitId:2,commits:0,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:616,domains:{react:met,query:met,network:met}},tail:{ms:500,commits:0},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 2 for these claims on this tab; previous fail vfy_871b0f9e-cfd3-4c44-a442-ecd686ca109a; document reloaded since
+evidence: $ npx genie-react verify show vfy_a075dbd1-c899-41c6-b6e8-60c641f836b8 --claim 1 --session upd-a
+session: {sessionId:ec89df00-18fc-427d-a487-4e50e5c84e54,logicalSessionId:6be2b30f-41d2-4dee-914c-9c7d38e96ad3,documentGeneration:4}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_1d1216d8a4f9,scope:logical-session,storage:memory,attempt:2,history:[{verificationId:vfy_871b0f9e-cfd3-4c44-a442-ecd686ca109a,verdict:fail,reasons:[],endedAt:2026-11-19T09:03:31.840Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T09:03:33.711Z
+endedAt: 2026-11-19T09:03:35.390Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+## After the formatLocation fix
+
+$ git diff
+diff --git a/evals/fixture-app/src/screens/account/ProfileDetails.tsx b/evals/fixture-app/src/screens/account/ProfileDetails.tsx
+index c4b0ec2..18ee618 100644
+--- a/evals/fixture-app/src/screens/account/ProfileDetails.tsx
++++ b/evals/fixture-app/src/screens/account/ProfileDetails.tsx
+@@ -1,9 +1,8 @@
+ import { useQuery } from '@tanstack/react-query'
+ import { api, type Profile } from '../../api'
+ 
+-function formatLocation(profile: Profile): string {
+-  const address = profile.address as NonNullable<Profile['address']>
+-  return `${address.city}, ${address.country}`
++function formatLocation({ address }: Profile): string {
++  return address ? `${address.city}, ${address.country}` : 'Not provided'
+ }
+ 
+ export function ProfileDetails() {
+[exit 0]
+
+$ agent-browser --session upd-a open 'http://localhost:5231/?screen=account'
+✓ Acme Console
+  http://localhost:5231/?screen=account
+[exit 0]
+
+$ agent-browser --session upd-a wait 1500
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-a get text '[aria-label=Profile]'
+Profile
+Name
+Dana Whitfield
+Email
+dana@example.com
+Location
+Not provided
+[exit 0]
+
+$ npx genie-react verify begin --session upd-a --name 'reload profile' --claim 'render ProfileDetails min 1' --claim 'boundaries clean'
+recording vfy_1b8e75d7-5643-4883-b59b-8b92e3ad613d "reload profile"
+  url "http://localhost:5231/?screen=account"
+  1 recording render ProfileDetails min 1
+  2 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:3,domains:[react,query,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_1b8e75d7-5643-4883-b59b-8b92e3ad613d --session upd-a
+session: {sessionId:d266acd7-2f8f-47b4-a21d-63b1dd18d9f9,logicalSessionId:6be2b30f-41d2-4dee-914c-9c7d38e96ad3,documentGeneration:5}
+schemaVersion: "1.0"
+targets: [{target:{component:ProfileDetails},status:resolved,instances:1,source:/src/screens/account/AccountScreen.tsx}]
+startedAt: 2026-11-19T09:03:57.608Z
+expiresAt: 2026-11-19T09:08:57.618Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ npx genie-react call query_reset '{"queryKey":["profile"]}' --session upd-a
+ok: true
+matched: 1
+[exit 0]
+
+$ npx genie-react verify end vfy_1b8e75d7-5643-4883-b59b-8b92e3ad613d --session upd-a
+pass vfy_1b8e75d7-5643-4883-b59b-8b92e3ad613d "reload profile"  2 commits, quiet after 616 ms (react, query, network)
+  url "http://localhost:5231/?screen=account"
+  1 pass render ProfileDetails min 1  {renders:2,mounts:0,updates:2,remounts:0,semantics:exact,instances:1,activeInstances:1}
+      claim: {kind:renders,target:{component:ProfileDetails},min:1,counting:renders,allowRemount:false}
+      deciding: [{kind:instance,mountId:mount:1,renders:2,mounts:0,updates:2,mountGeneration:1,latestDocumentCommitId:5,source:/src/screens/account/AccountScreen.tsx:11:11}]
+  2 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-log,scope:window,complete:true,afterDocumentCommitId:3}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+window: {observationId:observation:1,startDocumentCommitId:3,settledDocumentCommitId:5,frozenDocumentCommitId:5,commits:2,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:616,domains:{react:met,query:met,network:met}},tail:{ms:500,commits:0},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 3 for these claims on this tab; previous fail vfy_a075dbd1-c899-41c6-b6e8-60c641f836b8; document reloaded since
+evidence: $ npx genie-react verify show vfy_1b8e75d7-5643-4883-b59b-8b92e3ad613d --session upd-a
+session: {sessionId:d266acd7-2f8f-47b4-a21d-63b1dd18d9f9,logicalSessionId:6be2b30f-41d2-4dee-914c-9c7d38e96ad3,documentGeneration:5}
+schemaVersion: "1.0"
+exitCode: 0
+stage: end
+ledger: {fingerprint:cf_1d1216d8a4f9,scope:logical-session,storage:memory,attempt:3,history:[{verificationId:vfy_871b0f9e-cfd3-4c44-a442-ecd686ca109a,verdict:fail,reasons:[],endedAt:2026-11-19T09:03:31.840Z},{verificationId:vfy_a075dbd1-c899-41c6-b6e8-60c641f836b8,verdict:fail,reasons:[],endedAt:2026-11-19T09:03:35.390Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T09:03:57.608Z
+endedAt: 2026-11-19T09:03:59.331Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ agent-browser --session upd-a get text '[aria-label=Profile]'
+Profile
+Name
+Dana Whitfield
+Email
+dana@example.com
+Location
+Not provided
+[exit 0]
+
+## Force the boundary after the formatLocation fix
+
+$ npx genie-react call react_find_components '{"query":"ProfileDetails","exact":true}' --session upd-a
+matches[1]:
+  - {id:1152544407573,name:ProfileDetails,path:"QueryClientProvider > App > AccountScreen > CardBody > ProfileDetails",kind:function,props:{},source:{file:/src/screens/account/AccountScreen.tsx,line:11,column:11,functionName:AccountScreen,sourceMapConfidence:mapped,role:element-callsite},isLibrary:false}
+ownershipCoverage: {complete:true,totalCandidates:1,app:1,library:0,unknown:0}
+omittedByLimit: 0
+scanTruncated: false
+nextCursor: null
+unmountedSinceSearch: 0
+[exit 0]
+
+$ npx genie-react call react_force_error_boundary '{"id":1152544407573,"forceError":true}' --session upd-a
+ok: true
+boundaryId: 1152544407572
+boundaryName: CardBody
+erroring: true
+activeOverrides: 1
+[exit 0]
+
+$ agent-browser --session upd-a get text '[aria-label=Profile]'
+Profile
+[exit 0]
+
+$ npx genie-react call react_error_state '{"includeSource":false}' --session upd-a --select /caughtErrors/0
+status: ok
+selection:
+  expression: /caughtErrors/0
+  matchedPathCount: 1
+  matchedPaths: [/caughtErrors/0]
+  omittedPathCount: 8
+result:
+  boundaryId: 1152544407572
+  boundaryName: CardBody
+  boundaryKind: error-boundary
+  boundarySource: null
+  sourceOwnership: unknown
+  throwingComponent: CardBody
+  message: "Simulated error coming from DevTools"
+  stack: "Error: Simulated error coming from DevTools\n    at updateClassComponent (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:5638:18)\n    at beginWork (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:6179:139)\n    at runWithFiberInDEV (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:852:66)\n    at performUnitOfWork (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:8467:92)\n    at workLoopSync (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:8363:37)\n    at renderRootSync (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:8347:6)\n    at performWorkOnRoot (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:7995:181)\n    at performSyncWorkOnRoot (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:9105:4)\n    at flushSyncWorkAcrossRoots_impl (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:9022:302)\n    at processRootScheduleInMicrotask (http://localhost:5231/.vite/deps/react-dom_client.js?v=fc38b2c3:9043:101)"
+  stackFrames[10]:
+    each: {file:/node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/cjs/react-dom-client.development.js,isLibrary:true,mapping:mapped}
+    - {functionName:updateClassComponent,line:10235,column:23}
+    - {functionName:beginWork,line:11792,column:13}
+    - {functionName:runWithFiberInDEV,line:871,column:30}
+    - {functionName:performUnitOfWork,line:17641,column:22}
+    - {functionName:workLoopSync,line:17469,column:41}
+    - {functionName:renderRootSync,line:17450,column:11}
+    - {functionName:performWorkOnRoot,line:16504,column:11}
+    - {functionName:performSyncWorkOnRoot,line:18972,column:7}
+    - {functionName:flushSyncWorkAcrossRoots_impl,line:18814,column:21}
+    - {functionName:processRootScheduleInMicrotask,line:18853,column:9}
+  isLibraryBoundary: false
+  forced: true
+  status: active
+  statusReason: forced
+  rendered: {output:nothing,hostNodes:0,text:null}
+[exit 0]
+
+$ npx genie-react call react_reset_overrides '{}' --session upd-a
+ok: true
+cleared: [{kind:error,componentName:CardBody,outcome:released}]
+remaining: 0
+commitObserved: true
+[exit 0]
+
+## After also giving CardBody a fallback
+
+$ git diff -- src/screens/account/CardBody.tsx
+diff --git a/evals/fixture-app/src/screens/account/CardBody.tsx b/evals/fixture-app/src/screens/account/CardBody.tsx
+index 0e358d8..7b6999d 100644
+--- a/evals/fixture-app/src/screens/account/CardBody.tsx
++++ b/evals/fixture-app/src/screens/account/CardBody.tsx
+@@ -12,6 +12,7 @@ export class CardBody extends Component<{ children: ReactNode }, CardBodyState>
+   }
+ 
+   render() {
+-    return this.state.failed ? null : this.props.children
++    if (!this.state.failed) return this.props.children
++    return <p role="alert">This section failed to load.</p>
+   }
+ }
+[exit 0]
+
+$ agent-browser --session upd-a open 'http://localhost:5231/?screen=account'
+✓ Acme Console
+  http://localhost:5231/?screen=account
+[exit 0]
+
+$ agent-browser --session upd-a wait 1500
+✓ Done
+[exit 0]
+
+$ npx genie-react call react_find_components '{"query":"ProfileDetails","exact":true}' --session upd-a --fields id,name
+[1]:
+  - {id:2493983490076,name:ProfileDetails}
+[exit 0]
+
+$ npx genie-react call react_force_error_boundary '{"id":2493983490076,"forceError":true}' --session upd-a
+ok: true
+boundaryId: 2493983490075
+boundaryName: CardBody
+erroring: true
+activeOverrides: 1
+[exit 0]
+
+$ agent-browser --session upd-a get text '[aria-label=Profile]'
+Profile
+
+This section failed to load.
+[exit 0]
+
+$ npx genie-react call react_error_state '{"includeSource":false}' --session upd-a --select /caughtErrors/0/rendered
+status: ok
+selection:
+  expression: /caughtErrors/0/rendered
+  matchedPathCount: 1
+  matchedPaths: [/caughtErrors/0/rendered]
+  omittedPathCount: 80
+result: {output:visible,hostNodes:1,text:"This section failed to load."}
+[exit 0]
+
+$ npx genie-react call react_reset_overrides '{}' --session upd-a
+ok: true
+cleared: [{kind:error,componentName:CardBody,outcome:released}]
+remaining: 0
+commitObserved: true
+[exit 0]
+
+## Fallback only: CardBody fallback kept, formatLocation fix reverted
+
+$ git diff --stat
+ evals/fixture-app/src/screens/account/CardBody.tsx | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+[exit 0]
+
+$ agent-browser --session upd-a open 'http://localhost:5231/?screen=account'
+✓ Acme Console
+  http://localhost:5231/?screen=account
+[exit 0]
+
+$ agent-browser --session upd-a wait 1500
+✓ Done
+[exit 0]
+
+$ agent-browser --session upd-a get text '[aria-label=Profile]'
+Profile
+
+This section failed to load.
+[exit 0]
+
+$ npx genie-react verify begin --session upd-a --name 'reload profile' --claim 'render ProfileDetails min 1' --claim 'boundaries clean'
+recording vfy_dadc9188-be23-440d-bddf-145680a8e8cb "reload profile"
+  url "http://localhost:5231/?screen=account"
+  1 recording render ProfileDetails min 1
+  2 recording boundaries clean
+window: {observationId:observation:1,startDocumentCommitId:3,domains:[react,query,network],quietMs:500,timeoutMs:10000,tailMs:500}
+next: $ npx genie-react verify end vfy_dadc9188-be23-440d-bddf-145680a8e8cb --session upd-a
+session: {sessionId:eda8a3fe-8e7e-4b3f-b882-33415533df7b,logicalSessionId:6be2b30f-41d2-4dee-914c-9c7d38e96ad3,documentGeneration:7}
+schemaVersion: "1.0"
+targets: [{target:{component:ProfileDetails},status:pending,instances:0}]
+startedAt: 2026-11-19T09:04:39.737Z
+expiresAt: 2026-11-19T09:09:39.741Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 0]
+
+$ npx genie-react call query_reset '{"queryKey":["profile"]}' --session upd-a
+ok: true
+matched: 1
+[exit 0]
+
+$ npx genie-react verify end vfy_dadc9188-be23-440d-bddf-145680a8e8cb --session upd-a
+fail vfy_dadc9188-be23-440d-bddf-145680a8e8cb "reload profile"  0 commits, quiet after 616 ms (react, query, network)
+  url "http://localhost:5231/?screen=account"
+  1 refused render ProfileDetails min 1  target_not_found: No ProfileDetails instance was mounted at begin or rendered in the window; a target Genie cannot see is not a target that did nothing.
+      observed: {renders:0,mounts:0,updates:0,remounts:0,semantics:exact,instances:0,activeInstances:0}
+      evidence:{pendingAtBegin:true},fix:{action:find-target,component:ProfileDetails}
+      fix: $ npx genie-react call react_find_components '{"query":"ProfileDetails"}' --session upd-a
+      claim: {kind:renders,target:{component:ProfileDetails},min:1,counting:renders,allowRemount:false}
+      deciding: []
+  2 fail boundaries clean  {caughtDuringWindow:0,caughtAtEnd:1}
+      claim: {kind:boundaries-clean,scope:window}
+      deciding: [{kind:boundary-at-end,boundary:CardBody,boundaryKind:error-boundary,message:"Cannot read properties of undefined (reading 'city')"}]
+      caveats: [uncaught-errors-outside-boundaries-unobserved]
+  window no_activity: No React commit happened in the window; the interaction did not reach this tab or did not change React state.
+    guard:activity
+    evidence:{startDocumentCommitId:3,frozenDocumentCommitId:3,commits:0},fix:{action:drive-observed-tab,url:"http://localhost:5231/?screen=account"}
+    fix: $ npx genie-react verify begin --session upd-a --name 'reload profile' --claim 'render ProfileDetails min 1' --claim 'boundaries clean'
+window: {observationId:observation:1,startDocumentCommitId:3,settledDocumentCommitId:3,frozenDocumentCommitId:3,commits:0,settle:{outcome:met,quietMs:500,timeoutMs:10000,waitedMs:616,domains:{react:met,query:met,network:met}},tail:{ms:500,commits:0},environment:{bundle:development,strictMode:on,renderCollection:available,visibility:document}}
+! ui-outcome-not-observed: Genie does not check the screen; confirm it with the UI driver
+attempt 4 for these claims on this tab; previous pass vfy_1b8e75d7-5643-4883-b59b-8b92e3ad613d; document reloaded since
+evidence: $ npx genie-react verify show vfy_dadc9188-be23-440d-bddf-145680a8e8cb --claim 1 --session upd-a
+session: {sessionId:eda8a3fe-8e7e-4b3f-b882-33415533df7b,logicalSessionId:6be2b30f-41d2-4dee-914c-9c7d38e96ad3,documentGeneration:7}
+schemaVersion: "1.0"
+exitCode: 1
+stage: end
+ledger: {fingerprint:cf_1d1216d8a4f9,scope:logical-session,storage:memory,attempt:4,history:[{verificationId:vfy_871b0f9e-cfd3-4c44-a442-ecd686ca109a,verdict:fail,reasons:[],endedAt:2026-11-19T09:03:31.840Z},{verificationId:vfy_a075dbd1-c899-41c6-b6e8-60c641f836b8,verdict:fail,reasons:[],endedAt:2026-11-19T09:03:35.390Z},{verificationId:vfy_1b8e75d7-5643-4883-b59b-8b92e3ad613d,verdict:pass,reasons:[],endedAt:2026-11-19T09:03:59.331Z}],codeChangedSincePrevious:document-reloaded,failsOnSameCode:0}
+evidence: {retained:true,tools:[react_get_renders,react_component_cohort,react_list_overrides,query_is_fetching,react_refresh_events,browser_visibility,request_watch_start,request_watch_stop,react_profile_stop,react_error_state]}
+startedAt: 2026-11-19T09:04:39.737Z
+endedAt: 2026-11-19T09:04:41.371Z
+request: {budget:{fiberLimit:250,operationLimit:20000,timeLimitMs:8,targetOperationReserve:4000,targetTimeReserveMs:4,adaptive:true},settle:{quietMs:500,timeoutMs:10000},maxDurationMs:300000,allowOverrides:false}
+[exit 1]
+
+$ npx genie-react call react_error_state '{"includeSource":false}' --session upd-a --select /caughtErrors/0/rendered
+status: ok
+selection:
+  expression: /caughtErrors/0/rendered
+  matchedPathCount: 1
+  matchedPaths: [/caughtErrors/0/rendered]
+  omittedPathCount: 80
+result: {output:visible,hostNodes:1,text:"This section failed to load."}
+[exit 0]
+
+## Revert
+
+$ git checkout -- evals/fixture-app && git status --short
+## ali/articles-update-a...origin/main [behind 1]
+[exit 0]
+```

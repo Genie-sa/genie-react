@@ -5,15 +5,15 @@ description: An empty card with no error message can be a TypeError that an erro
 
 An empty card with no spinner and no error message often means an error boundary caught a render error and returned `null`. Nothing on screen says anything failed. Genie's `react_error_state` reports the boundary, the component that threw, the message, the source line, and `rendered.output: nothing`, which means the user sees no trace of it.
 
-This walkthrough uses the `account` screen of the agent eval fixture in `evals/fixture-app`, a React 19.2 app with TanStack Query 5 and Vite. The bug is seeded, with an answer key in [`error-boundary-hidden.json`](https://github.com/Genie-sa/genie-react/blob/main/evals/tasks/error-boundary-hidden.json). Every command and output below comes from one session on 2026-11-19. The full, untrimmed output is in the [evidence file](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/error-boundary-renders-nothing.md).
+This walkthrough uses the `account` screen of the agent eval fixture in `evals/fixture-app`, a React 19.2 app with TanStack Query 5 and Vite. The bug is seeded, with an answer key in [`error-boundary-hidden.json`](https://github.com/Genie-sa/genie-react/blob/main/evals/tasks/error-boundary-hidden.json). Every command and output below comes from one session on 2026-11-19 with Genie 1.1.0. The full, untrimmed output is in the [evidence file](https://github.com/Genie-sa/genie-react/blob/main/docs/article-evidence/error-boundary-renders-nothing.md).
 
 ## The symptom: a card with only its title
 
 The bug report says: "On the Account screen the Profile card is completely empty: no error message, no spinner, nothing." Open the screen and read the card's text:
 
 ```bash
-agent-browser --session art-l4 open 'http://localhost:5214/?screen=account'
-agent-browser --session art-l4 get text '[aria-label=Profile]'
+agent-browser --session upd-a open 'http://localhost:5231/?screen=account'
+agent-browser --session upd-a get text '[aria-label=Profile]'
 ```
 
 ```text
@@ -27,14 +27,14 @@ The card shows its heading and nothing else. The Security card next to it render
 Ask Genie which error boundaries caught something:
 
 ```bash
-npx genie-react call react_error_state '{}' --session art-l4
+npx genie-react call react_error_state '{}' --session upd-a
 ```
 
 Output, trimmed to the decision fields of the one caught error, the first two stack frames, and the hint:
 
 ```text
 caughtErrors[1]:
-  - {boundaryId:618441736212,boundaryName:CardBody,boundaryKind:error-boundary,boundarySource:{file:/src/screens/account/AccountScreen.tsx,line:10,column:9,functionName:AccountScreen},throwingComponent:ProfileDetails,message:"Cannot read properties of undefined (reading 'city')",stackFrames:[{functionName:formatLocation,file:/src/screens/account/ProfileDetails.tsx,line:6,column:21,isLibrary:false,mapping:mapped},{functionName:ProfileDetails,file:/src/screens/account/ProfileDetails.tsx,line:19,column:12,isLibrary:false,mapping:mapped},…],isLibraryBoundary:false,forced:false,status:active,statusReason:state-unchanged-since-catch,rendered:{output:nothing,hostNodes:0,text:null}}
+  - {boundaryId:13240864079892,boundaryName:CardBody,boundaryKind:error-boundary,boundarySource:{file:/src/screens/account/AccountScreen.tsx,line:10,column:9,functionName:AccountScreen},throwingComponent:ProfileDetails,message:"Cannot read properties of undefined (reading 'city')",stackFrames:[{functionName:formatLocation,file:/src/screens/account/ProfileDetails.tsx,line:6,column:21,isLibrary:false,mapping:mapped},{functionName:ProfileDetails,file:/src/screens/account/ProfileDetails.tsx,line:19,column:12,isLibrary:false,mapping:mapped},…],isLibraryBoundary:false,forced:false,status:active,statusReason:state-unchanged-since-catch,rendered:{output:nothing,hostNodes:0,text:null}}
 suspended: []
 blankTreeHint: "error boundary <CardBody> at /src/screens/account/AccountScreen.tsx:10 caught \"Cannot read properties of undefined (reading 'city')\" thrown by <ProfileDetails> — its children did not render and it renders nothing in its place, so the failure is invisible on screen"
 ```
@@ -92,31 +92,37 @@ The answer key's reference fix handles the missing address:
 The error happens on page load, but `verify` needs the React work to happen inside its window. Open the window, then reset the `profile` query so `ProfileDetails` loads its data again:
 
 ```bash
-npx genie-react verify begin --session art-l4 --name 'reload profile' --claim 'render ProfileDetails min 1' --claim 'boundaries clean'
-npx genie-react call query_reset '{"queryKey":["profile"]}' --session art-l4
-npx genie-react verify end vfy_37503d24-ee87-4f74-8b63-9db78130034f --session art-l4
+npx genie-react verify begin --session upd-a --name 'reload profile' --claim 'render ProfileDetails min 1' --claim 'boundaries clean'
+npx genie-react call query_reset '{"queryKey":["profile"]}' --session upd-a
+npx genie-react verify end vfy_a075dbd1-c899-41c6-b6e8-60c641f836b8 --session upd-a
 ```
 
 `boundaries clean` holds when no error boundary caught during the window and none is in an error state at the end. `render ProfileDetails min 1` is the positive control: it proves the reset reached the component.
 
-Before the fix, trimmed to the verdict, the claim lines and the deciding evidence (exit code 1):
+Before the fix, on the second run, trimmed to the verdict, the claim lines, the deciding evidence and the history line (exit code 1):
 
 ```text
-fail vfy_37503d24-ee87-4f74-8b63-9db78130034f "reload profile"  0 commits, quiet after 610 ms (react, query)
+fail vfy_a075dbd1-c899-41c6-b6e8-60c641f836b8 "reload profile"  0 commits, quiet after 616 ms (react, query, network)
   1 refused render ProfileDetails min 1  target_not_found: No ProfileDetails instance was mounted at begin or rendered in the window; a target Genie cannot see is not a target that did nothing.
   2 fail boundaries clean  {caughtDuringWindow:0,caughtAtEnd:1}
       deciding: [{kind:boundary-at-end,boundary:CardBody,boundaryKind:error-boundary,message:"Cannot read properties of undefined (reading 'city')"}]
+attempt 2 for these claims on this tab; previous fail vfy_871b0f9e-cfd3-4c44-a442-ecd686ca109a; document reloaded since
 ```
 
 `ProfileDetails` is not mounted, because `CardBody` replaced it with `null`. The reset caused zero commits. The run still fails, and a fail outranks a refusal: `CardBody` is in its error state at the end of the window.
 
+The last line ties this run to the first run of the same claims on this tab. It names no reason, because only the failed `boundaries clean` claim decided that earlier verdict. Genie 1.0.2 printed `(target_not_found)` there, the reason of a refused claim that did not decide it.
+
 After the fix (exit code 0):
 
 ```text
-pass vfy_69fd1a1a-0834-4da3-a956-145e7a243e5f "reload profile"  2 commits, quiet after 612 ms (react, query)
+pass vfy_1b8e75d7-5643-4883-b59b-8b92e3ad613d "reload profile"  2 commits, quiet after 616 ms (react, query, network)
   1 pass render ProfileDetails min 1  {renders:2,mounts:0,updates:2,remounts:0,semantics:exact,instances:1,activeInstances:1}
   2 pass boundaries clean  {caughtDuringWindow:0,caughtAtEnd:0}
+attempt 3 for these claims on this tab; previous fail vfy_a075dbd1-c899-41c6-b6e8-60c641f836b8; document reloaded since
 ```
+
+The history line counts this pass as attempt 3 on the same claims, after the two fails.
 
 The card now reads `Name Dana Whitfield`, `Email dana@example.com`, `Location Not provided`.
 
@@ -125,16 +131,16 @@ The card now reads `Name Dana Whitfield`, `Email dana@example.com`, `Location No
 The throw is gone, but `CardBody` still returns `null` for any future error. You do not need a new bug to see that. `react_force_error_boundary` puts the nearest boundary of a component into its error state:
 
 ```bash
-npx genie-react call react_find_components '{"query":"ProfileDetails","exact":true}' --session art-l4
-npx genie-react call react_force_error_boundary '{"id":7154375327765,"forceError":true}' --session art-l4
-agent-browser --session art-l4 get text '[aria-label=Profile]'
+npx genie-react call react_find_components '{"query":"ProfileDetails","exact":true}' --session upd-a
+npx genie-react call react_force_error_boundary '{"id":1152544407573,"forceError":true}' --session upd-a
+agent-browser --session upd-a get text '[aria-label=Profile]'
 ```
 
-`react_find_components` returned one match, `{id:7154375327765,name:ProfileDetails,path:"QueryClientProvider > App > AccountScreen > CardBody > ProfileDetails",…}`. The force call and the card text:
+`react_find_components` returned one match, `{id:1152544407573,name:ProfileDetails,path:"QueryClientProvider > App > AccountScreen > CardBody > ProfileDetails",…}`. The force call and the card text:
 
 ```text
 ok: true
-boundaryId: 7154375327764
+boundaryId: 1152544407572
 boundaryName: CardBody
 erroring: true
 activeOverrides: 1
@@ -159,9 +165,9 @@ Give the boundary a fallback that says something failed:
 Force the boundary again, and the user sees the failure:
 
 ```bash
-npx genie-react call react_force_error_boundary '{"id":10548456456213,"forceError":true}' --session art-l4
-agent-browser --session art-l4 get text '[aria-label=Profile]'
-npx genie-react call react_error_state '{"includeSource":false}' --session art-l4 --select /caughtErrors/0/rendered
+npx genie-react call react_force_error_boundary '{"id":2493983490076,"forceError":true}' --session upd-a
+agent-browser --session upd-a get text '[aria-label=Profile]'
+npx genie-react call react_error_state '{"includeSource":false}' --session upd-a --select /caughtErrors/0/rendered
 ```
 
 ```text
@@ -181,7 +187,7 @@ The component ID changed because the page reloaded after the edit. Find it again
 With the fallback in place and the `formatLocation` fix reverted, the card shows "This section failed to load." The same verify run still fails with exit code 1:
 
 ```text
-fail vfy_ed5ccd3c-5f42-452b-96d2-7870c34814ea "reload profile"  0 commits, quiet after 609 ms (react, query)
+fail vfy_dadc9188-be23-440d-bddf-145680a8e8cb "reload profile"  0 commits, quiet after 616 ms (react, query, network)
   1 refused render ProfileDetails min 1  target_not_found: No ProfileDetails instance was mounted at begin or rendered in the window; a target Genie cannot see is not a target that did nothing.
   2 fail boundaries clean  {caughtDuringWindow:0,caughtAtEnd:1}
 ```
