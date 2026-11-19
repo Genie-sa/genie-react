@@ -154,24 +154,23 @@ To bundle the client instead, import `genie-react/hook` before React and start o
 ```ts
 import 'genie-react/hook'
 import { createGenieClient, reactCollector, sessionCollector } from 'genie-react/client'
-import { memoryCollector, perfCollector, timelineCollector } from 'genie-react/collectors'
-import { queryCollector } from 'genie-react/collectors/query'
+import { defaultAppCollectors } from 'genie-react/collectors'
 import { queryClient } from './query-client'
 
 createGenieClient({
   url: 'ws://127.0.0.1:4390/__genie/ws',
-  collectors: [
-    sessionCollector(),
-    reactCollector(),
-    memoryCollector(),
-    perfCollector(),
-    timelineCollector({ queryClient }),
-    queryCollector(queryClient),
-  ],
+  collectors: [sessionCollector(), reactCollector(), ...defaultAppCollectors({ queryClient })],
 }).start()
 ```
 
-Without TanStack Query, drop its two lines.
+`defaultAppCollectors` returns the collectors `<Genie />` registers. It takes optional `queryClient`,
+`router` and `reduxStore`; without TanStack Query, call `defaultAppCollectors()` and drop the
+`queryClient` import. Add your own collectors after it in the same list.
+
+A client that lists every collector by hand misses the ones a new release adds. Without
+`requestWatchCollector`, `verify` cannot wait for the app's requests and refuses `--domains network`
+at `begin`. Without `visibilityCollector`, `verify` reports the URL the app connected on, not the page
+it is on.
 
 ## Redux
 
