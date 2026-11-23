@@ -45,15 +45,15 @@
     "release": "pnpm build && changeset publish"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.15",
-    "@changesets/cli": "^2.31.0",
-    "@types/node": "^26.6.4",
+    "@biomejs/biome": "^2.6.8",
+    "@changesets/cli": "^3.0.3",
+    "@types/node": "^26.6.6",
     "gpt-tokenizer": "4.1.2",
-    "pkg-pr-new": "^0.0.91",
-    "playwright": "^1.63.0",
-    "tsdown": "^0.22.3",
+    "pkg-pr-new": "^0.0.94",
+    "playwright": "^1.65.1",
+    "tsdown": "^0.23.7",
     "tsrs": "0.25.0-ts7.1.0-beta",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
   }
 }
